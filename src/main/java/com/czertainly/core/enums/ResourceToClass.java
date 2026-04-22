@@ -48,10 +48,15 @@ public enum ResourceToClass {
     ENTITY(Resource.ENTITY, EntityInstanceReference.class),
     LOCATION(Resource.LOCATION, Location.class),
 
+    // SECRETS
+    VAULT_PROFILE(Resource.VAULT_PROFILE, VaultProfile.class),
+    SECRET(Resource.SECRET, Secret.class),
+
     //CRYPTOGRAPHY
     TOKEN_PROFILE(Resource.TOKEN_PROFILE, TokenProfile.class),
     TOKEN(Resource.TOKEN, TokenInstanceReference.class),
     CRYPTOGRAPHIC_KEY(Resource.CRYPTOGRAPHIC_KEY, CryptographicKey.class),
+    CRYPTOGRAPHIC_KEY_ITEM(Resource.CRYPTOGRAPHIC_KEY_ITEM, CryptographicKeyItem.class),
 
     // APPROVALS
     APPROVAL_PROFILE(Resource.APPROVAL_PROFILE, ApprovalProfile.class),

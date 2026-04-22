@@ -4,6 +4,8 @@ import com.czertainly.api.clients.v2.ComplianceApiClient;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
+import com.czertainly.api.exception.ConnectorException;
+import com.czertainly.api.model.connector.compliance.v2.ComplianceGroupBatchResponseDto;
 import com.czertainly.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
@@ -11,6 +13,7 @@ import com.czertainly.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
+import com.czertainly.core.enums.ResourceToClass;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.messaging.producers.EventProducer;
 import com.czertainly.core.model.compliance.*;
@@ -20,6 +23,9 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ComplianceService;
 import com.czertainly.core.service.handler.ComplianceProfileRuleHandler;
 import com.czertainly.core.service.handler.ComplianceSubjectHandler;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +36,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -37,6 +44,9 @@ public class ComplianceServiceImpl implements ComplianceService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceServiceImpl.class);
     private static final String COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE = "Cannot check compliance for resource %s. Resource does not support compliance check";
+    private static final String ASSOCIATION_SUBQUERY = "SELECT cpa.object_uuid FROM compliance_profile_association cpa WHERE cpa.compliance_profile_uuid = :profileUuid AND cpa.resource = '%s'";
+    private static final List<String> NEGATIVE_RESULT_STATUSES = List.of("notCompliant", "notApplicable", "notAvailable");
+    private static final String FILTER_ARRAY_SQL = "(SELECT COALESCE(jsonb_agg(el), '[]'::jsonb) FROM jsonb_array_elements(%s) el WHERE NOT el #>> '{}' = ANY(string_to_array(:ruleUuids, ',')))";
 
     private ComplianceApiClient complianceApiClient;
     private com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
@@ -60,6 +70,9 @@ public class ComplianceServiceImpl implements ComplianceService {
     private ComplianceProfileRuleHandler ruleHandler;
 
     private EventProducer eventProducer;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     public void setEventProducer(EventProducer eventProducer) {
@@ -488,6 +501,135 @@ public class ComplianceServiceImpl implements ComplianceService {
             case VAULT_PROFILE -> secretRepository.findBySourceVaultProfileUuid(associationObjectUuid);
             default -> List.of();
         };
+    }
+
+    @Override
+    public void removeRulesFromComplianceResults(UUID complianceProfileUuid, Resource ruleResource, Set<UUID> ruleUuids, UUID connectorUuid, String kind) {
+        if (ruleUuids.isEmpty()) {
+            return;
+        }
+
+        String ruleUuidsCsv = ruleUuids.stream().map(UUID::toString).collect(Collectors.joining(","));
+        boolean isInternal = connectorUuid == null;
+
+        String jsonbUpdate = isInternal ? buildInternalRulesUpdate() : buildProviderRulesUpdate();
+        String jsonbCondition = isInternal ? buildInternalRulesCondition() : buildProviderRulesCondition();
+
+        String sql = "UPDATE %s SET compliance_result = %s WHERE compliance_result IS NOT NULL AND %s AND %s".formatted(
+                getSubjectTableName(ruleResource), jsonbUpdate, jsonbCondition, getSubjectCondition(ruleResource));
+        var query = entityManager.createNativeQuery(sql);
+        query.setParameter("profileUuid", complianceProfileUuid);
+        query.setParameter("ruleUuids", ruleUuidsCsv);
+        if (!isInternal) {
+            query.setParameter("connectorUuid", connectorUuid.toString());
+            query.setParameter("kind", kind);
+        }
+
+        int updated = query.executeUpdate();
+        String ruleSource = isInternal ? "internal" : "provider %s/%s".formatted(connectorUuid, kind);
+        if (updated > 0) {
+            logger.debug("Removed {} rules {} from compliance results of {} {} records", ruleSource, ruleUuids, updated, ruleResource.getLabel());
+        } else {
+            logger.trace("No {} compliance results contained {} rules {} — nothing to update", ruleResource.getLabel(), ruleSource, ruleUuids);
+        }
+    }
+
+    private static String buildInternalRulesUpdate() {
+        String result = "compliance_result";
+        for (String status : NEGATIVE_RESULT_STATUSES) {
+            result = "jsonb_set(%s, '{internalRules,%s}', %s)".formatted(
+                    result, status, FILTER_ARRAY_SQL.formatted("compliance_result #> '{internalRules,%s}'".formatted(status)));
+        }
+        return result;
+    }
+
+    private static String buildInternalRulesCondition() {
+        return NEGATIVE_RESULT_STATUSES.stream()
+                .map(status -> "jsonb_exists_any(compliance_result #> '{internalRules,%s}', string_to_array(:ruleUuids, ','))".formatted(status))
+                .collect(Collectors.joining(" OR ", "(", ")"));
+    }
+
+    private static String buildProviderRulesUpdate() {
+        String innerUpdate = "elem";
+        for (String status : NEGATIVE_RESULT_STATUSES) {
+            innerUpdate = "jsonb_set(%s, '{%s}', %s)".formatted(
+                    innerUpdate, status, FILTER_ARRAY_SQL.formatted("elem -> '%s'".formatted(status)));
+        }
+        return ("jsonb_set(compliance_result, '{providerRules}', COALESCE("
+                + " (SELECT jsonb_agg("
+                + " CASE WHEN elem ->> 'connectorUuid' = :connectorUuid AND elem ->> 'kind' = :kind"
+                + " THEN %s"
+                + " ELSE elem END"
+                + " ) FROM jsonb_array_elements(compliance_result -> 'providerRules') AS elem),"
+                + " '[]'::jsonb))").formatted(innerUpdate);
+    }
+
+    private static String buildProviderRulesCondition() {
+        String innerCondition = NEGATIVE_RESULT_STATUSES.stream()
+                .map(status -> "jsonb_exists_any(elem -> '%s', string_to_array(:ruleUuids, ','))".formatted(status))
+                .collect(Collectors.joining(" OR "));
+        return ("EXISTS (SELECT 1 FROM jsonb_array_elements(compliance_result -> 'providerRules') elem"
+                + " WHERE elem ->> 'connectorUuid' = :connectorUuid AND elem ->> 'kind' = :kind"
+                + " AND (%s))").formatted(innerCondition);
+    }
+
+    private static String getTableName(Class<?> entityClass) {
+        jakarta.persistence.Table table = entityClass.getAnnotation(jakarta.persistence.Table.class);
+        if (table == null) {
+            throw new IllegalStateException("Entity class %s is missing @Table annotation".formatted(entityClass.getName()));
+        }
+        return table.name();
+    }
+
+    private static String associationSubquery(Resource associationResource) {
+        return ASSOCIATION_SUBQUERY.formatted(associationResource.name());
+    }
+
+    /**
+     * Normalizes rule resource to the actual compliance subject resource whose table stores the compliance_result.
+     * E.g. CRYPTOGRAPHIC_KEY rules target the cryptographic_key_item table, not cryptographic_key.
+     */
+    private Resource normalizeToComplianceSubjectResource(Resource ruleResource) {
+        return ruleResource == Resource.CRYPTOGRAPHIC_KEY ? Resource.CRYPTOGRAPHIC_KEY_ITEM : ruleResource;
+    }
+
+    private String getSubjectTableName(Resource ruleResource) {
+        Class<?> entityClass = ResourceToClass.getClassByResource(normalizeToComplianceSubjectResource(ruleResource));
+        if (entityClass == null) {
+            throw new ValidationException("Unsupported compliance subject resource: %s".formatted(ruleResource.getLabel()));
+        }
+        return getTableName(entityClass);
+    }
+
+    private String getSubjectCondition(Resource ruleResource) {
+        // Compliance profiles can only be associated with RA_PROFILE, TOKEN_PROFILE, or VAULT_PROFILE
+        return switch (normalizeToComplianceSubjectResource(ruleResource)) {
+            case CERTIFICATE -> "ra_profile_uuid IN (%s)".formatted(
+                    associationSubquery(Resource.RA_PROFILE));
+            case CERTIFICATE_REQUEST -> "uuid IN (SELECT c.certificate_request_uuid FROM %s c WHERE c.ra_profile_uuid IN (%s) AND c.certificate_request_uuid IS NOT NULL)".formatted(
+                    getTableName(Certificate.class), associationSubquery(Resource.RA_PROFILE));
+            case CRYPTOGRAPHIC_KEY_ITEM -> "key_uuid IN (SELECT ck.uuid FROM %s ck WHERE ck.token_profile_uuid IN (%s))".formatted(
+                    getTableName(CryptographicKey.class), associationSubquery(Resource.TOKEN_PROFILE));
+            case SECRET -> "source_vault_profile_uuid IN (%s)".formatted(
+                    associationSubquery(Resource.VAULT_PROFILE));
+            default -> throw new ValidationException("Unsupported compliance subject resource: %s".formatted(ruleResource.getLabel()));
+        };
+    }
+
+    @Override
+    public void removeGroupRulesFromComplianceResults(UUID complianceProfileUuid, Resource ruleResource, UUID groupUuid, UUID connectorUuid, String kind) throws ConnectorException, NotFoundException {
+        ComplianceRulesGroupsBatchDto batchDto = ruleHandler.getComplianceProviderRulesBatch(connectorUuid, kind, Set.of(), Set.of(groupUuid), true);
+        ComplianceGroupBatchResponseDto group = batchDto.getGroups().get(groupUuid);
+        if (group == null) {
+            logger.warn("Compliance group {} was not returned by connector {}/{} — skipping compliance result cleanup", groupUuid, connectorUuid, kind);
+            return;
+        }
+        if (group.getRules() == null || group.getRules().isEmpty()) {
+            logger.debug("Compliance group {} from connector {}/{} has no rules — nothing to clean up in compliance results", groupUuid, connectorUuid, kind);
+            return;
+        }
+        Set<UUID> ruleUuids = group.getRules().stream().map(ComplianceRuleResponseDto::getUuid).collect(Collectors.toSet());
+        removeRulesFromComplianceResults(complianceProfileUuid, ruleResource, ruleUuids, connectorUuid, kind);
     }
 
     private Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> getSubjectHandlers(boolean checkByProfiles) {

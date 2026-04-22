@@ -15,8 +15,12 @@ public interface ComplianceProfileRuleRepository extends SecurityFilterRepositor
 
     List<ComplianceProfileRule> findByConnectorUuidAndKindAndComplianceRuleUuid(UUID connectorUuid, String kind, UUID providerRuleUuid);
 
+    Optional<ComplianceProfileRule> findByComplianceProfileUuidAndInternalRuleUuid(UUID complianceProfileUuid, UUID internalRuleUuid);
+
     boolean existsByComplianceProfileUuidAndInternalRuleUuid(UUID complianceProfileUuid, UUID internalRuleUuid);
     boolean existsByComplianceProfileUuidAndConnectorUuidAndKindAndComplianceRuleUuid(UUID complianceProfileUuid, UUID connectorUuid, String kind, UUID providerRuleUuid);
+    Optional<ComplianceProfileRule> findByComplianceProfileUuidAndConnectorUuidAndKindAndComplianceGroupUuid(UUID complianceProfileUuid, UUID connectorUuid, String kind, UUID providerGroupUuid);
+
     boolean existsByComplianceProfileUuidAndConnectorUuidAndKindAndComplianceGroupUuid(UUID complianceProfileUuid, UUID connectorUuid, String kind, UUID providerGroupUuid);
 
     void deleteByConnectorUuid(UUID connectorUuid);
