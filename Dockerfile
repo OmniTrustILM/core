@@ -1,5 +1,5 @@
 # Optimize stage
-FROM eclipse-temurin:21-jdk-alpine AS optimize
+FROM eclipse-temurin:25.0.2_10-jdk-alpine AS optimize
 
 COPY data/target/*.jar /app/app.jar
 
