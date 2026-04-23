@@ -180,6 +180,13 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
                 tokenInstanceApiClient.createTokenInstance(connector, tokenInstanceRequestDto);
         TokenInstanceStatusDto status = tokenInstanceApiClient.getTokenInstanceStatus(connector, response.getUuid());
         logger.debug("Token Instance Response from the connector: {}", response);
+
+        try {
+            UUID.fromString(response.getUuid());
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException(ValidationError.create(
+                    "Connector returned invalid token instance UUID: " + response.getUuid()));
+        }
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
         tokenInstanceReference.setTokenInstanceUuid(response.getUuid());
         tokenInstanceReference.setName(request.getName());

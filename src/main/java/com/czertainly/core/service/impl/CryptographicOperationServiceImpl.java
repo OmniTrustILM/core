@@ -148,7 +148,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             com.czertainly.api.model.connector.cryptography.operations.EncryptDataResponseDto response = cryptographicOperationsApiClient.encryptData(
                     key.getKey().getTokenProfile().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                    key.getKey().getTokenProfile().getTokenInstanceReferenceUuid().toString(),
+                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
                     key.getKeyReferenceUuid().toString(),
                     requestDto
             );
@@ -202,7 +202,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             com.czertainly.api.model.connector.cryptography.operations.DecryptDataResponseDto response = cryptographicOperationsApiClient.decryptData(
                     key.getKey().getTokenProfile().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                    key.getKey().getTokenProfile().getTokenInstanceReferenceUuid().toString(),
+                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
                     key.getKeyReferenceUuid().toString(),
                     requestDto);
             eventHistoryService.addEventHistory(KeyEvent.DECRYPT, KeyEventStatus.SUCCESS,
@@ -266,7 +266,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto response = cryptographicOperationsApiClient.signData(
                     key.getKey().getTokenProfile().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                    key.getKey().getTokenProfile().getTokenInstanceReferenceUuid().toString(),
+                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
                     key.getKeyReferenceUuid().toString(),
                     requestDto
             );
@@ -327,7 +327,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto response = cryptographicOperationsApiClient.verifyData(
                     key.getKey().getTokenProfile().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                    key.getKey().getTokenProfile().getTokenInstanceReferenceUuid().toString(),
+                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
                     key.getKeyReferenceUuid().toString(),
                     requestDto
             );
@@ -515,7 +515,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
             ContentSigner altSigner = new TokenContentSigner(
                     cryptographicOperationsApiClient,
                     altPrivateKeyItem.getKey().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                    altPrivateKeyItem.getKey().getTokenInstanceReferenceUuid(),
+                    UUID.fromString(altPrivateKeyItem.getKey().getTokenInstanceReference().getTokenInstanceUuid()),
                     altPrivateKeyItem.getKeyReferenceUuid(),
                     altPublicKeyItem.getKeyReferenceUuid(),
                     altPublicKeyItem.getKeyData(),
@@ -537,7 +537,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         ContentSigner signer = new TokenContentSigner(
                 cryptographicOperationsApiClient,
                 privateKeyItem.getKey().getTokenInstanceReference().getConnector().mapToApiClientDtoV1(),
-                privateKeyItem.getKey().getTokenInstanceReferenceUuid(),
+                UUID.fromString(privateKeyItem.getKey().getTokenInstanceReference().getTokenInstanceUuid()),
                 privateKeyItem.getKeyReferenceUuid(),
                 publicKeyItem.getKeyReferenceUuid(),
                 publicKeyItem.getKeyData(),

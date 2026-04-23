@@ -4,6 +4,7 @@ import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
@@ -169,6 +170,30 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
         Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+    }
+
+    @Test
+    void testAddTokenInstance_invalidUuidFromConnector() {
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/cryptographyProvider/[^/]+/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/cryptographyProvider/[^/]+/attributes/validate"))
+                .willReturn(WireMock.okJson("true")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens"))
+                .willReturn(WireMock.okJson("{ \"uuid\": \"not-a-valid-uuid\" }")));
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/status"))
+                .willReturn(WireMock.okJson("{}")));
+
+        TokenInstanceRequestDto request = new TokenInstanceRequestDto();
+        request.setName("testTokenInstance3");
+        request.setConnectorUuid(connector.getUuid().toString());
+        request.setAttributes(List.of());
+        request.setKind("Soft");
+
+        Assertions.assertThrows(ValidationException.class, () -> tokenInstanceService.createTokenInstance(request));
     }
 
     @Test
