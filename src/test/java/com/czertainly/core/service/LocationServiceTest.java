@@ -360,7 +360,7 @@ class LocationServiceTest extends BaseSpringBootTest {
 
     @Test
     void testEnableLocation() throws NotFoundException {
-        locationService.enableLocation(location.getEntityInstanceReference().getSecuredParentUuid(), location.getSecuredUuid());
+        locationService.enableLocation(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()), location.getSecuredUuid());
         Assertions.assertEquals(true, location.getEnabled());
     }
 
@@ -371,7 +371,7 @@ class LocationServiceTest extends BaseSpringBootTest {
 
     @Test
     void testDisableLocation() throws NotFoundException {
-        locationService.disableLocation(location.getEntityInstanceReference().getSecuredParentUuid(), location.getSecuredUuid());
+        locationService.disableLocation(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()), location.getSecuredUuid());
         Assertions.assertFalse(locationService.getLocation(SecuredParentUUID.fromUUID(location.getEntityInstanceReferenceUuid()), location.getSecuredUuid()).isEnabled());
     }
 
