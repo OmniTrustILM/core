@@ -31,7 +31,7 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.messaging.producers.NotificationProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredUUID;

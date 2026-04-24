@@ -1,6 +1,5 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.secret.SecretApiClient;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
@@ -17,6 +16,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.api.model.core.vaultprofile.*;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.SecretRepository;
@@ -60,7 +60,7 @@ public class VaultProfileServiceImpl implements VaultProfileService {
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
 
-    private SecretApiClient secretApiClient;
+    private ConnectorApiFactory connectorApiFactory;
 
     @Autowired
     public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
@@ -68,8 +68,8 @@ public class VaultProfileServiceImpl implements VaultProfileService {
     }
 
     @Autowired
-    public void setSecretApiClient(SecretApiClient secretApiClient) {
-        this.secretApiClient = secretApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -217,7 +217,7 @@ public class VaultProfileServiceImpl implements VaultProfileService {
         }
 
         ConnectorDetailDto connectorDetailDto = connectorService.getConnector(SecuredUUID.fromUUID(connectorUuid));
-        List<BaseAttribute> attributes = secretApiClient.getSecretAttributes(connectorDetailDto, secretType);
+        List<BaseAttribute> attributes = connectorApiFactory.getSecretApiClient(connectorDetailDto).getSecretAttributes(connectorDetailDto, secretType);
         // Save connector attributes definitions in attribute engine, so they can be used for validation and content preparation in other operations
         // TODO: This is a temporary solution, solution for this should be implemented in general
         attributeEngine.updateDataAttributeDefinitions(UUID.fromString(connectorDetailDto.getUuid()), null, attributes);

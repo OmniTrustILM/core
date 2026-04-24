@@ -22,7 +22,7 @@ logging:
   level:
     org:
       hibernate: warn
-
+    com.czertainly: debug
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
   schema-version: '@log-schema.version@'
@@ -51,8 +51,11 @@ spring:
     hikari:
       minimum-idle: 1
       maximumPoolSize: 10
+      connection-timeout: 10000
+      idle-timeout: 30000
+      max-lifetime: 60000
+    url: jdbc:tc:postgresql:17-alpine://localhost:55432/czertainly-test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
     password: test
-    url: jdbc:tc:postgresql:13-alpine://localhost:55432/czertainly-test?currentSchema=core
     username: test
   flyway:
     enabled: false
@@ -78,3 +81,76 @@ spring:
   sql:
     init:
       mode: always
+  messaging:
+    broker-type: RABBITMQ
+    broker-url: amqp://localhost:5672
+    username: guest
+    password: guest
+    amqp-idle-timeout: 120000
+    pool:
+      max-connections: 1
+      connection-idle-timeout: 30000
+      connection-check-interval: 60000
+      max-sessions-per-connection: 5
+      use-anonymous-producers: true
+    queue:
+      actions: core.actions
+      audit-logs: core.audit-logs
+      event: core.events
+      notification: core.notifications
+      scheduler: core.scheduler
+      validation: core.validation
+    listener:
+      initial-interval: 1000
+      multiplier: 1.5
+      max-interval: 5000
+    exchange: czertainly
+    routing-key:
+      actions: action
+      audit-logs: audit-logs
+      event: event
+      notification: notification
+      scheduler: scheduler
+      validation: validation
+    producer:
+      retry:
+        enabled: true
+        initial-interval: 200
+        max-attempts: 3
+        max-interval: 2000
+        multiplier: 2
+messaging:
+  concurrency:
+    actions: 10
+    events: 5
+    notifications: 3
+    scheduler: 10
+    validation: 5
+    audit-logs: 5
+
+otel:
+  instrumentation:
+    enabled: false
+  sdk:
+    disabled: true
+
+settings:
+  cache:
+    refresh-interval: 30
+
+proxy:
+  enabled: true
+  instance-id: test-instance
+
+provisioning:
+  api:
+    url: http://localhost:8080
+    api-key: test-api-key
+    connect-timeout: 500
+    read-timeout: 1s
+    installation-format: helm
+    retry:
+      max-attempts: 2
+      delay: 500
+      max-delay: 1000
+      multiplier: 2

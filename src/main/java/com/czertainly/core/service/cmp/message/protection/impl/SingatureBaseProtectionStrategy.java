@@ -168,7 +168,7 @@ public class SingatureBaseProtectionStrategy extends BaseProtectionStrategy impl
         ContentSigner signer = new JcaContentSignerBuilder(
                 new DefaultAlgorithmNameFinder().getAlgorithmName(getProtectionAlg())
         )
-                .setProvider(certificateKeyService.getProvider(profile.getName()))
+                .setProvider(certificateKeyService.getProvider(profile.getName(), signingCertificate))
                 .build(privateKey);
         OutputStream sOut = signer.getOutputStream();
         sOut.write(new org.bouncycastle.asn1.DERSequence(v).getEncoded(ASN1Encoding.DER));

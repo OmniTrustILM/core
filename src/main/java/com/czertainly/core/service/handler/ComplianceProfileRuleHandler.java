@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.clients.v2.ComplianceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
@@ -38,8 +38,7 @@ public class ComplianceProfileRuleHandler {
 
     private static final String NOT_AVAILABLE_RULE_NAME = "<Not Available>";
 
-    private ComplianceApiClient complianceApiClient;
-    private com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
+    private ConnectorApiFactory connectorApiFactory;
 
     private ConnectorRepository connectorRepository;
     private ComplianceInternalRuleRepository internalRuleRepository;
@@ -49,13 +48,8 @@ public class ComplianceProfileRuleHandler {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    public void setComplianceApiClient(ComplianceApiClient complianceApiClient) {
-        this.complianceApiClient = complianceApiClient;
-    }
-
-    @Autowired
-    public void setComplianceApiClientV1(com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1) {
-        this.complianceApiClientV1 = complianceApiClientV1;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -402,7 +396,7 @@ public class ComplianceProfileRuleHandler {
             rulesBatchRequestDto.setGroupUuids(groupUuids);
             rulesBatchRequestDto.setRuleUuids(ruleUuids);
             rulesBatchRequestDto.setWithGroupRules(withGroupRules);
-            ComplianceRulesBatchResponseDto batchResponseDto = complianceApiClient.getComplianceRulesBatch(connectorDto, kind, rulesBatchRequestDto);
+            ComplianceRulesBatchResponseDto batchResponseDto = connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceRulesBatch(connectorDto, kind, rulesBatchRequestDto);
 
             rulesBatchDto.setRules(batchResponseDto.getRules().stream().collect(Collectors.toMap(ComplianceRuleResponseDto::getUuid, r -> r)));
             rulesBatchDto.setGroups(batchResponseDto.getGroups().stream().collect(Collectors.toMap(ComplianceGroupBatchResponseDto::getUuid, g -> g)));
@@ -419,11 +413,11 @@ public class ComplianceProfileRuleHandler {
         FunctionGroupCode functionGroup = validateComplianceProvider(connectorDto, kind);
 
         if (functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER_V2) {
-            return complianceApiClient.getComplianceRule(connectorDto, kind, ruleUuid);
+            return connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceRule(connectorDto, kind, ruleUuid);
         } else {
             String ruleUuidStr = ruleUuid.toString();
             ComplianceRuleResponseDto resultRule = null;
-            var providerRules = complianceApiClientV1.getComplianceRules(connectorDto, kind, null);
+            var providerRules = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceRules(connectorDto, kind, null);
             for (var providerRule : providerRules) {
                 if (providerRule.getUuid().equals(ruleUuidStr)) {
                     resultRule = new ComplianceRuleResponseDto();
@@ -450,11 +444,11 @@ public class ComplianceProfileRuleHandler {
         FunctionGroupCode functionGroup = validateComplianceProvider(connectorDto, kind);
 
         if (functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER_V2) {
-            return complianceApiClient.getComplianceGroup(connectorDto, kind, groupUuid);
+            return connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceGroup(connectorDto, kind, groupUuid);
         } else {
             String groupUuidStr = groupUuid.toString();
             ComplianceGroupResponseDto resultGroup = null;
-            var providerGroups = complianceApiClientV1.getComplianceGroups(connectorDto, kind);
+            var providerGroups = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceGroups(connectorDto, kind);
             for (var providerGroup : providerGroups) {
                 if (providerGroup.getUuid().equals(groupUuidStr)) {
                     resultGroup = new ComplianceGroupResponseDto();
@@ -478,7 +472,7 @@ public class ComplianceProfileRuleHandler {
 
         if (!groupUuids.isEmpty()) {
             Set<UUID> finalGroupUuids = groupUuids;
-            batchDto.setGroups(complianceApiClientV1.getComplianceGroups(connectorDto, kind).stream().filter(g -> finalGroupUuids.contains(UUID.fromString(g.getUuid()))).collect(Collectors.toMap(g -> UUID.fromString(g.getUuid()), g -> {
+            batchDto.setGroups(connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceGroups(connectorDto, kind).stream().filter(g -> finalGroupUuids.contains(UUID.fromString(g.getUuid()))).collect(Collectors.toMap(g -> UUID.fromString(g.getUuid()), g -> {
                 var providerGroupBatchDto = new ComplianceGroupBatchResponseDto();
                 providerGroupBatchDto.setUuid(UUID.fromString(g.getUuid()));
                 providerGroupBatchDto.setName(g.getName());
@@ -492,7 +486,7 @@ public class ComplianceProfileRuleHandler {
             return;
         }
 
-        var providerRules = complianceApiClientV1.getComplianceRules(connectorDto, kind, null);
+        var providerRules = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceRules(connectorDto, kind, null);
         for (var providerRule : providerRules) {
             UUID providerRuleUuid = UUID.fromString(providerRule.getUuid());
             UUID providerRuleGroupUuid = NullUtil.parseUuidOrNull(providerRule.getGroupUuid());

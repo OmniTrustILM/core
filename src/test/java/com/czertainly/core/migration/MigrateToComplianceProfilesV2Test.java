@@ -19,14 +19,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.annotation.Transactional;
 
-import static org.mockito.Mockito.when;
-
 import javax.sql.DataSource;
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -44,20 +45,26 @@ class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
     @Test
     @Transactional
     void testMigration() throws Exception {
-        Context context = Mockito.mock(Context.class);
-        when(context.getConnection()).thenReturn(dataSource.getConnection());
+        // Use single connection for mock to avoid connection pool exhaustion
+        try (Connection mockConnection = dataSource.getConnection()) {
+            Context context = Mockito.mock(Context.class);
+            when(context.getConnection()).thenReturn(mockConnection);
 
-        recreateOldTables(context);
+            recreateOldTables(context);
 
-        V202507311051__MigrateToComplianceProfilesV2 migration = new V202507311051__MigrateToComplianceProfilesV2();
-        migration.migrate(context);
+            V202507311051__MigrateToComplianceProfilesV2 migration = new V202507311051__MigrateToComplianceProfilesV2();
+            migration.migrate(context);
+        }
 
-        assertNewFunctionGroupAndEndpointsExists();
-        assertMigratedDataPresence();
+        // Use single connection for all assertions
+        try (Connection assertConn = dataSource.getConnection()) {
+            assertNewFunctionGroupAndEndpointsExists(assertConn);
+            assertMigratedDataPresence(assertConn);
 
-        // check cleanup of removed tables
-        try (Statement statement = dataSource.getConnection().createStatement()) {
-            Assertions.assertThrows(SQLException.class, () -> statement.executeQuery("SELECT * FROM ra_profile_2_compliance_profile"));
+            // check cleanup of removed tables
+            try (Statement statement = assertConn.createStatement()) {
+                Assertions.assertThrows(SQLException.class, () -> statement.executeQuery("SELECT * FROM ra_profile_2_compliance_profile"));
+            }
         }
     }
 
@@ -181,35 +188,35 @@ class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
         }
     }
 
-    private void assertNewFunctionGroupAndEndpointsExists() throws SQLException {
-        try (Statement statement = dataSource.getConnection().createStatement();
+    private void assertNewFunctionGroupAndEndpointsExists(Connection conn) throws SQLException {
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT * FROM function_group WHERE code = 'COMPLIANCE_PROVIDER_V2'")) {
             Assertions.assertTrue(resultSet.next());
         }
 
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT * FROM endpoint WHERE function_group_uuid IS NOT NULL")) {
             Assertions.assertTrue(resultSet.next());
         }
     }
 
-    private void assertMigratedDataPresence() throws Exception {
+    private void assertMigratedDataPresence(Connection conn) throws Exception {
         // verify RA profile associations were migrated
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT * FROM compliance_profile_association WHERE resource = 'RA_PROFILE'")) {
             Assertions.assertTrue(resultSet.next());
             Assertions.assertEquals("9e834b25-3c44-4251-8745-3bd8c0d99ff4", resultSet.getObject("object_uuid").toString());
         }
 
         // verify compliance profile group association was migrated
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT * FROM compliance_profile_rule WHERE compliance_group_uuid = '52350996-ddb2-11ec-9d64-0242ac120002'")) {
             Assertions.assertTrue(resultSet.next());
             Assertions.assertEquals(UUID.fromString("44ce3ecf-ecd5-43cc-a836-8171b42ca2af"), resultSet.getObject("compliance_profile_uuid", UUID.class));
         }
 
         // verify nullified attributes in compliance profile rules
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT attributes FROM compliance_profile_rule WHERE uuid = '1a3dbb1e-76e7-4814-9610-772400e85115' OR uuid = '5645599d-8017-432f-ad42-8abba2b0b528'")) {
 
             int count = 0;
@@ -220,7 +227,7 @@ class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
             Assertions.assertEquals(2, count);
         }
 
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet resultSet = statement.executeQuery("SELECT attributes FROM compliance_profile_rule WHERE uuid = 'b5025c93-9cb0-424e-8258-01a092c2d6a8'")) {
             Assertions.assertTrue(resultSet.next());
 
@@ -248,7 +255,7 @@ class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
         }
 
         // verify certificate compliance_result was migrated to new JSON structure
-        try (Statement statement = dataSource.getConnection().createStatement();
+        try (Statement statement = conn.createStatement();
              ResultSet rs = statement.executeQuery("SELECT compliance_result FROM certificate WHERE uuid = '11111111-1111-1111-1111-111111111111'")) {
             Assertions.assertTrue(rs.next(), "migrated certificate row must exist");
             String complianceResultJson = rs.getString("compliance_result");

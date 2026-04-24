@@ -7,14 +7,12 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.lang.NonNull;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 
 import java.util.Map;
 
 @SpringBootApplication
-@EnableAsync
 public class Application extends SpringBootServletInitializer {
 
     public static void main(String[] args) {

@@ -1,0 +1,145 @@
+{
+  "queues": [
+    {
+      "name": "core.audit-logs",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core.events",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core.scheduler",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core.actions",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core.notifications",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core.validation",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "core",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "czertainly",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "czertainly-proxy",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.events",
+      "destination_type": "queue",
+      "routing_key": "event",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.actions",
+      "destination_type": "queue",
+      "routing_key": "action",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.notifications",
+      "destination_type": "queue",
+      "routing_key": "notification",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.scheduler",
+      "destination_type": "queue",
+      "routing_key": "scheduler",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.audit-logs",
+      "destination_type": "queue",
+      "routing_key": "audit-logs",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "core.validation",
+      "destination_type": "queue",
+      "routing_key": "validation",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly-proxy",
+      "vhost": "/",
+      "destination": "core",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    }
+  ]
+}

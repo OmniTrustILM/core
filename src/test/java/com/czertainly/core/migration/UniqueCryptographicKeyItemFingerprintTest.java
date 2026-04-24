@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 
 import javax.sql.DataSource;
-
 import java.sql.Statement;
 
 import static org.mockito.Mockito.when;

@@ -198,7 +198,7 @@ class OAuth2LoginControllerTest {
 
         // controller does sendRedirect("oauth2/authorization/{provider}") => 302
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
-        Assertions.assertEquals("http://localhost:8080/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
 
         // We can’t directly introspect server-side session here; instead, verify session cookie exists.
         Assertions.assertNotNull(extractSessionCookie(res.headers()));
@@ -222,7 +222,51 @@ class OAuth2LoginControllerTest {
         );
 
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
-        Assertions.assertEquals("/oauth2/authorization/test", res.headers().firstValue("Location").orElse(null));
+        String location = res.headers().firstValue("Location").orElse("");
+        Assertions.assertTrue(location.endsWith("/oauth2/authorization/test"),
+                "Expected Location to end with '/oauth2/authorization/test' but was: " + location);
+    }
+
+    @Test
+    void loginShouldSucceedWithTypicalQueryParameter() throws Exception {
+        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
+        Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
+        providers.put("only", validProvider("only", 321));
+        settings.setOAuth2Providers(providers);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, settings);
+
+        // Typical query parameter: redirect=%2Fadministrator%2F (which is /administrator/)
+        HttpResponse<String> res = http.send(
+                HttpRequest.newBuilder(uri("/login?redirect=%2Fadministrator%2F"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
+        // The Location should NOT contain the redirect anymore
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
+    }
+
+    @Test
+    void loginShouldSucceedWithQueryAndFragment() throws Exception {
+        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
+        Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
+        providers.put("only", validProvider("only", 321));
+        settings.setOAuth2Providers(providers);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, settings);
+
+        // redirect=/administrator/?foo=bar#baz
+        // Encoded: /login?redirect=%2Fadministrator%2F%3Ffoo%3Dbar%23baz
+        HttpResponse<String> res = http.send(
+                HttpRequest.newBuilder(uri("/login?redirect=%2Fadministrator%2F%3Ffoo%3Dbar%23baz"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
     }
 
     @ParameterizedTest

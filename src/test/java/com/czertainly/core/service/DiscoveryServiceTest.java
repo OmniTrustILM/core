@@ -20,7 +20,7 @@ import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.czertainly.core.events.handlers.DiscoveryFinishedEventHandler;
-import com.czertainly.core.messaging.listeners.EventListener;
+import com.czertainly.core.messaging.jms.listeners.EventListener;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;

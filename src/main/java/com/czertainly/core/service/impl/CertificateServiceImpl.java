@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.v2.CertificateApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
@@ -51,11 +51,11 @@ import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
+import com.czertainly.core.messaging.jms.producers.ValidationProducer;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.model.ValidationMessage;
-import com.czertainly.core.messaging.producers.EventProducer;
-import com.czertainly.core.messaging.producers.NotificationProducer;
-import com.czertainly.core.messaging.producers.ValidationProducer;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
@@ -153,7 +153,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private PermissionEvaluator permissionEvaluator;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
-    private CertificateApiClient certificateApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private UserManagementApiClient userManagementApiClient;
     private CrlService crlService;
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
@@ -298,8 +298,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setCertificateApiClient(CertificateApiClient certificateApiClient) {
-        this.certificateApiClient = certificateApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -2141,7 +2141,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             requestDto.setCertificate(certificate.getCertificateContent().getContent());
             requestDto.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, newRaProfile.getUuid()).connector(newRaProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
             try {
-                response = certificateApiClient.identifyCertificate(newRaProfile.getAuthorityInstanceReference().getConnector().mapToDto(), newRaProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), requestDto);
+                var connectorDto = newRaProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+                response = connectorApiFactory.getCertificateApiClientV2(connectorDto).identifyCertificate(connectorDto, newRaProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), requestDto);
             } catch (ConnectorException e) {
                 applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.", newRaProfile.getName()), null));
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Certificate not identified by authority of new RA profile %s. Certificate: %s", newRaProfile.getName(), certificate.toStringShort()));

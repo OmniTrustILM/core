@@ -17,7 +17,8 @@ import com.czertainly.api.model.core.settings.logging.ResourceLoggingSettingsDto
 import com.czertainly.core.dao.entity.AuditLog;
 import com.czertainly.core.dao.repository.AuditLogRepository;
 import com.czertainly.core.logging.LoggingHelper;
-import com.czertainly.core.messaging.listeners.AuditLogsListener;
+import com.czertainly.core.messaging.jms.listeners.AuditLogsListener;
+import com.czertainly.core.messaging.jms.producers.AuditLogsProducer;
 import com.czertainly.core.messaging.model.AuditLogMessage;
 import com.czertainly.core.service.SettingService;
 import com.czertainly.core.util.BaseSpringBootTest;

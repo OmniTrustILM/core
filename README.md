@@ -58,33 +58,68 @@ Operations can be automated by the `Core`, but also can be performed manually by
 - SCEP (with optional Intune support)
 - CMP
 
+## Message brokers support
+
+Application supports two types of message brokers:
+- **RabbitMQ** - uses JmsPoolConnectionFactory with configurable connection pool settings
+- **Azure Service Bus** - uses JmsConnectionFactory with two authentication options:
+  - **SAS (Shared Access Signature)** - uses connection string with policy name and key
+  - **AAD (Azure Active Directory / Entra ID)** - uses OAuth2 with Service Principal credentials
+
+### Authentication configuration
+
+| Broker              | Authentication    | Required variables                                                               |
+|---------------------|-------------------|----------------------------------------------------------------------------------|
+| RabbitMQ            | Username/Password | `BROKER_USERNAME`, `BROKER_PASSWORD`                                             |
+| Azure Service Bus   | SAS               | `BROKER_USERNAME`, `BROKER_PASSWORD`                                             |
+| Azure Service Bus   | AAD               | `BROKER_AZURE_TENANT_ID`, `BROKER_AZURE_CLIENT_ID`, `BROKER_AZURE_CLIENT_SECRET` |
+
 ## Docker container
 
 `Core` is provided as a Docker container. Use the `czertainly/czertainly-core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
 
-| Variable                          | Description                                                         | Required                                           | Default value       |
-|-----------------------------------|---------------------------------------------------------------------|----------------------------------------------------|---------------------|
-| `JDBC_URL`                        | JDBC URL for database access                                        | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `JDBC_USERNAME`                   | Username to access the database                                     | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `JDBC_PASSWORD`                   | Password to access the database                                     | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `DB_SCHEMA`                       | Database schema to use                                              | ![](https://img.shields.io/badge/-NO-red.svg)      | `core`              |
-| `PORT`                            | Port where the service is exposed                                   | ![](https://img.shields.io/badge/-NO-red.svg)      | `8080`              |
-| `HEADER_NAME`                     | Name of the header where the certificate of the client can be found | ![](https://img.shields.io/badge/-NO-red.svg)      | `ssl-client-cert` |
-| `HEADER_ENABLED`                  | True if the certificate should be get from the header               | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `TS_PASSWORD`                     | Password for the trusted certificate store                          | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `OPA_BASE_URL`                    | Base URL of the Open Policy Agent                                   | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `AUTH_SERVICE_BASE_URL`           | Base URL of the authentication service                              | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `AUTH_TOKEN_HEADER_NAME`          | Name of the header for the JSON ID content                          | ![](https://img.shields.io/badge/-NO-red.svg)      | `X-USERINFO`        |
-| `SCHEDULED_TASKS_ENABLED`         | Scheduled certificate status update enable / disable                | ![](https://img.shields.io/badge/-NO-red.svg)      | `true`              |
-| `JAVA_OPTS`                       | Customize Java system properties for running application            | ![](https://img.shields.io/badge/-NO-red.svg)      | `N/A`               |
-| `TRUSTED_CERTIFICATES`            | List of PEM encoded additional trusted certificates                 | ![](https://img.shields.io/badge/-NO-red.svg)      | `N/A`               |
-| `SCHEDULER_BASE_URL`              | Base URL of the scheduler service                                   | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `RABBITMQ_HOST`                   | RabbitMQ messaging host                                             | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `RABBITMQ_PORT`                   | RabbitMQ messaging port                                             | ![](https://img.shields.io/badge/-NO-red.svg)      | `5672`              |
-| `RABBITMQ_USERNAME`               | RabbitMQ messaging username                                         | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `RABBITMQ_PASSWORD`               | RabbitMQ messaging password                                         | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `RABBITMQ_VHOST`                  | RabbitMQ messaging virtual host                                     | ![](https://img.shields.io/badge/-NO-red.svg)      | `czertainly`        |
-| `SETTINGS_CACHE_REFRESH_INTERVAL` | Interval of scheduled settings cache refresh from DB (in seconds)   | ![](https://img.shields.io/badge/-NO-red.svg)      | 30                  |)
+| Variable                              | Description                                                                                                                                      | Required                                      | Default value       |
+|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------|---------------------|
+| `JDBC_URL`                            | JDBC URL for database access                                                                                                                     | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `JDBC_USERNAME`                       | Username to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `JDBC_PASSWORD`                       | Password to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `DB_SCHEMA`                           | Database schema to use                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `core`              |
+| `PORT`                                | Port where the service is exposed                                                                                                                | ![](https://img.shields.io/badge/-NO-red.svg) | `8080`              |
+| `HEADER_NAME`                         | Name of the header where the certificate of the client can be found                                                                              | ![](https://img.shields.io/badge/-NO-red.svg) | `ssl-client-cert`   |
+| `HEADER_ENABLED`                      | True if the certificate should be get from the header                                                                                            | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `TS_PASSWORD`                         | Password for the trusted certificate store                                                                                                       | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `OPA_BASE_URL`                        | Base URL of the Open Policy Agent                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `AUTH_SERVICE_BASE_URL`               | Base URL of the authentication service                                                                                                           | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `AUTH_TOKEN_HEADER_NAME`              | Name of the header for the JSON ID content                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `X-USERINFO`        |
+| `SCHEDULED_TASKS_ENABLED`             | Scheduled certificate status update enable / disable                                                                                             | ![](https://img.shields.io/badge/-NO-red.svg) | `true`              |
+| `JAVA_OPTS`                           | Customize Java system properties for running application                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
+| `TRUSTED_CERTIFICATES`                | List of PEM encoded additional trusted certificates                                                                                              | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
+| `SCHEDULER_BASE_URL`                  | Base URL of the scheduler service                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `BROKER_TYPE`                         | Message broker type - supported values are `SERVICEBUS` or `RABBITMQ`                                                                            | ![](https://img.shields.io/badge/-NO-red.svg) | `RABBITMQ`          |
+| `BROKER_URL`                          | Message broker url (include protocol, e.g. `amqp://localhost:5672` for RabbitMQ, `amqps://namespace.servicebus.windows.net:5671` for ServiceBus) | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| `BROKER_USERNAME`                     | Message broker username (required for RabbitMQ and ServiceBus+SAS)                                                                               | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
+| `BROKER_PASSWORD`                     | Message broker password (required for RabbitMQ and ServiceBus+SAS)                                                                               | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
+| `BROKER_AZURE_TENANT_ID`              | Azure AD tenant ID (required for ServiceBus+AAD authentication)                                                                                  | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
+| `BROKER_AZURE_CLIENT_ID`              | Azure AD application (client) ID (required for ServiceBus+AAD)                                                                                   | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
+| `BROKER_AZURE_CLIENT_SECRET`          | Azure AD client secret (required for ServiceBus+AAD authentication)                                                                              | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
+| `BROKER_AZURE_TOKEN_REFRESH_INTERVAL` | Azure AD token refresh interval in seconds (required for ServiceBus+AAD authentication)                                                          | ![](https://img.shields.io/badge/-NO-red.svg) | `300`               |
+| `BROKER_AZURE_TOKEN_GETTING_TIMEOUT`  | Azure AD token getting timeout in seconds (required for ServiceBus+AAD authentication)                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `30`                 |
+| `BROKER_EXCHANGE`                     | Message broker exchange/topic name                                                                                                               | ![](https://img.shields.io/badge/-NO-red.svg) | `czertainly`        |
+| `BROKER_VHOST`                        | Message broker vhost (for RabbitMQ only)                                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
+| `BROKER_SESSION_CACHE_SIZE`           | ConnectionCachingFactory session cache size (only for RabbitMQ)                                                                                  | ![](https://img.shields.io/badge/-NO-red.svg) | `25`                |
+| `BROKER_QUEUE_AUDIT_LOGS`             | Queue name for audit logs (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `core.audit-logs`   |
+| `BROKER_QUEUE_EVENT`                  | Queue name for events (for RabbitMQ only)                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg) | `core.event`        |
+| `BROKER_QUEUE_NOTIFICATION`           | Queue name for notifications (for RabbitMQ only)                                                                                                 | ![](https://img.shields.io/badge/-NO-red.svg) | `core.notification` |
+| `BROKER_QUEUE_SCHEDULER`              | Queue name for scheduler (for RabbitMQ only)                                                                                                     | ![](https://img.shields.io/badge/-NO-red.svg) | `core.scheduler`    |
+| `BROKER_QUEUE_VALIDATION`             | Queue name for validation (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `core.validation`   |
+| `BROKER_ROUTINGKEY_ACTIONS`           | Routing key for actions                                                                                                                          | ![](https://img.shields.io/badge/-NO-red.svg) | `actions`           |
+| `BROKER_ROUTINGKEY_AUDIT_LOGS`        | Routing key for audit logs                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `auditlogs`         |
+| `BROKER_ROUTINGKEY_EVENT`             | Routing key for events                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `event`             |
+| `BROKER_ROUTINGKEY_NOTIFICATION`      | Routing key for notifications                                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `notification`      |
+| `BROKER_ROUTINGKEY_SCHEDULER`         | Routing key for scheduler                                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg) | `scheduler`         |
+| `BROKER_ROUTINGKEY_VALIDATION`        | Routing key for validation                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `validation`        |
+| `SETTINGS_CACHE_REFRESH_INTERVAL`     | Interval of scheduled settings cache refresh from DB (in seconds)                                                                                | ![](https://img.shields.io/badge/-NO-red.svg) | `30`                |)
+
 
 ### OpenTelemetry settings
 

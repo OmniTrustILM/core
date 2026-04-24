@@ -8,9 +8,10 @@ public interface CertificateKeyService {
 
     /**
      * @param cmpProfileName name of CMP profile
+     * @param signingCertificate the certificate used for signing operations
      * @return provider for given CMP profile
      */
-    CzertainlyProvider getProvider(String cmpProfileName);
+    CzertainlyProvider getProvider(String cmpProfileName, Certificate signingCertificate);
 
     /**
      * @param certificate certificate

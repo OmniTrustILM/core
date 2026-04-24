@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ComplianceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -46,7 +46,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
-    private ComplianceApiClient complianceApiClientV1;
+    private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
 
     @Autowired
@@ -85,8 +85,8 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     }
 
     @Autowired
-    public void setComplianceApiClientV1(ComplianceApiClient complianceApiClientV1) {
-        this.complianceApiClientV1 = complianceApiClientV1;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Override
@@ -235,7 +235,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
         ConnectorDto connectorDto = getValidatedComplianceProvider(connectorUuid, kind);
 
         ComplianceProfileRuleDto resultRule = null;
-        var providerRules = complianceApiClientV1.getComplianceRules(connectorDto, kind, null);
+        var providerRules = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceRules(connectorDto, kind, null);
         for (var providerRule : providerRules) {
             if (providerRule.getUuid().equals(ruleUuid)) {
                 resultRule = new ComplianceProfileRuleDto();
@@ -327,7 +327,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
                 providerRules.setConnectorUuid(connectorDto.getUuid());
                 providerRules.setConnectorName(connectorDto.getName());
                 providerRules.setKind(providerKind);
-                List<ComplianceRulesResponseDto> rules = complianceApiClientV1.getComplianceRules(connectorDto, providerKind, certificateTypes);
+                List<ComplianceRulesResponseDto> rules = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceRules(connectorDto, providerKind, certificateTypes);
 
                 providerRules.setRules(rules.stream().map(pr -> {
                     ComplianceRulesResponseDto ruleDto = new ComplianceRulesResponseDto();
@@ -375,7 +375,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
                 providerGroups.setConnectorUuid(connectorDto.getUuid());
                 providerGroups.setConnectorName(connectorDto.getName());
                 providerGroups.setKind(providerKind);
-                List<ComplianceGroupsResponseDto> groups = complianceApiClientV1.getComplianceGroups(connectorDto, providerKind);
+                List<ComplianceGroupsResponseDto> groups = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceGroups(connectorDto, providerKind);
 
                 providerGroups.setGroups(groups.stream().map(pr -> {
                     ComplianceGroupsResponseDto groupDto = new ComplianceGroupsResponseDto();

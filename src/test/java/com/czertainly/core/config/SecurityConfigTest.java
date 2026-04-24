@@ -118,7 +118,7 @@ class SecurityConfigTest extends BaseSpringBootTestNoAuth {
                 .claim("username", TOKEN_USER_USERNAME)
                 .issuer("http://issuer")
                 .build();
-        addAuthPostStub("{\"iss\":\"http://issuer\",\"username\":\"token-user\"}", tokenUserUuid, TOKEN_USER_USERNAME);
+        addAuthPostStub("{\"iss\":\"http://issuer\",\"" + OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME + "\":\"token-user\"}", tokenUserUuid, TOKEN_USER_USERNAME);
         addAuthGetSub(tokenUserUuid, TOKEN_USER_USERNAME);
 
     }
@@ -142,6 +142,7 @@ class SecurityConfigTest extends BaseSpringBootTestNoAuth {
 
     @Test
     void authorizeUsingJwtToken() throws Exception {
+        cacheProviderSettings(null, "http://issuer");
         Mockito.when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
         MvcResult result = mvc.perform(get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
                 .header("Authorization", tokenHeaderValue)).andReturn();
@@ -219,7 +220,11 @@ class SecurityConfigTest extends BaseSpringBootTestNoAuth {
     }
 
     void cacheProviderSettings(String userInfoUrl) {
-        AuthenticationSettingsDto authenticationSettingsDto = OAuth2TestUtil.getAuthenticationSettings(userInfoUrl, mockServer.port(), new ArrayList<>());
+        cacheProviderSettings(userInfoUrl, null);
+    }
+
+    void cacheProviderSettings(String userInfoUrl, String issuerUrl) {
+        AuthenticationSettingsDto authenticationSettingsDto = OAuth2TestUtil.getAuthenticationSettings(userInfoUrl, mockServer.port(), new ArrayList<>(), issuerUrl);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, authenticationSettingsDto);
     }
 

@@ -50,8 +50,6 @@ public class CzertainlyAuthenticationSuccessHandler implements AuthenticationSuc
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.SESSION);
         OAuth2AuthenticationToken authenticationToken = (OAuth2AuthenticationToken) authentication;
         OidcUser oidcUser = (OidcUser) authenticationToken.getPrincipal();
-        Object username = oidcUser.getAttribute(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME);
-        if (username != null) LoggingHelper.putActorInfoWhenNull(null, null, username.toString());
 
         OAuth2AuthorizedClient authorizedClient = authorizedClientService.loadAuthorizedClient(authenticationToken.getAuthorizedClientRegistrationId(), authentication.getName());
         AuthenticationSettingsDto authenticationSettings = SettingsCache.getSettings(SettingsSection.AUTHENTICATION);
@@ -60,6 +58,16 @@ public class CzertainlyAuthenticationSuccessHandler implements AuthenticationSuc
             String message = "Unknown OAuth2 Provider with name '%s' for authentication with OAuth2 flow".formatted(authenticationToken.getAuthorizedClientRegistrationId());
             auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message, authorizedClient.getAccessToken().getTokenValue());
             throw new CzertainlyAuthenticationException(message);
+        }
+
+        // Get username using configurable claim name from provider settings
+        String usernameClaimName = providerSettings.getUsernameClaim();
+        if (usernameClaimName == null || usernameClaimName.isEmpty()) {
+            usernameClaimName = OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME;
+        }
+        Object username = oidcUser.getAttribute(usernameClaimName);
+        if (username != null) {
+            LoggingHelper.putActorInfoWhenNull(null, null, username.toString());
         }
         try {
             OAuth2Util.validateAudiences(authorizedClient.getAccessToken(), providerSettings);

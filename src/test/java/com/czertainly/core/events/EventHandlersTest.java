@@ -40,7 +40,7 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.handlers.*;
-import com.czertainly.core.messaging.listeners.NotificationListener;
+import com.czertainly.core.messaging.jms.listeners.NotificationListener;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.model.ScheduledTaskResult;

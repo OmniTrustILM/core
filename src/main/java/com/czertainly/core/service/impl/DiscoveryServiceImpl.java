@@ -1,6 +1,7 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.DiscoveryApiClient;
+import com.czertainly.api.interfaces.client.v1.DiscoverySyncApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.certificate.DiscoveryResponseDto;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -19,6 +20,7 @@ import com.czertainly.api.model.connector.discovery.DiscoveryProviderCertificate
 import com.czertainly.api.model.connector.discovery.DiscoveryProviderDto;
 import com.czertainly.api.model.connector.discovery.DiscoveryRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.api.model.core.discovery.DiscoveryStatus;
@@ -36,9 +38,9 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.czertainly.core.events.handlers.DiscoveryFinishedEventHandler;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.messaging.producers.EventProducer;
-import com.czertainly.core.messaging.producers.NotificationProducer;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.discovery.DiscoveryContext;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -56,6 +58,7 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
@@ -75,12 +78,10 @@ import java.util.concurrent.*;
 public class DiscoveryServiceImpl implements DiscoveryService {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryServiceImpl.class);
-    private static final Integer MAXIMUM_PARALLELISM = 5;
-    private static final Integer MAXIMUM_CERTIFICATES_PER_PAGE = 100;
-    private static final Integer SLEEP_TIME = 5 * 1000; // Seconds * Milliseconds - Retry of discovery for every 5 Seconds
-    private static final Long MAXIMUM_WAIT_TIME = (long) (6 * 60 * 60); // Hours * Minutes * Seconds
 
     private static final Semaphore downloadCertSemaphore = new Semaphore(10);
+
+    private final DiscoveryProperties discoveryProperties;
 
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
@@ -92,13 +93,23 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     private TriggerService triggerService;
     private DiscoveryRepository discoveryRepository;
     private CertificateRepository certificateRepository;
-    private DiscoveryApiClient discoveryApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
     private CredentialService credentialService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private CertificateContentRepository certificateContentRepository;
 
     private ResourceService resourceService;
+    private ConnectorRepository connectorRepository;
+
+    public DiscoveryServiceImpl(DiscoveryProperties discoveryProperties) {
+        this.discoveryProperties = discoveryProperties;
+    }
+
+    @Autowired
+    public void setConnectorRepository(ConnectorRepository connectorRepository) {
+        this.connectorRepository = connectorRepository;
+    }
 
     @Autowired
     public void setResourceService(ResourceService resourceService) {
@@ -131,8 +142,8 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     }
 
     @Autowired
-    public void setDiscoveryApiClient(DiscoveryApiClient discoveryApiClient) {
-        this.discoveryApiClient = discoveryApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -253,8 +264,10 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         try {
             String referenceUuid = discovery.getDiscoveryConnectorReference();
             if (referenceUuid != null && !referenceUuid.isEmpty()) {
-                ConnectorDto connector = connectorService.getConnector(SecuredUUID.fromUUID(discovery.getConnectorUuid()));
-                discoveryApiClient.removeDiscovery(connector, referenceUuid);
+                Connector connector = connectorRepository.findByUuid(discovery.getConnectorUuid())
+                        .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
+                ConnectorApiClientDto connectorDto = connector.mapToApiClientDtoV1();
+                connectorApiFactory.getDiscoveryApiClient(connectorDto).removeDiscovery(connectorDto, referenceUuid);
             }
         } catch (ConnectorException e) {
             logger.warn("Failed to delete discovery in the connector. But core history is deleted");
@@ -290,12 +303,11 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         if (request.getConnectorUuid() == null) {
             throw new ValidationException(ValidationError.create("Connector UUID is empty"));
         }
-
-        UUID connectorUuid = UUID.fromString(request.getConnectorUuid());
-        ConnectorDto connector = connectorService.getConnector(SecuredUUID.fromUUID(connectorUuid));
+        Connector connector = connectorRepository.findByUuid(UUID.fromString(request.getConnectorUuid()))
+                .orElseThrow(() -> new NotFoundException(Connector.class, request.getConnectorUuid()));
 
         attributeEngine.validateCustomAttributesContent(Resource.DISCOVERY, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connectorUuid), FunctionGroupCode.DISCOVERY_PROVIDER, request.getAttributes(), request.getKind());
+        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connector.getUuid()), FunctionGroupCode.DISCOVERY_PROVIDER, request.getAttributes(), request.getKind());
 
         DiscoveryHistory discovery = new DiscoveryHistory();
         discovery.setName(request.getName());
@@ -303,13 +315,13 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         discovery.setStartTime(new Date());
         discovery.setStatus(DiscoveryStatus.IN_PROGRESS);
         discovery.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        discovery.setConnectorUuid(connectorUuid);
+        discovery.setConnectorUuid(connector.getUuid());
         discovery.setKind(request.getKind());
 
         if (saveEntity) {
             discovery = discoveryRepository.save(discovery);
             attributeEngine.updateObjectCustomAttributesContent(Resource.DISCOVERY, discovery.getUuid(), request.getCustomAttributes());
-            attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.DISCOVERY, discovery.getUuid()).connector(connectorUuid).build(), request.getAttributes());
+            attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.DISCOVERY, discovery.getUuid()).connector(connector.getUuid()).build(), request.getAttributes());
             if (request.getTriggers() != null) {
                 triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.DISCOVERY, discovery.getUuid(), request.getTriggers(), false);
                 discovery = discoveryRepository.findWithTriggersByUuid(discovery.getUuid());
@@ -421,13 +433,14 @@ public class DiscoveryServiceImpl implements DiscoveryService {
 
         // reload discovery modal with all association since it could be in separate transaction/session due to async
         String message = null;
-        ConnectorDto connector = null;
+        Connector connector = null;
         List<DataAttribute> dataAttributes = null;
         DiscoveryHistory discovery = discoveryRepository.findWithTriggersByUuid(discoveryUuid);
         try {
             logger.info("Loading discovery context: name={}, uuid={}", discovery.getName(), discovery.getUuid());
-            connector = connectorService.getConnector(SecuredUUID.fromUUID(discovery.getConnectorUuid()));
-            dataAttributes = attributeEngine.getDefinitionObjectAttributeContent(AttributeType.DATA, discovery.getConnectorUuid(), null, Resource.DISCOVERY, discovery.getUuid());
+            connector = connectorRepository.findByUuid(discovery.getConnectorUuid())
+                    .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
+            dataAttributes = attributeEngine.getDefinitionObjectAttributeContent(AttributeType.DATA, connector.getUuid(), null, Resource.DISCOVERY, discovery.getUuid());
 
             credentialService.loadFullCredentialData(dataAttributes);
             resourceService.loadResourceObjectContentData(dataAttributes);
@@ -436,7 +449,8 @@ public class DiscoveryServiceImpl implements DiscoveryService {
             message = e.getMessage();
         }
 
-        DiscoveryContext discoveryContext = new DiscoveryContext(loggedUserUuid, connector, discovery, dataAttributes);
+        ConnectorDto connectorDto = connector != null ? connector.mapToDto() : null;
+        DiscoveryContext discoveryContext = new DiscoveryContext(loggedUserUuid, connectorDto, discovery, dataAttributes);
 
         if (message != null) {
             discoveryContext.setMessage(message);
@@ -456,6 +470,8 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         dtoRequest.setName(discovery.getName());
         dtoRequest.setKind(discovery.getKind());
         dtoRequest.setAttributes(AttributeDefinitionUtils.getClientAttributes(context.getDataAttributes()));
+
+        DiscoverySyncApiClient discoveryApiClient = connectorApiFactory.getDiscoveryApiClient(context.getConnectorDto());
 
         // start discovery at provider
         DiscoveryProviderDto response;
@@ -477,12 +493,12 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         getRequest.setName(response.getName());
         getRequest.setKind(discovery.getKind());
         getRequest.setPageNumber(1);
-        getRequest.setItemsPerPage(MAXIMUM_CERTIFICATES_PER_PAGE);
+        getRequest.setItemsPerPage(discoveryProperties.maxCertificatesPerPage());
 
         boolean isReachedMaxTime = false;
         while (response.getStatus() == DiscoveryStatus.IN_PROGRESS) {
-            logger.debug("Waiting {}ms for discovery to be completed: name={}, uuid={}", SLEEP_TIME, discovery.getName(), discovery.getUuid());
-            Thread.sleep(SLEEP_TIME);
+            logger.debug("Waiting {}ms for discovery to be completed: name={}, uuid={}", discoveryProperties.sleepTimeMs(), discovery.getName(), discovery.getUuid());
+            Thread.sleep(discoveryProperties.sleepTimeMs());
 
             try {
                 response = discoveryApiClient.getDiscoveryData(context.getConnectorDto(), getRequest, response.getUuid());
@@ -494,16 +510,16 @@ public class DiscoveryServiceImpl implements DiscoveryService {
             logger.debug("Discovery response: name={}, uuid={}, status={}, total={}", discovery.getName(), discovery.getUuid(), response.getStatus(), response.getTotalCertificatesDiscovered());
 
             long secondsElapsed = (new Date().getTime() - discovery.getStartTime().getTime()) / 1000;
-            if (!isReachedMaxTime && secondsElapsed > MAXIMUM_WAIT_TIME) {
+            if (!isReachedMaxTime && secondsElapsed > discoveryProperties.maxWaitTimeSeconds()) {
                 isReachedMaxTime = true;
 
                 context.setDiscoveryStatus(DiscoveryStatus.WARNING);
                 context.setConnectorDiscoveryStatus(response.getStatus());
                 context.setConnectorCertificatesDiscovered(response.getTotalCertificatesDiscovered());
                 context.setMessage("Discovery exceeded maximum time of %d hours. Please abort the discovery if the provider is stuck in state '%s'."
-                        .formatted((int) (MAXIMUM_WAIT_TIME / (60 * 60)), DiscoveryStatus.IN_PROGRESS.getLabel()));
+                        .formatted((int) (discoveryProperties.maxWaitTimeSeconds() / (60 * 60)), DiscoveryStatus.IN_PROGRESS.getLabel()));
                 updateDiscoveryStateInTx(context, false);
-            } else if (isReachedMaxTime && secondsElapsed > 2 * MAXIMUM_WAIT_TIME) {
+            } else if (isReachedMaxTime && secondsElapsed > 2 * discoveryProperties.maxWaitTimeSeconds()) {
                 context.setDiscoveryStatus(DiscoveryStatus.FAILED);
                 context.setConnectorDiscoveryStatus(response.getStatus());
                 context.setConnectorCertificatesDiscovered(response.getTotalCertificatesDiscovered());
@@ -535,14 +551,15 @@ public class DiscoveryServiceImpl implements DiscoveryService {
         getRequest.setName(response.getName());
         getRequest.setKind(discovery.getKind());
         getRequest.setPageNumber(1);
-        getRequest.setItemsPerPage(MAXIMUM_CERTIFICATES_PER_PAGE);
+        getRequest.setItemsPerPage(discoveryProperties.maxCertificatesPerPage());
 
         List<Future<?>> futures = new ArrayList<>();
         Set<String> uniqueCertificateContents = new HashSet<>();
+        DiscoverySyncApiClient discoveryApiClient = connectorApiFactory.getDiscoveryApiClient(context.getConnectorDto());
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             while (currentTotal < response.getTotalCertificatesDiscovered()) {
                 getRequest.setPageNumber(currentPage);
-                getRequest.setItemsPerPage(MAXIMUM_CERTIFICATES_PER_PAGE);
+                getRequest.setItemsPerPage(discoveryProperties.maxCertificatesPerPage());
                 try {
                     response = discoveryApiClient.getDiscoveryData(context.getConnectorDto(), getRequest, response.getUuid());
                 } catch (ConnectorException e) {
@@ -558,10 +575,10 @@ public class DiscoveryServiceImpl implements DiscoveryService {
                     context.setMessage(String.format("Retrieved only %d certificates but provider discovered %d certificates in total.", currentTotal, response.getTotalCertificatesDiscovered()));
                     throw new DiscoveryException(discovery.getName(), context.getMessage());
                 }
-                if (response.getCertificateData().size() > MAXIMUM_CERTIFICATES_PER_PAGE) {
+                if (response.getCertificateData().size() > discoveryProperties.maxCertificatesPerPage()) {
                     handleDiscoveredCertificatesBatch(futures, discovery.getName());
                     context.setDiscoveryStatus(DiscoveryStatus.WARNING);
-                    context.setMessage("Too many certificates (%d) in response at page %d. Maximum processable is %d.".formatted(response.getCertificateData().size(), currentPage, MAXIMUM_CERTIFICATES_PER_PAGE));
+                    context.setMessage("Too many certificates (%d) in response at page %d. Maximum processable is %d.".formatted(response.getCertificateData().size(), currentPage, discoveryProperties.maxCertificatesPerPage()));
                     throw new DiscoveryException(discovery.getName(), context.getMessage());
                 }
 
@@ -570,7 +587,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
                 ++currentPage;
                 currentTotal += response.getCertificateData().size();
 
-                if (futures.size() >= MAXIMUM_PARALLELISM) {
+                if (futures.size() >= discoveryProperties.maxParallelism()) {
                     handleDiscoveredCertificatesBatch(futures, discovery.getName());
                 }
             }

@@ -122,7 +122,7 @@ public class CertConfirmMessageHandlerTest {
                         ckPrivateKey.getKeyReferenceUuid().toString(),
                         new ConnectorDto(),
                         KeyAlgorithm.ECDSA.getLabel()));
-        given(certificateKeyService.getProvider(any())).
+        given(certificateKeyService.getProvider(any(), any())).
                 willReturn(CzertainlyProvider.getInstance(cmpProfile.getName(),
                         true, cryptographicOperationsApiClient));
         SignDataResponseDto singData = new SignDataResponseDto();

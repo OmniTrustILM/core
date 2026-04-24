@@ -1,8 +1,6 @@
 package com.czertainly.core.service.handler;
 
 import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.clients.ConnectorApiClient;
-import com.czertainly.api.clients.HealthApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationError;
@@ -12,6 +10,7 @@ import com.czertainly.api.model.client.connector.v2.*;
 import com.czertainly.api.model.core.connector.*;
 import com.czertainly.api.model.core.connector.v2.ConnectInfo;
 import com.czertainly.api.model.core.connector.v2.ConnectInfoV1;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
 import com.czertainly.core.dao.entity.Endpoint;
@@ -34,21 +33,15 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
 
     private static final Logger logger = LoggerFactory.getLogger(ConnectorV1Adapter.class);
 
-    private HealthApiClient healthApiClient;
-    private ConnectorApiClient infoApiClient;
+    private ConnectorApiFactory connectorApiFactory;
 
     private ConnectorRepository connectorRepository;
     private FunctionGroupRepository functionGroupRepository;
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
 
     @Autowired
-    public void setHealthApiClient(HealthApiClient healthApiClient) {
-        this.healthApiClient = healthApiClient;
-    }
-
-    @Autowired
-    public void setInfoApiClient(ConnectorApiClient infoApiClient) {
-        this.infoApiClient = infoApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -78,7 +71,7 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
 
     @Override
     public HealthInfo checkHealth(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        var healthDto = healthApiClient.checkHealth(connectorInfo);
+        var healthDto = connectorApiFactory.getHealthApiClient(connectorInfo).checkHealth(connectorInfo);
 
         HealthInfo healthInfo = new HealthInfo();
         healthInfo.setStatus(mapHealthStatus(healthDto.getStatus()));
@@ -100,7 +93,7 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
 
     @Override
     public ConnectInfoV1 checkConnection(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        List<InfoResponse> functions = infoApiClient.listSupportedFunctions(connectorInfo);
+        List<InfoResponse> functions = connectorApiFactory.getConnectorApiClient(connectorInfo).listSupportedFunctions(connectorInfo);
 
         ConnectInfoV1 connectInfo = new ConnectInfoV1();
         connectInfo.setConnectorUuid(NullUtil.parseUuidOrNull(connectorInfo.getUuid()));

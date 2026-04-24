@@ -1,6 +1,6 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.clients.v2.ComplianceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.compliance.v2.*;
@@ -43,8 +43,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceProfileServiceImpl.class);
 
-    private ComplianceApiClient complianceApiClient;
-    private com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
+    private ConnectorApiFactory connectorApiFactory;
 
     private ComplianceProfileRepository complianceProfileRepository;
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
@@ -59,13 +58,8 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     private ComplianceProfileRuleHandler ruleHandler;
 
     @Autowired
-    public void setComplianceApiClient(ComplianceApiClient complianceApiClient) {
-        this.complianceApiClient = complianceApiClient;
-    }
-
-    @Autowired
-    public void setComplianceApiClientV1(com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1) {
-        this.complianceApiClientV1 = complianceApiClientV1;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -226,7 +220,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
         ConnectorDto connectorDto = connector.mapToDto();
         FunctionGroupCode complianceFunctionGroup = ComplianceProfileRuleHandler.validateComplianceProvider(connectorDto, kind);
         if (complianceFunctionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER_V2) {
-            List<ComplianceRuleResponseDto> providerRules = resource == null ? complianceApiClient.getComplianceRules(connectorDto, kind, null, null, null) : complianceApiClient.getComplianceRules(connectorDto, kind, resource, type, format);
+            List<ComplianceRuleResponseDto> providerRules = resource == null ? connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceRules(connectorDto, kind, null, null, null) : connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceRules(connectorDto, kind, resource, type, format);
             for (ComplianceRuleResponseDto providerRule : providerRules) {
                 ComplianceRuleListDto dto = new ComplianceRuleListDto();
                 dto.setUuid(providerRule.getUuid());
@@ -245,7 +239,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
             if (resource != null && resource != Resource.CERTIFICATE) {
                 return List.of();
             }
-            List<ComplianceRulesResponseDto> providerRules = complianceApiClientV1.getComplianceRules(connectorDto, kind, type == null ? null : List.of(type));
+            List<ComplianceRulesResponseDto> providerRules = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceRules(connectorDto, kind, type == null ? null : List.of(type));
             for (ComplianceRulesResponseDto providerRule : providerRules) {
                 ComplianceRuleListDto dto = new ComplianceRuleListDto();
                 dto.setUuid(UUID.fromString(providerRule.getUuid()));
@@ -272,7 +266,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
         ConnectorDto connectorDto = connector.mapToDto();
         FunctionGroupCode complianceFunctionGroup = ComplianceProfileRuleHandler.validateComplianceProvider(connectorDto, kind);
         if (complianceFunctionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER_V2) {
-            List<ComplianceGroupResponseDto> providerGroups = complianceApiClient.getComplianceGroups(connectorDto, kind, resource);
+            List<ComplianceGroupResponseDto> providerGroups = connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceGroups(connectorDto, kind, resource);
             for (ComplianceGroupResponseDto providerGroup : providerGroups) {
                 ComplianceGroupListDto dto = new ComplianceGroupListDto();
                 dto.setUuid(providerGroup.getUuid());
@@ -284,7 +278,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
                 complianceGroups.add(dto);
             }
         } else {
-            List<ComplianceGroupsResponseDto> providerGroups = complianceApiClientV1.getComplianceGroups(connectorDto, kind);
+            List<ComplianceGroupsResponseDto> providerGroups = connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceGroups(connectorDto, kind);
             for (ComplianceGroupsResponseDto providerGroup : providerGroups) {
                 ComplianceGroupListDto dto = new ComplianceGroupListDto();
                 dto.setUuid(UUID.fromString(providerGroup.getUuid()));
@@ -307,7 +301,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
         ConnectorDto connectorDto = connector.mapToDto();
         FunctionGroupCode complianceFunctionGroup = ComplianceProfileRuleHandler.validateComplianceProvider(connectorDto, kind);
         if (complianceFunctionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER_V2) {
-            return complianceApiClient.getComplianceGroupRules(connectorDto, kind, groupUuid).stream().map(providerRule -> {
+            return connectorApiFactory.getComplianceApiClientV2(connectorDto).getComplianceGroupRules(connectorDto, kind, groupUuid).stream().map(providerRule -> {
                 ComplianceRuleListDto dto = new ComplianceRuleListDto();
                 dto.setUuid(providerRule.getUuid());
                 dto.setName(providerRule.getName());
@@ -323,7 +317,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
             }).toList();
         }
 
-        return complianceApiClientV1.getComplianceGroupRules(connectorDto, kind, groupUuid.toString()).stream().map(providerRule -> {
+        return connectorApiFactory.getComplianceApiClient(connectorDto).getComplianceGroupRules(connectorDto, kind, groupUuid.toString()).stream().map(providerRule -> {
             ComplianceRuleListDto dto = new ComplianceRuleListDto();
             dto.setUuid(UUID.fromString(providerRule.getUuid()));
             dto.setName(providerRule.getName());

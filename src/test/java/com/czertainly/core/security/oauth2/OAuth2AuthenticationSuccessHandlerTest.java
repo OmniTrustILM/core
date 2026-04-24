@@ -69,7 +69,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
     @Test
     void testSuccessfulAuthentication() throws JOSEException {
-        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>()));
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
         Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
@@ -84,7 +84,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
     @Test
     void testFailOnValidatingAudiences() throws JOSEException {
-        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, List.of("audience")));
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, List.of("audience"), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
         Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
@@ -100,7 +100,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
     @Test
     void testFailOnValidatingUsername() throws JOSEException {
-        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>()));
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
         Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
@@ -116,7 +116,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
 
     @Test
     void testFailOnMissingProvider() throws JOSEException {
-        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>()));
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
         Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);

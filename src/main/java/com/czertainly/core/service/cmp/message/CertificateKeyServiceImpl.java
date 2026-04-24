@@ -1,7 +1,8 @@
 package com.czertainly.core.service.cmp.message;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
+import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.model.common.enums.cryptography.KeyType;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.provider.CzertainlyProvider;
 import com.czertainly.core.provider.key.CzertainlyPrivateKey;
@@ -12,11 +13,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class CertificateKeyServiceImpl implements CertificateKeyService {
 
-    private CryptographicOperationsApiClient cryptographicOperationsApiClient;
+    private ConnectorApiFactory connectorApiFactory;
 
     @Autowired
-    public void setCryptographicOperationsApiClient(CryptographicOperationsApiClient cryptographicOperationsApiClient) {
-        this.cryptographicOperationsApiClient = cryptographicOperationsApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     private CryptographicKeyService cryptographicKeyService;
@@ -27,9 +28,23 @@ public class CertificateKeyServiceImpl implements CertificateKeyService {
     }
 
     @Override
-    public CzertainlyProvider getProvider(String cmpProfileName) {
-        return CzertainlyProvider.getInstance(cmpProfileName,
-                true, cryptographicOperationsApiClient);
+    public CzertainlyProvider getProvider(String cmpProfileName, Certificate signingCertificate) {
+        CryptographicKey key = signingCertificate.getKey();
+        if (key == null) {
+            throw new IllegalStateException("Signing certificate has no associated cryptographic key");
+        }
+        TokenInstanceReference tokenRef = key.getTokenInstanceReference();
+        if (tokenRef == null) {
+            throw new IllegalStateException("Cryptographic key has no token instance reference");
+        }
+        Connector connector = tokenRef.getConnector();
+        if (connector == null) {
+            throw new IllegalStateException("Token instance has no associated connector");
+        }
+
+        var connectorDto = connector.mapToApiClientDtoV1();
+        CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+        return CzertainlyProvider.getInstance(cmpProfileName, true, apiClient);
     }
 
     @Override

@@ -27,16 +27,20 @@ import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import com.czertainly.core.service.DiscoveryProperties;
+
 import javax.net.ssl.TrustManager;
 
 @Configuration
 @EnableJpaAuditing(auditorAwareRef = "auditorAware")
+@EnableConfigurationProperties(DiscoveryProperties.class)
 @PropertySource(value = ApplicationConfig.EXTERNAL_PROPERTY_SOURCE, ignoreResourceNotFound = true)
 @ComponentScan(basePackages = "com.czertainly.core")
 public class ApplicationConfig {

@@ -29,7 +29,7 @@ import com.czertainly.core.dao.entity.notifications.NotificationInstanceReferenc
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceMappedAttributeRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
-import com.czertainly.core.messaging.listeners.NotificationListener;
+import com.czertainly.core.messaging.jms.listeners.NotificationListener;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;

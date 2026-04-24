@@ -35,7 +35,7 @@ import com.czertainly.core.dao.repository.acme.AcmeChallengeRepository;
 import com.czertainly.core.dao.repository.acme.AcmeNonceRepository;
 import com.czertainly.core.dao.repository.acme.AcmeOrderRepository;
 import com.czertainly.core.messaging.model.ActionMessage;
-import com.czertainly.core.messaging.producers.ActionProducer;
+import com.czertainly.core.messaging.jms.producers.ActionProducer;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

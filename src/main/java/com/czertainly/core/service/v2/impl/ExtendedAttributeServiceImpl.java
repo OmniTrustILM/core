@@ -1,12 +1,12 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.clients.v2.CertificateApiClient;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
 import com.czertainly.core.dao.entity.RaProfile;
@@ -22,7 +22,7 @@ import java.util.List;
 public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
 
     @Autowired
-    private CertificateApiClient certificateApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     @Autowired
     private ConnectorRepository connectorRepository;
 
@@ -35,20 +35,32 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
 
     @Override
     public List<BaseAttribute> listIssueCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        validateLegacyConnector(raProfile.getAuthorityInstanceReference().getConnector());
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
+            throw new NotFoundException("Connector of the Authority is not available / deleted");
+        }
+        validateLegacyConnector(connector);
 
-        return certificateApiClient.listIssueCertificateAttributes(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToDto(),
-                raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid());
+        var connectorDto = connector.mapToApiClientDtoV1();
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto).listIssueCertificateAttributes(
+                connectorDto,
+                authorityRef.getAuthorityInstanceUuid());
     }
 
     @Override
     public boolean validateIssueCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
-        validateLegacyConnector(raProfile.getAuthorityInstanceReference().getConnector());
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
+            throw new NotFoundException("Connector of the Authority is not available / deleted");
+        }
+        validateLegacyConnector(connector);
 
-        return certificateApiClient.validateIssueCertificateAttributes(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToDto(),
-                raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
+        var connectorDto = connector.mapToApiClientDtoV1();
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto).validateIssueCertificateAttributes(
+                connectorDto,
+                authorityRef.getAuthorityInstanceUuid(),
                 attributes);
     }
 
@@ -57,7 +69,8 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         if (raProfile.getAuthorityInstanceReference().getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
-        ConnectorDto connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToDto();
+        ConnectorApiClientDto connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        var certificateApiClient = connectorApiFactory.getCertificateApiClientV2(connectorDto);
 
         // validate first by connector
         if (attributes == null) {
@@ -74,20 +87,32 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
 
     @Override
     public List<BaseAttribute> listRevokeCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        validateLegacyConnector(raProfile.getAuthorityInstanceReference().getConnector());
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
+            throw new NotFoundException("Connector of the Authority is not available / deleted");
+        }
+        validateLegacyConnector(connector);
 
-        return certificateApiClient.listRevokeCertificateAttributes(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToDto(),
-                raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid());
+        var connectorDto = connector.mapToApiClientDtoV1();
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto).listRevokeCertificateAttributes(
+                connectorDto,
+                authorityRef.getAuthorityInstanceUuid());
     }
 
     @Override
     public boolean validateRevokeCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
-        validateLegacyConnector(raProfile.getAuthorityInstanceReference().getConnector());
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
+            throw new NotFoundException("Connector of the Authority is not available / deleted");
+        }
+        validateLegacyConnector(connector);
 
-        return certificateApiClient.validateRevokeCertificateAttributes(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToDto(),
-                raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
+        var connectorDto = connector.mapToApiClientDtoV1();
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto).validateRevokeCertificateAttributes(
+                connectorDto,
+                authorityRef.getAuthorityInstanceUuid(),
                 attributes);
     }
 
@@ -97,7 +122,8 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
 
-        ConnectorDto connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToDto();
+        ConnectorApiClientDto connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        var certificateApiClient = connectorApiFactory.getCertificateApiClientV2(connectorDto);
 
         // validate first by connector
         if (attributes == null) {

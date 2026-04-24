@@ -38,6 +38,8 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationSe
         requestV2.setAuthType(request.getAuthType());
         requestV2.setAuthAttributes(request.getAuthAttributes());
         requestV2.setCustomAttributes(request.getCustomAttributes());
+        requestV2.setProxyCode(request.getProxyCode());
+        requestV2.setProxyUuid(request.getProxyUuid());
 
         ConnectorDetailDto connectorDto = connectorService.createNewWaitingConnector(requestV2);
         logger.info("Connector {} registered and is waiting for approval.", request.getName());

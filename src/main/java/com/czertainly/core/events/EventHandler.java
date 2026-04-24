@@ -1,7 +1,6 @@
 package com.czertainly.core.events;
 
 import com.czertainly.api.exception.EventException;
-import com.czertainly.api.exception.RuleException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedObject;
@@ -11,9 +10,9 @@ import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import com.czertainly.core.dao.repository.workflows.TriggerAssociationRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.EventMessage;
-import com.czertainly.core.messaging.producers.EventProducer;
-import com.czertainly.core.messaging.producers.NotificationProducer;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.AuthHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;

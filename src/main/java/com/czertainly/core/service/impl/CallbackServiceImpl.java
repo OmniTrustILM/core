@@ -1,8 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.AttributeApiClient;
-import com.czertainly.api.clients.AuthorityInstanceApiClient;
-import com.czertainly.api.clients.EntityInstanceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.cryptography.key.KeyRequestType;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
@@ -15,6 +13,7 @@ import com.czertainly.api.model.common.attribute.common.content.AttributeContent
 import com.czertainly.api.model.core.auth.AttributeResource;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeVersionHelper;
@@ -47,14 +46,12 @@ public class CallbackServiceImpl implements CallbackService {
 
     private static final Logger logger = LoggerFactory.getLogger(CallbackServiceImpl.class);
 
-    private com.czertainly.core.service.v2.ConnectorService connectorService;
-    private AttributeApiClient attributeApiClient;
+    private ConnectorService connectorService;
+    private ConnectorApiFactory connectorApiFactory;
     private CoreCallbackService coreCallbackService;
     private CredentialService credentialService;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    private AuthorityInstanceApiClient authorityInstanceApiClient;
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
-    private EntityInstanceApiClient entityInstanceApiClient;
     private CryptographicKeyService cryptographicKeyService;
     private TokenProfileService tokenProfileService;
     private AttributeEngine attributeEngine;
@@ -71,8 +68,8 @@ public class CallbackServiceImpl implements CallbackService {
     }
 
     @Autowired
-    public void setAttributeApiClient(AttributeApiClient attributeApiClient) {
-        this.attributeApiClient = attributeApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -91,18 +88,8 @@ public class CallbackServiceImpl implements CallbackService {
     }
 
     @Autowired
-    public void setAuthorityInstanceApiClient(AuthorityInstanceApiClient authorityInstanceApiClient) {
-        this.authorityInstanceApiClient = authorityInstanceApiClient;
-    }
-
-    @Autowired
     public void setEntityInstanceReferenceRepository(EntityInstanceReferenceRepository entityInstanceReferenceRepository) {
         this.entityInstanceReferenceRepository = entityInstanceReferenceRepository;
-    }
-
-    @Autowired
-    public void setEntityInstanceApiClient(EntityInstanceApiClient entityInstanceApiClient) {
-        this.entityInstanceApiClient = entityInstanceApiClient;
     }
 
     @Autowired
@@ -124,7 +111,7 @@ public class CallbackServiceImpl implements CallbackService {
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.ANY)
     public Object callback(String uuid, FunctionGroupCode functionGroup, String kind, RequestAttributeCallback callback) throws ConnectorException, ValidationException, NotFoundException, AttributeException {
         ConnectorDetailDto connector = connectorService.getConnector(SecuredUUID.fromString(uuid));
-        List<BaseAttribute> definitions = attributeApiClient.listAttributeDefinitions(connector, functionGroup, kind);
+        List<BaseAttribute> definitions = connectorApiFactory.getAttributeApiClient(connector).listAttributeDefinitions(connector, functionGroup, kind);
         return getCallbackObject(callback, definitions, connector);
     }
 
@@ -167,7 +154,7 @@ public class CallbackServiceImpl implements CallbackService {
             resourceService.loadResourceObjectContentData(attributeCallback, callback, toResource);
         }
 
-        Object response = attributeApiClient.attributeCallback(connector, attributeCallback, callback);
+        Object response = connectorApiFactory.getAttributeApiClient(connector).attributeCallback(connector, attributeCallback, callback);
         if (attribute.getType().equals(AttributeType.GROUP)) {
             processGroupAttributes(connectorUuid, response);
         }
@@ -228,8 +215,9 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = authorityInstance.getConnector();
-                definitions = authorityInstanceApiClient.listRAProfileAttributes(
-                        connector.mapToDto(),
+                ConnectorApiClientDto raProfileConnectorDto = connector.mapToApiClientDtoV1();
+                definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
+                        raProfileConnectorDto,
                         authorityInstance.getAuthorityInstanceUuid()
                 );
                 break;
@@ -259,7 +247,8 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = entityInstance.getConnector();
-                definitions = entityInstanceApiClient.listLocationAttributes(connector.mapToDto(), entityInstance.getEntityInstanceUuid());
+                ConnectorApiClientDto locationConnectorDto = connector.mapToApiClientDtoV1();
+                definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
 
             default:

@@ -1,8 +1,8 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.clients.v2.ComplianceApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.interfaces.client.v2.ComplianceSyncApiClient;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
 import com.czertainly.api.model.connector.compliance.ComplianceRequestRulesDto;
 import com.czertainly.api.model.connector.compliance.v2.*;
@@ -12,6 +12,7 @@ import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.ComplianceProfileRule;
 import com.czertainly.core.dao.entity.ComplianceSubject;
 import com.czertainly.core.dao.entity.Connector;
@@ -32,8 +33,7 @@ public class ComplianceCheckProviderContext {
     private final FunctionGroupCode functionGroup;
 
     private final ComplianceProfileRuleHandler ruleHandler;
-    private final ComplianceApiClient complianceApiClient;
-    private final com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
+    private final ConnectorApiFactory connectorApiFactory;
 
     private final ComplianceRulesBatchRequestDto rulesBatchRequestDto = new ComplianceRulesBatchRequestDto();
     private ComplianceRulesGroupsBatchDto rulesGroupsBatchDto;
@@ -42,13 +42,12 @@ public class ComplianceCheckProviderContext {
     private ComplianceRequestDto complianceRequestDto;
     private com.czertainly.api.model.connector.compliance.ComplianceRequestDto complianceRequestDtoV1;
 
-    public ComplianceCheckProviderContext(Connector connector, String kind, ComplianceProfileRuleHandler ruleHandler, ComplianceApiClient complianceApiClient, com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1) {
+    public ComplianceCheckProviderContext(Connector connector, String kind, ComplianceProfileRuleHandler ruleHandler, ConnectorApiFactory connectorApiFactory) {
         this.connectorUuid = connector.getUuid();
         this.connectorDto = connector.mapToDto();
         this.kind = kind;
         this.ruleHandler = ruleHandler;
-        this.complianceApiClient = complianceApiClient;
-        this.complianceApiClientV1 = complianceApiClientV1;
+        this.connectorApiFactory = connectorApiFactory;
         this.functionGroup = ComplianceProfileRuleHandler.validateComplianceProvider(connectorDto, kind);
         this.rulesBatchRequestDto.setWithGroupRules(functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER);
     }
@@ -148,6 +147,7 @@ public class ComplianceCheckProviderContext {
         ComplianceResponseDto complianceResponse = new ComplianceResponseDto();
         if (functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER) {
             if (!complianceRequestDtoV1.getRules().isEmpty()) {
+                com.czertainly.api.interfaces.client.v1.ComplianceSyncApiClient complianceApiClientV1 = connectorApiFactory.getComplianceApiClient(connectorDto);
                 var complianceResponseV1 = complianceApiClientV1.checkCompliance(connectorDto, kind, complianceRequestDtoV1);
                 complianceResponse.setStatus(complianceResponseV1.getStatus());
                 complianceResponse.setRules(complianceResponseV1.getRules().stream().map(r -> {
@@ -160,7 +160,8 @@ public class ComplianceCheckProviderContext {
             }
         } else {
             if (!complianceRequestDto.getRules().isEmpty() || !complianceRequestDto.getGroups().isEmpty()) {
-                complianceResponse = complianceApiClient.checkCompliance(connectorDto, kind, complianceRequestDto);
+                ComplianceSyncApiClient complianceApiClientV2 = connectorApiFactory.getComplianceApiClientV2(connectorDto);
+                complianceResponse = complianceApiClientV2.checkCompliance(connectorDto, kind, complianceRequestDto);
             }
         }
         return complianceResponse;

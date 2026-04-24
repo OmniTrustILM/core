@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.AuthorityInstanceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRelationDto;
@@ -15,7 +15,7 @@ import com.czertainly.api.model.connector.authority.CaCertificatesResponseDto;
 import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.api.model.core.raprofile.RaProfileDto;
 import com.czertainly.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
@@ -65,7 +65,7 @@ public class RaProfileServiceImpl implements RaProfileService {
 
     private RaProfileRepository raProfileRepository;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    private AuthorityInstanceApiClient authorityInstanceApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private CertificateRepository certificateRepository;
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
@@ -615,7 +615,8 @@ public class RaProfileServiceImpl implements RaProfileService {
                 .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, authorityUuid));
 
         List<RequestAttribute> requestAttributes = attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(authorityInstanceReference.getConnectorUuid()).build());
-        CaCertificatesResponseDto caCertificatesResponseDto = authorityInstanceApiClient.getCaCertificates(authorityInstanceReference.getConnector().mapToDto(), authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
+        ConnectorApiClientDto connectorDto = authorityInstanceReference.getConnector().mapToApiClientDtoV1();
+        CaCertificatesResponseDto caCertificatesResponseDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getCaCertificates(connectorDto, authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
         List<CertificateDataResponseDto> certificateDataResponseDtos = caCertificatesResponseDto.getCertificates();
         List<CertificateDetailDto> certificateDetailDtos = new ArrayList<>();
         for (CertificateDataResponseDto certificateDataResponseDto : certificateDataResponseDtos) {
@@ -658,15 +659,15 @@ public class RaProfileServiceImpl implements RaProfileService {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
 
-        ConnectorDto connectorDto = authorityInstanceRef.getConnector().mapToDto();
+        ConnectorApiClientDto connectorDto = authorityInstanceRef.getConnector().mapToApiClientDtoV1();
 
         // validate first by connector
-        if (Boolean.FALSE.equals(authorityInstanceApiClient.validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {
+        if (Boolean.FALSE.equals(connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {
             throw new ValidationException(ValidationError.create("RA profile attributes validation failed."));
         }
 
         // list definitions
-        List<BaseAttribute> definitions = authorityInstanceApiClient.listRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
+        List<BaseAttribute> definitions = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).listRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
 
         // validate and update definitions with attribute engine
         attributeEngine.validateUpdateDataAttributes(authorityInstanceRef.getConnectorUuid(), null, definitions, attributes);
@@ -738,8 +739,8 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setAuthorityInstanceApiClient(AuthorityInstanceApiClient authorityInstanceApiClient) {
-        this.authorityInstanceApiClient = authorityInstanceApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired

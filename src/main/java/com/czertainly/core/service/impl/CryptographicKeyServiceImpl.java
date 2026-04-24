@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.cryptography.KeyManagementApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -19,7 +19,7 @@ import com.czertainly.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.czertainly.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.api.model.core.cryptography.key.*;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.FilterFieldSource;
@@ -32,7 +32,7 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.messaging.producers.NotificationProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -103,7 +103,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     // Services & API Clients
     // --------------------------------------------------------------------------------
     private AttributeEngine attributeEngine;
-    private KeyManagementApiClient keyManagementApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private TokenInstanceService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
     private PermissionEvaluator permissionEvaluator;
@@ -147,8 +147,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Autowired
-    public void setKeyManagementApiClient(KeyManagementApiClient keyManagementApiClient) {
-        this.keyManagementApiClient = keyManagementApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -526,8 +526,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
 
     private void destroyKeyFromConnector(TokenInstanceReference tokenInstanceReference, UUID keyReferenceUuid) throws ConnectorException {
         try {
-            keyManagementApiClient.destroyKey(
-                    tokenInstanceReference.getConnector().mapToDto(),
+            ConnectorApiClientDto connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+            connectorApiFactory.getKeyManagementApiClient(connectorDto).destroyKey(
+                    connectorDto,
                     tokenInstanceReference.getTokenInstanceUuid(),
                     keyReferenceUuid.toString()
             );
@@ -739,14 +740,15 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
                 );
         logger.debug("Token profile details: {}", tokenProfile);
         List<BaseAttribute> attributes;
+        ConnectorApiClientDto connectorDto = tokenProfile.getTokenInstanceReference().getConnector().mapToApiClientDtoV1();
         if (type.equals(KeyRequestType.KEY_PAIR)) {
-            attributes = keyManagementApiClient.listCreateKeyPairAttributes(
-                    tokenProfile.getTokenInstanceReference().getConnector().mapToDto(),
+            attributes = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateKeyPairAttributes(
+                    connectorDto,
                     tokenProfile.getTokenInstanceReference().getTokenInstanceUuid()
             );
         } else {
-            attributes = keyManagementApiClient.listCreateSecretKeyAttributes(
-                    tokenProfile.getTokenInstanceReference().getConnector().mapToDto(),
+            attributes = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateSecretKeyAttributes(
+                    connectorDto,
                     tokenProfile.getTokenInstanceReference().getTokenInstanceUuid()
             );
         }
@@ -763,8 +765,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         //Create a map to hold the key and its objects. The association key will be used as the name for the parent key object
         Map<String, List<KeyDataResponseDto>> associations = new HashMap<>();
         // Get the list of keys from the connector
-        List<KeyDataResponseDto> keys = keyManagementApiClient.listKeys(
-                tokenInstanceReference.getConnector().mapToDto(),
+        ConnectorApiClientDto connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+        List<KeyDataResponseDto> keys = connectorApiFactory.getKeyManagementApiClient(connectorDto).listKeys(
+                connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
         );
 
@@ -1099,16 +1102,16 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
             throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
         }
 
-        ConnectorDto connectorDto = tokenInstanceRef.getConnector().mapToDto();
+        ConnectorApiClientDto connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
 
         // validate first by connector and list attributes definitions
         List<BaseAttribute> definitions;
         if (type.equals(KeyRequestType.KEY_PAIR)) {
-            keyManagementApiClient.validateCreateKeyPairAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
-            definitions = keyManagementApiClient.listCreateKeyPairAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
+            connectorApiFactory.getKeyManagementApiClient(connectorDto).validateCreateKeyPairAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
+            definitions = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateKeyPairAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
         } else {
-            keyManagementApiClient.validateCreateSecretKeyAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
-            definitions = keyManagementApiClient.listCreateSecretKeyAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
+            connectorApiFactory.getKeyManagementApiClient(connectorDto).validateCreateSecretKeyAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
+            definitions = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateSecretKeyAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
         }
 
         // validate and update definitions with attribute engine
@@ -1117,8 +1120,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
 
     private CryptographicKey createKeyTypeOfKeyPair(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
         boolean enabled = Boolean.TRUE.equals(request.getEnabled());
-        KeyPairDataResponseDto response = keyManagementApiClient.createKeyPair(
-                connector.mapToDto(),
+        ConnectorApiClientDto connectorDto = connector.mapToApiClientDtoV1();
+        KeyPairDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createKeyPair(
+                connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),
                 createKeyRequestDto
         );
@@ -1149,8 +1153,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     private CryptographicKey createKeyTypeOfSecret(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
-        KeyDataResponseDto response = keyManagementApiClient.createSecretKey(
-                connector.mapToDto(),
+        ConnectorApiClientDto connectorDto = connector.mapToApiClientDtoV1();
+        KeyDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createSecretKey(
+                connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),
                 createKeyRequestDto
         );

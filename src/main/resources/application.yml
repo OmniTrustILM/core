@@ -19,6 +19,14 @@ cmp:
         timeout: 20
   verbose: false
 
+# Discovery settings
+discovery:
+  provider:
+    max-certificates-per-page: ${DISCOVERY_PROVIDER_MAX_CERTIFICATES_PER_PAGE:100}
+    max-parallelism: ${DISCOVERY_PROVIDER_MAX_PARALLELISM:5}
+    sleep-time-ms: ${DISCOVERY_PROVIDER_SLEEP_TIME_MS:5000}
+    max-wait-time-seconds: ${DISCOVERY_PROVIDER_MAX_WAIT_TIME_SECONDS:21600}
+
 hibernate:
   types:
     print:
@@ -133,29 +141,61 @@ spring:
         order_updates: true
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
-  # RabbitMQ configuration
-  rabbitmq:
-    connection-timeout: 10000
-    host: ${RABBITMQ_HOST}
+  messaging:
+    broker-type: ${BROKER_TYPE:RABBITMQ}  # RABBITMQ or SERVICEBUS
+    broker-url: ${BROKER_URL:}
+    # Legacy RabbitMQ connection properties (used if broker-url is not set)
+    host: ${BROKER_HOST:}
+    port: ${BROKER_PORT:5672}
+    exchange: ${BROKER_EXCHANGE:czertainly}
+    # --- Authentication ---
+    # For RabbitMQ: username/password required
+    # For ServiceBus: either username/password (SAS) OR aad-auth (AAD) required
+    username: ${BROKER_USERNAME:}
+    password: ${BROKER_PASSWORD:}
+    aad-auth: # Azure Active Directory (Entra) authentication for ServiceBus
+      tenant-id: ${BROKER_AZURE_TENANT_ID:}
+      client-id: ${BROKER_AZURE_CLIENT_ID:}
+      client-secret: ${BROKER_AZURE_CLIENT_SECRET:}
+      token-refresh-interval: ${BROKER_AZURE_TOKEN_REFRESH_INTERVAL:300} # seconds
+      token-getting-timeout: ${BROKER_AZURE_TOKEN_GETTING_TIMEOUT:30} # seconds
+    amqp-idle-timeout: ${BROKER_AMQP_IDLE_TIMEOUT:120000} # 2 min, AMQP transport-level heartbeat
+    close-timeout: ${BROKER_CLOSE_TIMEOUT:2000} # ms, max time to wait for clean AMQP close handshake on connection failure
+    pool:
+      max-connections: ${BROKER_POOL_MAX_CONNECTIONS:5}
+      connection-idle-timeout: ${BROKER_POOL_CONNECTION_IDLE_TIMEOUT:30000}
+      connection-check-interval: ${BROKER_POOL_CONNECTION_CHECK_INTERVAL:60000}
+      max-sessions-per-connection: ${BROKER_POOL_MAX_SESSIONS:500}
+      use-anonymous-producers: ${BROKER_POOL_USE_ANONYMOUS_PRODUCERS:true}
+    # --- RabbitMQ specific ---
+    virtual-host: ${BROKER_VIRTUAL_HOST:}
+    # --- Listener/Producer settings ---
     listener:
-      simple:
-        default-requeue-rejected: false
-        # Do not stop the container if queues are briefly missing/mismatched on broker restart
-        missing-queues-fatal: false
-        mismatched-queues-fatal: false
-        prefetch: 3
-        recovery-interval: 5000
-        retry:
-          enabled: true
-          initial-interval: 3000
-          max-attempts: 3
-          max-interval: 10000
-          multiplier: 2
-    password: ${RABBITMQ_PASSWORD}
-    port: ${RABBITMQ_PORT:5672}
-    requested-heartbeat: 30
-    username: ${RABBITMQ_USERNAME}
-    virtual-host: ${RABBITMQ_VHOST:czertainly}
+      initial-interval: ${BROKER_LISTENER_INITIAL_INTERVAL:5000}
+      multiplier: ${BROKER_LISTENER_BACKOFF_MULTIPLIER:2.0}
+      max-interval: ${BROKER_LISTENER_MAX_INTERVAL:120000}
+    producer:
+      retry:
+        enabled: true
+        initial-interval: 3000
+        max-attempts: 3
+        max-interval: 10000
+        multiplier: 2
+    # --- Queue names (RabbitMQ) / Subscription names (ServiceBus) ---
+    queue:
+      actions: ${BROKER_QUEUE_ACTIONS:core.actions}
+      audit-logs: ${BROKER_QUEUE_AUDIT_LOGS:core.audit-logs}
+      event: ${BROKER_QUEUE_EVENT:core.events}
+      notification: ${BROKER_QUEUE_NOTIFICATION:core.notifications}
+      scheduler: ${BROKER_QUEUE_SCHEDULER:core.scheduler}
+      validation: ${BROKER_QUEUE_VALIDATION:core.validation}
+    routing-key:
+      actions: ${BROKER_ROUTINGKEY_ACTIONS:action}
+      audit-logs: ${BROKER_ROUTINGKEY_AUDIT_LOGS:audit-logs}
+      event: ${BROKER_ROUTINGKEY_EVENT:event}
+      notification: ${BROKER_ROUTINGKEY_NOTIFICATION:notification}
+      scheduler: ${BROKER_ROUTINGKEY_SCHEDULER:scheduler}
+      validation: ${BROKER_ROUTINGKEY_VALIDATION:validation}
   threads:
     virtual:
       enabled: true
@@ -170,6 +210,35 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+
+# Proxy configuration for connector communication via message queue
+proxy:
+  # Feature flag to enable/disable proxy messaging support
+  enabled: ${PROXY_ENABLED:false}
+  # Azure Service Bus topic / RabbitMQ exchange name for proxy messages
+  exchange: ${BROKER_PROXY_EXCHANGE:czertainly-proxy}
+  # Azure Service Bus subscription / RabbitMQ queue name for receiving responses
+  response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
+  # Unique identifier for this Core instance (defaults to hostname/pod name)
+  instance-id: ${PROXY_INSTANCE_ID:}
+  # Maximum time to wait for a response from the proxy
+  request-timeout: ${PROXY_REQUEST_TIMEOUT:30s}
+  # Maximum number of concurrent pending requests (prevents memory exhaustion)
+  max-pending-requests: ${PROXY_MAX_PENDING_REQUESTS:1000}
+
+# Provisioning API client configuration
+provisioning:
+  api:
+    url: ${PROVISIONING_API_URL}
+    api-key: ${PROVISIONING_API_KEY}
+    connect-timeout: ${PROVISIONING_CONNECT_TIMEOUT:500}
+    read-timeout: ${PROVISIONING_READ_TIMEOUT:10s}
+    installation-format: ${PROVISIONING_INSTALLATION_FORMAT:helm}
+    retry:
+      max-attempts: ${PROVISIONING_RETRY_MAX_ATTEMPTS:3}
+      delay: ${PROVISIONING_RETRY_DELAY:1000}
+      max-delay: ${PROVISIONING_RETRY_MAX_DELAY:5000}
+      multiplier: ${PROVISIONING_RETRY_MULTIPLIER:2}
 
 validation:
   crl:

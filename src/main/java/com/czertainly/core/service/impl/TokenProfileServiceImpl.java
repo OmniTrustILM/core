@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.cryptography.TokenInstanceApiClient;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -9,7 +9,7 @@ import com.czertainly.api.model.client.cryptography.tokenprofile.EditTokenProfil
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
 import com.czertainly.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
@@ -51,7 +51,7 @@ public class TokenProfileServiceImpl implements TokenProfileService {
     // Services & API Clients
     // --------------------------------------------------------------------------------
     private PermissionEvaluator permissionEvaluator;
-    private TokenInstanceApiClient tokenInstanceApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
     // --------------------------------------------------------------------------------
     // Repositories
@@ -75,8 +75,8 @@ public class TokenProfileServiceImpl implements TokenProfileService {
     }
 
     @Autowired
-    public void setTokenInstanceApiClient(TokenInstanceApiClient tokenInstanceApiClient) {
-        this.tokenInstanceApiClient = tokenInstanceApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -296,13 +296,13 @@ public class TokenProfileServiceImpl implements TokenProfileService {
             throw new ValidationException(ValidationError.create("Connector of the Entity is not available / deleted"));
         }
 
-        ConnectorDto connectorDto = tokenInstanceRef.getConnector().mapToDto();
+        ConnectorApiClientDto connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
 
         // validate first by connector
-        tokenInstanceApiClient.validateTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
+        connectorApiFactory.getTokenInstanceApiClient(connectorDto).validateTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);
 
         // list definitions
-        List<BaseAttribute> definitions = tokenInstanceApiClient.listTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
+        List<BaseAttribute> definitions = connectorApiFactory.getTokenInstanceApiClient(connectorDto).listTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid());
 
         // validate and update definitions with attribute engine
         attributeEngine.validateUpdateDataAttributes(tokenInstanceRef.getConnectorUuid(), null, definitions, attributes);
