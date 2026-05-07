@@ -127,7 +127,7 @@ public enum FilterField {
     // Location
     LOCATION_NAME(Resource.LOCATION, null, null, Location_.name, "Name", SearchFieldTypeEnum.STRING),
     LOCATION_ENTITY_INSTANCE(Resource.LOCATION, null, null, Location_.entityInstanceName, "Entity instance", SearchFieldTypeEnum.LIST),
-    LOCATION_ENABLED(Resource.LOCATION, null, null, Location_.enabled, "Enabled", SearchFieldTypeEnum.BOOLEAN),
+    LOCATION_ENABLED(Resource.LOCATION, null, null, Location_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     LOCATION_SUPPORT_MULTIPLE_ENTRIES(Resource.LOCATION, null, null, Location_.supportMultipleEntries, "Support multiple entries", SearchFieldTypeEnum.BOOLEAN),
     LOCATION_SUPPORT_KEY_MANAGEMENT(Resource.LOCATION, null, null, Location_.supportKeyManagement, "Support key management", SearchFieldTypeEnum.BOOLEAN),
 
@@ -192,7 +192,7 @@ public enum FilterField {
     SECRET_NAME(Resource.SECRET, null, null, Secret_.name, "Name", SearchFieldTypeEnum.STRING),
     SECRET_TYPE(Resource.SECRET, null, null, Secret_.type, "Type", SearchFieldTypeEnum.LIST, SecretType.class),
     SECRET_STATE(Resource.SECRET, null, null, Secret_.state, Constants.STATE, SearchFieldTypeEnum.LIST, SecretState.class),
-    SECRET_ENABLED(Resource.SECRET, null, null, Secret_.enabled, "Enabled", SearchFieldTypeEnum.BOOLEAN),
+    SECRET_ENABLED(Resource.SECRET, null, null, Secret_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     SECRET_GROUP_NAME(Resource.SECRET, Resource.GROUP, List.of(Secret_.groups), Group_.name, "Groups", SearchFieldTypeEnum.LIST, null, null, true, null),
     SECRET_OWNER(Resource.SECRET, Resource.USER, List.of(Secret_.owner), OwnerAssociation_.ownerUsername, "Owner", SearchFieldTypeEnum.LIST, null, null, true, null),
     SECRET_COMPLIANCE_STATUS(Resource.SECRET, null, null, Secret_.complianceStatus, "Compliance Status", SearchFieldTypeEnum.LIST, ComplianceStatus.class),
@@ -219,7 +219,7 @@ public enum FilterField {
 
     // TSP Profile
     TSP_PROFILE_NAME(Resource.TSP_PROFILE, null, null, TspProfile_.name, "Name", SearchFieldTypeEnum.STRING),
-    TSP_PROFILE_ENABLED(Resource.TSP_PROFILE, null, null, TspProfile_.enabled, "Enabled", SearchFieldTypeEnum.BOOLEAN),
+    TSP_PROFILE_ENABLED(Resource.TSP_PROFILE, null, null, TspProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     ;
 
     private static final FilterField[] VALUES;
@@ -271,6 +271,7 @@ public enum FilterField {
     private static class Constants {
         private static final String RESOURCE_OBJECTS_ARRAY = "objects[*]";
         public static final String STATE = "State";
+        public static final String ENABLED = "Enabled";
     }
 
 }

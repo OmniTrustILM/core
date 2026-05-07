@@ -190,7 +190,7 @@ public class TspProfileServiceImpl implements TspProfileService {
             TspProfile profile = null;
             try {
                 profile = getTspProfileEntity(uuid);
-                enableInOwnTransaction(profile);
+                self.enableInOwnTransaction(profile);
             } catch (Exception e) {
                 log.error("Failed to enable TSP Profile {}", uuid, e);
                 messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", e.getMessage()));
@@ -215,7 +215,7 @@ public class TspProfileServiceImpl implements TspProfileService {
             TspProfile profile = null;
             try {
                 profile = getTspProfileEntity(uuid);
-                disableInOwnTransaction(profile);
+                self.disableInOwnTransaction(profile);
             } catch (Exception e) {
                 log.error("Failed to disable TSP Profile {}", uuid, e);
                 messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", e.getMessage()));
@@ -304,7 +304,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     private TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
-        return tspProfileRepository.findById(uuid.getValue())
+        return tspProfileRepository.findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
     }
 

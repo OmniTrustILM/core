@@ -38,7 +38,7 @@ public class TspProfileControllerImpl implements TspProfileController {
     }
 
     @Override
-    @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.LIST)
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SEARCH_FILTER, affiliatedResource = Resource.TSP_PROFILE, operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return tspProfileService.getSearchableFieldInformation();
     }

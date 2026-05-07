@@ -14,6 +14,7 @@ import lombok.Setter;
 @Table(name = "tsp_profile")
 public class TspProfile extends UniquelyIdentifiedAndAudited implements Securable {
 
+    @Getter(onMethod_ = {@Override})
     @Column(name = "name", nullable = false)
     private String name;
 
@@ -22,4 +23,14 @@ public class TspProfile extends UniquelyIdentifiedAndAudited implements Securabl
 
     @Column(name = "enabled", nullable = false)
     private Boolean enabled = false;
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }
