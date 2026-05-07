@@ -36,6 +36,7 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
@@ -61,6 +62,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -169,6 +171,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
     private ApplicationEventPublisher applicationEventPublisher;
     private ValidationProducer validationProducer;
+    private AuthenticationCache authenticationCache;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -342,6 +345,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         this.applicationEventPublisher = applicationEventPublisher;
     }
 
+    @Autowired
+    public void setAuthenticationCache(AuthenticationCache authenticationCache) {
+        this.authenticationCache = authenticationCache;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.MEMBERS)
     public CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request) {
@@ -467,6 +475,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     public Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber) throws NotFoundException {
         return certificateRepository.findByIssuerDnNormalizedAndSerialNumber(issuerDn, serialNumber).orElseThrow(() -> new NotFoundException(Certificate.class, issuerDn + " " + serialNumber));
+    }
+
+    @Override
+    public Optional<Certificate> findCertificateEntityByUserUuid(UUID userUuid) {
+        return certificateRepository.findByUserUuid(userUuid);
     }
 
     @Override
@@ -1288,6 +1301,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             logger.warn("Unable to find the certificate with serialNumber {}", serialNumber);
         }
         if (certificate != null) {
+            if (certificate.getUserUuid() != null) {
+                authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
+            }
             eventProducer.produceMessage(CertificateStatusChangedEventHandler.constructEventMessage(certificate.getUuid(), oldStatus, CertificateValidationStatus.REVOKED));
         }
     }
@@ -1373,12 +1389,13 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (certificate.isArchived()) {
             throw new ValidationException("Certificate with UUID %s is archived and user with UUID %s cannot be set.".formatted(certificateUuid, userUuid));
         }
-        if (userUuid == null) {
-            certificate.setUserUuid(null);
-        } else {
-            certificate.setUserUuid(UUID.fromString(userUuid));
-        }
+        UUID oldUserUuid = certificate.getUserUuid();
+        UUID newUserUuid = userUuid == null ? null : UUID.fromString(userUuid);
+        certificate.setUserUuid(newUserUuid);
         certificateRepository.save(certificate);
+        if (oldUserUuid != null && !Objects.equals(oldUserUuid, newUserUuid)) {
+            authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
+        }
     }
 
     @Override
@@ -1388,6 +1405,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             Certificate certificate = certificateRepository.findByUserUuid(userUuid).orElseThrow(() -> new NotFoundException(Certificate.class, userUuid));
             certificate.setUserUuid(null);
             certificateRepository.save(certificate);
+            authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
         } catch (NotFoundException e) {
             logger.warn("No Certificate found for the user with UUID {}", userUuid);
         }
