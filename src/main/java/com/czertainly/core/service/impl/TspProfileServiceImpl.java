@@ -158,7 +158,7 @@ public class TspProfileServiceImpl implements TspProfileService {
                 profile = getTspProfileEntity(uuid);
                 self.deleteInOwnTransaction(profile);
             } catch (Exception e) {
-                log.error(e.getMessage());
+                log.error("Failed to delete TSP Profile {}", uuid, e);
                 messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", e.getMessage()));
             }
         }
