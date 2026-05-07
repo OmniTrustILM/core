@@ -1,5 +1,6 @@
 package com.czertainly.core.dao.entity;
 
+import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
 import com.czertainly.api.model.common.enums.BitMaskEnum;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
@@ -247,6 +248,23 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
 
     @Column(name = "archived")
     private boolean archived = false;
+
+    /**
+     * Preserves the {@code destroyKey} flag from a revocation request whose connector response
+     * was asynchronous. Read at manual revoke confirmation time, cleared on confirm or cancel.
+     * Always {@code null} outside the {@code PENDING_REVOKE} state.
+     */
+    @Column(name = "pending_revoke_destroy_key")
+    private Boolean pendingRevokeDestroyKey;
+
+    /**
+     * Preserves the revoke attributes from a revocation request whose connector response was
+     * asynchronous. Applied at manual revoke confirmation time, cleared on confirm or cancel.
+     * Always {@code null} outside the {@code PENDING_REVOKE} state.
+     */
+    @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<RequestAttribute> pendingRevokeAttributes;
 
     @OneToOne(fetch = FetchType.LAZY, mappedBy = "certificate", cascade = CascadeType.ALL)
     @ToString.Exclude

@@ -716,4 +716,72 @@ class LocationServiceTest extends BaseSpringBootTest {
         return raProfile;
     }
 
+    @Test
+    void pushCertificateToLocation_blocked_when_certInPendingRevoke() {
+        certificateWithoutLocation.setState(CertificateState.PENDING_REVOKE);
+        certificateRepository.save(certificateWithoutLocation);
+
+        PushToLocationRequestDto request = new PushToLocationRequestDto();
+        request.setAttributes(List.of());
+
+        SecuredParentUUID entityParent = entityInstanceReference.getSecuredParentUuid();
+        SecuredUUID locationSecured = location.getSecuredUuid();
+        String certUuid = certificateWithoutLocation.getUuid().toString();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
+                locationService.pushCertificateToLocation(entityParent, locationSecured, certUuid, request));
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("cannot push"),
+                "expected error mentioning push rejection, got: " + ex.getMessage());
+    }
+
+    @Test
+    void pushCertificateToLocation_blocked_when_certInFailed() {
+        certificateWithoutLocation.setState(CertificateState.FAILED);
+        certificateRepository.save(certificateWithoutLocation);
+
+        PushToLocationRequestDto request = new PushToLocationRequestDto();
+        request.setAttributes(List.of());
+
+        SecuredParentUUID entityParent = entityInstanceReference.getSecuredParentUuid();
+        SecuredUUID locationSecured = location.getSecuredUuid();
+        String certUuid = certificateWithoutLocation.getUuid().toString();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
+                locationService.pushCertificateToLocation(entityParent, locationSecured, certUuid, request));
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("cannot push"),
+                "expected error mentioning push rejection, got: " + ex.getMessage());
+    }
+
+    @Test
+    void pushCertificateToLocation_preAssociates_when_certInPendingIssue() throws Exception {
+        // PENDING_ISSUE certs have no certificate content yet; push should fall through to
+        // the pre-association path (cert content is pushed later when issuance finalizes).
+        certificateWithoutLocation.setState(CertificateState.PENDING_ISSUE);
+        certificateWithoutLocation.setCertificateContent(null);
+        certificateWithoutLocation.setCertificateContentId(null);
+        certificateRepository.save(certificateWithoutLocation);
+
+        // The pre-association path still consults the connector to learn the push/csr attribute
+        // schema (so it can persist the right shape); stub minimal empty schemas.
+        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes")).willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes")).willReturn(WireMock.okJson("[]")));
+
+        PushToLocationRequestDto request = new PushToLocationRequestDto();
+        request.setAttributes(List.of());
+
+        // Should not throw — cert is pre-associated to the location
+        Assertions.assertDoesNotThrow(() ->
+                locationService.pushCertificateToLocation(
+                        entityInstanceReference.getSecuredParentUuid(),
+                        location.getSecuredUuid(),
+                        certificateWithoutLocation.getUuid().toString(), request));
+
+        // Verify pre-association: the cert is now linked to the location in the DB.
+        // Query via certificateLocationRepository to avoid lazy-collection access outside a session.
+        long associations = certificateLocationRepository
+                .findByCertificateUuidIn(List.of(certificateWithoutLocation.getUuid())).stream()
+                .filter(cl -> cl.getLocation().getUuid().equals(location.getUuid()))
+                .count();
+        Assertions.assertEquals(1, associations,
+                "expected the PENDING_ISSUE certificate to be pre-associated with the location");
+    }
+
 }

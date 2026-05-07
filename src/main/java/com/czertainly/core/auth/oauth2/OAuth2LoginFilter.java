@@ -139,7 +139,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
     private void authenticate(HttpServletRequest request, Map<String, Object> claims, ClientRegistration clientRegistration) {
         AuthenticationInfo authInfo;
         try {
-            authInfo = authenticationClient.authenticate(AuthMethod.TOKEN, claims, false);
+            authInfo = authenticationClient.authenticateByToken(claims);
             CzertainlyAuthenticationToken authenticationToken = new CzertainlyAuthenticationToken(new CzertainlyUserDetails(authInfo));
             SecurityContextHolder.getContext().setAuthentication(authenticationToken);
             LOGGER.debug("Session of user '{}' logged using OAuth2 Provider '{}' has been successfully validated.", authenticationToken.getPrincipal().getUsername(), clientRegistration.getRegistrationId());

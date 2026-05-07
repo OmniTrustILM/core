@@ -22,6 +22,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +39,8 @@ public interface CertificateService extends ResourceExtensionService  {
     Certificate getCertificateEntityByFingerprint(String fingerprint) throws NotFoundException;
 
     Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber) throws NotFoundException;
+
+    Optional<Certificate> findCertificateEntityByUserUuid(UUID userUuid);
 
     boolean checkCertificateExistsByFingerprint(String fingerprint);
 

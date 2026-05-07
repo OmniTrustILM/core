@@ -7,6 +7,7 @@ import com.czertainly.core.service.cmp.message.PkiMessageDumper;
 import com.czertainly.core.service.cmp.message.protection.ProtectionStrategy;
 import com.czertainly.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1GeneralizedTime;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.DEROctetString;
@@ -314,5 +315,25 @@ public class PkiMessageBuilder {
                         "cannot generate response for given type, type=" + bodyType);
         }
         return new PKIBody(bodyType + 1, new CertRepMessage(caPubs, response));
+    }
+
+    /**
+     * Builds a {@code pollRep} body (RFC 4210 §5.2.6) signalling that the requested operation
+     * is pending asynchronous completion. The CMP client should retry the poll request after
+     * {@code checkAfterSeconds}.
+     *
+     * @param certReqId        the certificate-request ID echoed back to the client
+     * @param checkAfterSeconds polling interval the client should wait before re-polling
+     * @param reason           free-text reason (RFC 4210 allows informative text; may be null)
+     * @return a CMP {@code pollRep} body
+     */
+    public static PKIBody createPollRepBody(ASN1Integer certReqId,
+                                            long checkAfterSeconds,
+                                            String reason) {
+        PollRepContent pollRep = new PollRepContent(
+                certReqId,
+                new ASN1Integer(checkAfterSeconds),
+                reason == null ? null : new PKIFreeText(reason));
+        return new PKIBody(PKIBody.TYPE_POLL_REP, pollRep);
     }
 }

@@ -17,6 +17,8 @@ import org.springframework.security.core.GrantedAuthority;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -31,11 +33,15 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
     @Autowired
     private AuditLogService auditLogService;
 
+    @Autowired
+    private AuthenticationCache authenticationCache;
+
     // @formatter:off
     String RAW_DATA = "{" +
             "\"authenticated\": true," +
             "\"data\": {" +
             "\"user\": {" +
+            "\"uuid\": \"a1b2c3d4-0000-0000-0000-000000000001\"," +
             "\"username\": \"FrantisekJednicka\"," +
             "\"enabled\": true" +
             "}," +
@@ -54,7 +60,8 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
         String authServiceBaseUrl = "http://%s:%d".formatted(authServiceMock.getHostName(), authServiceMock.getPort());
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        czertainlyAuthenticationClient = new CzertainlyAuthenticationClient(auditLogService, objectMapper, authServiceBaseUrl);
+        czertainlyAuthenticationClient = new CzertainlyAuthenticationClient(auditLogService, objectMapper, authenticationCache, authServiceBaseUrl);
+        authenticationCache.evictAll();
     }
 
     @AfterAll
@@ -86,6 +93,7 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
         // @formatter:off
         assertEquals("{" +
                         "\"user\":{" +
+                        "\"uuid\":\"a1b2c3d4-0000-0000-0000-000000000001\"," +
                         "\"username\":\"FrantisekJednicka\"," +
                         "\"enabled\":true" +
                         "}," +
@@ -117,6 +125,149 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
 
         // then
         assertThrows(CzertainlyAuthenticationException.class, willThrow);
+    }
+
+    @Test
+    void throwsAuthenticationExceptionWhenServiceReturns500() {
+        // given
+        setUpFaultyResponse();
+
+        // when
+        Executable willThrow = () -> czertainlyAuthenticationClient.authenticate(AuthMethod.NONE, null, false);
+
+        // then
+        assertThrows(CzertainlyAuthenticationException.class, willThrow);
+    }
+
+    // --- authenticateSystemUser ---
+
+    @Test
+    void authenticateSystemUser_cacheMiss_callsAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+
+        // when
+        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateSystemUser("superadmin");
+
+        // then
+        assertEquals("FrantisekJednicka", result.getUsername());
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    @Test
+    void authenticateSystemUser_cacheHit_doesNotCallAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateSystemUser("superadmin"); // prime the cache
+
+        // when
+        czertainlyAuthenticationClient.authenticateSystemUser("superadmin");
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    // --- authenticateByUserUuid ---
+
+    @Test
+    void authenticateByUserUuid_cacheMiss_callsAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        UUID userUuid = UUID.randomUUID();
+
+        // when
+        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+
+        // then
+        assertEquals("FrantisekJednicka", result.getUsername());
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    @Test
+    void authenticateByUserUuid_cacheHit_doesNotCallAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        UUID userUuid = UUID.randomUUID();
+        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid); // prime the cache
+
+        // when
+        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    // --- authenticateByCertificate ---
+
+    @Test
+    void authenticateByCertificate_cacheMiss_callsAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+
+        // when
+        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc");
+
+        // then
+        assertEquals("FrantisekJednicka", result.getUsername());
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    @Test
+    void authenticateByCertificate_cacheHit_doesNotCallAuthService() {
+        // given - cache key is the fingerprint, not the raw cert content
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc"); // prime the cache
+
+        // when - same fingerprint, different raw content; the cache should serve the result
+        czertainlyAuthenticationClient.authenticateByCertificate("OTHER_CERT_CONTENT", "sha256-fingerprint-abc");
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    // --- authenticateByToken ---
+
+    @Test
+    void authenticateByToken_cacheMiss_callsAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        Map<String, Object> claims = Map.of("jti", "jti-test-123");
+
+        // when
+        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByToken(claims);
+
+        // then
+        assertEquals("FrantisekJednicka", result.getUsername());
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    @Test
+    void authenticateByToken_cacheHit_doesNotCallAuthService() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        Map<String, Object> claims = Map.of("jti", "jti-test-123");
+        czertainlyAuthenticationClient.authenticateByToken(claims); // prime the cache
+
+        // when
+        czertainlyAuthenticationClient.authenticateByToken(claims);
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+    }
+
+    @Test
+    void authenticateByToken_nullJti_alwaysCallsAuthService() {
+        // given - tokens without a jti claim cannot be uniquely identified, so caching is always skipped
+        setUpSuccessfulAuthenticationResponse();
+        setUpSuccessfulAuthenticationResponse();
+        Map<String, Object> claimsWithoutJti = Map.of("sub", "user-123");
+
+        // when
+        czertainlyAuthenticationClient.authenticateByToken(claimsWithoutJti);
+        czertainlyAuthenticationClient.authenticateByToken(claimsWithoutJti);
+
+        // then
+        assertEquals(2, authServiceMock.getRequestCount());
     }
 
     RecordedRequest getLastRequest() throws InterruptedException {

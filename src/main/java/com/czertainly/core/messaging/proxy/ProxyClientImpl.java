@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -18,6 +19,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -33,6 +35,16 @@ import java.util.concurrent.TimeoutException;
 @Component
 @ConditionalOnProperty(name = "proxy.enabled", havingValue = "true")
 public class ProxyClientImpl implements ProxyClient {
+
+    /**
+     * Slack added on top of {@link ProxyProperties#requestTimeout()} when waiting for the
+     * MQ-correlated response future. Covers the round-trip overhead (publish → broker dispatch
+     * → proxy worker → response correlation) so the {@code future.get} on the caller side does
+     * not give up on a request that the upstream connector is still completing within its own
+     * configured budget. Tunable per-environment; the 5 s default reflects observed broker +
+     * deserialization overhead.
+     */
+    private static final long MESSAGE_ROUND_TRIP_BUFFER_MS = 5_000L;
 
     private final CoreMessageProducer producer;
     private final ProxyMessageCorrelator correlator;
@@ -86,6 +98,81 @@ public class ProxyClientImpl implements ProxyClient {
         return sendRequest(connector, path, method, pathVariables, body, responseType, proxyProperties.requestTimeout());
     }
 
+    @Override
+    public <T> ResponseEntity<T> sendRequestForEntity(
+            ApiClientConnectorInfo connector,
+            String path,
+            String method,
+            Object body,
+            Class<T> responseType) throws ConnectorException {
+        Duration timeout = proxyProperties.requestTimeout();
+        try {
+            CompletableFuture<ResponseEntity<T>> future =
+                    sendRequestForEntityAsync(connector, path, method, body, responseType, timeout);
+            return future.get(timeout.toMillis() + MESSAGE_ROUND_TRIP_BUFFER_MS, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw new ConnectorCommunicationException(
+                    "Proxy request timed out after " + timeout, e, connector);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof CompletionException ce && ce.getCause() != null) {
+                cause = ce.getCause();
+            }
+            if (cause instanceof ConnectorException ce) {
+                throw ce;
+            }
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new ConnectorCommunicationException(
+                    "Proxy request failed: " + cause.getMessage(), cause, connector);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ConnectorCommunicationException(
+                    "Proxy request interrupted", e, connector);
+        }
+    }
+
+    private <T> CompletableFuture<ResponseEntity<T>> sendRequestForEntityAsync(
+            ApiClientConnectorInfo connector,
+            String path,
+            String method,
+            Object body,
+            Class<T> responseType,
+            Duration timeout) {
+
+        String correlationId = UUID.randomUUID().toString();
+        String proxyCode = connector.getProxy() != null ? connector.getProxy().getCode() : null;
+
+        if (proxyCode == null || proxyCode.isBlank()) {
+            throw new IllegalArgumentException("Connector proxy code must be set to use ProxyClient");
+        }
+
+        String resolvedPath = resolvePath(path, null);
+
+        log.debug("Sending async proxy request (entity) correlationId={} proxyCode={} method={} path={}",
+                correlationId, proxyCode, method, resolvedPath);
+
+        CoreMessage message = CoreMessage.builder()
+                .correlationId(correlationId)
+                .messageType(toMessageType(method, resolvedPath))
+                .timestamp(Instant.now())
+                .connectorRequest(ConnectorRequest.builder()
+                        .connectorUrl(connector.getUrl())
+                        .method(method)
+                        .path(resolvedPath)
+                        .connectorAuth(authConverter.convert(connector))
+                        .body(body)
+                        .timeout(formatTimeout(timeout))
+                        .build())
+                .build();
+
+        CompletableFuture<ProxyMessage> messageFuture = correlator.registerRequest(correlationId, timeout);
+        producer.send(message, proxyCode);
+
+        return messageFuture.thenApply(proxyMessage -> handleResponseForEntity(proxyMessage, responseType, connector));
+    }
+
     private <T> T sendRequest(
             ApiClientConnectorInfo connector,
             String path,
@@ -98,7 +185,7 @@ public class ProxyClientImpl implements ProxyClient {
             CompletableFuture<T> future = sendRequestAsync(
                     connector, path, method, pathVariables, body, responseType, timeout);
 
-            return future.get(timeout.toMillis() + 5000, TimeUnit.MILLISECONDS);
+            return future.get(timeout.toMillis() + MESSAGE_ROUND_TRIP_BUFFER_MS, TimeUnit.MILLISECONDS);
 
         } catch (TimeoutException e) {
             throw new ConnectorCommunicationException(
@@ -106,7 +193,7 @@ public class ProxyClientImpl implements ProxyClient {
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             // CompletableFuture.thenApply wraps thrown exceptions in CompletionException
-            if (cause instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null) {
+            if (cause instanceof CompletionException ce && ce.getCause() != null) {
                 cause = ce.getCause();
             }
             if (cause instanceof ConnectorException ce) {
@@ -192,6 +279,55 @@ public class ProxyClientImpl implements ProxyClient {
 
         // Transform the response
         return messageFuture.thenApply(proxyMessage -> handleResponse(proxyMessage, responseType, connector));
+    }
+
+    /**
+     * Handle proxy message preserving the upstream HTTP status. Returns a
+     * {@link ResponseEntity} so callers can distinguish 200 OK (synchronous completion)
+     * from 202 Accepted (asynchronous completion). Body is {@code null} when the upstream
+     * response had no body (e.g. 204 No Content) or when the upstream response was 202
+     * with an empty body.
+     */
+    private <T> ResponseEntity<T> handleResponseForEntity(ProxyMessage message, Class<T> responseType, ApiClientConnectorInfo connector) {
+        ConnectorResponse response = message.getConnectorResponse();
+
+        if (response == null) {
+            if (message.isHealthCheck()) {
+                return ResponseEntity.ok().build();
+            }
+            sneakyThrow(new ConnectorCommunicationException(
+                    "Received proxy message without connector response", connector));
+            return null;
+        }
+
+        if (response.hasError()) {
+            throwProxyError(response, connector);
+        }
+
+        int statusCode = response.getStatusCode();
+        if (statusCode >= 400) {
+            throwHttpError(response, connector);
+        }
+
+        HttpStatus status = HttpStatus.resolve(statusCode);
+        if (status == null) {
+            // Defensive: an unrecognised 1xx/2xx/3xx — treat as 200 to keep contract simple.
+            status = HttpStatus.OK;
+        }
+
+        T body = null;
+        if (responseType != Void.class && responseType != void.class && response.getBody() != null) {
+            try {
+                body = objectMapper.convertValue(response.getBody(), responseType);
+            } catch (Exception e) {
+                sneakyThrow(new ConnectorCommunicationException(
+                        "Failed to deserialize proxy response body to " + responseType.getSimpleName(),
+                        e, connector));
+                return null;
+            }
+        }
+
+        return ResponseEntity.status(status).body(body);
     }
 
     /**

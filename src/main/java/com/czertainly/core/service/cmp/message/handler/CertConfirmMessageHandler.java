@@ -152,7 +152,8 @@ public class CertConfirmMessageHandler implements MessageHandler<PKIMessage> {
         }
 
         if (!confirmed) {
-            LOG.error("TID={}, FP={} | given transactionId and related certificate are not found", tid, incomingFingerprint);
+            LOG.warn("TID={}, FP={} | certConf fingerprint does not match any certificate in this transaction",
+                    tid, incomingFingerprint);
             throw new CmpProcessingException(tid, PKIFailureInfo.badCertId,
                     ImplFailureInfo.CMPHANCERTCONF002);
         }
@@ -171,8 +172,9 @@ public class CertConfirmMessageHandler implements MessageHandler<PKIMessage> {
             digester.getOutputStream().write(x509Cert.getEncoded());
             return new DEROctetString(digester.getDigest());
         } catch (Exception e) {
+            LOG.error("TID={} | failed to compute certificate fingerprint", tid, e);
             throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
-                    "problem to compute certificate fingerprint (cert hash)");
+                    "problem to compute certificate fingerprint (cert hash): " + e.getMessage(), e);
         }
     }
 }
