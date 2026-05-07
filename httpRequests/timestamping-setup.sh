@@ -3,17 +3,17 @@
 #
 # Automates the ILM timestamping environment setup:
 #   1. Creates four connectors (credential-provider, EJBCA, crypto-provider, signature-formatter)
-#   2. Uploads the CA certificate and marks it trusted
-#   3. Creates a SoftKeyStore credential from a PKCS12 bundle
-#   4. Creates an EJBCA authority instance
-#   5. Creates a soft token
-#   6. Creates a token profile
-#   7. Creates a Time Quality configuration (used by the qualified signing profile)
+#   2. Creates a SoftKeyStore credential from a PKCS12 bundle
+#   3. Creates an EJBCA authority instance
+#   4. Creates a soft token
+#   5. Creates a token profile
+#   6. Creates a Time Quality configuration (used by the qualified signing profile)
 #   For each of two sets (non-qualified / qualified):
-#       8. Creates an RSA 2048 key pair
-#       9. Creates an RA profile (resolving EJBCA profile IDs dynamically)
-#      10. Issues a TSA certificate with the requested DN suffix
-#      11. Polls for certificate issuance completion
+#       7. Creates an RSA 2048 key pair
+#       8. Creates an RA profile (resolving EJBCA profile IDs dynamically)
+#       9. Issues a TSA certificate with the requested DN suffix
+#      10. Polls for certificate issuance completion
+#      11. Trusts the certificate chain (marks root CA as trusted, triggers validation)
 #      12. Creates and enables a TSP profile
 #      13. Creates and enables a Signing Profile
 #          (qualified profile links to the Time Quality configuration)
@@ -63,11 +63,11 @@ POLICY_ID_QUALIFIED="1.2.3.4.5.7"
 TIME_QUALITY_CONFIG_NAME="time-quality"
 TIME_QUALITY_NTP_SERVERS="localhost"       # comma-separated list, e.g. "pool.ntp.org,time.cloudflare.com"
 TIME_QUALITY_ACCURACY="PT1S"
-TIME_QUALITY_NTP_CHECK_INTERVAL="PT10S"
-TIME_QUALITY_NTP_CHECK_TIMEOUT="PT5S"
-TIME_QUALITY_NTP_SAMPLES_PER_SERVER=4
+TIME_QUALITY_NTP_CHECK_INTERVAL="PT0.5S"
+TIME_QUALITY_NTP_CHECK_TIMEOUT="PT0.3S"
+TIME_QUALITY_NTP_SAMPLES_PER_SERVER=3
 TIME_QUALITY_NTP_SERVERS_MIN_REACHABLE=1
-TIME_QUALITY_MAX_CLOCK_DRIFT="PT1S"
+TIME_QUALITY_MAX_CLOCK_DRIFT="PT0.8S"
 TIME_QUALITY_LEAP_SECOND_GUARD=true
 
 CERT_POLL_ATTEMPTS=20  # max poll attempts for certificate issuance
@@ -79,7 +79,6 @@ CRED_CONN_UUID=""
 EJBCA_CONN_UUID=""
 CRYPTO_CONN_UUID=""
 FORMATTER_CONN_UUID=""
-CA_CERT_UUID=""
 CRED_UUID=""
 AUTH_UUID=""
 TOKEN_UUID=""
@@ -112,7 +111,6 @@ Usage: $(basename "$0") [options]
 Required:
   --client-cert-pem FILE      ILM admin client certificate PEM
   --pkcs12-bundle FILE        Path to PKCS12 bundle with EJBCA client credentials
-  --ca-pem FILE               Path to CA certificate PEM to upload and mark trusted
   --certificate-dn PREFIX     DN prefix for TSA certificates.
                               Actual CNs will be <PREFIX>-non-qualified and <PREFIX>-qualified.
 
@@ -246,7 +244,6 @@ parse_args() {
       --pkcs12-bundle)                          PKCS12_BUNDLE="$2";                          shift 2 ;;
       --pkcs12-password)                        PKCS12_PASSWORD="$2";                        shift 2 ;;
       --token-password)                         TOKEN_PASSWORD="$2";                         shift 2 ;;
-      --ca-pem)                                 CA_PEM="$2";                                 shift 2 ;;
       --certificate-dn)                         CERTIFICATE_DN="$2";                         shift 2 ;;
       --ejbca-url)                              EJBCA_URL="$2";                              shift 2 ;;
       --connector-host)                         CONNECTOR_HOST="$2";                         shift 2 ;;
@@ -290,13 +287,11 @@ parse_args() {
 validate() {
   local errors=0
   [[ -z "$PKCS12_BUNDLE" ]]    && { echo "ERROR: --pkcs12-bundle is required";    errors=$((errors+1)); }
-  [[ -z "$CA_PEM" ]]           && { echo "ERROR: --ca-pem is required";           errors=$((errors+1)); }
   [[ -z "$CERTIFICATE_DN" ]]   && { echo "ERROR: --certificate-dn is required";   errors=$((errors+1)); }
   [[ -z "$CLIENT_CERT_PEM" ]]  && { echo "ERROR: --client-cert-pem is required";  errors=$((errors+1)); }
   [[ $errors -gt 0 ]] && usage
 
   [[ ! -f "$PKCS12_BUNDLE" ]]   && { echo "ERROR: PKCS12 bundle not found: $PKCS12_BUNDLE"; exit 1; }
-  [[ ! -f "$CA_PEM" ]]          && { echo "ERROR: CA PEM not found: $CA_PEM"; exit 1; }
   [[ ! -f "$CLIENT_CERT_PEM" ]] && { echo "ERROR: Client cert PEM not found: $CLIENT_CERT_PEM"; exit 1; }
 
   command -v jq     &>/dev/null || { echo "ERROR: jq is required but not installed";     exit 1; }
@@ -343,25 +338,7 @@ setup_connectors() {
   ok "signature-formatter  $FORMATTER_CONN_UUID"
 }
 
-# --- Step 2: CA certificate upload --------------------------------------------
-upload_ca_cert() {
-  local _resp ca_cert_b64
-
-  log "Uploading CA certificate from $(basename "$CA_PEM")..."
-  # The API expects a base64-encoded DER or PEM; strip PEM headers and re-encode to plain base64
-  ca_cert_b64=$(sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' "$CA_PEM" \
-    | grep -v "^-----" | tr -d '\n\r')
-  _resp=$(ilm_curl POST /v1/certificates/upload -d \
-    "$(jq -n --arg cert "$ca_cert_b64" '{certificate: $cert, customAttributes: []}')")
-  CA_CERT_UUID=$(require_uuid "$_resp" "CA certificate upload")
-  ok "CA certificate  $CA_CERT_UUID"
-
-  log "Marking CA certificate as trusted..."
-  ilm_curl PATCH "/v1/certificates/${CA_CERT_UUID}" -d '{"trustedCa": true}' >/dev/null
-  ok "CA certificate marked trusted"
-}
-
-# --- Step 3: Credential -------------------------------------------------------
+# --- Step 2: Credential -------------------------------------------------------
 setup_credential() {
   local _resp cred_attr_defs ks_type_uuid ks_pass_uuid ks_file_uuid pkcs12_b64 pkcs12_filename
 
@@ -419,7 +396,7 @@ setup_credential() {
   ok "credential  $CRED_UUID"
 }
 
-# --- Step 4: Authority --------------------------------------------------------
+# --- Step 3: Authority --------------------------------------------------------
 setup_authority() {
   local _resp auth_attr_defs auth_url_uuid auth_cred_uuid
 
@@ -465,7 +442,7 @@ setup_authority() {
   ok "authority  $AUTH_UUID"
 }
 
-# --- Step 5: Token ------------------------------------------------------------
+# --- Step 4: Token ------------------------------------------------------------
 setup_token() {
   local _resp token_attr_defs tok_action_uuid tok_name_uuid tok_code_uuid
 
@@ -518,7 +495,7 @@ setup_token() {
   ok "token  $TOKEN_UUID"
 }
 
-# --- Step 6: Token profile ----------------------------------------------------
+# --- Step 5: Token profile ----------------------------------------------------
 setup_token_profile() {
   local _resp
 
@@ -536,7 +513,7 @@ setup_token_profile() {
   ok "token profile enabled"
 }
 
-# --- Step 7: Time Quality configuration --------------------------------------
+# --- Step 6: Time Quality configuration --------------------------------------
 setup_time_quality_config() {
   local _resp ntp_servers_json
 
@@ -572,7 +549,7 @@ setup_time_quality_config() {
   ok "Time Quality configuration  $TIME_QUALITY_UUID"
 }
 
-# --- Step 8: Key pair ---------------------------------------------------------
+# --- Step 7: Key pair ---------------------------------------------------------
 # Usage: setup_key_pair <key_name> <out_key_uuid_var> <out_priv_item_uuid_var>
 setup_key_pair() {
   local key_name="$1" out_key_uuid="$2" out_priv_item_uuid="$3"
@@ -652,7 +629,7 @@ setup_key_pair() {
   printf -v "$out_priv_item_uuid" '%s' "$_priv_uuid"
 }
 
-# --- Step 9: RA profile (with dynamic EJBCA profile lookup) -------------------
+# --- Step 8: RA profile (with dynamic EJBCA profile lookup) -------------------
 # Usage: setup_ra_profile <ra_name> <cert_profile_name> <out_ra_profile_uuid_var>
 setup_ra_profile() {
   local ra_name="$1" ejbca_cert_profile="$2" out_ra_uuid="$3"
@@ -796,7 +773,7 @@ setup_ra_profile() {
   printf -v "$out_ra_uuid" '%s' "$_ra_uuid"
 }
 
-# --- Step 10: Issue TSA certificate --------------------------------------------
+# --- Step 9: Issue TSA certificate --------------------------------------------
 # Usage: issue_certificate <cn> <key_uuid> <priv_item_uuid> <ra_profile_uuid> <out_cert_uuid_var>
 issue_certificate() {
   local cn="$1" key_uuid="$2" priv_item_uuid="$3" ra_profile_uuid="$4" out_cert_uuid="$5"
@@ -861,7 +838,7 @@ issue_certificate() {
   printf -v "$out_cert_uuid" '%s' "$_cert_uuid"
 }
 
-# --- Step 11: Poll for certificate issuance result ----------------------------
+# --- Step 10: Poll for certificate issuance result ----------------------------
 # Usage: poll_certificate <cert_uuid> <cn>
 poll_certificate() {
   local cert_uuid="$1" cn="$2"
@@ -906,28 +883,120 @@ poll_certificate() {
 # --- Trust the certificate chain ----------------------------------------------
 # Usage: trust_certificate_chain <cert_uuid>
 #
-# Walks issuerCertificateUuid upward from <cert_uuid> and marks every CA
-# certificate in the chain as trustedCa=true.  Required before creating a
-# signing profile: CZERTAINLY rejects a certificate whose issuer chain is not
-# fully trusted.
+# Walks issuerCertificateUuid upward from <cert_uuid> and marks the root CA as
+# trustedCa=true. Then waits for the certificate to be re-validated as VALID.
+# Required before creating a signing profile: CZERTAINLY rejects certificates
+# whose issuer chain is not fully trusted or whose validation status is not VALID.
 trust_certificate_chain() {
   local cert_uuid="$1"
-  local current_uuid cert_details
+  log "Trusting certificate chain for ${cert_uuid}..."
 
-  current_uuid=$(ilm_curl GET "/v1/certificates/${cert_uuid}" \
-    | jq -r '.issuerCertificateUuid // empty')
+  local root_uuid
+  root_uuid=$(find_root_certificate "$cert_uuid")
+  [[ -z "$root_uuid" ]] && return 0
+
+  mark_certificate_as_trusted "$root_uuid"
+  wait_for_certificate_validation "$cert_uuid"
+  ok "Certificate chain trusted and validated"
+}
+
+# find_root_certificate <cert_uuid>
+# Returns the UUID of the root CA, or empty if cert is self-signed.
+find_root_certificate() {
+  local cert_uuid="$1"
+  local current_uuid
+
+  current_uuid=$(wait_for_issuer_linkage "$cert_uuid")
+  [[ -z "$current_uuid" ]] && return 0
 
   while [[ -n "$current_uuid" ]]; do
-    log "Marking issuer certificate ${current_uuid} as trusted CA..."
-    ilm_curl PATCH "/v1/certificates/${current_uuid}" -d '{"trustedCa": true}' >/dev/null
-    ok "Issuer certificate ${current_uuid} marked trusted"
+    local cert_details next_uuid
+    cert_details=$(ilm_curl GET "/v1/certificates/${current_uuid}")
+    next_uuid=$(echo "$cert_details" | jq -r '.issuerCertificateUuid // empty')
 
-    current_uuid=$(ilm_curl GET "/v1/certificates/${current_uuid}" \
-      | jq -r '.issuerCertificateUuid // empty')
+    if [[ -z "$next_uuid" ]]; then
+      echo "$current_uuid"
+      return 0
+    fi
+
+    log "  Skipping intermediate ${current_uuid}..."
+    current_uuid="$next_uuid"
   done
 }
 
-# --- Step 12: TSP profile -----------------------------------------------------
+# wait_for_issuer_linkage <cert_uuid>
+# Polls until issuerCertificateUuid is available; returns issuer UUID or empty for self-signed.
+wait_for_issuer_linkage() {
+  local cert_uuid="$1"
+  local cert_details current_uuid attempt
+
+  for (( attempt=1; attempt<=10; attempt++ )); do
+    cert_details=$(ilm_curl GET "/v1/certificates/${cert_uuid}")
+    current_uuid=$(echo "$cert_details" | jq -r '.issuerCertificateUuid // empty')
+
+    [[ -n "$current_uuid" ]] && { echo "$current_uuid"; return 0; }
+
+    if is_self_signed "$cert_details"; then
+      ok "Certificate is self-signed (subjectDn == issuerDn), no chain to trust"
+      return 0
+    fi
+
+    if [[ $attempt -lt 10 ]]; then
+      log "  Issuer linkage not yet available, waiting... (${attempt}/10)"
+      sleep 0.5
+    else
+      local issuer
+      issuer=$(echo "$cert_details" | jq -r '.issuerDn // empty')
+      die "Certificate ${cert_uuid} has issuerDn='${issuer}' but issuerCertificateUuid is still empty after ${attempt} attempts. Issuer cert may not be in the platform."
+    fi
+  done
+}
+
+# is_self_signed <cert_details_json>
+is_self_signed() {
+  local cert_details="$1"
+  local subject issuer
+  subject=$(echo "$cert_details" | jq -r '.subjectDn // empty')
+  issuer=$(echo "$cert_details" | jq -r '.issuerDn // empty')
+  [[ "$subject" == "$issuer" ]]
+}
+
+# mark_certificate_as_trusted <root_uuid>
+mark_certificate_as_trusted() {
+  local root_uuid="$1"
+  log "  Found root certificate ${root_uuid}, marking as trusted..."
+  ilm_curl PATCH "/v1/certificates/${root_uuid}" -d '{"trustedCa": true}' >/dev/null
+  ok "  Root certificate ${root_uuid} marked trusted"
+}
+
+# wait_for_certificate_validation <cert_uuid>
+# Polls until the certificate validationStatus becomes VALID after trusting the chain.
+# Marking the root CA as trusted does NOT automatically trigger re-validation, so we
+# explicitly request validation results which triggers validation as a side effect.
+wait_for_certificate_validation() {
+  local cert_uuid="$1"
+  local validation_result validation_status attempt
+
+  log "  Waiting for certificate ${cert_uuid} to be re-validated..."
+  for (( attempt=1; attempt<=20; attempt++ )); do
+    # Request validation result; this endpoint triggers validation if not recent
+    validation_result=$(ilm_curl GET "/v1/certificates/${cert_uuid}/validate")
+    validation_status=$(echo "$validation_result" | jq -r '.resultStatus // empty')
+
+    if [[ "$validation_status" == "valid" || "$validation_status" == "expiring" ]]; then
+      ok "  Certificate validation status: ${validation_status}"
+      return 0
+    fi
+
+    if [[ $attempt -lt 20 ]]; then
+      sleep 0.5
+    else
+      die "Certificate ${cert_uuid} validation status is '${validation_status}' after ${attempt} attempts (expected 'valid' or 'expiring'). Validation result: ${validation_result}"
+    fi
+  done
+}
+
+# --- Step 11: TSP profile -----------------------------------------------------
 # Usage: setup_tsp_profile <name> <out_tsp_uuid_var>
 setup_tsp_profile() {
   local tsp_name="$1" out_tsp_uuid="$2"
@@ -946,7 +1015,7 @@ setup_tsp_profile() {
   printf -v "$out_tsp_uuid" '%s' "$_tsp_uuid"
 }
 
-# --- Step 13: Signing Profile -------------------------------------------------
+# --- Step 12: Signing Profile -------------------------------------------------
 # Usage: setup_signing_profile <sp_name> <cert_uuid> <policy_oid> <time_quality_uuid> <formatter_conn_uuid> <out_sp_uuid_var>
 #
 # Pass a non-empty <time_quality_uuid> for the qualified profile to enable
@@ -1035,7 +1104,7 @@ setup_signing_profile() {
   printf -v "$out_sp_uuid" '%s' "$_sp_uuid"
 }
 
-# --- Step 14: Link Signing Profile ↔ TSP Profile (bidirectional) ---------------
+# --- Step 13: Link Signing Profile ↔ TSP Profile (bidirectional) ---------------
 # Usage: link_tsp_signing_profile <tsp_uuid> <tsp_name> <sp_uuid>
 #
 # Direction 1: TSP profile → Signing Profile (sets defaultSigningProfileUuid)
@@ -1078,7 +1147,6 @@ Setup complete. Created resources:
     connector       ejbca-ng-connector              $EJBCA_CONN_UUID
     connector       software-cryptography-provider  $CRYPTO_CONN_UUID
     connector       $FORMATTER_CONNECTOR_NAME       $FORMATTER_CONN_UUID
-    ca-cert         $(basename "$CA_PEM") (trusted) $CA_CERT_UUID
     credential      $CREDENTIAL_NAME                $CRED_UUID
     authority       $AUTHORITY_NAME                 $AUTH_UUID
     token           $TOKEN_NAME                     $TOKEN_UUID
@@ -1106,7 +1174,6 @@ main() {
   parse_args "$@"
   validate
   setup_connectors
-  upload_ca_cert
   setup_credential
   setup_authority
   setup_token
