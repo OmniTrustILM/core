@@ -136,7 +136,7 @@ class EventHandlersTest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     @Test
-    void testCertificateStatusChangedAndApprovalEvents() throws EventException, NotFoundException, AlreadyExistException {
+    void testCertificateStatusChangedAndApprovalEvents() throws EventException, NotFoundException, AlreadyExistException, AttributeException {
         Group group = new Group();
         group.setName("TestGroup");
         group.setEmail("grouptest@example.com");
@@ -166,6 +166,8 @@ class EventHandlersTest extends BaseSpringBootTest {
 
         associationService.setGroups(Resource.CERTIFICATE, certificate.getUuid(), Set.of(group.getUuid()));
 
+        addTriggerToRaProfile(raProfile);
+
         certificateService.validate(certificate);
         certificateStatusChangedEventHandler.handleEvent(CertificateStatusChangedEventHandler.constructEventMessage(certificate.getUuid(), CertificateValidationStatus.INACTIVE, certificate.getValidationStatus()));
         List<CertificateEventHistoryDto> historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getUuid());
@@ -173,7 +175,7 @@ class EventHandlersTest extends BaseSpringBootTest {
         Assertions.assertEquals(CertificateEvent.UPDATE_VALIDATION_STATUS, historyList.getFirst().getEvent());
 
         List<EventHistory> eventHistories = eventHistoryRepository.findAll();
-        Assertions.assertEquals(0, eventHistories.size()); // no triggers are set, so no event history
+        Assertions.assertEquals(1, eventHistories.size()); // one trigger associated with RA profile fired
 
         ApprovalProfileRequestDto approvalProfileRequestDto = new ApprovalProfileRequestDto();
         approvalProfileRequestDto.setName("TestApprovalProfile");
@@ -210,6 +212,83 @@ class EventHandlersTest extends BaseSpringBootTest {
         historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getUuid());
         Assertions.assertEquals(3, historyList.size());
         Assertions.assertEquals(CertificateEvent.APPROVAL_CLOSE, historyList.getFirst().getEvent());
+
+        mockServer.stop();
+    }
+
+    private void addTriggerToRaProfile(RaProfile raProfile) throws AttributeException, AlreadyExistException, NotFoundException {
+        // register custom attribute for SET_FIELD execution
+        CustomAttributeV3 certAttr = new CustomAttributeV3();
+        certAttr.setUuid(UUID.randomUUID().toString());
+        certAttr.setName("category");
+        certAttr.setType(AttributeType.CUSTOM);
+        certAttr.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties customProps = new CustomAttributeProperties();
+        customProps.setLabel("Certificate Category");
+        certAttr.setProperties(customProps);
+        attributeEngine.updateCustomAttributeDefinition(certAttr, List.of(Resource.CERTIFICATE));
+
+        // create condition: certificate state is ISSUED
+        ConditionItemRequestDto conditionItemRequest = new ConditionItemRequestDto();
+        conditionItemRequest.setFieldSource(FilterFieldSource.PROPERTY);
+        conditionItemRequest.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
+        conditionItemRequest.setOperator(FilterConditionOperator.EQUALS);
+        conditionItemRequest.setValue(CertificateState.ISSUED.name());
+
+        ConditionRequestDto conditionRequest = new ConditionRequestDto();
+        conditionRequest.setName("IssuedCertificateCondition");
+        conditionRequest.setResource(Resource.CERTIFICATE);
+        conditionRequest.setType(ConditionType.CHECK_FIELD);
+        conditionRequest.setItems(List.of(conditionItemRequest));
+        ConditionDto condition = ruleService.createCondition(conditionRequest);
+
+        // create rule
+        RuleRequestDto ruleRequest = new RuleRequestDto();
+        ruleRequest.setName("IssuedCertificateRule");
+        ruleRequest.setResource(Resource.CERTIFICATE);
+        ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
+        RuleDetailDto rule = ruleService.createRule(ruleRequest);
+
+        // create execution
+        ExecutionItemRequestDto executionItemRequest = new ExecutionItemRequestDto();
+        executionItemRequest.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItemRequest.setFieldIdentifier("%s|%s".formatted(certAttr.getName(), certAttr.getContentType().name()));
+        executionItemRequest.setData("important");
+
+        ExecutionRequestDto executionRequest = new ExecutionRequestDto();
+        executionRequest.setName("CategorizeIssuedCertExecution");
+        executionRequest.setResource(Resource.CERTIFICATE);
+        executionRequest.setType(ExecutionType.SET_FIELD);
+        executionRequest.setItems(List.of(executionItemRequest));
+        ExecutionDto execution = actionService.createExecution(executionRequest);
+
+        // create action
+        ActionRequestDto actionRequest = new ActionRequestDto();
+        actionRequest.setName("CategorizeIssuedCertAction");
+        actionRequest.setResource(Resource.CERTIFICATE);
+        actionRequest.setExecutionsUuids(List.of(execution.getUuid()));
+        ActionDetailDto action = actionService.createAction(actionRequest);
+
+        // create trigger for CERTIFICATE_STATUS_CHANGED
+        TriggerRequestDto triggerRequest = new TriggerRequestDto();
+        triggerRequest.setName("CertificateStatusChangedTrigger");
+        triggerRequest.setType(TriggerType.EVENT);
+        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_STATUS_CHANGED);
+        triggerRequest.setResource(Resource.CERTIFICATE);
+        triggerRequest.setRulesUuids(List.of(rule.getUuid()));
+        triggerRequest.setActionsUuids(List.of(action.getUuid()));
+        TriggerDetailDto trigger = triggerService.createTrigger(triggerRequest);
+
+        // set up WireMock as auth service (required by createTriggerAssociations)
+        mockServer = new WireMockServer(10001);
+        mockServer.start();
+        WireMock.configureFor("localhost", mockServer.port());
+
+        NameAndUuidDto userInfo = AuthHelper.getUserIdentification();
+        mockAuthResponse(userInfo);
+
+        // associate trigger with RA profile for CERTIFICATE_STATUS_CHANGED
+        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.RA_PROFILE, raProfile.getUuid(), List.of(UUID.fromString(trigger.getUuid())), true);
     }
 
     @Test
@@ -305,11 +384,36 @@ class EventHandlersTest extends BaseSpringBootTest {
         NameAndUuidDto userInfo = AuthHelper.getUserIdentification();
         UUID userUuid = UUID.fromString(userInfo.getUuid());
 
-
         mockServer = new WireMockServer(10001);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
 
+        mockAuthResponse(userInfo);
+
+        triggerService.createTriggerAssociations(ResourceEvent.DISCOVERY_FINISHED, null, null, List.of(UUID.fromString(triggerIgnore.getUuid()), UUID.fromString(trigger.getUuid())), true);
+
+        discoveryFinishedEventHandler.handleEvent(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), userUuid, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test")));
+        discovery = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.IN_PROGRESS, discovery.getStatus());
+
+        discoveryFinishedEventHandler.handleEvent(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.PROCESSING, "Test finalize")));
+        discovery = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, discovery.getStatus());
+
+        // each handleEvent call processes one platform-level trigger group → one EventHistory per call
+        List<EventHistory> eventHistories = eventHistoryRepository.findAll();
+        Assertions.assertEquals(2, eventHistories.size(), "Expected one EventHistory record per handleEvent call");
+        eventHistories.forEach(eh -> {
+            Assertions.assertEquals(ResourceEvent.DISCOVERY_FINISHED, eh.getEvent());
+            Assertions.assertEquals(EventStatus.FINISHED, eh.getStatus());
+            Assertions.assertNotNull(eh.getStartedAt());
+            Assertions.assertNotNull(eh.getFinishedAt());
+        });
+
+        mockServer.stop();
+    }
+
+    private void mockAuthResponse(NameAndUuidDto userInfo) {
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(
                 WireMock.okJson("""
                 {
@@ -344,28 +448,6 @@ class EventHandlersTest extends BaseSpringBootTest {
                                 }
                 """.formatted(userInfo.getUuid(), userInfo.getName()))
         ));
-
-        triggerService.createTriggerAssociations(ResourceEvent.DISCOVERY_FINISHED, null, null, List.of(UUID.fromString(triggerIgnore.getUuid()), UUID.fromString(trigger.getUuid())), true);
-
-        discoveryFinishedEventHandler.handleEvent(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), userUuid, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test")));
-        discovery = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
-        Assertions.assertEquals(DiscoveryStatus.IN_PROGRESS, discovery.getStatus());
-
-        discoveryFinishedEventHandler.handleEvent(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.PROCESSING, "Test finalize")));
-        discovery = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
-        Assertions.assertEquals(DiscoveryStatus.COMPLETED, discovery.getStatus());
-
-        // each handleEvent call processes one platform-level trigger group → one EventHistory per call
-        List<EventHistory> eventHistories = eventHistoryRepository.findAll();
-        Assertions.assertEquals(2, eventHistories.size(), "Expected one EventHistory record per handleEvent call");
-        eventHistories.forEach(eh -> {
-            Assertions.assertEquals(ResourceEvent.DISCOVERY_FINISHED, eh.getEvent());
-            Assertions.assertEquals(EventStatus.FINISHED, eh.getStatus());
-            Assertions.assertNotNull(eh.getStartedAt());
-            Assertions.assertNotNull(eh.getFinishedAt());
-        });
-
-        mockServer.stop();
     }
 
     @Test
