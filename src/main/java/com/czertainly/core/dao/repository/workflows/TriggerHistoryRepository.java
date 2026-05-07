@@ -57,10 +57,13 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
     @Query(value = """
             SELECT event_history_uuid, object_uuid
             FROM (
-                SELECT DISTINCT event_history_uuid, object_uuid,
+                SELECT event_history_uuid, object_uuid,
                     ROW_NUMBER() OVER (PARTITION BY event_history_uuid ORDER BY object_uuid) AS rn
-                FROM trigger_history
-                WHERE event_history_uuid IN :uuids
+                FROM (
+                    SELECT DISTINCT event_history_uuid, object_uuid
+                    FROM trigger_history
+                    WHERE event_history_uuid IN :uuids
+                ) distinct_pairs
             ) ranked
             WHERE rn > :offset AND rn <= :offset + :limit
             """, nativeQuery = true)
