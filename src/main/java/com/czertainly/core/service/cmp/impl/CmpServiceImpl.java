@@ -115,6 +115,13 @@ public class CmpServiceImpl implements CmpService {
         this.revocationMessageHandler = revocationMessageHandler;
     }
 
+    private PollReqMessageHandler pollReqMessageHandler;
+
+    @Autowired
+    public void setPollReqMessageHandler(PollReqMessageHandler pollReqMessageHandler) {
+        this.pollReqMessageHandler = pollReqMessageHandler;
+    }
+
     // -- TRANSACTION
     private CmpTransactionService cmpTransactionService;
 
@@ -235,12 +242,15 @@ public class CmpServiceImpl implements CmpService {
                     pkiResponse = certConfirmMessageHandler.handle(pkiRequest, configuration);
                     LoggingHelper.putAuditLogOperation(Operation.CMP_CONFIRM);
                     break;
+                case PKIBody.TYPE_POLL_REQ:                        // (25) pollReq, Polling Request (RFC 4210 §5.2.6)
+                    pkiResponse = pollReqMessageHandler.handle(pkiRequest, configuration);
+                    LoggingHelper.putAuditLogOperation(Operation.GET_STATUS);
+                    break;
                 case PKIBody.TYPE_CROSS_CERT_REQ,
                      PKIBody.TYPE_KEY_RECOVERY_REQ,
                      PKIBody.TYPE_GEN_MSG,
                      PKIBody.TYPE_NESTED,
                      PKIBody.TYPE_P10_CERT_REQ,
-                     PKIBody.TYPE_POLL_REQ,
                      PKIBody.TYPE_REVOCATION_ANN,
                      PKIBody.TYPE_CERT_ANN,
                      PKIBody.TYPE_CA_KEY_UPDATE_ANN,

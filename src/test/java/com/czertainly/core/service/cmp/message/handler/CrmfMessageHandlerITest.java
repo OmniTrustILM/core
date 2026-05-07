@@ -3,6 +3,7 @@ package com.czertainly.core.service.cmp.message.handler;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.KeyType;
+import com.czertainly.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.cmp.CmpTransactionState;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
@@ -27,11 +28,11 @@ import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.*;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
 import java.security.*;
@@ -42,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-@Disabled
+@Transactional
 public class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
     @Autowired private CertificateContentRepository certificateContentRepository;
@@ -62,7 +63,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     @Autowired private FunctionGroupRepository functionGroupRepository;
     @Autowired private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
 
-    @MockBean
+    @MockitoBean
     private PollFeature pollFeature;
 
     private CrmfMessageHandler testedHandler;
@@ -112,6 +113,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
         connector2FunctionGroupRepository.save(c2fg);
 
         connector.getFunctionGroups().add(c2fg);
+        connector.setVersion(ConnectorVersion.V2);
         connectorRepository.save(connector);
 
         AuthorityInstanceReference authorityInstance = new AuthorityInstanceReference();
@@ -125,9 +127,11 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
         raProfile = raProfileRepository.saveAndFlush(CmpEntityUtil.createRaProfile(authorityInstance));
 
+        // Commit the connector + RA profile so subsequent v2 ClientOperationService calls
+        // (which run with Propagation.NOT_SUPPORTED) can see them. Subsequent entities go
+        // into a fresh transaction that rolls back at test end.
         TestTransaction.flagForCommit();
         TestTransaction.end();
-        // -------------------------- vv|vv NEW JTA vv|vv --------------------------------
         TestTransaction.start();
 
         // create chain of cert(s)
@@ -204,7 +208,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(issuedCertificate);
+                .willReturn(new PollResult.Reached(issuedCertificate));
 
         PKIMessage response = testedHandler.handle(request,
                 new Mobile3gppProfileContext(cmpProfileSigPrt,
@@ -256,7 +260,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(issuedCertificate);
+                .willReturn(new PollResult.Reached(issuedCertificate));
 
         // -- test handling of message
         PKIMessage response = testedHandler.handle(request,
@@ -292,6 +296,71 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
         );
     }
 
+    @Test
+    public void test_handle_ir_returnsPollRep_whenPollFeatureSignalsAsynchronousAcceptance() throws Exception {
+        // When the authority provider connector returns HTTP 202, PollFeature returns
+        // null to signal asynchronous acceptance — the handler must respond with a CMP
+        // pollRep so the client knows to retry later (RFC 4210 §5.2.6), and persist a
+        // CmpTransaction so the subsequent pollReq can be correlated back to the cert.
+        String trxId = "780";
+        KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
+
+        PKIBody body = CmpTestUtil.createCrmfBody(keyPair, 987654321L);
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId, keyPair.getPrivate(), body)
+                .toASN1Structure();
+
+        // Asynchronous-acceptance signal: PollFeature returns StillPending when the cert
+        // lands in PENDING_ISSUE / PENDING_REVOKE.
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.StillPending(CertificateState.PENDING_ISSUE));
+
+        PKIMessage response = testedHandler.handle(request,
+                new Mobile3gppProfileContext(cmpProfileSigPrt,
+                        raProfile,
+                        request,
+                        certificateKeyService,
+                        null,
+                        null));
+
+        assertNotNull(response);
+        assertEquals(PKIBody.TYPE_POLL_REP, response.getBody().getType(),
+                "expected pollRep response when PollFeature signals asynchronous acceptance");
+        assertEquals(new DEROctetString(trxId.getBytes()).toString(),
+                response.getHeader().getTransactionID().toString());
+        assertInstanceOf(PollRepContent.class, response.getBody().getContent());
+    }
+
+    /**
+     * Asynchronous-cancel race: while the handler waits for ISSUED, a concurrent
+     * cancelPendingCertificateOperation transitions the cert to FAILED. PollFeature reports
+     * Diverted; the handler must surface a clean CmpCrmfValidationException naming the
+     * diverted state, not time out with a generic systemFailure.
+     */
+    @Test
+    public void test_handle_ir_throwsValidation_whenPollFeatureReportsDiverted() throws Exception {
+        String trxId = "781";
+        KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
+        PKIBody body = CmpTestUtil.createCrmfBody(keyPair, 11223344L);
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId, keyPair.getPrivate(), body)
+                .toASN1Structure();
+
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.Diverted(CertificateState.FAILED));
+
+        CmpCrmfValidationException ex = assertThrows(CmpCrmfValidationException.class, () ->
+                testedHandler.handle(request,
+                        new Mobile3gppProfileContext(cmpProfileSigPrt,
+                                raProfile,
+                                request,
+                                certificateKeyService,
+                                null,
+                                null)));
+        assertTrue(ex.getMessage().contains("diverted") && ex.getMessage().contains("FAILED"),
+                "expected CmpCrmfValidationException naming the diverted state, got: " + ex.getMessage());
+    }
+
     // ----------------------------------------------------------------------------------------------------------
     // HELPER METHODS
     // ----------------------------------------------------------------------------------------------------------
@@ -299,7 +368,9 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     // --  entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
+        connector.setName("signingCertConnector");
         connector.setUrl("http://localhost:"+mockServer.port());
+        connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 

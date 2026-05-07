@@ -2,6 +2,8 @@ package com.czertainly.core.service.v2;
 
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.api.model.core.v2.*;
@@ -103,4 +105,24 @@ public interface ClientOperationService {
             SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes
     ) throws ConnectorException, ValidationException, NotFoundException;
+
+    CertificateDetailDto manuallyIssueCertificate(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            String certificateUuid,
+            UploadCertificateRequestDto request
+    ) throws NotFoundException, CertificateException, AlreadyExistException, ConnectorException, AttributeException;
+
+    void manuallyConfirmRevoke(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            String certificateUuid
+    ) throws NotFoundException;
+
+    CertificateDetailDto cancelPendingCertificateOperation(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            String certificateUuid,
+            CancelPendingCertificateRequestDto request
+    ) throws NotFoundException;
 }

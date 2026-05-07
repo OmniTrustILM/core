@@ -41,7 +41,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-@Disabled
 @ExtendWith(MockitoExtension.class)
 public class KurMessageHandlerTest {
 
@@ -86,7 +85,9 @@ public class KurMessageHandlerTest {
                 key
         );
 
-        raProfile = raProfileRepository.save(CmpEntityUtil.createRaProfile());
+        // The mocked raProfileRepository returns null on save() unless stubbed; build the
+        // RA profile directly so the test fixture is fully populated.
+        raProfile = CmpEntityUtil.createRaProfile();
         cmpProfile = CmpEntityUtil.createCmpProfile(
                 raProfile, certificateSig);
 
@@ -144,7 +145,10 @@ public class KurMessageHandlerTest {
         // -- THEN
         CmpProcessingException response = assertThrows(
                 CmpProcessingException.class, () -> tested.handle(request, configuration));
-        assertEquals(PKIFailureInfo.badRequest, response.getFailureInfo());
+        // RFC 4210 §3.2.7: badCertId is the specific failureInfo for "no certificate could be
+        // found matching the provided criteria". The handler returns this instead of the
+        // generic badRequest.
+        assertEquals(PKIFailureInfo.badCertId, response.getFailureInfo());
         assertTrue(response.getMessage().contains(new DEROctetString(trxId.getBytes()).toString()));
         assertTrue(response.getMessage().contains("current certificate is not found in inventory"));
     }

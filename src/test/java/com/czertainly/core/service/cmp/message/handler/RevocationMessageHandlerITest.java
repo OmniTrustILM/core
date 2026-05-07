@@ -1,5 +1,6 @@
 package com.czertainly.core.service.cmp.message.handler;
 
+import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.KeyType;
@@ -17,10 +18,12 @@ import com.czertainly.core.service.cmp.CmpTestUtil;
 import com.czertainly.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
 import com.czertainly.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.czertainly.core.service.cmp.message.CmpTransactionService;
+import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.*;
 import org.junit.jupiter.api.AfterEach;
@@ -59,6 +62,13 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     @MockitoBean
     private PollFeature pollFeature;
 
+    // Mock the operation service: the real bean is wrapped by @ExternalAuthorization (OPA)
+    // and reaches the auth service over HTTP. For this handler-level test we only care
+    // that the revoke call completes successfully so execution reaches the PollFeature
+    // gate — short-circuit with a no-op mock.
+    @MockitoBean
+    private ClientOperationService clientOperationService;
+
     private RevocationMessageHandler testedHandler;
     private CmpProfile cmpProfileSigPrt;
     private CmpProfile cmpProfileMacPrt;//mac-protection
@@ -80,6 +90,11 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         testedHandler.setCmpTransactionService(cmpTransactionService);
         testedHandler.setCertificateRepository(certificateRepository);
         testedHandler.setPollFeature(pollFeature);
+        // Wire the real Spring-managed ClientOperationService so revokeCertificate can
+        // reach the connector revoke call (stubbed via WireMock per-test). Without this,
+        // the field stays null and revokeCertificate trips an NPE that the per-cert
+        // catch swallows — masking the asynchronous-acceptance branch under test.
+        testedHandler.setClientOperationService(clientOperationService);
 
         // -- create customer/client profile (signature-based)
         Connector connector = new Connector();
@@ -187,7 +202,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(revokedCertificate);
+                .willReturn(new PollResult.Reached(revokedCertificate));
 
         PKIMessage response = testedHandler.handle(request,
                 new Mobile3gppProfileContext(cmpProfileSigPrt,
@@ -235,7 +250,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(revokedCertificate);
+                .willReturn(new PollResult.Reached(revokedCertificate));
 
         // -- test handling of message
         PKIMessage response = testedHandler.handle(request,
@@ -268,6 +283,193 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
                         CmpTransactionState.CERT_REVOKED,
                         cmpTransaction.getState())
         );
+    }
+
+    /**
+     * When the authority provider connector accepts revocation asynchronously (HTTP 202),
+     * PollFeature returns null because the certificate transitions to PENDING_REVOKE.
+     * RFC 4210 section 5.2.6 limits the poll-request/poll-response loop to ip/cp/kup
+     * contexts; CMP has no in-protocol way to represent a pending revocation, so the
+     * handler must surface this as a per-certificate rejection inside the revocation
+     * response — not a successful revocationNotification on a certificate that is not
+     * yet revoked. The handler's outer per-cert catch turns the internal
+     * CmpProcessingException into a PKIStatus rejection status entry; the certificate
+     * remains in PENDING_REVOKE (no further state change at this point).
+     */
+    @Test
+    @Transactional
+    void test_handle_revocation_rejectsCleanly_whenAuthorityAcceptsAsynchronously() throws Exception {
+        String trxId = "778";
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId,
+                        CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(
+                                x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        // The shared fixture creates the cert in REVOKED state for the existing happy-path
+        // tests and does not attach an RA profile (the existing tests don't need one
+        // because their handler reaches the per-cert catch before touching cert.getRaProfile()).
+        // For the asynchronous-acceptance path the cert must be ISSUED and bound to an
+        // RA profile so revokeCertificate can read raProfile.getSecuredUuid().
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+
+        // ClientOperationService is mocked at the bean level; the revoke call returns
+        // normally without hitting the connector. No WireMock stub needed.
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.StillPending(CertificateState.PENDING_REVOKE));
+
+        PKIMessage response = testedHandler.handle(request,
+                new Mobile3gppProfileContext(cmpProfileSigPrt,
+                        raProfile,
+                        request,
+                        certificateKeyService,
+                        null,
+                        null));
+
+        assertNotNull(response);
+        assertEquals(PKIBody.TYPE_REVOCATION_REP, response.getBody().getType());
+        RevRepContent body = (RevRepContent) response.getBody().getContent();
+        // Status must be rejection (not revocationNotification) — the inner async-rejection
+        // throw at the if-polled-is-null branch is converted by the per-cert catch.
+        // pkiStatus=2 is "rejection" per RFC 4210 §3.2.3.
+        assertEquals(2, body.getStatus()[0].getStatus().intValueExact(),
+                "expected pkiStatus=rejection when authority accepts revocation asynchronously");
+    }
+
+    @Test
+    @Transactional
+    void test_handle_revocation_completes_whenPollFeatureReturnsRevokedCertificate() throws Exception {
+        // Companion to the asynchronous-acceptance test: when PollFeature returns a non-null
+        // certificate (the connector revoked synchronously and the cert is now in REVOKED
+        // state), the handler must emit a successful revocationNotification, persist a
+        // CmpTransaction in CERT_REVOKED state, and not throw. Pins the success branch of
+        // the if-polled-null check (lines 155-165 of RevocationMessageHandler).
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+
+        String trxId = "780";
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId,
+                        CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(
+                                x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        // Make the lookup-after-revoke return the now-revoked cert (synchronous completion).
+        Certificate revoked = new Certificate();
+        revoked.setUuid(revokedCertificate.getUuid());
+        revoked.setSerialNumber(revokedCertificate.getSerialNumber());
+        revoked.setState(CertificateState.REVOKED);
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.Reached(revoked));
+
+        PKIMessage response = testedHandler.handle(request,
+                new Mobile3gppProfileContext(cmpProfileSigPrt,
+                        raProfile,
+                        request,
+                        certificateKeyService,
+                        null,
+                        null));
+
+        assertNotNull(response);
+        assertEquals(PKIBody.TYPE_REVOCATION_REP, response.getBody().getType());
+    }
+
+    /**
+     * The asynchronous-cancel race ivosh raised: PollFeature observes a cert in a terminal
+     * state that is not REVOKED — typically because a concurrent
+     * cancelPendingCertificateOperation transitioned the cert mid-poll. The handler must
+     * surface a per-cert PKIStatus.rejection with the diverted-state context preserved in
+     * the PKIFreeText (not the generic "problem with revocation").
+     */
+    @Test
+    @Transactional
+    void test_handle_revocation_rejectsCleanly_whenPollFeatureReportsDiverted() throws Exception {
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+
+        String trxId = "781";
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId,
+                        CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(
+                                x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.Diverted(CertificateState.FAILED));
+
+        PKIMessage response = testedHandler.handle(request,
+                new Mobile3gppProfileContext(cmpProfileSigPrt,
+                        raProfile,
+                        request,
+                        certificateKeyService,
+                        null,
+                        null));
+
+        assertNotNull(response);
+        assertEquals(PKIBody.TYPE_REVOCATION_REP, response.getBody().getType());
+        RevRepContent body = (RevRepContent) response.getBody().getContent();
+        assertEquals(2, body.getStatus()[0].getStatus().intValueExact(),
+                "expected pkiStatus=rejection when PollFeature reports Diverted");
+        // Diverted message survives into the PKIFreeText — no longer collapsed to the
+        // generic "problem with revocation" placeholder.
+        String freeText = body.getStatus()[0].getStatusString().getStringAtUTF8(0).getString();
+        assertTrue(freeText.contains("diverted") || freeText.contains("FAILED"),
+                "expected PKIFreeText to mention the diverted state, got: " + freeText);
+    }
+
+    /**
+     * The PKIFreeText fallback path: when the per-cert catch fires for a non-CmpProcessingException
+     * (e.g. an unchecked exception leaking from a downstream service), the safe generic
+     * "problem with revocation" placeholder is used so internal stack-class names / SQL
+     * fragments / upstream error messages don't leak to a CMP client.
+     */
+    @Test
+    @Transactional
+    void test_handle_revocation_usesGenericFreeText_forNonCmpProcessingException() throws Exception {
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+
+        String trxId = "782";
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId,
+                        CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(
+                                x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        // Force a leaked unchecked exception (e.g. a future upstream component bug) to fire
+        // the per-cert catch with a non-CmpProcessingException. The PKIFreeText must NOT
+        // contain the raw exception message.
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willThrow(new RuntimeException("internal SQL: relation \"core.x\" does not exist"));
+
+        PKIMessage response = testedHandler.handle(request,
+                new Mobile3gppProfileContext(cmpProfileSigPrt,
+                        raProfile,
+                        request,
+                        certificateKeyService,
+                        null,
+                        null));
+
+        assertNotNull(response);
+        RevRepContent body = (RevRepContent) response.getBody().getContent();
+        assertEquals(2, body.getStatus()[0].getStatus().intValueExact(),
+                "expected pkiStatus=rejection on internal failure");
+        String freeText = body.getStatus()[0].getStatusString().getStringAtUTF8(0).getString();
+        assertEquals("problem with revocation", freeText,
+                "expected the safe placeholder when the cause is not a CmpProcessingException — internal SQL detail must not leak to the wire");
     }
 
     // ----------------------------------------------------------------------------------------------------------

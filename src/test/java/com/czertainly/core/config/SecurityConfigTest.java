@@ -2,6 +2,7 @@ package com.czertainly.core.config;
 
 import com.czertainly.api.model.core.settings.SettingsSection;
 import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.oauth2.OAuth2TestUtil;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.*;
@@ -61,6 +62,9 @@ class SecurityConfigTest extends BaseSpringBootTestNoAuth {
     @Autowired
     SettingsCache settingsCache;
 
+    @Autowired
+    AuthenticationCache authenticationCache;
+
     @MockitoBean
     private JdbcIndexedSessionRepository sessionRepository;
 
@@ -89,6 +93,8 @@ class SecurityConfigTest extends BaseSpringBootTestNoAuth {
 
     @BeforeEach
     void setUp() throws NoSuchAlgorithmException, JOSEException, ServletException, IOException {
+        authenticationCache.evictAll();
+
         Mockito.doAnswer(invocation -> {
             ServletRequest request = invocation.getArgument(0);
             ServletResponse response = invocation.getArgument(1);

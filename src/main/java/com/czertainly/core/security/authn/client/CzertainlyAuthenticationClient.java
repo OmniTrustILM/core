@@ -41,16 +41,43 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
 
     private final ObjectMapper objectMapper;
     private final String customAuthServiceBaseUrl;
+    private final AuthenticationCache authenticationCache;
 
     @Value("${server.ssl.certificate-header-name}")
     private String certificateHeaderName;
 
     private final AuditLogService auditLogService;
 
-    public CzertainlyAuthenticationClient(@Autowired AuditLogService auditLogService, @Autowired ObjectMapper objectMapper, @Value("${auth-service.base-url}") String customAuthServiceBaseUrl) {
+    public CzertainlyAuthenticationClient(
+            @Autowired AuditLogService auditLogService,
+            @Autowired ObjectMapper objectMapper,
+            @Autowired AuthenticationCache authenticationCache,
+            @Value("${auth-service.base-url}") String customAuthServiceBaseUrl) {
         this.objectMapper = objectMapper;
         this.auditLogService = auditLogService;
+        this.authenticationCache = authenticationCache;
         this.customAuthServiceBaseUrl = customAuthServiceBaseUrl;
+    }
+
+    public AuthenticationInfo authenticateSystemUser(String username) {
+        return authenticationCache.getOrAuthenticateSystemUser(
+                username, () -> authenticate(AuthMethod.USER_PROXY, username, false));
+    }
+
+    public AuthenticationInfo authenticateByUserUuid(UUID userUuid) {
+        return authenticationCache.getOrAuthenticateByUserUuid(
+                userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false));
+    }
+
+    public AuthenticationInfo authenticateByCertificate(String rawCertHeader, String certificateThumbprint) {
+        return authenticationCache.getOrAuthenticateByCertificate(
+                certificateThumbprint, () -> authenticate(AuthMethod.CERTIFICATE, rawCertHeader, false));
+    }
+
+    public AuthenticationInfo authenticateByToken(Map<String, Object> claims) {
+        String jti = (String) claims.get("jti");
+        return authenticationCache.getOrAuthenticateByToken(
+                jti, () -> authenticate(AuthMethod.TOKEN, claims, false));
     }
 
     public AuthenticationInfo authenticate(AuthMethod authMethod, Object authData, boolean isLocalhostRequest) throws AuthenticationException {
@@ -80,7 +107,7 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
                 throw new CzertainlyAuthenticationException(message);
             }
             return createAuthenticationInfo(authRequest.getAuthMethod(), response);
-        } catch (WebClientResponseException.InternalServerError | WebClientRequestException e) {
+        } catch (WebClientResponseException.InternalServerError | WebClientRequestException | IllegalStateException e) {
             String message = "An error occurred when calling authentication service: " + e.getMessage();
             AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, authRequest.getAuthData(false));
             throw new CzertainlyAuthenticationException(message, e);
