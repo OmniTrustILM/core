@@ -67,7 +67,7 @@ public class TriggerHistory extends UniquelyIdentified {
     @Column(name = "message")
     private String message;
 
-    @OneToMany(mappedBy = "triggerHistory", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "triggerHistory", fetch = FetchType.LAZY)
     @ToString.Exclude
     private List<TriggerHistoryRecord> records = new ArrayList<>();
 
