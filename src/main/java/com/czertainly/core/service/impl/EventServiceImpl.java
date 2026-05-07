@@ -59,18 +59,28 @@ public class EventServiceImpl implements EventService {
         Page<TriggerHistory> triggerHistoryPage = triggerHistoryRepository.findByObjectUuidAndObjectResourceOrderByTriggeredAtDesc(uuid, resource, PageRequest.of(pagination.getPageNumber() - 1, pagination.getItemsPerPage()));
         List<ObjectEventHistoryDto> eventHistoryDtos = triggerHistoryPage.get().map(
                 triggerHistory -> {
-                    ResourceObjectDto resourceObjectDto = new ResourceObjectDto();
-                    if (triggerHistory.getTriggerAssociation() != null && triggerHistory.getTriggerAssociation().getResource() != null) {
-                        try {
-                            resourceObjectDto = resourceService.getResourceObject(triggerHistory.getTriggerAssociation().getResource(), triggerHistory.getTriggerAssociation().getObjectUuid());
-                        } catch (NotFoundException e) {
-                            resourceObjectDto = new ResourceObjectDto(triggerHistory.getTriggerAssociation().getResource(), null, null);
-                        }
-                    }
+                    ResourceObjectDto resourceObjectDto = getOriginResourceObjectDto(triggerHistory);
                     return EventHistoryMapper.toObjectEventHistoryDto(triggerHistory, resourceObjectDto);
                 }
         ).toList();
         return PaginationResponseMapper.toDto(triggerHistoryPage, eventHistoryDtos);
+    }
+
+    private ResourceObjectDto getOriginResourceObjectDto(TriggerHistory triggerHistory) {
+        ResourceObjectDto resourceObjectDto = new ResourceObjectDto();
+        if (triggerHistory.getTriggerAssociation() != null)  {
+            if (triggerHistory.getTriggerAssociation().getResource() == null) {
+                resourceObjectDto.setResource(Resource.SETTINGS);
+            }
+            else {
+                try {
+                    resourceObjectDto = resourceService.getResourceObject(triggerHistory.getTriggerAssociation().getResource(), triggerHistory.getTriggerAssociation().getObjectUuid());
+                } catch (NotFoundException e) {
+                    resourceObjectDto.setResource(triggerHistory.getTriggerAssociation().getResource());
+                }
+            }
+        }
+        return resourceObjectDto;
     }
 
     @Override
