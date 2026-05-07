@@ -45,6 +45,18 @@ public class CmpTransaction extends UniquelyIdentified {
     @Column(name = "custom_reason")
     private String customReason;
 
+    /**
+     * BouncyCastle {@code PKIBody.TYPE_*} integer of the original request that opened this
+     * transaction (e.g. {@code TYPE_INIT_REQ=0}, {@code TYPE_CERT_REQ=2},
+     * {@code TYPE_KEY_UPDATE_REQ=7}, {@code TYPE_REVOCATION_REQ=11}). Used by the pollReq
+     * handler to build the right response body type when the in-flight operation eventually
+     * completes. Nullable for transactions created before this column was added.
+     */
+    @Setter
+    @Getter
+    @Column(name = "original_request_body_type")
+    private Integer originalRequestBodyType;
+
     @OneToOne(fetch = FetchType.LAZY)
     @JsonBackReference
     @JoinColumn(name = "cmp_profile_uuid", insertable = false, updatable = false)

@@ -72,6 +72,7 @@ public class EventDataBuilder {
     public static CertificateActionPerformedEventData getCertificateActionPerformedEventData(Certificate certificate, ResourceAction action) {
         CertificateActionPerformedEventData eventData = new CertificateActionPerformedEventData();
         eventData.setAction(action.getCode());
+        eventData.setState(certificate.getState());
         setCertificateEventData(eventData, certificate);
         setCertificateAuthorityData(eventData, certificate);
         return eventData;

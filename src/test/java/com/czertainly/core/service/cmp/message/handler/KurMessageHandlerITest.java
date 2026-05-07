@@ -29,11 +29,11 @@ import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIMessage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-@Disabled
+@Transactional
 public class KurMessageHandlerITest extends BaseSpringBootTest {
 
     @Autowired private CertificateContentRepository certificateContentRepository;
@@ -65,7 +65,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
     @Autowired private FunctionGroupRepository functionGroupRepository;
     @Autowired private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
 
-    @MockBean
+    @MockitoBean
     private PollFeature pollFeature;
 
     private CrmfMessageHandler testedHandler;
@@ -115,6 +115,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
         connector2FunctionGroupRepository.save(c2fg);
 
         connector.getFunctionGroups().add(c2fg);
+        connector.setVersion(ConnectorVersion.V2);
         connectorRepository.save(connector);
 
         AuthorityInstanceReference authorityInstance = new AuthorityInstanceReference();
@@ -127,6 +128,12 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
         authorityInstance = authorityInstanceReferenceRepository.save(authorityInstance);
 
         raProfile = raProfileRepository.saveAndFlush(CmpEntityUtil.createRaProfile(authorityInstance));
+
+        // Commit the connector + RA profile so subsequent v2 ClientOperationService calls
+        // (which run with Propagation.NOT_SUPPORTED) can see them.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        TestTransaction.start();
 
         // create chain of cert(s)
         Certificate rootCA = certificateRepository.save(CmpEntityUtil.createCertificate(
@@ -200,7 +207,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(issuedCertificate);
+                .willReturn(new PollResult.Reached(issuedCertificate));
 
         // -- test handling of message
         PKIMessage response = testedHandler.handle(request,
@@ -251,7 +258,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
 
         // -- issue of certificate is mocked
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
-                .willReturn(issuedCertificate);
+                .willReturn(new PollResult.Reached(issuedCertificate));
 
         // -- test handling of message
         PKIMessage response = testedHandler.handle(request,
@@ -295,6 +302,7 @@ public class KurMessageHandlerITest extends BaseSpringBootTest {
     // --  entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {
         Connector connector = new Connector();
+        connector.setName("signingCertConnector");
         connector.setUrl("http://localhost:"+mockServer.port());
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);

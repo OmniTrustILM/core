@@ -426,8 +426,18 @@ public class LocationServiceImpl implements LocationService {
             throw new ValidationException(ValidationError.create("Cannot push archived certificate %s to location %s".formatted(certificate, location.getName())));
 
 
-        if (certificate.getState().equals(CertificateState.REJECTED)) {
-            throw new ValidationException(ValidationError.create("Cannot push rejected certificate %s to location %s".formatted(certificate, location.getName())));
+        if (certificate.getState() == CertificateState.REJECTED
+                || certificate.getState() == CertificateState.FAILED
+                || certificate.getState() == CertificateState.PENDING_REVOKE) {
+            // REJECTED / FAILED: cert never reached a usable state, pushing it would create
+            // a dangling association.
+            // PENDING_REVOKE: cert is mid-revocation; pushing it to a new location now would
+            // contradict the in-flight revoke and leave the system in an inconsistent state.
+            // PENDING_ISSUE / REQUESTED are still allowed — they fall through to the
+            // pre-association path below (cert content is null at that point and will be
+            // pushed once the issuance is finalized).
+            throw new ValidationException(ValidationError.create("Cannot push %s certificate %s to location %s"
+                    .formatted(certificate.getState().getLabel(), certificate, location.getName())));
         }
 
         if (!location.isSupportMultipleEntries() && !location.getCertificates().isEmpty()) {

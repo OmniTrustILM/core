@@ -8,6 +8,7 @@ import com.czertainly.api.model.core.auth.*;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -26,6 +27,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
 
     private RoleManagementApiClient roleManagementApiClient;
     private AttributeEngine attributeEngine;
+    private AuthenticationCache authenticationCache;
 
     @Autowired
     public void setRoleManagementApiClient(RoleManagementApiClient roleManagementApiClient) {
@@ -35,6 +37,11 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setAuthenticationCache(AuthenticationCache authenticationCache) {
+        this.authenticationCache = authenticationCache;
     }
 
     @Override
@@ -76,7 +83,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
         requestDto.setSystemRole(false);
         RoleDetailDto dto = roleManagementApiClient.updateRole(roleUuid, requestDto);
         dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.ROLE, UUID.fromString(dto.getUuid()), request.getCustomAttributes()));
-
+        authenticationCache.evictAll();
         return dto;
     }
 
@@ -85,6 +92,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     public void deleteRole(String roleUuid) {
         roleManagementApiClient.deleteRole(roleUuid);
         attributeEngine.deleteObjectAttributeContent(Resource.ROLE, UUID.fromString(roleUuid));
+        authenticationCache.evictAll();
     }
 
     @Override
@@ -97,8 +105,9 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public SubjectPermissionsDto addPermissions(String roleUuid, RolePermissionsRequestDto request) {
         checkSystemRole(roleUuid);
-
-        return roleManagementApiClient.savePermissions(roleUuid, request);
+        SubjectPermissionsDto result = roleManagementApiClient.savePermissions(roleUuid, request);
+        authenticationCache.evictAll();
+        return result;
     }
 
     @Override
@@ -117,24 +126,24 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public void addResourcePermissionObjects(String roleUuid, String resourceUuid, List<ObjectPermissionsRequestDto> request) {
         checkSystemRole(roleUuid);
-
         roleManagementApiClient.addResourcePermissionObjects(roleUuid, resourceUuid, request);
+        authenticationCache.evictAll();
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public void updateResourcePermissionObjects(String roleUuid, String resourceUuid, String objectUuid, ObjectPermissionsRequestDto request) {
         checkSystemRole(roleUuid);
-
         roleManagementApiClient.updateResourcePermissionObjects(roleUuid, resourceUuid, objectUuid, request);
+        authenticationCache.evictAll();
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public void removeResourcePermissionObjects(String roleUuid, String resourceUuid, String objectUuid) {
         checkSystemRole(roleUuid);
-
         roleManagementApiClient.removeResourcePermissionObjects(roleUuid, resourceUuid, objectUuid);
+        authenticationCache.evictAll();
     }
 
     @Override
@@ -146,7 +155,9 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @Override
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public RoleDetailDto updateUsers(String roleUuid, List<String> userUuids) {
-        return roleManagementApiClient.updateUsers(roleUuid, userUuids);
+        RoleDetailDto result = roleManagementApiClient.updateUsers(roleUuid, userUuids);
+        authenticationCache.evictAll();
+        return result;
     }
 
     @Override

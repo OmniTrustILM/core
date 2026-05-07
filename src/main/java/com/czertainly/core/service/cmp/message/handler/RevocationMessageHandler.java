@@ -135,8 +135,9 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 Certificate certificate = getCertificate(serialNumber, tid);
                 LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, certificate.getUuid().toString(), certificate.getSubjectDn());
                 revokeCertificate(tid, revocation, certificate, configuration);
-                pollFeature.pollCertificate(tid,
+                PollResult pollResult = pollFeature.pollCertificate(tid,
                         certificate.getSerialNumber(), certificate.getUuid().toString(), CertificateState.REVOKED);
+                rejectIfNotReached(pollResult, tid, serialNumber);
                 cmpTransactionService.save(cmpTransactionService.createTransactionEntity(
                         tid.toString(),
                         configuration.getCmpProfile(),
@@ -150,10 +151,19 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 LOG.trace("TID={}, SN={} | revocations of certificate is done (remaining={})", tid, getSerialNumber(revocation), --revocationCount);
             } catch (Exception e) {
                 LOG.error("TID={}, SN={} | revocation of certificate failed, reason={}", tid, getSerialNumber(revocation), e.getLocalizedMessage(), e);
+                // Only forward CmpProcessingException messages to the wire — those are
+                // shaped by this codebase (e.g. by rejectIfNotReached / revokeCertificate)
+                // and safe to expose. RuntimeException / generic Exception messages can
+                // contain DB SQL fragments, internal class references, or upstream stack
+                // detail that should not leak to a CMP client; fall back to the generic
+                // placeholder for those.
+                String freeText = e instanceof CmpProcessingException && e.getMessage() != null
+                        ? e.getMessage()
+                        : "problem with revocation";
                 revocationResponseBuilder.add(
                         new PKIStatusInfo(
                                 PKIStatus.rejection,
-                                new PKIFreeText("problem with revocation"),
+                                new PKIFreeText(freeText),
                                 new PKIFailureInfo(PKIFailureInfo.systemFailure)),
                         certId
                 );
@@ -172,6 +182,28 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
         } catch (Exception e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
                     " problem build revocation response message", e);
+        }
+    }
+
+    /**
+     * If the poll did not reach REVOKED, throw an outcome-specific exception that the
+     * outer per-cert catch turns into a {@code PKIStatus.rejection} entry in the
+     * revocation response. RFC 4210 §5.2.6 limits the poll-request / poll-response loop
+     * to ip/cp/kup, so a pending or diverted revocation cannot be represented in-protocol —
+     * the operator must confirm or cancel via the v2 client API.
+     */
+    private static void rejectIfNotReached(PollResult pollResult, ASN1OctetString tid, String serialNumber)
+            throws CmpProcessingException {
+        if (pollResult instanceof PollResult.StillPending) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
+                    "SN=" + serialNumber + " | revocation accepted asynchronously by authority "
+                            + "(certificate is in PENDING_REVOKE); CMP does not support pending "
+                            + "revocation. Use the platform API to confirm or cancel.");
+        }
+        if (pollResult instanceof PollResult.Diverted(CertificateState currentState)) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
+                    "SN=" + serialNumber + " | certificate diverted to " + currentState
+                            + " while waiting for REVOKED — revocation no longer in progress");
         }
     }
 

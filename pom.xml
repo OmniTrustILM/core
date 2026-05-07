@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>core</artifactId>
-    <version>2.17.101-SNAPSHOT</version>
+    <version>2.17.1-SNAPSHOT</version>
     <name>CZERTAINLY-Core</name>
 
     <properties>
@@ -63,7 +63,7 @@
         <dependency>
             <groupId>com.czertainly</groupId>
             <artifactId>interfaces</artifactId>
-            <version>2.17.103-SNAPSHOT</version>
+            <version>2.17.1-SNAPSHOT</version>
         </dependency>
 
         <!-- Spring  -->
@@ -84,10 +84,6 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
@@ -102,6 +98,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <!-- OpenTelemetry -->
@@ -207,10 +207,6 @@
             <groupId>com.github.victools</groupId>
             <artifactId>jsonschema-generator</artifactId>
             <version>4.38.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.github.ben-manes.caffeine</groupId>
-            <artifactId>caffeine</artifactId>
         </dependency>
 
         <dependency>
@@ -443,7 +439,7 @@
     <repositories>
         <repository>
             <id>github</id>
-            <url>https://maven.pkg.github.com/omnitrustilm/*</url>
+            <url>https://maven.pkg.github.com/czertainly/*</url>
             <snapshots>
                 <enabled>true</enabled>
             </snapshots>
