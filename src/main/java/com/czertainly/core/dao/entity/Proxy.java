@@ -1,6 +1,7 @@
 package com.czertainly.core.dao.entity;
 
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.core.connector.ConnectorSummaryDto;
 import com.czertainly.api.model.core.proxy.ProxyDto;
 import com.czertainly.api.model.core.proxy.ProxyListDto;
 import com.czertainly.api.model.core.proxy.ProxyStatus;
@@ -64,7 +65,7 @@ public class Proxy extends UniquelyIdentifiedAndAudited implements Serializable,
         dto.setStatus(this.status);
         dto.setLastActivity(this.lastActivity);
         dto.setConnectors(this.connectors.stream()
-            .map(Connector::mapToDto)
+            .map(c -> new ConnectorSummaryDto(c.getUuid().toString(), c.getName(), c.getUrl(), c.getStatus()))
             .collect(Collectors.toList()));
         return dto;
     }
@@ -77,7 +78,6 @@ public class Proxy extends UniquelyIdentifiedAndAudited implements Serializable,
         dto.setCode(this.code);
         dto.setStatus(this.status);
         dto.setLastActivity(this.lastActivity);
-        // Don't set connectors to avoid circular reference
         return dto;
     }
 
