@@ -2170,20 +2170,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             } catch (ValidationException e) {
                 // A connector may reject identification for any policy it implements: trust
                 // anchor mismatch, validity, key usage, RA-profile attribute violation, etc.
-                // Forward the connector's own error descriptions so the operator sees the
-                // specific reason. The descriptions are domain-shaped and safe to expose.
-                String joinedDescriptions = e.getErrors() == null ? "" : e.getErrors().stream()
-                        .map(ValidationError::getErrorDescription)
-                        .filter(s -> s != null && !s.isBlank())
-                        .collect(Collectors.joining("; "));
-                String reason;
-                if (!joinedDescriptions.isBlank()) {
-                    reason = joinedDescriptions;
-                } else if (e.getMessage() != null && !e.getMessage().isBlank()) {
-                    reason = e.getMessage();
-                } else {
-                    reason = "no reason supplied by connector";
-                }
+                // Forward the connector's own reason so the operator sees the specific cause.
+                String reason = identifyRejectionReason(e);
                 applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Identification by authority of new RA profile %s rejected the certificate: %s", newRaProfile.getName(), reason), null));
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Identification by authority of new RA profile %s rejected the certificate: %s. Certificate: %s", newRaProfile.getName(), reason, certificate.toStringShort()));
             }
@@ -2285,6 +2273,29 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new AttributeException("Certificate without content cannot be set as resource object in attribute.");
         contentData.setContent(certificate.getCertificateContent().getContent());
         return contentData;
+    }
+
+    /**
+     * Builds a human-readable rejection reason from a connector's {@link ValidationException}.
+     *
+     * <p>Joins all non-blank {@link ValidationError} descriptions with {@code "; "}. When no
+     * usable description is available, falls back to {@link Throwable#getMessage()}, then to a
+     * fixed placeholder so the surrounding operator-facing message never ends with an empty
+     * fragment. Filtering null / blank descriptions also avoids the {@code NullPointerException}
+     * {@code Collectors.joining} would otherwise throw.</p>
+     */
+    static String identifyRejectionReason(ValidationException e) {
+        String joined = e.getErrors() == null ? "" : e.getErrors().stream()
+                .map(ValidationError::getErrorDescription)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(Collectors.joining("; "));
+        if (!joined.isBlank()) {
+            return joined;
+        }
+        if (e.getMessage() != null && !e.getMessage().isBlank()) {
+            return e.getMessage();
+        }
+        return "no reason supplied by connector";
     }
 
 }
