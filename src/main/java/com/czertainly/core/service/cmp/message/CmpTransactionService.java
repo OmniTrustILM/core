@@ -53,11 +53,26 @@ public class CmpTransactionService {
      */
     public CmpTransaction createTransactionEntity(String transactionId, CmpProfile cmpProfile,
                                                   String certificateUuid, CmpTransactionState state) {
+        return createTransactionEntity(transactionId, cmpProfile, certificateUuid, state, null);
+    }
+
+    /**
+     * Helper to create {@link CmpTransaction} entity with the original request body type
+     * recorded so a subsequent pollReq response can be built with the matching body type.
+     *
+     * @param originalRequestBodyType BouncyCastle {@code PKIBody.TYPE_*} integer of the
+     *                                originating request (ir / cr / kur / rr); may be {@code null}
+     *                                for transactions where the original type is unknown
+     */
+    public CmpTransaction createTransactionEntity(String transactionId, CmpProfile cmpProfile,
+                                                  String certificateUuid, CmpTransactionState state,
+                                                  Integer originalRequestBodyType) {
         CmpTransaction cmpTransaction = new CmpTransaction();
         cmpTransaction.setTransactionId(transactionId);
         cmpTransaction.setCmpProfile(cmpProfile);
         cmpTransaction.setCertificateUuid(UUID.fromString(certificateUuid));
         cmpTransaction.setState(state);
+        cmpTransaction.setOriginalRequestBodyType(originalRequestBodyType);
         return cmpTransaction;
     }
 

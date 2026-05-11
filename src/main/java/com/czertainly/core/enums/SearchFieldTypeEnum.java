@@ -27,6 +27,11 @@ public enum SearchFieldTypeEnum {
     LIST(FilterFieldType.LIST,
             List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY)
             , true, null),
+    // Like LIST but the underlying column is a native PostgreSQL array (text[]).
+    // EQUALS/NOT_EQUALS use = ANY(column) instead of column = value.
+    NATIVE_ARRAY(FilterFieldType.LIST,
+            List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY)
+            , true, null),
     BOOLEAN(FilterFieldType.BOOLEAN,
          List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY), false, Boolean.class)
     ;

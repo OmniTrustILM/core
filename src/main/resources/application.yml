@@ -1,6 +1,13 @@
 app:
   version: '@project.version@'
 
+
+caching:
+  # Authentication cache caches resolved user identities to avoid repeated auth-service lookups
+  authentication:
+    ttl-minutes: ${AUTH_CACHE_TTL_MINUTES:5}   # How long a cached identity is considered valid
+    max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
+
 certificate:
   chain:
     max-depth: 20

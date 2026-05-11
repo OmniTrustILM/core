@@ -75,7 +75,10 @@ public enum Resource {
     SECRET("secrets"),
 
     // CBOMS
-    CBOM("cboms")
+    CBOM("cboms"),
+
+    // SIGNING
+    TIME_QUALITY_CONFIGURATION("timeQualityConfigurations")
     ;
 
     @Schema(description = "Resource Name",

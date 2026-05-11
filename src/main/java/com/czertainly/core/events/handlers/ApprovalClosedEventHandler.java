@@ -10,31 +10,21 @@ import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.repository.ApprovalRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.events.EventContext;
-import com.czertainly.core.events.EventContextTriggers;
 import com.czertainly.core.events.EventHandler;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Transactional
 @Component(ResourceEvent.Codes.APPROVAL_CLOSED)
 public class ApprovalClosedEventHandler extends EventHandler<Approval> {
-
-    private AuthHelper authHelper;
-
-    @Autowired
-    public void setAuthHelper(AuthHelper authHelper) {
-        this.authHelper = authHelper;
-    }
 
     @Autowired
     protected ApprovalClosedEventHandler(ApprovalRepository repository, TriggerEvaluator<Approval> ruleEvaluator) {

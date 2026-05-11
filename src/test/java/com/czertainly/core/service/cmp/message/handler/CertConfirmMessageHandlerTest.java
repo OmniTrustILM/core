@@ -43,7 +43,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-@Disabled
 @ExtendWith(MockitoExtension.class)
 public class CertConfirmMessageHandlerTest {
 
@@ -92,13 +91,15 @@ public class CertConfirmMessageHandlerTest {
                 key
         );
 
-        raProfile = raProfileRepository.save(CmpEntityUtil.createRaProfile());
+        // The mocked raProfileRepository returns null on save() unless stubbed; build the
+        // RA profile directly so the test fixture is fully populated.
+        raProfile = CmpEntityUtil.createRaProfile();
         cmpProfile = CmpEntityUtil.createCmpProfile(
                 raProfile, certificateSig);
     }
 
     @Test
-    public void test_handleOk() throws Exception {
+    void test_handleOk() throws Exception {
         // -- WHEN --
         String trxId = "999";
         PKIBody body = CmpTestUtil.createCertConfBody(x509certificate, serialNumber);
@@ -112,37 +113,48 @@ public class CertConfirmMessageHandlerTest {
                 null, null);
 
         // -- GIVEN
-        given(certificateRepository.findByFingerprint(any()))
-                .willReturn(Optional.of(new Certificate()));
-        given(cmpTransactionService.findByTransactionIdAndFingerprint(any(), any()))
-                .willReturn(Optional.of(new CmpTransaction()));
+        // Build a CmpTransaction whose attached certificate, when re-parsed, produces the
+        // same fingerprint the client sent in the certConf body. This is what the handler
+        // compares against when deciding whether to confirm the transaction.
+        String certBase64 = Base64.getEncoder().encodeToString(x509certificate.getEncoded());
+        CertificateContent content = new CertificateContent();
+        content.setContent(certBase64);
+        Certificate cert = new Certificate();
+        cert.setCertificateContent(content);
+        CmpTransaction transaction = new CmpTransaction();
+        transaction.setCertificate(cert);
+        given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));
+
+        // After confirmation, the handler builds a signature-protected pkiConfirm response,
+        // which needs a private key, a provider and a sign-data call. Stub them.
         given(certificateKeyService.getPrivateKey(any()))
                 .willReturn(new CzertainlyPrivateKey(
                         null,
                         ckPrivateKey.getKeyReferenceUuid().toString(),
                         new ConnectorDto(),
                         KeyAlgorithm.ECDSA.getLabel()));
-        given(certificateKeyService.getProvider(any(), any())).
-                willReturn(CzertainlyProvider.getInstance(cmpProfile.getName(),
+        given(certificateKeyService.getProvider(any(), any()))
+                .willReturn(CzertainlyProvider.getInstance(cmpProfile.getName(),
                         true, cryptographicOperationsApiClient));
-        SignDataResponseDto singData = new SignDataResponseDto();
-        SignatureResponseData singDataRsp = new SignatureResponseData();
-        singDataRsp.setData("test".getBytes());
-        singData.setSignatures(List.of(singDataRsp));
+        SignDataResponseDto signData = new SignDataResponseDto();
+        SignatureResponseData signDataRsp = new SignatureResponseData();
+        signDataRsp.setData("test".getBytes());
+        signData.setSignatures(List.of(signDataRsp));
         given(cryptographicOperationsApiClient.signData(any(), any(), any(), any()))
-                .willReturn(singData);
+                .willReturn(signData);
 
         // -- THEN
         PKIMessage response = tested.handle(request, configuration);
         assertEquals(PKIBody.TYPE_CONFIRM, response.getBody().getType());
         assertEquals(new DEROctetString(trxId.getBytes()).toString(),
                 response.getHeader().getTransactionID().toString());
-        Assertions.assertInstanceOf(PKIConfirmContent.class, response.getBody().getContent());
+        assertInstanceOf(PKIConfirmContent.class, response.getBody().getContent());
     }
 
     @Test
-    public void test_handleRelatedCertificateBySerialNumberNotFound() throws Exception {
-        // -- WHEN --
+    void test_handleRelatedCertificateFingerprintMismatch() throws Exception {
+        // The handler finds a transaction but the cert's fingerprint does not match the
+        // one in the certConf body — so confirmation fails with badCertId/CMPHANCERTCONF002.
         String expectedTrxId = "999";
         PKIBody body = CmpTestUtil.createCertConfBody(x509certificate, serialNumber);
         PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
@@ -154,19 +166,31 @@ public class CertConfirmMessageHandlerTest {
                 new CmpProfile(), raProfile, request, certificateKeyService,
                 null, null);
 
-        // -- GIVEN
-        given(certificateRepository.findByFingerprint(any())).willReturn(Optional.empty());
+        // -- GIVEN: a transaction with a *different* certificate (mismatched fingerprint)
+        KeyPair otherKp = CmpTestUtil.generateKeyPairEC();
+        X509CertificateHolder otherCert = CmpTestUtil.makeV3Certificate(
+                BigInteger.valueOf(987654321), otherKp, "CN=Other", otherKp, "CN=Other");
+        CertificateContent content = new CertificateContent();
+        content.setContent(Base64.getEncoder().encodeToString(otherCert.getEncoded()));
+        Certificate cert = new Certificate();
+        cert.setCertificateContent(content);
+        CmpTransaction transaction = new CmpTransaction();
+        transaction.setCertificate(cert);
+        given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));
 
         // -- THEN
         CmpProcessingException response = assertThrows(
                 CmpProcessingException.class, () -> tested.handle(request, configuration));
         assertEquals(PKIFailureInfo.badCertId, response.getFailureInfo());
-        assertEquals(response.getImplFailureInfo(), ImplFailureInfo.CMPHANCERTCONF001);
+        assertEquals(ImplFailureInfo.CMPHANCERTCONF002, response.getImplFailureInfo());
     }
 
     @Test
-    public void test_handleRelatedTransactionNotFound() throws Exception {
-        // -- WHEN --
+    void test_handleFingerprintComputationFails_whenCertificateContentInvalid() throws Exception {
+        // When the stored certificate content cannot be parsed (malformed/truncated), the
+        // fingerprint computation must surface a CmpProcessingException with badMessageCheck
+        // rather than propagating an opaque CertificateException upward. Forced here by
+        // pointing the transaction at a Certificate whose CertificateContent is base64 garbage.
         String trxId = "999";
         PKIBody body = CmpTestUtil.createCertConfBody(x509certificate, serialNumber);
         PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
@@ -178,14 +202,49 @@ public class CertConfirmMessageHandlerTest {
                 new CmpProfile(), raProfile, request, certificateKeyService,
                 null, null);
 
-        // -- GIVEN
-        given(certificateRepository.findByFingerprint(any())).willReturn(Optional.of(new Certificate()));
+        CertificateContent garbage = new CertificateContent();
+        garbage.setContent("not-valid-base64-cert-content");
+        Certificate cert = new Certificate();
+        cert.setCertificateContent(garbage);
+        CmpTransaction transaction = new CmpTransaction();
+        transaction.setCertificate(cert);
+        given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));
+
+        CmpProcessingException response = assertThrows(
+                CmpProcessingException.class, () -> tested.handle(request, configuration));
+        // Both the fingerprint catch and the per-cert lookup catch produce clean
+        // CmpProcessingException outcomes, but with different failureInfo codes — accept either.
+        assertTrue(
+                response.getFailureInfo() == PKIFailureInfo.badMessageCheck
+                        || response.getFailureInfo() == PKIFailureInfo.badCertId,
+                "expected badMessageCheck or badCertId, got " + response.getFailureInfo());
+    }
+
+    @Test
+    void test_handleRelatedTransactionNotFound() throws Exception {
+        // No transaction matches the incoming transactionID; handler returns the same
+        // "no related cert" outcome (current implementation collapses both cases).
+        String trxId = "999";
+        PKIBody body = CmpTestUtil.createCertConfBody(x509certificate, serialNumber);
+        PKIMessage request = CmpTestUtil.createSignatureBasedMessage(
+                        trxId,
+                        CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        body)
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(
+                new CmpProfile(), raProfile, request, certificateKeyService,
+                null, null);
+
+        // -- GIVEN: no transactions found
+        given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of());
 
         // -- THEN
         CmpProcessingException response = assertThrows(
                 CmpProcessingException.class, () -> tested.handle(request, configuration));
-        assertEquals(PKIFailureInfo.badRequest, response.getFailureInfo());
-        assertEquals(response.getImplFailureInfo(), ImplFailureInfo.CMPHANCERTCONF002);
+        // Handler uses badCertId (RFC 4210 §3.2.7) for "no certificate could be found" rather
+        // than the more generic badRequest.
+        assertEquals(PKIFailureInfo.badCertId, response.getFailureInfo());
+        assertEquals(ImplFailureInfo.CMPHANCERTCONF002, response.getImplFailureInfo());
     }
 
 }

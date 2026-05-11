@@ -43,6 +43,7 @@ public class FilterPredicatesBuilder {
     private static final List<AttributeContentType> castedAttributeContentData = List.of(AttributeContentType.INTEGER, AttributeContentType.FLOAT, AttributeContentType.DATE, AttributeContentType.TIME, AttributeContentType.DATETIME);
     private static final String JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME = "jsonb_extract_path_text";
     private static final String TEXTREGEXEQ_FUNCTION_NAME = "textregexeq";
+    private static final String ARRAY_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_CONTAINS;
 
     public static <T> Predicate getFiltersPredicate(final CriteriaBuilder criteriaBuilder, final CommonAbstractCriteria query, final Root<T> root, final List<SearchFilterRequestDto> filterDtos) {
         Map<String, From> joinedAssociations = new HashMap<>();
@@ -165,8 +166,20 @@ public class FilterPredicatesBuilder {
             } else {
                 preparedValue = switch (contentType) {
                     case BOOLEAN -> Boolean.parseBoolean(stringValue) ? "true" : "false";
-                    case INTEGER -> Integer.parseInt(stringValue);
-                    case FLOAT -> Float.parseFloat(stringValue);
+                    case INTEGER -> {
+                        try {
+                            yield Integer.parseInt(stringValue);
+                        } catch (NumberFormatException e) {
+                            throw new ValidationException("Filter field value " + stringValue + " cannot be parsed as an Integer.");
+                        }
+                    }
+                    case FLOAT -> {
+                        try {
+                            yield Float.parseFloat(stringValue);
+                        } catch (NumberFormatException e) {
+                            throw new ValidationException("Filter field value " + stringValue + " cannot be parsed as a Float.");
+                        }
+                    }
                     case DATE -> LocalDate.parse(stringValue);
                     case TIME -> LocalTime.parse(stringValue);
                     case DATETIME -> {
@@ -193,7 +206,7 @@ public class FilterPredicatesBuilder {
         try {
             preparedValue = DatatypeFactory.newInstance().newDuration(stringValue);
         } catch (DatatypeConfigurationException e) {
-            throw new ValidationException("Cannot parse value " + stringValue + "to a Duration: " + e.getMessage());
+            throw new ValidationException("Cannot parse value " + stringValue + " to a Duration: " + e.getMessage());
         }
         return preparedValue;
     }
@@ -204,6 +217,12 @@ public class FilterPredicatesBuilder {
 
         // prepare filter values, expression and set filter characteristics
         List<Object> filterValues = preparePropertyFilterValues(filterDto, filterField);
+        if (filterValues.isEmpty()
+                && filterDto.getCondition() != FilterConditionOperator.EMPTY
+                && filterDto.getCondition() != FilterConditionOperator.NOT_EMPTY) {
+            throw new ValidationException("Filter for field " + filterField + " with operator " + filterDto.getCondition() + " requires at least one value.");
+        }
+
         Expression expression = null;
         if (filterField.getFieldAttribute() != null && !isCountOperator(filterDto.getCondition()))
             expression = from.get(filterField.getFieldAttribute().getName());
@@ -227,10 +246,12 @@ public class FilterPredicatesBuilder {
                     case 4 ->
                             criteriaBuilder.function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, from.get(filterField.getFieldAttribute().getName()), criteriaBuilder.literal(filterField.getJsonPath()[0]), criteriaBuilder.literal(filterField.getJsonPath()[1]), criteriaBuilder.literal(filterField.getJsonPath()[2]), criteriaBuilder.literal(filterField.getJsonPath()[3]));
                     default ->
-                            throw new ValidationException("Unexpected size of JSON path `%s`: %d".formatted(filterField.getJsonPath(), filterField.getJsonPath().length));
+                            throw new ValidationException("Unexpected size of JSON path `%s`: %d".formatted(Arrays.toString(filterField.getJsonPath()), filterField.getJsonPath().length));
                 };
             }
         } else if (filterField.getType().getExpressionClass() != null && filterField.getExpectedValue() == null) {
+            if (expression == null)
+                throw new ValidationException("Invalid filter configuration: no expression for field " + filterField);
             expression = ((JpaExpression) expression).cast(filterField.getType().getExpressionClass());
         }
 
@@ -258,13 +279,29 @@ public class FilterPredicatesBuilder {
         }
         final LocalDateTime now = LocalDateTime.now();
         boolean bitEnumProperty = filterField.getEnumClass() != null && BitMaskEnum.class.isAssignableFrom(filterField.getEnumClass());
+        boolean isNativeArrayField = filterField.getType() == SearchFieldTypeEnum.NATIVE_ARRAY;
+        if (expression == null && !isCountOperator(conditionOperator))
+            throw new ValidationException("Invalid filter configuration: no expression for field " + filterField + " with operator " + conditionOperator);
+        final Expression finalExpression = expression;
         switch (conditionOperator) {
             case EQUALS -> {
                 if (bitEnumProperty)
                     predicate = criteriaBuilder.notEqual(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isTrue(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
-                else
+                else if (isNativeArrayField) {
+                    List<Predicate> nativeArrayPredicates = filterValues.stream()
+                            .map(value -> criteriaBuilder.isTrue(criteriaBuilder.function(
+                                    ARRAY_CONTAINS_FUNCTION_NAME,
+                                    Boolean.class,
+                                    criteriaBuilder.literal(value.toString()),
+                                    finalExpression
+                            )))
+                            .toList();
+                    predicate = nativeArrayPredicates.size() == 1
+                            ? nativeArrayPredicates.getFirst()
+                            : criteriaBuilder.or(nativeArrayPredicates.toArray(new Predicate[0]));
+                } else
                     predicate = multipleValues ? expression.in(filterValues) : criteriaBuilder.equal(expression, filterValues.getFirst());
             }
             case NOT_EQUALS -> {
@@ -272,6 +309,20 @@ public class FilterPredicatesBuilder {
                     predicate = criteriaBuilder.equal(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isFalse(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
+                else if (isNativeArrayField) {
+                    Predicate[] nativeArrayNotContainsPredicates = filterValues.stream()
+                            .map(value -> criteriaBuilder.isFalse(criteriaBuilder.function(
+                                    ARRAY_CONTAINS_FUNCTION_NAME,
+                                    Boolean.class,
+                                    criteriaBuilder.literal(value.toString()),
+                                    finalExpression
+                            )))
+                            .toArray(Predicate[]::new);
+                    predicate = criteriaBuilder.or(
+                            criteriaBuilder.isNull(expression),
+                            criteriaBuilder.and(nativeArrayNotContainsPredicates)
+                    );
+                }
                 else {
                     // hack how to filter out correctly Has private key property filter for certificate. Needs to find correct solution for SET attributes predicates!
                     if (filterField.getExpectedValue() != null && filterField == FilterField.PRIVATE_KEY) {
@@ -289,10 +340,20 @@ public class FilterPredicatesBuilder {
             case NOT_CONTAINS ->
                     predicate = criteriaBuilder.or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, false, isJsonArray),
                             criteriaBuilder.notLike(expression, "%" + filterValues.getFirst() + "%"));
-            case EMPTY ->
+            case EMPTY -> {
+                if (isNativeArrayField)
+                    predicate = criteriaBuilder.or(criteriaBuilder.isNull(expression),
+                            criteriaBuilder.equal(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
+                else
                     predicate = getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, bitEnumProperty, isJsonArray);
-            case NOT_EMPTY ->
+            }
+            case NOT_EMPTY -> {
+                if (isNativeArrayField)
+                    predicate = criteriaBuilder.and(criteriaBuilder.isNotNull(expression),
+                            criteriaBuilder.greaterThan(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
+                else
                     predicate = criteriaBuilder.not(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, bitEnumProperty, isJsonArray));
+            }
             case GREATER ->
                     predicate = criteriaBuilder.greaterThan(expression, (Expression) criteriaBuilder.literal(filterValues.getFirst()));
             case GREATER_OR_EQUAL ->
@@ -323,11 +384,20 @@ public class FilterPredicatesBuilder {
             case COUNT_EQUAL -> predicate = criteriaBuilder.equal(criteriaBuilder.size(from), filterValues.getFirst());
             case COUNT_NOT_EQUAL ->
                     predicate = criteriaBuilder.not(criteriaBuilder.equal(criteriaBuilder.size(from), filterValues.getFirst()));
-            case COUNT_GREATER_THAN ->
+            case COUNT_GREATER_THAN -> {
+                try {
                     predicate = criteriaBuilder.greaterThan(criteriaBuilder.size(from), (Expression) criteriaBuilder.literal(Integer.parseInt(filterValues.getFirst().toString())));
-            case COUNT_LESS_THAN ->
+                } catch (NumberFormatException e) {
+                    throw new ValidationException("Filter field value " + filterValues.getFirst() + " cannot be parsed as an Integer.");
+                }
+            }
+            case COUNT_LESS_THAN -> {
+                try {
                     predicate = criteriaBuilder.lessThan(criteriaBuilder.size(from), (Expression) criteriaBuilder.literal(Integer.parseInt(filterValues.getFirst().toString())));
-
+                } catch (NumberFormatException e) {
+                    throw new ValidationException("Filter field value " + filterValues.getFirst() + " cannot be parsed as an Integer.");
+                }
+            }
 
             default -> throw new ValidationException("Unexpected value: " + conditionOperator);
         }
@@ -466,7 +536,11 @@ public class FilterPredicatesBuilder {
                         preparedFilterValue = filterField.getExpectedValue();
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
-                    preparedFilterValue = stringValue.contains(".") ? Float.parseFloat(stringValue) : Integer.parseInt(stringValue);
+                    try {
+                        preparedFilterValue = stringValue.contains(".") ? Float.parseFloat(stringValue) : Integer.parseInt(stringValue);
+                    } catch (NumberFormatException e) {
+                        throw new ValidationException("Filter field value " + stringValue + " cannot be parsed as a Number.");
+                    }
                 } else if (filterDto.getCondition() == FilterConditionOperator.IN_PAST || filterDto.getCondition() == FilterConditionOperator.IN_NEXT) {
                     try {
                         if (filterField.getType() == SearchFieldTypeEnum.DATE) {

@@ -154,7 +154,10 @@ public class CmpEntityUtil {
         CmpTransaction cmpTransaction = new CmpTransaction();
         cmpTransaction.setTransactionId(new DEROctetString(Arrays.clone(transactionId.getBytes())).toString());
         cmpTransaction.setCmpProfile(cmpProfile);
-        cmpTransaction.setCertificateUuid(issuedCertificate.getUuid());
+        // setCertificate sets both the entity reference and the FK uuid; needed so the lazy
+        // @OneToOne relationship resolves correctly when the handler later calls
+        // cmpTransaction.getCertificate() in the same persistence context.
+        cmpTransaction.setCertificate(issuedCertificate);
         cmpTransaction.setState(state);//CmpTransactionState.CERT_ISSUED
         return cmpTransaction;
     }

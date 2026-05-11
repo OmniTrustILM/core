@@ -1034,6 +1034,202 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
 
     }
 
+    // ─── Exception paths ───────────────────────────────────────────────────
+
+    @Test
+    void testPropertyFilter_equalsWithNullValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
+                FilterConditionOperator.EQUALS, null)));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testAttributeIntegerFilter_invalidValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.CUSTOM, "integer|INTEGER",
+                FilterConditionOperator.EQUALS, "notanumber")));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testAttributeFloatFilter_invalidValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.CUSTOM, "decimal|FLOAT",
+                FilterConditionOperator.EQUALS, "notafloat")));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testPropertyNumberFilter_invalidValue_throwsValidationException() {
+        SearchFilterRequestDto filterDto = new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.CKI_LENGTH.name(),
+                FilterConditionOperator.EQUALS, "notanumber");
+        CriteriaQuery<CryptographicKeyItem> ckiQuery = criteriaBuilder.createQuery(CryptographicKeyItem.class);
+        Root<CryptographicKeyItem> ckiRoot = ckiQuery.from(CryptographicKeyItem.class);
+        List<SearchFilterRequestDto> filters = List.of(filterDto);
+        Assertions.assertThrows(ValidationException.class,
+                () -> FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, ckiQuery, ckiRoot, filters));
+    }
+
+    @Test
+    void testCountEqual_nullValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_EQUAL, null)));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testCountNotEqual_nullValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_NOT_EQUAL, null)));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testCountGreaterThan_nullValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_GREATER_THAN, null)));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testCountLessThan_nullValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_LESS_THAN, null)));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testCountGreaterThan_nonIntegerValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_GREATER_THAN, "notanumber")));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testCountLessThan_nonIntegerValue_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                FilterConditionOperator.COUNT_LESS_THAN, "notanumber")));
+        SecurityFilter securityFilter = new SecurityFilter();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+    }
+
+    @Test
+    void testForbiddenRegexSequences_throwsValidationException() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        SecurityFilter securityFilter = new SecurityFilter();
+        for (String forbidden : List.of("\\Rabc", "\\Gabc", "\\habc", "\\Habc", "\\zabc", "\\Xabc", "\\Vabc")) {
+            searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                    FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
+                    FilterConditionOperator.MATCHES, forbidden)));
+            Assertions.assertThrows(ValidationException.class,
+                    () -> certificateService.listCertificates(securityFilter, searchRequestDto),
+                    "Expected ValidationException for forbidden regex: " + forbidden);
+        }
+    }
+
+    @Test
+    void testCryptographicKeyCustomAttribute_usesParentKeyUuid() throws AlreadyExistException, AttributeException, NotFoundException {
+        CustomAttributeCreateRequestDto attrRequest = new CustomAttributeCreateRequestDto();
+        attrRequest.setName("ck_custom_string");
+        attrRequest.setLabel("ck_custom_string");
+        attrRequest.setResources(List.of(Resource.CRYPTOGRAPHIC_KEY));
+        attrRequest.setContentType(AttributeContentType.STRING);
+        CustomAttributeDefinitionDetailDto attr = attributeService.createCustomAttribute(attrRequest);
+
+        CryptographicKey key = cryptographicKeyRepository.save(new CryptographicKey());
+        CryptographicKeyItem item = new CryptographicKeyItem();
+        item.setType(KeyType.PRIVATE_KEY);
+        item.setKey(key);
+        item.setState(KeyState.ACTIVE);
+        cryptographicKeyItemRepository.save(item);
+
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CRYPTOGRAPHIC_KEY, key.getUuid(), null,
+                attr.getName(), List.of(new StringAttributeContentV3("ref", "key_value")));
+
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
+                FilterFieldSource.CUSTOM, attr.getName() + "|STRING",
+                FilterConditionOperator.EQUALS, "key_value")));
+
+        CryptographicKeyResponseDto result = cryptographicKeyService.listCryptographicKeys(new SecurityFilter(), searchRequestDto);
+        Set<String> uuids = result.getCryptographicKeys().stream()
+                .map(KeyItemDto::getUuid)
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(uuids.contains(item.getUuid().toString()),
+                "Custom attribute stored on the parent key must be found when filtering key items");
+    }
+
+    @Test
+    void testGetFiltersPredicate_nullFilters_doesNotThrowAndReturnsAllRows() {
+        Predicate predicate = FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, criteriaQuery, root, null);
+        Assertions.assertNotNull(predicate);
+        // Functional verification: null filters must not restrict any rows
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        CertificateResponseDto result = certificateService.listCertificates(new SecurityFilter(), searchRequestDto);
+        Set<UUID> uuids = getUuidsFromListCertificatesResponse(result);
+        Assertions.assertTrue(uuids.containsAll(Set.of(
+                certificate1.getUuid(), certificate2.getUuid(), certificate3.getUuid())));
+    }
+
+    @Test
+    void testNotContains_onJsonArrayField_notPresentPredicateHasThreeJsonChecks() {
+        // AUDIT_LOG_RESOURCE_NAME has jsonPath containing "*", so isJsonArray=true.
+        // NOT_CONTAINS must delegate to getNotPresentPredicate(isJsonArray=true) which
+        // produces OR(= '[]', IS NULL, = '[null]') — three checks for an empty JSON array.
+        SearchFilterRequestDTODummy filterDto = new SearchFilterRequestDTODummy(
+                FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_NAME,
+                FilterConditionOperator.NOT_CONTAINS, "target-name");
+        CriteriaQuery<AuditLog> alQuery = criteriaBuilder.createQuery(AuditLog.class);
+        Root<AuditLog> alRoot = alQuery.from(AuditLog.class);
+
+        Predicate predicate = FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, alQuery, alRoot, List.of(filterDto));
+
+        // Outer AND → first child is the NOT_CONTAINS OR predicate
+        SqmJunctionPredicate outerAnd = (SqmJunctionPredicate) predicate;
+        SqmJunctionPredicate notContainsOr = (SqmJunctionPredicate) outerAnd.getPredicates().getFirst();
+        Assertions.assertEquals(2, notContainsOr.getPredicates().size(),
+                "NOT_CONTAINS on json-array field must produce OR(notPresent, notLike)");
+
+        // First arm is getNotPresentPredicate(isJsonArray=true): OR(= '[]', IS NULL, = '[null]')
+        SqmJunctionPredicate notPresentOr = (SqmJunctionPredicate) notContainsOr.getPredicates().getFirst();
+        Assertions.assertEquals(3, notPresentOr.getPredicates().size(),
+                "Not-present predicate for json-array must have three checks: empty-array, null, null-array");
+    }
+
     private Set<Long> extractIdsFromAuditLogResponse(AuditLogResponseDto responseDto) {
         return responseDto.getItems().stream().map(AuditLogDto::getId).collect(Collectors.toSet());
     }

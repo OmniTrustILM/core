@@ -739,6 +739,19 @@ class AuthServiceTest extends BaseSpringBootTest {
                                 "displayName": "List"
                             }
                         ]
+                    },
+                    {
+                        "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                        "name": "timeQualityConfigurations",
+                        "displayName": "Time Quality Configurations",
+                        "objectAccess": false,
+                        "actions": [
+                            {
+                                "uuid": "53421445-5d6e-4257-b59d-235aaf26e61e",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
                     }
                 ]
                 """;

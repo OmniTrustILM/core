@@ -30,6 +30,7 @@ import com.czertainly.core.dao.entity.cmp.CmpProfile_;
 import com.czertainly.core.dao.entity.oid.CustomOidEntry_;
 import com.czertainly.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry_;
 import com.czertainly.core.dao.entity.scep.ScepProfile_;
+import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration_;
 import com.czertainly.core.model.auth.ResourceAction;
 import jakarta.persistence.metamodel.Attribute;
 import lombok.Getter;
@@ -176,6 +177,7 @@ public enum FilterField {
     OID_ENTRY_DISPLAY_NAME(Resource.OID, null, null, CustomOidEntry_.displayName, "Display Name", SearchFieldTypeEnum.STRING),
     OID_ENTRY_CATEGORY(Resource.OID, null, null, CustomOidEntry_.category, "Category", SearchFieldTypeEnum.LIST, OidCategory.class),
     OID_ENTRY_CODE(Resource.OID, null, null, RdnAttributeTypeCustomOidEntry_.code, "Code", SearchFieldTypeEnum.STRING),
+    OID_ENTRY_ALT_CODES(Resource.OID, null, null, RdnAttributeTypeCustomOidEntry_.altCodes, "Alt Codes", SearchFieldTypeEnum.NATIVE_ARRAY),
 
     // Vault Instance
     VAULT_INSTANCE_NAME(Resource.VAULT, null, null, VaultInstance_.name, "Name", SearchFieldTypeEnum.STRING),
@@ -205,7 +207,14 @@ public enum FilterField {
     CBOM_CERTIFICATES_COUNT(Resource.CBOM, null, null, Cbom_.certificatesCount, "Certificates Count", SearchFieldTypeEnum.NUMBER),
     CBOM_PROTOCOLS_COUNT(Resource.CBOM, null, null, Cbom_.protocolsCount, "Protocols Count", SearchFieldTypeEnum.NUMBER),
     CBOM_CRYPTO_MATERIAL_COUNT(Resource.CBOM, null, null, Cbom_.cryptoMaterialCount, "Crypto Material Count", SearchFieldTypeEnum.NUMBER),
-    CBOM_TOTAL_ASSETS_COUNT(Resource.CBOM, null, null, Cbom_.totalAssetsCount, "Total Assets Count", SearchFieldTypeEnum.NUMBER)
+    CBOM_TOTAL_ASSETS_COUNT(Resource.CBOM, null, null, Cbom_.totalAssetsCount, "Total Assets Count", SearchFieldTypeEnum.NUMBER),
+
+    // Time Quality Configuration
+    TIME_QUALITY_CONFIGURATION_NAME(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.name, "Name", SearchFieldTypeEnum.STRING),
+    TIME_QUALITY_CONFIGURATION_LEAP_SECOND_GUARD(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.leapSecondGuard, "Leap Second Guard", SearchFieldTypeEnum.BOOLEAN),
+    TIME_QUALITY_CONFIGURATION_NTP_SERVERS_MIN_REACHABLE(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpServersMinReachable, "NTP Servers Min Reachable", SearchFieldTypeEnum.NUMBER),
+    TIME_QUALITY_CONFIGURATION_NTP_SAMPLES_PER_SERVER(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpSamplesPerServer, "NTP Samples Per Server", SearchFieldTypeEnum.NUMBER),
+    TIME_QUALITY_CONFIGURATION_NTP_SERVERS(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpServers, "NTP Servers", SearchFieldTypeEnum.NATIVE_ARRAY)
     ;
 
     private static final FilterField[] VALUES;

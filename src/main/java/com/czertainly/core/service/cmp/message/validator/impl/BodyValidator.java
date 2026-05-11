@@ -50,9 +50,13 @@ public class BodyValidator extends BaseValidator implements Validator<PKIMessage
                 case PKIBody.TYPE_ERROR:
                     new BodyErrorMessageValidator().validate(message, configuration);
                     break;
-                case PKIBody.TYPE_P10_CERT_REQ:
                 case PKIBody.TYPE_POLL_REQ:
+                    new BodyPollValidator().validateIn(message, configuration);
+                    break;
                 case PKIBody.TYPE_POLL_REP:
+                    new BodyPollValidator().validateOut(message, configuration);
+                    break;
+                case PKIBody.TYPE_P10_CERT_REQ:
                 case PKIBody.TYPE_GEN_MSG:
                 case PKIBody.TYPE_GEN_REP:
                 case PKIBody.TYPE_NESTED:

@@ -7,7 +7,9 @@ import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.repository.custom.CustomCertificateRepository;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -31,6 +33,18 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
 
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
     Optional<Certificate> findWithAssociationsByUuid(UUID uuid);
+
+    /**
+     * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven
+     * pending-state endpoints (manuallyIssueCertificate, manuallyConfirmRevoke,
+     * cancelPendingCertificateOperation). Issues {@code SELECT ... FOR UPDATE} on the
+     * certificate row so concurrent operator actions on the same pending certificate
+     * serialize. Must be called inside an active transaction, otherwise the lock is
+     * released immediately on query completion.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
+    Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
 
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
     List<Certificate> findWithAssociationsByUuidInOrderByCreatedDesc(List<UUID> uuids);

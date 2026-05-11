@@ -36,6 +36,7 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
@@ -61,6 +62,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -169,6 +171,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
     private ApplicationEventPublisher applicationEventPublisher;
     private ValidationProducer validationProducer;
+    private AuthenticationCache authenticationCache;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -342,6 +345,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         this.applicationEventPublisher = applicationEventPublisher;
     }
 
+    @Autowired
+    public void setAuthenticationCache(AuthenticationCache authenticationCache) {
+        this.authenticationCache = authenticationCache;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.MEMBERS)
     public CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request) {
@@ -467,6 +475,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     public Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber) throws NotFoundException {
         return certificateRepository.findByIssuerDnNormalizedAndSerialNumber(issuerDn, serialNumber).orElseThrow(() -> new NotFoundException(Certificate.class, issuerDn + " " + serialNumber));
+    }
+
+    @Override
+    public Optional<Certificate> findCertificateEntityByUserUuid(UUID userUuid) {
+        return certificateRepository.findByUserUuid(userUuid);
     }
 
     @Override
@@ -1288,6 +1301,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             logger.warn("Unable to find the certificate with serialNumber {}", serialNumber);
         }
         if (certificate != null) {
+            if (certificate.getUserUuid() != null) {
+                authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
+            }
             eventProducer.produceMessage(CertificateStatusChangedEventHandler.constructEventMessage(certificate.getUuid(), oldStatus, CertificateValidationStatus.REVOKED));
         }
     }
@@ -1373,12 +1389,13 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (certificate.isArchived()) {
             throw new ValidationException("Certificate with UUID %s is archived and user with UUID %s cannot be set.".formatted(certificateUuid, userUuid));
         }
-        if (userUuid == null) {
-            certificate.setUserUuid(null);
-        } else {
-            certificate.setUserUuid(UUID.fromString(userUuid));
-        }
+        UUID oldUserUuid = certificate.getUserUuid();
+        UUID newUserUuid = userUuid == null ? null : UUID.fromString(userUuid);
+        certificate.setUserUuid(newUserUuid);
         certificateRepository.save(certificate);
+        if (oldUserUuid != null && !Objects.equals(oldUserUuid, newUserUuid)) {
+            authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
+        }
     }
 
     @Override
@@ -1388,6 +1405,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             Certificate certificate = certificateRepository.findByUserUuid(userUuid).orElseThrow(() -> new NotFoundException(Certificate.class, userUuid));
             certificate.setUserUuid(null);
             certificateRepository.save(certificate);
+            authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
         } catch (NotFoundException e) {
             logger.warn("No Certificate found for the user with UUID {}", userUuid);
         }
@@ -2120,6 +2138,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (certificate.isArchived()) {
             throw new ValidationException("Certificate with UUID %s is archived and its RA Profile cannot be updated.".formatted(uuid));
         }
+        if (certificate.getState() == CertificateState.PENDING_ISSUE || certificate.getState() == CertificateState.PENDING_REVOKE) {
+            throw new ValidationException("Cannot switch RA profile for certificate with a pending operation. Finalize or cancel the pending operation first. Certificate: %s".formatted(certificate.toStringShort()));
+        }
 
         // check if there is change in RA profile compared to current state
         if ((raProfileUuid == null && certificate.getRaProfileUuid() == null) || (raProfileUuid != null && certificate.getRaProfileUuid() != null) && certificate.getRaProfileUuid().toString().equals(raProfileUuid.toString())) {
@@ -2147,8 +2168,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.", newRaProfile.getName()), null));
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Certificate not identified by authority of new RA profile %s. Certificate: %s", newRaProfile.getName(), certificate.toStringShort()));
             } catch (ValidationException e) {
-                applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate identified by authority of new RA profile %s but not valid according to RA profile attributes. Certificate needs to be reissued.", newRaProfile.getName()), null));
-                throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Certificate identified by authority of new RA profile %s but not valid according to RA profile attributes. Certificate: %s", newRaProfile.getName(), certificate.toStringShort()));
+                // A connector may reject identification for any policy it implements: trust
+                // anchor mismatch, validity, key usage, RA-profile attribute violation, etc.
+                // Forward the connector's own reason so the operator sees the specific cause.
+                String reason = identifyRejectionReason(e);
+                applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Identification by authority of new RA profile %s rejected the certificate: %s", newRaProfile.getName(), reason), null));
+                throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Identification by authority of new RA profile %s rejected the certificate: %s. Certificate: %s", newRaProfile.getName(), reason, certificate.toStringShort()));
             }
         }
 
@@ -2248,6 +2273,29 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new AttributeException("Certificate without content cannot be set as resource object in attribute.");
         contentData.setContent(certificate.getCertificateContent().getContent());
         return contentData;
+    }
+
+    /**
+     * Builds a human-readable rejection reason from a connector's {@link ValidationException}.
+     *
+     * <p>Joins all non-blank {@link ValidationError} descriptions with {@code "; "}. When no
+     * usable description is available, falls back to {@link Throwable#getMessage()}, then to a
+     * fixed placeholder so the surrounding operator-facing message never ends with an empty
+     * fragment. Filtering null / blank descriptions also avoids the {@code NullPointerException}
+     * {@code Collectors.joining} would otherwise throw.</p>
+     */
+    static String identifyRejectionReason(ValidationException e) {
+        String joined = e.getErrors() == null ? "" : e.getErrors().stream()
+                .map(ValidationError::getErrorDescription)
+                .filter(s -> s != null && !s.isBlank())
+                .collect(Collectors.joining("; "));
+        if (!joined.isBlank()) {
+            return joined;
+        }
+        if (e.getMessage() != null && !e.getMessage().isBlank()) {
+            return e.getMessage();
+        }
+        return "no reason supplied by connector";
     }
 
 }

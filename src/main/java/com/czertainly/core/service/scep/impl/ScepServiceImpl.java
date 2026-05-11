@@ -549,24 +549,43 @@ public class ScepServiceImpl implements ScepService {
         return scepResponse;
     }
 
+    /**
+     * Maps a {@link CertificateState} to the {@link PkiStatus} that SCEP should report per
+     * RFC 8894 §3.3.2.
+     *
+     * @return {@code SUCCESS} for the only positive terminal state (ISSUED);
+     *         {@code FAILURE} for negative terminal states (REJECTED, FAILED, REVOKED);
+     *         {@code PENDING} for in-progress states (REQUESTED, PENDING_APPROVAL,
+     *         PENDING_ISSUE, PENDING_REVOKE).
+     */
+    static PkiStatus pkiStatusForCertState(CertificateState state) {
+        return switch (state) {
+            case ISSUED -> PkiStatus.SUCCESS;
+            case REJECTED, FAILED, REVOKED -> PkiStatus.FAILURE;
+            default -> PkiStatus.PENDING;
+        };
+    }
+
     private ScepResponse getExistingTransaction(String transactionId) throws ScepException, NotFoundException {
         ScepTransaction scepTransaction = scepTransactionRepository.findByTransactionIdAndScepProfile(transactionId, scepProfile).orElse(null);
         assert scepTransaction != null;
         Certificate certificate = scepTransaction.getCertificate();
 
-        if (certificate.getState() == CertificateState.REJECTED) {
-            return buildFailedResponse(new ScepException("Certificate issuance was rejected", FailInfo.BAD_REQUEST), transactionId);
-        }
-        if (certificate.getState() == CertificateState.FAILED) {
-            return buildFailedResponse(new ScepException("Certificate issuance failed", FailInfo.BAD_REQUEST), transactionId);
+        PkiStatus pkiStatus = pkiStatusForCertState(certificate.getState());
+        if (pkiStatus == PkiStatus.FAILURE) {
+            String reason = certificate.getState() == CertificateState.REJECTED
+                    ? "Certificate issuance was rejected"
+                    : "Certificate issuance failed";
+            return buildFailedResponse(new ScepException(reason, FailInfo.BAD_REQUEST), transactionId);
         }
 
         ScepResponse scepResponse = new ScepResponse();
-        if (certificate.getState() == CertificateState.ISSUED) {
-            scepResponse.setPkiStatus(PkiStatus.SUCCESS);
+        scepResponse.setPkiStatus(pkiStatus);
+        if (pkiStatus == PkiStatus.SUCCESS) {
             scepResponse.setCertificateChain(getIssuedCertificateChain(certificate));
-        } else {
-            scepResponse.setPkiStatus(PkiStatus.PENDING);
+        } else if (pkiStatus == PkiStatus.PENDING) {
+            logger.debug("SCEP transactionId={} returning PENDING (cert {} state={})",
+                    transactionId, certificate.getUuid(), certificate.getState());
         }
         return scepResponse;
     }
@@ -583,32 +602,37 @@ public class ScepServiceImpl implements ScepService {
         ScepResponse scepResponse = new ScepResponse();
         try {
             ScepTransaction transaction = getTransaction(scepRequest.getTransactionId());
-            if (transaction != null) {
-                Certificate certificate = transaction.getCertificate();
-                if (certificate.getState() == CertificateState.REJECTED) {
-                    return buildFailedResponse(new ScepException("Certificate issuance was rejected", FailInfo.BAD_REQUEST), scepRequest.getTransactionId());
-                }
-                if (certificate.getState() == CertificateState.FAILED) {
-                    return buildFailedResponse(new ScepException("Certificate issuance failed", FailInfo.BAD_REQUEST), scepRequest.getTransactionId());
-                }
-
-                if (certificate.getState().equals(CertificateState.ISSUED)) {
-                    X509Certificate x509Certificate = CertificateUtil.parseCertificate(certificate.getCertificateContent().getContent());
-                    scepResponse.setCertificateChain(getIssuedCertificateChain(certificate));
-                    scepResponse.setPkiStatus(PkiStatus.SUCCESS);
-                    sendIntuneSuccessNotification(
-                            intuneClient,
-                            scepRequest,
-                            x509Certificate
-                    );
-                }
-            } else {
+            if (transaction == null) {
+                // No tracked transaction — keep the client polling (the originating request
+                // may still be in the queue).
                 scepResponse.setPkiStatus(PkiStatus.PENDING);
+                prepareMessage(scepRequest, scepResponse);
+                return scepResponse;
+            }
+
+            Certificate certificate = transaction.getCertificate();
+            PkiStatus pkiStatus = pkiStatusForCertState(certificate.getState());
+
+            if (pkiStatus == PkiStatus.FAILURE) {
+                String reason = certificate.getState() == CertificateState.REJECTED
+                        ? "Certificate issuance was rejected"
+                        : "Certificate issuance failed";
+                return buildFailedResponse(new ScepException(reason, FailInfo.BAD_REQUEST), scepRequest.getTransactionId());
+            }
+
+            scepResponse.setPkiStatus(pkiStatus);
+            if (pkiStatus == PkiStatus.SUCCESS) {
+                X509Certificate x509Certificate = CertificateUtil.parseCertificate(certificate.getCertificateContent().getContent());
+                scepResponse.setCertificateChain(getIssuedCertificateChain(certificate));
+                sendIntuneSuccessNotification(intuneClient, scepRequest, x509Certificate);
+            } else if (pkiStatus == PkiStatus.PENDING) {
+                logger.debug("SCEP poll on transactionId={} returning PENDING (cert {} state={})",
+                        scepRequest.getTransactionId(), certificate.getUuid(), certificate.getState());
             }
             prepareMessage(scepRequest, scepResponse);
-
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            logger.error("SCEP poll failed for transactionId={}: {}",
+                    scepRequest.getTransactionId(), e.getMessage(), e);
         }
         return scepResponse;
     }
@@ -713,6 +737,12 @@ public class ScepServiceImpl implements ScepService {
         }
         if (extCertificate.isArchived())
             throw new ScepException("Certificate with UUID %s is archived. Cannot be renewed by SCEP.".formatted(extCertificate.getUuid()));
+        if (extCertificate.getState() == CertificateState.PENDING_ISSUE
+                || extCertificate.getState() == CertificateState.PENDING_REVOKE) {
+            throw new ScepException("Cannot renew certificate with a pending operation. Finalize or cancel "
+                    + "the pending operation first. Certificate UUID: " + extCertificate.getUuid(),
+                    FailInfo.BAD_REQUEST);
+        }
         if (!(new X500Name(extCertificate.getSubjectDn())).equals(pkcs10Request.getSubject())) {
             throw new ScepException("Subject DN for the renewal request does not match the original certificate");
         }
