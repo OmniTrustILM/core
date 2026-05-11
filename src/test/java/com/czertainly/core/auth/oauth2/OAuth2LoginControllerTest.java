@@ -8,10 +8,12 @@ import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSetti
 import com.czertainly.core.service.AuditLogService;
 import com.czertainly.core.settings.SettingsCache;
 import com.github.tomakehurst.wiremock.WireMockServer;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OAuth2LoginControllerTest {
 
     private static WireMockServer mockServer;
@@ -109,6 +112,12 @@ class OAuth2LoginControllerTest {
         if (mockServer != null) {
             mockServer.stop();
         }
+    }
+
+    @AfterAll
+    void dropSessionTables() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS core.spring_session_attributes");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS core.spring_session");
     }
 
     @ParameterizedTest

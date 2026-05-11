@@ -1,7 +1,9 @@
 package com.czertainly.core.tasks;
 
 import com.czertainly.core.messaging.scheduler.SessionExpirationPublisher;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mockito;
 import org.springframework.core.convert.support.GenericConversionService;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
@@ -22,6 +24,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.session.Session;
 
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SessionExpirationPublisherTest extends BaseSpringBootTest {
 
     @Autowired
@@ -125,6 +128,12 @@ class SessionExpirationPublisherTest extends BaseSpringBootTest {
                         CONSTRAINT fk_session FOREIGN KEY(SESSION_PRIMARY_ID) REFERENCES spring_session(PRIMARY_ID) ON DELETE CASCADE
                     );
                 """);
+    }
+
+    @AfterAll
+    void dropSessionTables() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS spring_session_attributes");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS spring_session");
     }
 
 }
