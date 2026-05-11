@@ -12,6 +12,8 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -45,6 +47,19 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
 
     @Column(name = "signature_value")
     private byte[] signatureValue;
+
+    @Column(name = "request_metadata_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String requestMetadataJson;
+
+    @Column(name = "signed_document")
+    private byte[] signedDocument;
+
+    @Column(name = "dtbs")
+    private byte[] dtbs;
+
+    @Column(name = "signed_document_retrieved_at")
+    private OffsetDateTime signedDocumentRetrievedAt;
 
     public void setSigningProfile(SigningProfile signingProfile) {
         this.signingProfile = signingProfile;

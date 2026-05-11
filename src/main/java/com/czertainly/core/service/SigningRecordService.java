@@ -2,6 +2,7 @@ package com.czertainly.core.service;
 
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
@@ -25,4 +26,8 @@ public interface SigningRecordService {
     SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
     SigningRecordValidationResultDto validateSigningRecord(SecuredUUID uuid) throws NotFoundException;
+
+    void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException;
+
+    List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids);
 }

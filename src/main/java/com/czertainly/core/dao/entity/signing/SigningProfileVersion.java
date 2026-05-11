@@ -119,6 +119,21 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "validate_token_signature")
     private Boolean validateTokenSignature;
 
+    @Column(name = "record_metadata", nullable = false)
+    private boolean recordMetadata = false;
+
+    @Column(name = "record_request_metadata", nullable = false)
+    private boolean recordRequestMetadata = false;
+
+    @Column(name = "record_signature", nullable = false)
+    private boolean recordSignature = false;
+
+    @Column(name = "record_signed_document", nullable = false)
+    private boolean recordSignedDocument = false;
+
+    @Column(name = "record_dtbs", nullable = false)
+    private boolean recordDtbs = false;
+
     // ── Setter helpers ──────────────────────────────────────────────────────
 
     public void setSigningProfile(SigningProfile signingProfile) {

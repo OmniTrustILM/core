@@ -267,3 +267,18 @@ validation:
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}
+
+signing-record:
+  outbox:
+    flush-interval-ms: ${SIGNING_RECORD_OUTBOX_FLUSH_INTERVAL_MS:500}
+    max-batch-size: ${SIGNING_RECORD_OUTBOX_MAX_BATCH_SIZE:200}
+    drainer-thread-count: ${SIGNING_RECORD_OUTBOX_DRAINER_THREAD_COUNT:1}
+    poison-threshold: ${SIGNING_RECORD_OUTBOX_POISON_THRESHOLD:10}
+  best-effort:
+    queue-capacity: ${SIGNING_RECORD_BEST_EFFORT_QUEUE_CAPACITY:10000}
+    backpressure-policy: ${SIGNING_RECORD_BEST_EFFORT_BACKPRESSURE_POLICY:DROP_OLDEST}
+    flush-interval-ms: ${SIGNING_RECORD_BEST_EFFORT_FLUSH_INTERVAL_MS:200}
+  retention:
+    sweep-interval-minutes: ${SIGNING_RECORD_RETENTION_SWEEP_INTERVAL_MINUTES:60}
+  delete-after-retrieval:
+    fallback-cron: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_CRON:0 0 3 * * *}

@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.signing.profile.SigningProfileDto;
 import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
 import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPolicyDto;
 import com.czertainly.api.model.client.signing.profile.scheme.DelegatedSigningDto;
 import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.czertainly.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningDto;
@@ -27,6 +28,7 @@ import com.czertainly.core.model.signing.scheme.DelegatedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
+import org.jspecify.annotations.NonNull;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.ArrayList;
@@ -109,7 +111,22 @@ public class SigningProfileMapper {
             dto.getEnabledProtocols().add(SigningProtocol.TSP);
         }
 
+        SigningRecordPolicyDto policy = getSigningRecordPolicyDto(header, version);
+        dto.setRecordPolicy(policy);
         return dto;
+    }
+
+    private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfile header, SigningProfileVersion version) {
+        SigningRecordPolicyDto policy = new SigningRecordPolicyDto();
+        policy.setRecordMetadata(version.isRecordMetadata());
+        policy.setRecordRequestMetadata(version.isRecordRequestMetadata());
+        policy.setRecordSignature(version.isRecordSignature());
+        policy.setRecordSignedDocument(version.isRecordSignedDocument());
+        policy.setRecordDtbs(version.isRecordDtbs());
+        policy.setRetentionDays(header.getRetentionDays());
+        policy.setDeleteAfterRetrieval(header.isDeleteAfterRetrieval());
+        policy.setPersistenceMode(header.getPersistenceMode());
+        return policy;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -279,10 +296,10 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
 
     private static void setFormatterRef(SigningProfileVersion profileVersion, Consumer<NameAndUuidDto> setter) {
-            NameAndUuidDto ref = new NameAndUuidDto();
-            ref.setName(profileVersion.getSignatureFormatterConnector().getName());
-            ref.setUuid(profileVersion.getSignatureFormatterConnectorUuid().toString());
-            setter.accept(ref);
+        NameAndUuidDto ref = new NameAndUuidDto();
+        ref.setName(profileVersion.getSignatureFormatterConnector().getName());
+        ref.setUuid(profileVersion.getSignatureFormatterConnectorUuid().toString());
+        setter.accept(ref);
     }
 
     private static <T> List<T> safeList(List<T> list) {

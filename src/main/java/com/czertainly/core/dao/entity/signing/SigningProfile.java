@@ -1,5 +1,6 @@
 package com.czertainly.core.dao.entity.signing;
 
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
@@ -55,6 +56,31 @@ public class SigningProfile extends UniquelyIdentifiedAndAudited implements Secu
 
     @Column(name = "latest_version", nullable = false)
     private Integer latestVersion = 1;
+
+    @Column(name = "retention_days")
+    private Integer retentionDays;
+
+    @Column(name = "delete_after_retrieval", nullable = false)
+    private boolean deleteAfterRetrieval = false;
+
+    @Column(name = "persistence_mode", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private SigningRecordPersistenceMode persistenceMode = SigningRecordPersistenceMode.DEFERRED_DURABLE;
+
+    @Column(name = "record_metadata", nullable = false)
+    private boolean recordMetadata = false;
+
+    @Column(name = "record_request_metadata", nullable = false)
+    private boolean recordRequestMetadata = false;
+
+    @Column(name = "record_signature", nullable = false)
+    private boolean recordSignature = false;
+
+    @Column(name = "record_signed_document", nullable = false)
+    private boolean recordSignedDocument = false;
+
+    @Column(name = "record_dtbs", nullable = false)
+    private boolean recordDtbs = false;
 
     @Column(name = "time_quality_config_uuid")
     private UUID timeQualityConfigurationUuid;

@@ -20,6 +20,12 @@ public class SigningRecordMapper {
         ZonedDateTime createdAtZoned = record.getCreatedAt() != null ? record.getCreatedAt().toZonedDateTime() : null;
         dto.setCreatedAt(createdAtZoned);
         dto.setSignatureValue(record.getSignatureValue());
+        dto.setSignedDocument(record.getSignedDocument());
+        dto.setDtbs(record.getDtbs());
+        dto.setRequestMetadataJson(record.getRequestMetadataJson());
+        if (record.getSignedDocumentRetrievedAt() != null) {
+            dto.setSignedDocumentRetrievedAt(record.getSignedDocumentRetrievedAt().toZonedDateTime());
+        }
         return dto;
     }
 
