@@ -449,7 +449,7 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
     }
 
     @Test
-    void associateComplianceProfile_raProfileWithoutAuthorityRef_succeeds() throws AlreadyExistException, AttributeException, NotFoundException, ConnectorException {
+    void associateComplianceProfileRaProfileWithoutAuthorityRefSucceeds() throws AlreadyExistException, AttributeException, NotFoundException, ConnectorException {
         // External Authority "without CA" scenario: the RA Profile has no authorityInstanceReference.
         RaProfile externalRaProfile = new RaProfile();
         externalRaProfile.setName("ExternalWithoutCaRaProfile");
