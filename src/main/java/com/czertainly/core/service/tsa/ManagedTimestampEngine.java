@@ -17,6 +17,9 @@ import com.czertainly.core.util.clocksource.ClockSource;
 import com.czertainly.core.util.serialnumber.ClockDriftException;
 import com.czertainly.core.util.serialnumber.SerialNumberGenerationException;
 import com.czertainly.core.util.serialnumber.SerialNumberGenerator;
+import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
+import org.bouncycastle.tsp.TSPException;
+import org.bouncycastle.tsp.TSPValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -78,15 +81,18 @@ public class ManagedTimestampEngine {
 
             var result = tokenGenerator.generate(request, timestampingProfile, certificateChain, serialNumber, genTime);
 
-//                if (timestampingWorkflow.getValidateTokenSignature()) {
-//                    var verifier = new JcaSimpleSignerInfoVerifierBuilder().build(certificateChain.signingCertificate());
-//                    result.validate(verifier);
-//                }
+            if (timestampingWorkflow.validateTokenSignature()) {
+                var verifier = new JcaSimpleSignerInfoVerifierBuilder().build(certificateChain.signingCertificate());
+                result.validate(verifier);
+            }
 
             return TspResponse.granted(result.getEncoded());
 
         } catch (TspException e) {
             throw e; // TspController maps this to a proper rejection response
+        } catch (TSPValidationException e) {
+            logger.error("Timestamp signature validation failed", e);
+            return TspResponse.rejected(TspFailureInfo.SYSTEM_FAILURE, "Timestamp signature validation failed");
         } catch (ClockDriftException e) {
             logger.error("Clock drift detected during timestamp generation", e);
             return TspResponse.rejected(TspFailureInfo.TIME_NOT_AVAILABLE, "Clock drift detected");

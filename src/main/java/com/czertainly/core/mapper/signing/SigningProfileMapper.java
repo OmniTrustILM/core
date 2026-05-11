@@ -216,7 +216,7 @@ public class SigningProfileMapper {
                             .toList()
             );
         }
-        wf.setValidateTokenSignature(version.getValidateTokenSignature());
+        wf.setValidateTokenSignature(version.getValidateTokenSignature() != null ? version.getValidateTokenSignature() : false);
         if (header.getTimeQualityConfiguration() != null) {
             wf.setTimeQualityConfiguration(TimeQualityConfigurationMapper.toDto(header.getTimeQualityConfiguration(), List.of()));
         }
