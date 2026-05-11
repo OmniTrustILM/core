@@ -324,14 +324,21 @@ class ResourceServiceTest extends BaseSpringBootTest {
         resourceAttribute.setName("resource");
         ResourceCertificateContentData data = new ResourceCertificateContentData();
         data.setUuid(certificate.getUuid().toString());
-        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data)));
+        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data), new ResourceObjectContent("ref2", data)));
         DataAttributeProperties properties = new DataAttributeProperties();
         resourceAttribute.setProperties(properties);
         properties.setResource(AttributeResource.CERTIFICATE);
 
         resourceService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
         Assertions.assertNull(nonResourceAttribute.getContent());
+        Assertions.assertEquals(2, resourceAttribute.getContent().size());
         ResourceCertificateContentData dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().getFirst().getData();
+        Assertions.assertEquals(certificate.getContentData(), dataWithResource.getContent());
+        Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
+        Assertions.assertEquals(certificate.getCommonName(), dataWithResource.getName());
+        Assertions.assertEquals(certificate.getUuid().toString(), dataWithResource.getUuid());
+
+        dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().get(1).getData();
         Assertions.assertEquals(certificate.getContentData(), dataWithResource.getContent());
         Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
         Assertions.assertEquals(certificate.getCommonName(), dataWithResource.getName());
