@@ -260,11 +260,15 @@ public class ResourceServiceImpl implements ResourceService {
             if (!AttributeContentType.RESOURCE.equals(attribute.getContentType())) {
                 continue;
             }
-            NameAndUuidDto resourceId = AttributeDefinitionUtils.getNameAndUuidData(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
-            if (resourceId == null || resourceId.getUuid() == null)
-                throw new AttributeException("UUID of Resource Object is missing.", attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
-            ResourceObjectContentData data = getResourceObjectContentData(attribute.getProperties().getResource(), UUID.fromString(resourceId.getUuid()), resourceId.getName());
-            attribute.setContent(List.of(new ResourceObjectContent(resourceId.getName(), data)));
+            List<NameAndUuidDto> resourceIds = AttributeDefinitionUtils.getNameAndUuidDataList(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
+            List<ResourceObjectContent> contents = new ArrayList<>();
+            for (NameAndUuidDto resourceId : resourceIds) {
+                if (resourceId == null || resourceId.getUuid() == null)
+                    throw new AttributeException("UUID of Resource Object is missing.", attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
+                ResourceObjectContentData data = getResourceObjectContentData(attribute.getProperties().getResource(), UUID.fromString(resourceId.getUuid()), resourceId.getName());
+                contents.add(new ResourceObjectContent(resourceId.getName(), data));
+            }
+            attribute.setContent(contents);
         }
     }
 
