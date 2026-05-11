@@ -1291,6 +1291,14 @@ public class AttributeEngine {
 
         validateAttributeContent(attributeDefinition, attributeContentItems);
 
+        // validateAttributeContent treats null and empty content equivalently for non-required
+        // attributes; mirror that contract here. Without this guard the iteration below NPEs on
+        // attributeContentItems.size() and surfaces as a 500 with framework-internal message,
+        // instead of a clean no-op for an optional attribute the connector left unset.
+        if (attributeContentItems == null || attributeContentItems.isEmpty()) {
+            return;
+        }
+
         for (int i = 0; i < attributeContentItems.size(); i++) {
             AttributeContent attributeContentItem = attributeContentItems.get(i);
             AttributeContentItem contentItemEntity = null;

@@ -581,9 +581,25 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
-                .willReturn(WireMock.jsonResponse("[\"Object of type 'Certificate' identified but not valid according RA profile attributes.\"]", 422)));
+                .willReturn(WireMock.jsonResponse("[\"Certificate is not issued by any of the configured CA certificates\"]", 422)));
 
-        Assertions.assertThrows(CertificateOperationException.class, () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        // The wrapped CertificateOperationException must include the connector's specific
+        // rejection reason so operators can see exactly why identification failed.
+        CertificateOperationException ex = Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        Assertions.assertTrue(ex.getMessage().contains("Certificate is not issued by any of the configured CA certificates"),
+                "Expected connector's rejection reason to be surfaced, got: " + ex.getMessage());
+
+        // An empty error list from the connector must not produce a message ending with an
+        // empty placeholder; the reason should fall back to a useful string.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("[]", 422)));
+
+        CertificateOperationException emptyErrors = Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        Assertions.assertFalse(emptyErrors.getMessage().contains("rejected the certificate: ."),
+                "Empty errors list must not surface as an empty reason; got: " + emptyErrors.getMessage());
     }
 
     @Test
