@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.signing.profile.SigningProfileDto;
 import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
 import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPolicyDto;
 import com.czertainly.api.model.client.signing.profile.scheme.*;
 import com.czertainly.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
 import com.czertainly.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;
@@ -21,6 +22,7 @@ import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
+import org.jspecify.annotations.NonNull;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.ArrayList;
@@ -102,7 +104,22 @@ public class SigningProfileMapper {
             dto.getEnabledProtocols().add(SigningProtocol.TSP);
         }
 
+        SigningRecordPolicyDto policy = getSigningRecordPolicyDto(header, version);
+        dto.setRecordPolicy(policy);
         return dto;
+    }
+
+    private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfile header, SigningProfileVersion version) {
+        SigningRecordPolicyDto policy = new SigningRecordPolicyDto();
+        policy.setRecordMetadata(version.isRecordMetadata());
+        policy.setRecordRequestMetadata(version.isRecordRequestMetadata());
+        policy.setRecordSignature(version.isRecordSignature());
+        policy.setRecordSignedDocument(version.isRecordSignedDocument());
+        policy.setRecordDtbs(version.isRecordDtbs());
+        policy.setRetentionDays(header.getRetentionDays());
+        policy.setDeleteAfterRetrieval(header.isDeleteAfterRetrieval());
+        policy.setPersistenceMode(header.getPersistenceMode());
+        return policy;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
