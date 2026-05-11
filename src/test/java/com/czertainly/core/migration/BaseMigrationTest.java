@@ -27,8 +27,19 @@ public abstract class BaseMigrationTest extends BaseSpringBootTest {
     static void migrationDatasource(DynamicPropertyRegistry registry) {
         YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
         yaml.setResources(new ClassPathResource("application.yml"));
+        try {
+            yaml.afterPropertiesSet();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load application.yml for migration datasource configuration", e);
+        }
         Properties props = yaml.getObject();
+        if (props == null) {
+            throw new IllegalStateException("application.yml loaded no properties");
+        }
         String baseUrl = props.getProperty("spring.datasource.url");
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalStateException("spring.datasource.url is not set in application.yml");
+        }
         // Keep most PostgreSQL URL parameters (version, query flags) in sync with application.yml.
         String migrationUrl = baseUrl.replaceFirst("//[^/]+/", "//migration-tests/");
         registry.add("spring.datasource.url", () -> migrationUrl);
@@ -42,9 +53,12 @@ public abstract class BaseMigrationTest extends BaseSpringBootTest {
 
     @AfterAll
     void resetSchema() throws SQLException {
+        if (!dbSchema.matches("^[a-zA-Z0-9_]+$")) {
+            throw new IllegalArgumentException("Invalid schema name: " + dbSchema);
+        }
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP SCHEMA " + dbSchema + " CASCADE");
+            stmt.execute("DROP SCHEMA IF EXISTS " + dbSchema + " CASCADE");
             stmt.execute("CREATE SCHEMA " + dbSchema);
         }
     }
