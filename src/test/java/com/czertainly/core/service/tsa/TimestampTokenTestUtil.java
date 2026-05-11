@@ -33,6 +33,15 @@ public final class TimestampTokenTestUtil {
      * Uses an RSA key pair and a self-signed TSA certificate created via the standard test utilities.
      */
     public static TimeStampToken createTimestampToken() throws Exception {
+        return createTimestampTokenWithCert().token();
+    }
+
+    /**
+     * Generates a minimal {@link TimeStampToken} together with the {@link X509Certificate} that was
+     * used to sign it, so callers can build a matching {@link CertificateChain} for signature
+     * verification tests.
+     */
+    public static TokenWithCert createTimestampTokenWithCert() throws Exception {
         KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate cert = CertificateTestUtil.createTimestampingCertificate(keyPair);
 
@@ -45,6 +54,8 @@ public final class TimestampTokenTestUtil {
                 signerInfoGenerator, sha256Calculator, new ASN1ObjectIdentifier("1.2.3.4"));
 
         var tsReq = new TimeStampRequestGenerator().generate(TSPAlgorithms.SHA256, new byte[32]);
-        return tokenGenerator.generate(tsReq, BigInteger.ONE, new Date());
+        return new TokenWithCert(tokenGenerator.generate(tsReq, BigInteger.ONE, new Date()), cert);
     }
+
+    public record TokenWithCert(TimeStampToken token, X509Certificate cert) {}
 }

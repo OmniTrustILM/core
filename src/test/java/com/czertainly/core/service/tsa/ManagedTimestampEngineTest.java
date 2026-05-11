@@ -1,12 +1,17 @@
 package com.czertainly.core.service.tsa;
 
 import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
+import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
+import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.czertainly.core.service.tsa.certificateprovider.ValidationResult;
 import com.czertainly.core.service.tsa.certificateprovider.CertificateProvider;
 import com.czertainly.core.service.tsa.certificateprovider.CertificateProviderFactory;
 import com.czertainly.core.service.tsa.messages.TspResponse;
 import com.czertainly.core.service.tsa.timequality.TimeQualityRegister;
 import com.czertainly.core.service.tsa.timequality.TimeQualityStatus;
+import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.clocksource.TestClockSource;
 import com.czertainly.core.util.serialnumber.ClockDriftException;
 import com.czertainly.core.util.serialnumber.SerialNumberGenerationException;
@@ -22,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigInteger;
 
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflowBuilder.aManagedTimestampingWorkflow;
 import static com.czertainly.core.service.tsa.messages.TspRequestBuilder.aTspRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -148,6 +154,55 @@ class ManagedTimestampEngineTest {
             // then
             assertThat(response).isInstanceOf(TspResponse.Rejected.class);
             assertThat(((TspResponse.Rejected) response).failureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+        }
+
+        @Test
+        void returnsGrantedToken_whenTokenSignatureValidationSucceeds() throws Exception {
+            // given — token and the certificate that signed it are aligned
+            var tokenWithCert = TimestampTokenTestUtil.createTimestampTokenWithCert();
+            var certificateChain = CertificateChain.of(tokenWithCert.cert());
+
+            when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
+            when(certificateProvider.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
+            when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
+            when(certificateProvider.getCertificateChain(any())).thenReturn(certificateChain);
+            when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(tokenWithCert.token());
+
+            // when
+            var response = engine.process(aTspRequest().build(), profileWithTokenSignatureValidation());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
+        }
+
+        @Test
+        void rejectsWithSystemFailure_whenTokenSignatureValidationFails() throws Exception {
+            // given — token was signed by one key pair, but the chain holds an unrelated certificate
+            var tokenWithCert = TimestampTokenTestUtil.createTimestampTokenWithCert();
+            var unrelatedCert = CertificateTestUtil.createTimestampingCertificate();
+            var certificateChain = CertificateChain.of(unrelatedCert);
+
+            when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
+            when(certificateProvider.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
+            when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
+            when(certificateProvider.getCertificateChain(any())).thenReturn(certificateChain);
+            when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(tokenWithCert.token());
+
+            // when
+            var response = engine.process(aTspRequest().build(), profileWithTokenSignatureValidation());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Rejected.class);
+            assertThat(((TspResponse.Rejected) response).failureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+        }
+
+        private SigningProfileModel<ManagedTimestampingWorkflow<? extends TimeQualityConfigurationModel>, ?> profileWithTokenSignatureValidation() {
+            return aSigningProfile()
+                    .workflow(aManagedTimestampingWorkflow()
+                            .timeQualityConfiguration(LocalClockTimeQualityConfiguration.INSTANCE)
+                            .validateTokenSignature(true)
+                            .build())
+                    .build();
         }
     }
 
