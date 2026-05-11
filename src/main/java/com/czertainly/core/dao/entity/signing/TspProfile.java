@@ -22,7 +22,7 @@ public class TspProfile extends UniquelyIdentifiedAndAudited implements Securabl
     private String description;
 
     @Column(name = "enabled", nullable = false)
-    private Boolean enabled = false;
+    private boolean enabled = false;
 
     @Override
     public boolean equals(Object o) {

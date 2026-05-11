@@ -265,12 +265,12 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testEnableTspProfile_setsEnabledTrue() throws NotFoundException {
-        Assertions.assertFalse(savedTspProfile.getEnabled(), "TSP profile should start disabled");
+        Assertions.assertFalse(savedTspProfile.isEnabled(), "TSP profile should start disabled");
 
         tspService.enableTspProfile(savedTspProfile.getSecuredUuid());
 
         TspProfile fromDb = tspRepository.findById(savedTspProfile.getUuid()).orElseThrow();
-        Assertions.assertTrue(fromDb.getEnabled());
+        Assertions.assertTrue(fromDb.isEnabled());
     }
 
     @Test
@@ -282,7 +282,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         tspService.disableTspProfile(savedTspProfile.getSecuredUuid());
 
         TspProfile fromDb = tspRepository.findById(savedTspProfile.getUuid()).orElseThrow();
-        Assertions.assertFalse(fromDb.getEnabled());
+        Assertions.assertFalse(fromDb.isEnabled());
     }
 
     @Test
@@ -310,8 +310,8 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
         Assertions.assertNotNull(messages);
         Assertions.assertTrue(messages.isEmpty(), "Expected no errors but got: " + messages);
-        Assertions.assertTrue(tspRepository.findById(savedTspProfile.getUuid()).orElseThrow().getEnabled());
-        Assertions.assertTrue(tspRepository.findById(second.getUuid()).orElseThrow().getEnabled());
+        Assertions.assertTrue(tspRepository.findById(savedTspProfile.getUuid()).orElseThrow().isEnabled());
+        Assertions.assertTrue(tspRepository.findById(second.getUuid()).orElseThrow().isEnabled());
     }
 
     @Test
@@ -330,8 +330,8 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
         Assertions.assertNotNull(messages);
         Assertions.assertTrue(messages.isEmpty(), "Expected no errors but got: " + messages);
-        Assertions.assertFalse(tspRepository.findById(savedTspProfile.getUuid()).orElseThrow().getEnabled());
-        Assertions.assertFalse(tspRepository.findById(second.getUuid()).orElseThrow().getEnabled());
+        Assertions.assertFalse(tspRepository.findById(savedTspProfile.getUuid()).orElseThrow().isEnabled());
+        Assertions.assertFalse(tspRepository.findById(second.getUuid()).orElseThrow().isEnabled());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

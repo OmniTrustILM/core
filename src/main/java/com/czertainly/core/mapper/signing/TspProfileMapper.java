@@ -18,7 +18,7 @@ public class TspProfileMapper {
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
         dto.setDescription(profile.getDescription());
-        dto.setEnabled(Boolean.TRUE.equals(profile.getEnabled()));
+        dto.setEnabled(profile.isEnabled());
         dto.setCustomAttributes(customAttributes);
         return dto;
     }
@@ -28,7 +28,7 @@ public class TspProfileMapper {
                 profile.getUuid(),
                 profile.getName(),
                 profile.getDescription(),
-                Boolean.TRUE.equals(profile.getEnabled()),
+                profile.isEnabled(),
                 null,
                 customAttributes
         );
@@ -39,7 +39,7 @@ public class TspProfileMapper {
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
         dto.setDescription(profile.getDescription());
-        dto.setEnabled(Boolean.TRUE.equals(profile.getEnabled()));
+        dto.setEnabled(profile.isEnabled());
         return dto;
     }
 }
