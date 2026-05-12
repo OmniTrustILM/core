@@ -576,7 +576,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 .map(UUID::fromString)
                 .forEach(toRevalidate::add);
         if (!toRevalidate.isEmpty()) {
-            log.debug(applicationEventPublisher.getClass().getName());
+            log.debug("Publishing certificate validation event for CA subtree revalidation. caUuid={}, certificateCount={}", ca.getUuid(), toRevalidate.size());
             applicationEventPublisher.publishEvent(new CertificateValidationEvent(toRevalidate));
         }
     }
