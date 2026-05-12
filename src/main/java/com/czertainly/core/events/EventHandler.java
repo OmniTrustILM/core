@@ -198,12 +198,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
             for (TriggerAssociation triggerAssociation : eventTriggers.getTriggers()) {
                 handleUser(context, triggerAssociation.getTriggeredBy());
                 Trigger trigger = triggerAssociation.getTrigger();
-                try {
-                    context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
-                    logger.debug("Trigger '{}' on {} object {} processed successfully", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid());
-                } catch (Exception e) {
-                    logger.error("Unable to process trigger '{}' on {} object {}. Message: {}", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
-                }
+                evaluateTrigger(context, resourceObject, eventData, triggerAssociation, trigger, eventHistory);
             }
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
@@ -216,6 +211,15 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         eventHistory.setStatus(EventStatus.FINISHED);
         eventHistory.setFinishedAt(OffsetDateTime.now());
         eventHistoryRepository.save(eventHistory);
+    }
+
+    private static <T extends UniquelyIdentifiedObject> void evaluateTrigger(EventContext<T> context, T resourceObject, Object eventData, TriggerAssociation triggerAssociation, Trigger trigger, EventHistory eventHistory) {
+        try {
+            context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
+            logger.debug("Trigger '{}' on {} object {} processed successfully", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid());
+        } catch (Exception e) {
+            logger.error("Unable to process trigger '{}' on {} object {}. Message: {}", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
+        }
     }
 
     private static <T extends UniquelyIdentifiedObject> boolean evaluateIgnoreTrigger(EventContext<T> context, T resourceObject, Object eventData, TriggerAssociation triggerAssociation, Trigger trigger, EventHistory eventHistory, boolean isIgnored) {
