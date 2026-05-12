@@ -29,6 +29,7 @@ import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.service.NotificationService;
 import com.czertainly.core.service.ResourceObjectAssociationService;
+import com.czertainly.core.service.TriggerService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
@@ -52,6 +53,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     private AttributeEngine attributeEngine;
 
     private NotificationService notificationService;
+    private TriggerService  triggerService;
     private ConnectorApiFactory connectorApiFactory;
     private PendingNotificationRepository pendingNotificationRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
@@ -87,7 +89,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 try {
                     sendByNotificationProfile(notificationProfileUuid, message);
                 } catch (Exception e) {
-                    logger.error("Error in sending notifications based on notification profile {}: {}", notificationProfileUuid, e.getMessage());
+                    handleNotificationErrorWithErrorLog("Error in sending notifications based on notification profile %s: %s".formatted(notificationProfileUuid, e.getMessage()), message);
                 }
             }
 
@@ -121,6 +123,25 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         List<NotificationRecipient> recipients = getRecipients(notificationProfileVersion.getRecipientType(), notificationProfileVersion.getRecipientUuids(), message.getEvent(), message.getData(), message.getResource(), message.getObjectUuid());
 
         // send external notification
+        boolean notificationSent = sendExternalNotificationsForProfile(message, notificationProfileVersion, recipients);
+
+        // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
+        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
+            try {
+                sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
+                notificationSent = true;
+            } catch (ValidationException e) {
+                handleNotificationErrorWithErrorLog("Error in internal notification: %s".formatted(e.toString()), message);
+            }
+        }
+
+        if (pendingNotification != null && notificationSent) {
+            pendingNotification.setRepetitions(pendingNotification.getRepetitions() + 1);
+            pendingNotificationRepository.save(pendingNotification);
+        }
+    }
+
+    private boolean sendExternalNotificationsForProfile(NotificationMessage message, NotificationProfileVersion notificationProfileVersion, List<NotificationRecipient> recipients) {
         boolean notificationSent = false;
         if (notificationProfileVersion.getNotificationInstanceRefUuid() != null) {
             UUID notificationInstanceUUID = notificationProfileVersion.getNotificationInstanceRefUuid();
@@ -130,27 +151,27 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 logger.debug("Sending notification message externally successful.");
                 notificationSent = true;
             } catch (ConnectorEntityNotFoundException e) {
-                logger.warn("Notification instance {} configured for notification profile {} in event {} was not found.", notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent());
+                handleNotificationErrorWithWarnLog("Notification instance %s configured for notification profile %s in event %s was not found.".formatted(notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent()), message);
             } catch (ValidationException e) {
-                logger.warn("Validation error in sending notification to connector of notification instance {} configured for notification profile {} in event {}: {}", notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), e.getMessage());
+                handleNotificationErrorWithWarnLog("Validation error in sending notification to connector of notification instance %s configured for notification profile %s in event %s: %s".formatted(notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), e.getMessage()), message);
             } catch (Exception e) {
-                logger.error("Error in external notification with notification instance {} configured for notification profile {} in event {}: {}", notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), e.toString());
+                handleNotificationErrorWithErrorLog("Error in external notification with notification instance %s configured for notification profile %s in event %s: %s".formatted(notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), e.toString()), message);
             }
         }
+        return notificationSent;
+    }
 
-        // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
-        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
-            try {
-                sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
-                notificationSent = true;
-            } catch (ValidationException e) {
-                logger.error("Error in internal notification: {}", e.toString());
-            }
+    private void handleNotificationErrorWithErrorLog(String errorMessage, NotificationMessage message) {
+        logger.error(errorMessage);
+        if (message.getTriggerHistoryUuid() != null) {
+            triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
         }
+    }
 
-        if (pendingNotification != null && notificationSent) {
-            pendingNotification.setRepetitions(pendingNotification.getRepetitions() + 1);
-            pendingNotificationRepository.save(pendingNotification);
+    private void handleNotificationErrorWithWarnLog(String errorMessage, NotificationMessage message) {
+        logger.warn(errorMessage);
+        if (message.getTriggerHistoryUuid() != null) {
+            triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
         }
     }
 
