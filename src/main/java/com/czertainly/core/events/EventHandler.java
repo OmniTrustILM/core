@@ -183,15 +183,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
             for (TriggerAssociation triggerAssociation : eventTriggers.getIgnoreTriggers()) {
                 handleUser(context, triggerAssociation.getTriggeredBy());
                 Trigger trigger = triggerAssociation.getTrigger();
-                try {
-                    TriggerHistory triggerHistory = context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
-                    if (triggerHistory.isActionsPerformed()) {
-                        isIgnored = true;
-                    }
-                    logger.debug("Ignore trigger '{}' on {} object {} processed successfully", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid());
-                } catch (Exception e) {
-                    logger.error("Unable to process ignore trigger '{}' on {} object {}. Message: {}", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
-                }
+                isIgnored = evaluateIgnoreTrigger(context, resourceObject, eventData, triggerAssociation, trigger, eventHistory, isIgnored);
             }
 
             // If some trigger ignored this object, processing is stopped
@@ -224,6 +216,19 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         eventHistory.setStatus(EventStatus.FINISHED);
         eventHistory.setFinishedAt(OffsetDateTime.now());
         eventHistoryRepository.save(eventHistory);
+    }
+
+    private static <T extends UniquelyIdentifiedObject> boolean evaluateIgnoreTrigger(EventContext<T> context, T resourceObject, Object eventData, TriggerAssociation triggerAssociation, Trigger trigger, EventHistory eventHistory, boolean isIgnored) {
+        try {
+            TriggerHistory triggerHistory = context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
+            if (triggerHistory.isActionsPerformed()) {
+                isIgnored = true;
+            }
+            logger.debug("Ignore trigger '{}' on {} object {} processed successfully", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid());
+        } catch (Exception e) {
+            logger.error("Unable to process ignore trigger '{}' on {} object {}. Message: {}", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
+        }
+        return isIgnored;
     }
 
     protected void handleUser(EventContext<T> context, UUID triggeredBy) {

@@ -127,6 +127,29 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         List<NotificationRecipient> recipients = getRecipients(notificationProfileVersion.getRecipientType(), notificationProfileVersion.getRecipientUuids(), message.getEvent(), message.getData(), message.getResource(), message.getObjectUuid());
 
         // send external notification
+        boolean notificationSent = sendExternalNotifications(message, notificationProfileVersion, recipients);
+
+        // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
+        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
+            try {
+                sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
+                notificationSent = true;
+            } catch (ValidationException e) {
+                String errorMessage = "Error in internal notification: %s".formatted(e.toString());
+                logger.error(errorMessage);
+                if (message.getTriggerHistoryUuid() != null) {
+                    triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
+                }
+            }
+        }
+
+        if (pendingNotification != null && notificationSent) {
+            pendingNotification.setRepetitions(pendingNotification.getRepetitions() + 1);
+            pendingNotificationRepository.save(pendingNotification);
+        }
+    }
+
+    private boolean sendExternalNotifications(NotificationMessage message, NotificationProfileVersion notificationProfileVersion, List<NotificationRecipient> recipients) {
         boolean notificationSent = false;
         if (notificationProfileVersion.getNotificationInstanceRefUuid() != null) {
             UUID notificationInstanceUUID = notificationProfileVersion.getNotificationInstanceRefUuid();
@@ -155,25 +178,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 }
             }
         }
-
-        // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
-        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
-            try {
-                sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
-                notificationSent = true;
-            } catch (ValidationException e) {
-                String errorMessage = "Error in internal notification: %s".formatted(e.toString());
-                logger.error(errorMessage);
-                if (message.getTriggerHistoryUuid() != null) {
-                    triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
-                }
-            }
-        }
-
-        if (pendingNotification != null && notificationSent) {
-            pendingNotification.setRepetitions(pendingNotification.getRepetitions() + 1);
-            pendingNotificationRepository.save(pendingNotification);
-        }
+        return notificationSent;
     }
 
     private static PendingNotification getNewPendingNotification(NotificationMessage message, NotificationProfileVersion notificationProfileVersion, PendingNotification pendingNotification) {

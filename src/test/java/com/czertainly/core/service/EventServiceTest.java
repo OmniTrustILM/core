@@ -208,17 +208,20 @@ class EventServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetEventHistoryThrowsWhenOnlyResourceProvided() {
+        EventHistoryRequestDto request = eventHistoryRequest();
         Assertions.assertThrows(ValidationException.class,
                 () -> eventService.getEventHistory(
-                        ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE, null, eventHistoryRequest()),
+                        ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE, null, request),
                 "Should throw when UUID is null but resource is set");
     }
 
     @Test
     void testGetEventHistoryThrowsWhenOnlyUuidProvided() {
+        EventHistoryRequestDto request = eventHistoryRequest();
+        UUID uuid = UUID.randomUUID();
         Assertions.assertThrows(ValidationException.class,
                 () -> eventService.getEventHistory(
-                        ResourceEvent.CERTIFICATE_DISCOVERED, null, UUID.randomUUID(), eventHistoryRequest()),
+                        ResourceEvent.CERTIFICATE_DISCOVERED, null, uuid, request),
                 "Should throw when resource is null but UUID is set");
     }
 
