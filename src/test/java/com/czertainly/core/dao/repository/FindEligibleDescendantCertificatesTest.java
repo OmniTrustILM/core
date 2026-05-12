@@ -82,8 +82,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(child.getUuid());
-        assertThat(result).doesNotContain(root.getUuid());
+        assertThat(result)
+                .containsExactly(child.getUuid())
+                .doesNotContain(root.getUuid());
     }
 
     @Test
@@ -126,8 +127,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(active.getUuid());
-        assertThat(result).doesNotContain(archived.getUuid());
+        assertThat(result)
+                .containsExactly(active.getUuid())
+                .doesNotContain(archived.getUuid());
     }
 
     @Test
@@ -141,8 +143,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(withContent.getUuid());
-        assertThat(result).doesNotContain(withoutContent.getUuid());
+        assertThat(result)
+                .containsExactly(withContent.getUuid())
+                .doesNotContain(withoutContent.getUuid());
     }
 
     @Test
@@ -156,8 +159,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(valid.getUuid());
-        assertThat(result).doesNotContain(revoked.getUuid());
+        assertThat(result)
+                .containsExactly(valid.getUuid())
+                .doesNotContain(revoked.getUuid());
     }
 
     @Test
@@ -171,8 +175,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(valid.getUuid());
-        assertThat(result).doesNotContain(expired.getUuid());
+        assertThat(result)
+                .containsExactly(valid.getUuid())
+                .doesNotContain(expired.getUuid());
     }
 
     @Test
@@ -205,8 +210,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactlyInAnyOrder(noRa.getUuid(), raEnabledNull.getUuid(), raEnabledTrue.getUuid());
-        assertThat(result).doesNotContain(raEnabledFalse.getUuid());
+        assertThat(result)
+                .containsExactlyInAnyOrder(noRa.getUuid(), raEnabledNull.getUuid(), raEnabledTrue.getUuid())
+                .doesNotContain(raEnabledFalse.getUuid());
     }
 
     @Test
@@ -221,8 +227,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(rootA.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(childA.getUuid());
-        assertThat(result).doesNotContain(rootB.getUuid(), childB.getUuid());
+        assertThat(result)
+                .containsExactly(childA.getUuid())
+                .doesNotContain(rootB.getUuid(), childB.getUuid());
     }
 
     @Test
@@ -264,8 +271,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(leaf.getUuid());
-        assertThat(result).doesNotContain(intermediate.getUuid());
+        assertThat(result)
+                .containsExactly(leaf.getUuid())
+                .doesNotContain(intermediate.getUuid());
     }
 
     @Test
@@ -280,8 +288,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactly(child.getUuid());
-        assertThat(result).doesNotContain(root.getUuid());
+        assertThat(result)
+                .containsExactly(child.getUuid())
+                .doesNotContain(root.getUuid());
     }
 
     @Test
@@ -313,8 +322,9 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), false));
 
         // then
-        assertThat(result).containsExactly(explicitTrue.getUuid());
-        assertThat(result).doesNotContain(inheritsPlatform.getUuid(), noRa.getUuid());
+        assertThat(result)
+                .containsExactly(explicitTrue.getUuid())
+                .doesNotContain(inheritsPlatform.getUuid(), noRa.getUuid());
     }
 
     @Test
@@ -331,7 +341,8 @@ class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
         List<UUID> result = toUuids(certificateRepository.findAllDescendantCertificatesEligibleForValidation(root.getUuid(), true));
 
         // then
-        assertThat(result).containsExactlyInAnyOrder(intValid.getUuid(), leafOk.getUuid(), leafUnderRevoked.getUuid());
-        assertThat(result).doesNotContain(intRevoked.getUuid(), leafArchived.getUuid());
+        assertThat(result)
+                .containsExactlyInAnyOrder(intValid.getUuid(), leafOk.getUuid(), leafUnderRevoked.getUuid())
+                .doesNotContain(intRevoked.getUuid(), leafArchived.getUuid());
     }
 }

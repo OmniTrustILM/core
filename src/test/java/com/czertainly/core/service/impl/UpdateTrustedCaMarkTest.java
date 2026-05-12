@@ -285,7 +285,8 @@ class UpdateTrustedCaMarkTest extends BaseSpringBootTest {
         certificateRepository.saveAndFlush(ca);
 
         // when / then
-        assertThatThrownBy(() -> callUpdateTrustedCa(ca.getUuid(), true))
+        UUID caUuid = ca.getUuid();
+        assertThatThrownBy(() -> callUpdateTrustedCa(caUuid, true))
                 .isInstanceOf(ValidationException.class);
         verifyNoEventPublished();
     }
@@ -299,7 +300,8 @@ class UpdateTrustedCaMarkTest extends BaseSpringBootTest {
         certificateRepository.saveAndFlush(cert);
 
         // when / then
-        assertThatThrownBy(() -> callUpdateTrustedCa(cert.getUuid(), true))
+        UUID certUuid = cert.getUuid();
+        assertThatThrownBy(() -> callUpdateTrustedCa(certUuid, true))
                 .isInstanceOf(ValidationException.class);
         verifyNoEventPublished();
     }
