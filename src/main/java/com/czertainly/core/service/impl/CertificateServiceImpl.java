@@ -36,7 +36,6 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
@@ -74,6 +73,7 @@ import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.*;
 import com.czertainly.core.validation.certificate.ICertificateValidator;
 import jakarta.persistence.criteria.*;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.cms.ContentInfo;
@@ -123,6 +123,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CERTIFICATE)
 @Transactional
+@Slf4j
 public class CertificateServiceImpl implements CertificateService, AttributeResourceService {
 
     // batch size will prevent bloating size of enqueued message and better utilize parallel processing
@@ -539,6 +540,18 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
     }
 
+    /**
+     * Sets the trusted-CA mark on the given certificate and immediately triggers revalidation for the CA and all
+     * eligible descendants.
+     *
+     * <p>The {@link CertificateValidationEvent} is published via Spring so that
+     * {@code CertificateHandler.handleCertificateValidationEvent} (a {@code @TransactionalEventListener(AFTER_COMMIT)})
+     * only enqueues validation messages after the {@code trustedCa} flag is committed — preventing validators from
+     * reading the stale value.</p>
+     *
+     * @throws ValidationException if the certificate is archived or is not a CA
+     * @throws NotFoundException   if the certificate does not exist
+     */
     private void updateTrustedCaMark(SecuredUUID uuid, Boolean trustedCa) throws NotFoundException {
         Certificate certificate = getCertificateEntity(uuid);
         if (certificate.isArchived()) {
@@ -548,6 +561,34 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new ValidationException("Trying to mark certificate as trusted CA when certificate is not CA.");
         }
         certificate.setTrustedCa(trustedCa);
+        triggerSubtreeRevalidation(certificate);
+    }
+
+    private void triggerSubtreeRevalidation(Certificate ca) {
+        boolean platformEnabled = SettingsCache.<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
+                .getCertificates().getValidation().getEnabled();
+        List<UUID> toRevalidate = new ArrayList<>();
+        if (isEligibleForRevalidation(ca, platformEnabled)) {
+            toRevalidate.add(ca.getUuid());
+        }
+        certificateRepository.findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled)
+                .stream()
+                .map(UUID::fromString)
+                .forEach(toRevalidate::add);
+        if (!toRevalidate.isEmpty()) {
+            log.debug(applicationEventPublisher.getClass().getName());
+            applicationEventPublisher.publishEvent(new CertificateValidationEvent(toRevalidate));
+        }
+    }
+
+    private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
+        CertificateValidationStatus status = certificate.getValidationStatus();
+        if (status == CertificateValidationStatus.REVOKED || status == CertificateValidationStatus.EXPIRED) {
+            return false;
+        }
+        RaProfile raProfile = certificate.getRaProfile();
+        Boolean rpEnabled = raProfile != null ? raProfile.getValidationEnabled() : null;
+        return rpEnabled == null ? platformEnabled : rpEnabled;
     }
 
     @Async

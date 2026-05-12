@@ -18,6 +18,7 @@ import org.springframework.stereotype.Repository;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -265,6 +266,56 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             SELECT uuid::text FROM chain ORDER BY depth ASC
             """, nativeQuery = true)
     List<String> findCertificateChainUuids(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
+
+    /**
+     * Returns the UUIDs of all certificates issued directly or transitively by the given CA that are eligible for
+     * validation, in a single recursive CTE query.
+     *
+     * <p>Eligibility filters applied:</p>
+     * <ul>
+     *   <li>{@code archived = false} — archived certificates are excluded from all automated validation flows.</li>
+     *   <li>{@code certificate_content_id IS NOT NULL} — cannot validate without content.</li>
+     *   <li>{@code validation_status NOT IN ('REVOKED', 'EXPIRED')} — terminal statuses; CA trust cannot change them.</li>
+     *   <li>{@code (rp.validation_enabled IS NULL AND platformEnabled) OR rp.validation_enabled = true} — mirrors
+     *       the scheduler's two-branch rule: {@code NULL} defers to the platform default; {@code true} always
+     *       includes; {@code false} always excludes.</li>
+     * </ul>
+     *
+     * <p>The CA certificate itself is not included in the result; callers are expected to add it separately.</p>
+     *
+     * <p>Traversal is capped at 20 levels and uses a path array to break cycles in corrupt data
+     * (e.g. a self-signed root whose {@code issuer_certificate_uuid} points back to itself).</p>
+     *
+     * @param caUuid          UUID of the issuing CA certificate
+     * @param platformEnabled value of the platform-level certificate validation {@code enabled} flag;
+     *                        applied to certificates whose RA profile has no explicit {@code validation_enabled} override
+     * @return unordered list of UUID strings for all eligible descendants
+     */
+    @Query(value = """
+            WITH RECURSIVE subtree AS (
+                SELECT uuid, ARRAY[uuid] AS path, 0 AS depth
+                FROM {h-schema}certificate
+                WHERE issuer_certificate_uuid = :caUuid
+                UNION ALL
+                SELECT c.uuid, subtree.path || c.uuid, subtree.depth + 1
+                FROM {h-schema}certificate c
+                INNER JOIN subtree ON c.issuer_certificate_uuid = subtree.uuid
+                WHERE subtree.depth < 20
+                  AND NOT (c.uuid = ANY(subtree.path))
+            )
+            SELECT s.uuid::text FROM subtree s
+            INNER JOIN {h-schema}certificate c ON c.uuid = s.uuid
+            LEFT JOIN {h-schema}ra_profile rp ON rp.uuid = c.ra_profile_uuid
+            WHERE c.archived = false
+              AND c.certificate_content_id IS NOT NULL
+              AND c.validation_status NOT IN ('REVOKED', 'EXPIRED')
+              AND (
+                  (rp.validation_enabled IS NULL AND :platformEnabled = true)
+                  OR rp.validation_enabled = true
+              )
+            """, nativeQuery = true)
+    Set<String> findAllDescendantCertificatesEligibleForValidation(@Param("caUuid") UUID caUuid,
+                                                                    @Param("platformEnabled") boolean platformEnabled);
 
     @Query(
             value = """
