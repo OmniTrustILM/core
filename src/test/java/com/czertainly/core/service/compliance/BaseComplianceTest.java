@@ -58,7 +58,7 @@ class BaseComplianceTest extends BaseSpringBootTest {
     protected ComplianceInternalRuleRepository internalRuleRepository;
 
     @Autowired
-    private RaProfileRepository raProfileRepository;
+    protected RaProfileRepository raProfileRepository;
 
     @Autowired
     private VaultProfileRepository vaultProfileRepository;
