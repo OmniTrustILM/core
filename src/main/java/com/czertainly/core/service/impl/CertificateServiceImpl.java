@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.api.model.common.events.data.CertificateUploadedEventData;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -36,7 +37,6 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
@@ -50,6 +50,7 @@ import com.czertainly.core.dao.repository.scep.ScepProfileRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
+import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
@@ -1151,7 +1152,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         return modal;
     }
 
-    private void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
+    @Override
+    public void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded) {
         UUID keyUuid;
         if (publicKey != null && certificate.getKeyUuid() == null) {
             keyUuid = cryptographicKeyService.findKeyByFingerprint(certificate.getPublicKeyFingerprint());
@@ -1202,9 +1204,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         return certificateContent;
     }
 
-    @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
-    public CertificateDetailDto upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException {
+    @Override
+    public void upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes, UUID userUuid) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException {
         X509Certificate certificate = CertificateUtil.parseUploadedCertificateContent(request.getCertificate());
         String fingerprint = CertificateUtil.getThumbprint(certificate);
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
@@ -1215,20 +1217,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
         }
 
-        Certificate entity = createCertificateEntity(certificate);
-        byte[] altPublicKey = certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
-        uploadCertificateKey(certificate.getPublicKey(), entity, altPublicKey);
-        certificateRepository.save(entity);
-
-        CertificateDetailDto dto = entity.mapToDto();
-        if (!ignoreCustomAttributes) {
-            dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, entity.getUuid(), request.getCustomAttributes()));
-        }
-
-        certificateEventHistoryService.addEventHistory(entity.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS, "Certificate uploaded", "");
-        applicationEventPublisher.publishEvent(new CertificateValidationEvent(entity.getUuid()));
-
-        return dto;
+        CertificateUploadedEventData eventData = new CertificateUploadedEventData();
+        eventData.setCertificate(certificate);
+        eventData.setFingerprint(fingerprint);
+        eventData.setCustomAttributes(request.getCustomAttributes());
+        eventData.setUserUuid(userUuid);
+        eventProducer.produceMessage(CertificateUploadedEventHandler.constructEventMessage(eventData));
     }
 
     @Override

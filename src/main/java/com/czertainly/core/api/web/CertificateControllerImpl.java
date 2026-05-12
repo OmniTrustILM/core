@@ -4,7 +4,6 @@ import com.czertainly.api.exception.*;
 import com.czertainly.api.interfaces.core.web.CertificateController;
 import com.czertainly.api.model.client.approval.ApprovalResponseDto;
 import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.*;
@@ -25,16 +24,13 @@ import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.converter.CertificateFormatConverter;
 import com.czertainly.core.util.converter.CertificateFormatEncodingConverter;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.io.IOException;
-import java.net.URI;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.util.List;
@@ -100,17 +96,9 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
-    public ResponseEntity<UuidDto> upload(@RequestBody UploadCertificateRequestDto request)
+    public void upload(@RequestBody UploadCertificateRequestDto request)
             throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException {
-        CertificateDetailDto dto = certificateService.upload(request, false);
-        URI location = ServletUriComponentsBuilder
-                .fromCurrentRequest()
-                .path("/{uuid}")
-                .buildAndExpand(dto.getUuid())
-                .toUri();
-        UuidDto responseDto = new UuidDto();
-        responseDto.setUuid(dto.getUuid());
-        return ResponseEntity.created(location).body(responseDto);
+        certificateService.upload(request, false, null);
     }
 
     @Override

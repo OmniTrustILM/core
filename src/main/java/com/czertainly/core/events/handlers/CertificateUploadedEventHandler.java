@@ -54,8 +54,8 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         super(repository, triggerEvaluator);
     }
 
-    public static EventMessage constructEventMessage(Certificate certificate) {
-        return new EventMessage(ResourceEvent.CERTIFICATE_UPLOADED, Resource.CERTIFICATE, null, certificate);
+    public static EventMessage constructEventMessage(CertificateUploadedEventData data) {
+        return new EventMessage(ResourceEvent.CERTIFICATE_UPLOADED, Resource.CERTIFICATE, null, data);
     }
 
     @Override

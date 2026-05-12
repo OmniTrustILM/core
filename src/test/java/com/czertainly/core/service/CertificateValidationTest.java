@@ -355,18 +355,18 @@ public class CertificateValidationTest extends BaseSpringBootTest {
 
         UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
         uploadDto.setCertificate(certificateChainInfo.getCaCertificateBase64Encoded());
-        certificateService.upload(uploadDto, true);
+        certificateService.upload(uploadDto, true, );
 
         KeyPair ecdsaKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.ECDSA, null);
         X509Certificate ecdsaX509Certificate = CertificateGeneratorHelper.generateEndEntityCertificate(certificateChainInfo.getCaCertificateKeyPair(), certificateChainInfo.getCaCertificate(), ecdsaKeyPair, "CN=Test-EndEntity-ECDSA", null);
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(ecdsaX509Certificate.getEncoded()));
-        CertificateDetailDto certificateEcdsa = certificateService.upload(uploadDto, true);
+        CertificateDetailDto certificateEcdsa = certificateService.upload(uploadDto, true, );
 
         var validationResult = certificateService.getCertificateValidationResult(SecuredUUID.fromString(certificateEcdsa.getUuid()));
         Assertions.assertEquals(CertificateValidationStatus.NOT_CHECKED, validationResult.getValidationChecks().get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus());
 
         uploadDto.setCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded());
-        CertificateDetailDto certificateEndEntity = certificateService.upload(uploadDto, true);
+        CertificateDetailDto certificateEndEntity = certificateService.upload(uploadDto, true, );
 
         validationResult = certificateService.getCertificateValidationResult(SecuredUUID.fromString(certificateEndEntity.getUuid()));
         Assertions.assertEquals(CertificateValidationStatus.FAILED, validationResult.getValidationChecks().get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus());
@@ -676,13 +676,13 @@ public class CertificateValidationTest extends BaseSpringBootTest {
 
         UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(rootX509.getEncoded()));
-        certificateService.upload(uploadDto, true);
+        certificateService.upload(uploadDto, true, );
 
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(intermediateX509.getEncoded()));
-        certificateService.upload(uploadDto, true);
+        certificateService.upload(uploadDto, true, );
 
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(eeX509.getEncoded()));
-        CertificateDetailDto eeDto = certificateService.upload(uploadDto, true);
+        CertificateDetailDto eeDto = certificateService.upload(uploadDto, true, );
         Certificate eeCert = certificateRepository.findByUuid(UUID.fromString(eeDto.getUuid())).orElseThrow();
 
         // withEndCertificate=false → chain is [intermediate, root], complete
@@ -713,10 +713,10 @@ public class CertificateValidationTest extends BaseSpringBootTest {
 
         UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(x509A.getEncoded()));
-        CertificateDetailDto dtoA = certificateService.upload(uploadDto, true);
+        CertificateDetailDto dtoA = certificateService.upload(uploadDto, true, );
 
         uploadDto.setCertificate(Base64.getEncoder().encodeToString(x509B.getEncoded()));
-        CertificateDetailDto dtoB = certificateService.upload(uploadDto, true);
+        CertificateDetailDto dtoB = certificateService.upload(uploadDto, true, );
 
         // Introduce a circular FK relationship directly in the DB: A → B → A
         Certificate certA = certificateRepository.findByUuid(UUID.fromString(dtoA.getUuid())).orElseThrow();

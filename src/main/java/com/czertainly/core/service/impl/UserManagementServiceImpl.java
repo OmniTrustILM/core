@@ -347,9 +347,8 @@ public class UserManagementServiceImpl implements UserManagementService {
             try {
                 UploadCertificateRequestDto uploadRequest = new UploadCertificateRequestDto();
                 uploadRequest.setCertificate(certificateData);
-                CertificateDetailDto certificateDetailDto = certificateService.upload(uploadRequest, true);
-                certificate = certificateService.getCertificateEntityByFingerprint(certificateDetailDto.getFingerprint());
-                logger.getLogger().debug("New Certificate uploaded for the user");
+                certificateService.upload(uploadRequest, true, UUID.fromString(userUuid));
+                logger.getLogger().debug("New Certificate uploaded for the user {} has been queued for processing.", userUuid);
             } catch (Exception e) {
                 throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
             }
