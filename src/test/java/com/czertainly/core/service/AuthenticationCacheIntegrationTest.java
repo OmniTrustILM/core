@@ -7,6 +7,7 @@ import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.SessionTableHelper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,11 @@ class AuthenticationCacheIntegrationTest extends BaseSpringBootTest {
     void setup() {
         authenticationCache.evictAll();
         SessionTableHelper.createSessionTables(jdbcTemplate);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     // -------------------------------------------------------------------------

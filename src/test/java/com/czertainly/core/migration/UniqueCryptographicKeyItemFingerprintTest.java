@@ -7,7 +7,6 @@ import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyItemRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyRepository;
-import com.czertainly.core.util.BaseSpringBootTest;
 import db.migration.V202508281320__UniqueCryptographicKeyItemFingerprint;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.Assertions;
@@ -16,16 +15,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
-
 import javax.sql.DataSource;
 import java.sql.Statement;
 
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class UniqueCryptographicKeyItemFingerprintTest extends BaseSpringBootTest {
+class UniqueCryptographicKeyItemFingerprintTest extends BaseMigrationTest {
     private static final String DUPLICATE_FINGERPRINT = "duplicateFingerprint";
     @Autowired
     DataSource dataSource;
