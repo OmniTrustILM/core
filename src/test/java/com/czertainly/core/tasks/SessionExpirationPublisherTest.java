@@ -2,7 +2,6 @@ package com.czertainly.core.tasks;
 
 import com.czertainly.core.messaging.scheduler.SessionExpirationPublisher;
 import com.czertainly.core.util.SessionTableHelper;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.TestInstance;
