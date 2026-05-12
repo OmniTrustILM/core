@@ -331,6 +331,35 @@ class AttributeEngineTest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateObjectDataAttributesContentAcceptsNullContentForNonRequiredAttribute() throws AttributeException {
+        // Regression: a connector legitimately returning content=null for an optional attribute
+        // used to NPE deep in createObjectAttributeContent (attributeContentItems.size() on null),
+        // surfacing as HTTP 500 with a framework-internal message instead of a clean no-op.
+        // validateAttributeContent already accepts null/empty equivalently for non-required
+        // attributes; the iteration site must mirror that contract.
+        DataAttributeV3 optionalAttribute = new DataAttributeV3();
+        optionalAttribute.setUuid(UUID.randomUUID().toString());
+        optionalAttribute.setName("optionalNullContentAttribute");
+        optionalAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties props = new DataAttributeProperties();
+        props.setLabel("Optional null-content attribute");
+        props.setRequired(false);
+        optionalAttribute.setProperties(props);
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(optionalAttribute));
+
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(UUID.fromString(optionalAttribute.getUuid()));
+        requestAttribute.setName(optionalAttribute.getName());
+        requestAttribute.setContent(null);
+
+        UUID certificateUuid = certificate.getUuid();
+        Assertions.assertDoesNotThrow(() -> attributeEngine.updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificateUuid).build(),
+                        List.of(requestAttribute)),
+                "null content for a non-required attribute must be a no-op, not an NPE");
+    }
+
+    @Test
     void testGetDataAttributesByContent() throws AttributeException {
         DataAttributeV2 dataAttributeV2 = new DataAttributeV2();
         dataAttributeV2.setUuid(UUID.randomUUID().toString());
