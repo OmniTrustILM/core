@@ -261,6 +261,9 @@ public class ResourceServiceImpl implements ResourceService {
                 continue;
             }
             List<NameAndUuidDto> resourceIds = AttributeDefinitionUtils.getNameAndUuidDataList(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
+            if (resourceIds == null || resourceIds.isEmpty()) {
+                throw new AttributeException("No Resource Object UUIDs found for attribute: " + attribute.getName(), attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
+            }
             List<ResourceObjectContent> contents = new ArrayList<>();
             for (NameAndUuidDto resourceId : resourceIds) {
                 if (resourceId == null || resourceId.getUuid() == null)
