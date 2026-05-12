@@ -164,7 +164,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
                 self.deleteInOwnTransaction(configuration);
             } catch (Exception e) {
                 log.error("Failed to delete Time Quality Configuration {}", uuid, e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), configuration != null ? configuration.getName() : "", e.getMessage()));
+                messages.add(new BulkActionMessageDto(uuid.toString(), configuration != null ? configuration.getName() : "", safeBulkMessage(e)));
             }
         }
         return messages;
@@ -210,6 +210,12 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
+
+    private static String safeBulkMessage(Exception e) {
+        return e.getClass().getPackageName().startsWith("com.czertainly.api.exception") && e.getMessage() != null
+                ? e.getMessage()
+                : "Operation failed";
+    }
 
     private TimeQualityConfiguration getTimeQualityConfigurationEntity(SecuredUUID uuid) throws NotFoundException {
         return timeQualityConfigurationRepository.findByUuid(uuid)
