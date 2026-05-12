@@ -39,6 +39,7 @@ import java.util.*;
 public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
+    private static final int VALIDATION_BATCH_SIZE = 10;
 
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
@@ -204,7 +205,12 @@ public class CertificateHandler {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleCertificateValidationEvent(CertificateValidationEvent event) {
-        ValidationMessage validationMessage = new ValidationMessage(Resource.CERTIFICATE, event.certificateUuids(), event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName());
-        validationProducer.produceMessage(validationMessage);
+        List<UUID> uuids = event.certificateUuids();
+        int size = uuids.size();
+        for (int i = 0; i < size; i += VALIDATION_BATCH_SIZE) {
+            List<UUID> batch = uuids.subList(i, Math.min(i + VALIDATION_BATCH_SIZE, size));
+            validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch,
+                    event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName()));
+        }
     }
 }
