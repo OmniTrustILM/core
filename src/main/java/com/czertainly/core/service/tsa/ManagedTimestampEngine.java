@@ -81,7 +81,7 @@ public class ManagedTimestampEngine {
 
             var result = tokenGenerator.generate(request, timestampingProfile, certificateChain, serialNumber, genTime);
 
-            if (timestampingWorkflow.validateTokenSignature()) {
+            if (Boolean.TRUE.equals(timestampingWorkflow.validateTokenSignature())) {
                 var verifier = new JcaSimpleSignerInfoVerifierBuilder().build(certificateChain.signingCertificate());
                 result.validate(verifier);
             }
