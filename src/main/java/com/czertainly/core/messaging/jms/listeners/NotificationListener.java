@@ -424,6 +424,11 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' is not compliant"
                         .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()), null);
             }
+            case CERTIFICATE_UPLOADED -> {
+                CertificateUploadedEventData data = (CertificateUploadedEventData) eventData;
+                // Certificate for this message is not the model, but X509 Certificate
+                yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded".formatted(data.getCertificate().getSubjectX500Principal().getName(), data.getCertificate().getSerialNumber().toString(), data.getCertificate().getIssuerX500Principal().getName()), null);
+            }
             case DISCOVERY_FINISHED -> {
                 DiscoveryFinishedEventData data = (DiscoveryFinishedEventData) eventData;
                 yield new InternalNotificationEventData("Discovery %s has finished with status %s and discovered %d certificates".formatted(data.getDiscoveryName(), data.getDiscoveryStatus().getLabel(), data.getTotalCertificateDiscovered()), data.getDiscoveryMessage());
