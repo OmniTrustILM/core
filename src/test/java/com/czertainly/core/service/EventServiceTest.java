@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -150,7 +151,7 @@ class EventServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(ResourceEvent.CERTIFICATE_DISCOVERED, dto.getEvent());
         Assertions.assertTrue(dto.isConditionsMatched());
         Assertions.assertTrue(dto.isActionsPerformed());
-        Assertions.assertTrue(th.getTriggeredAt().isEqual(dto.getTriggeredAt()));
+        Assertions.assertTrue(th.getTriggeredAt().truncatedTo(ChronoUnit.MICROS).isEqual(dto.getTriggeredAt()));
     }
 
     @Test
