@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
@@ -74,8 +76,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     @Override
-    public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data) throws RuleException {
-        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), triggerAssociation, object.getUuid(), referenceObjectUuid);
+    public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory) throws RuleException {
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), triggerAssociation, object.getUuid(), referenceObjectUuid, eventHistory, trigger.getResource());
         if (evaluateRules(triggerHistory, trigger.getRules(), object)) {
             triggerHistory.setConditionsMatched(true);
             if (trigger.isIgnoreTrigger()) {
@@ -310,12 +312,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                         if (execution.getType() == ExecutionType.SET_FIELD) {
                             performSetFieldExecution(trigger.getResource(), execution, object);
                         } else {
-                            performSendNotificationAction(trigger.getResource(), event, execution, object, data);
+                            performSendNotificationAction(trigger.getResource(), event, execution, object, data, triggerHistory);
                         }
                         logger.debug("Execution '{}' of action '{}' has been performed.", action.getName(), execution.getName());
                     } catch (Exception e) {
                         logger.debug("Execution '{}' of action '{}' has not been performed. Reason: {}", action.getName(), execution.getName(), e.getMessage());
-                        TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory, null, execution.getUuid(), e.getMessage());
+                        TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory.getUuid(), null, execution.getUuid(), e.getMessage());
                         triggerHistory.getRecords().add(triggerHistoryRecord);
                     }
                 }
@@ -366,14 +368,25 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         attributeEngine.updateObjectCustomAttributeContent(resource, objectUuid, null, fieldIdentifier.substring(0, fieldIdentifier.indexOf("|")), attributeContents);
     }
 
-    protected void performSendNotificationAction(Resource resource, ResourceEvent event, Execution execution, T object, Object data) {
+    protected void performSendNotificationAction(Resource resource, ResourceEvent event, Execution execution, T object, Object data, TriggerHistory triggerHistory) {
         List<UUID> notificationProfileUuids = new ArrayList<>();
         for (ExecutionItem executionItem : execution.getItems()) {
             notificationProfileUuids.add(executionItem.getNotificationProfileUuid());
         }
 
-        NotificationMessage message = new NotificationMessage(event, resource, object.getUuid(), notificationProfileUuids, null, data);
-        notificationProducer.produceMessage(message);
+        NotificationMessage message = new NotificationMessage(event, resource, object.getUuid(), notificationProfileUuids, null, data, triggerHistory.getUuid(), execution.getUuid());
+        // Delay publish until after the current transaction commits so TriggerHistory is
+        // visible to the NotificationListener when it creates TriggerHistoryRecords.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    notificationProducer.produceMessage(message);
+                }
+            });
+        } else {
+            notificationProducer.produceMessage(message);
+        }
     }
 
     private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
@@ -386,12 +399,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             if (!evaluateConditionItem(conditionItem, object, rule.getResource())) {
                 String message = String.format("Condition item '%s %s %s %s' is false.", conditionItem.getFieldSource().getLabel(), conditionItem.getFieldIdentifier(), conditionItem.getOperator().getLabel(), conditionItem.getValue() != null ? conditionItem.getValue().toString() : "");
                 logger.debug("Rule {} is not satisfied. Reason: {}", rule.getName(), message);
-                TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory, conditionItem.getCondition().getUuid(), null, message);
+                TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory.getUuid(), conditionItem.getCondition().getUuid(), null, message);
                 triggerHistory.getRecords().add(triggerHistoryRecord);
                 return false;
             }
         } catch (RuleException e) {
-            TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory, conditionItem.getCondition().getUuid(), null, e.getMessage());
+            TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory.getUuid(), conditionItem.getCondition().getUuid(), null, e.getMessage());
             triggerHistory.getRecords().add(triggerHistoryRecord);
             return false;
         }
