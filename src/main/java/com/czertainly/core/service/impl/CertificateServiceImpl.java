@@ -560,6 +560,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (certificate.getTrustedCa() == null) {
             throw new ValidationException("Trying to mark certificate as trusted CA when certificate is not CA.");
         }
+        if (Objects.equals(certificate.getTrustedCa(), trustedCa)) {
+            return;
+        }
         certificate.setTrustedCa(trustedCa);
         triggerSubtreeRevalidation(certificate);
     }
