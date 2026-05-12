@@ -7,6 +7,6 @@ import com.czertainly.core.messaging.model.EventMessage;
 
 public interface IEventHandler {
 
-    void handleEvent(EventMessage eventMessage) throws EventException, NotFoundException, AttributeException;
+    void handleEvent(EventMessage eventMessage) throws EventException;
 
 }

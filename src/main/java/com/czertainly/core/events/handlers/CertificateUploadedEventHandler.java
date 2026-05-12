@@ -22,11 +22,15 @@ import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
 import org.bouncycastle.asn1.x509.Extension;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
+
+    private static final Logger logger = LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
 
     private CertificateService certificateService;
     private CertificateEventHistoryService certificateEventHistoryService;
@@ -72,7 +76,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     @Override
-    public void handleEvent(EventMessage eventMessage) throws EventException, NotFoundException, AttributeException {
+    public void handleEvent(EventMessage eventMessage) throws EventException {
         EventContext<Certificate> context = prepareContext(eventMessage);
         // TODO: add event history
         CertificateUploadedEventData data = (CertificateUploadedEventData) context.getData();
@@ -86,11 +90,20 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         saveCertificate(data, certificate);
         evaluateTriggers(context, context.getPlatformTriggers(), certificate, context.getData());
 
-        if (data.getCustomAttributes() != null && !data.getCustomAttributes().isEmpty())
-            attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), data.getCustomAttributes());
+        if (data.getCustomAttributes() != null && !data.getCustomAttributes().isEmpty()) {
+            try {
+                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), data.getCustomAttributes());
+            } catch (NotFoundException | AttributeException e) {
+                logger.error("Error updating custom attributes for certificate {}: {}", certificate.getUuid(), e.getMessage());
+            }
+        }
 
         if (data.getUserUuid() != null) {
-            certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(data.getUserUuid()));
+            try {
+                certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(data.getUserUuid()));
+            } catch (NotFoundException e) {
+                logger.error("Error updating user for certificate {}: {}", certificate.getUuid(), e.getMessage());
+            }
         }
 
         certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS, "Certificate uploaded", "");

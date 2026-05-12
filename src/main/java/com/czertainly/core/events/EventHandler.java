@@ -97,7 +97,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         return List.of();
     }
 
-    public void handleEvent(EventMessage eventMessage) throws EventException, NotFoundException, AttributeException {
+    public void handleEvent(EventMessage eventMessage) throws EventException {
         logger.debug("Going to handle event '{}'", eventMessage.getEvent().getLabel());
 
         EventContext<T> eventContext = prepareContext(eventMessage);
