@@ -283,12 +283,13 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      *
      * <p>The CA certificate itself is not included in the result; callers are expected to add it separately.</p>
      *
-     * <p>Traversal is capped at 20 levels and uses a path array to break cycles in corrupt data
+     * <p>Traversal is capped at {@code maxDepth} levels and uses a path array to break cycles in corrupt data
      * (e.g. a self-signed root whose {@code issuer_certificate_uuid} points back to itself).</p>
      *
      * @param caUuid          UUID of the issuing CA certificate
      * @param platformEnabled value of the platform-level certificate validation {@code enabled} flag;
      *                        applied to certificates whose RA profile has no explicit {@code validation_enabled} override
+     * @param maxDepth        maximum number of hops to follow (safety cap against circular references)
      * @return unordered list of UUID strings for all eligible descendants
      */
     @Query(value = """
@@ -300,7 +301,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                 SELECT c.uuid, subtree.path || c.uuid, subtree.depth + 1
                 FROM {h-schema}certificate c
                 INNER JOIN subtree ON c.issuer_certificate_uuid = subtree.uuid
-                WHERE subtree.depth < 20
+                WHERE subtree.depth < :maxDepth
                   AND NOT (c.uuid = ANY(subtree.path))
             )
             SELECT s.uuid::text FROM subtree s
@@ -315,7 +316,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
               )
             """, nativeQuery = true)
     Set<String> findAllDescendantCertificatesEligibleForValidation(@Param("caUuid") UUID caUuid,
-                                                                    @Param("platformEnabled") boolean platformEnabled);
+                                                                    @Param("platformEnabled") boolean platformEnabled,
+                                                                    @Param("maxDepth") int maxDepth);
 
     @Query(
             value = """

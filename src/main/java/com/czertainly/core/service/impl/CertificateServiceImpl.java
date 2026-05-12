@@ -574,7 +574,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (isEligibleForRevalidation(ca, platformEnabled)) {
             toRevalidate.add(ca.getUuid());
         }
-        certificateRepository.findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled)
+        certificateRepository.findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled, certificateChainMaxDepth)
                 .stream()
                 .map(UUID::fromString)
                 .forEach(toRevalidate::add);
