@@ -32,12 +32,15 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceReference;
 import com.czertainly.core.dao.entity.notifications.PendingNotification;
+import com.czertainly.core.dao.entity.workflows.Trigger;
+import com.czertainly.core.dao.entity.workflows.TriggerAssociation;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.czertainly.core.dao.repository.notifications.PendingNotificationRepository;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.repository.workflows.EventHistoryRepository;
 import com.czertainly.core.dao.repository.workflows.TriggerAssociationRepository;
+import com.czertainly.core.dao.repository.workflows.TriggerRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.data.EventDataBuilder;
@@ -64,6 +67,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 class EventHandlersTest extends BaseSpringBootTest {
+
+    @Autowired
+    private TriggerRepository triggerRepository;
 
     @DynamicPropertySource
     static void authServiceProperties(DynamicPropertyRegistry registry) {
@@ -289,6 +295,45 @@ class EventHandlersTest extends BaseSpringBootTest {
 
         // associate trigger with RA profile for CERTIFICATE_STATUS_CHANGED
         triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.RA_PROFILE, raProfile.getUuid(), List.of(UUID.fromString(trigger.getUuid())), true);
+    }
+
+    @Test
+    void testProcessTriggersExceptionSetsEventHistoryToFailed() throws EventException {
+        DiscoveryHistory discovery = new DiscoveryHistory();
+        discovery.setName("TestDiscovery");
+        discovery.setKind("IP");
+        discovery.setStatus(DiscoveryStatus.IN_PROGRESS);
+        discovery.setConnectorUuid(UUID.randomUUID());
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        discovery = discoveryRepository.save(discovery);
+
+        // Create trigger entity directly, bypassing service validation, since evaluateTrigger is never reached
+        Trigger trigger = new Trigger();
+        trigger.setName("TestFailureTrigger");
+        trigger.setType(TriggerType.EVENT);
+        trigger.setResource(Resource.DISCOVERY);
+        trigger.setEvent(ResourceEvent.DISCOVERY_FINISHED);
+        trigger.setIgnoreTrigger(false);
+        trigger = triggerRepository.save(trigger);
+
+        // A fresh random UUID guarantees a cache miss in the auth cache — handleUser will call the auth service
+        UUID randomUserUuid = UUID.randomUUID();
+        TriggerAssociation association = new TriggerAssociation();
+        association.setTriggerUuid(trigger.getUuid());
+        association.setEvent(ResourceEvent.DISCOVERY_FINISHED);
+        association.setTriggeredBy(randomUserUuid);
+        triggerAssociationRepository.save(association);
+
+        // No auth service is running on port 10001, so authenticateAsUser throws CzertainlyAuthenticationException,
+        // which escapes handleUser (catches only ValidationException) and is caught by the outer catch in
+        // processTriggers (EventHandler line 208), which sets EventStatus.FAILED on the event history.
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test")));
+
+        List<EventHistory> eventHistories = eventHistoryRepository.findAll();
+        Assertions.assertEquals(1, eventHistories.size());
+        Assertions.assertEquals(EventStatus.FAILED, eventHistories.getFirst().getStatus());
+        Assertions.assertNotNull(eventHistories.getFirst().getFinishedAt());
     }
 
     @Test
