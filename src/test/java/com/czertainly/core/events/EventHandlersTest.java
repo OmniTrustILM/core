@@ -16,6 +16,8 @@ import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
 import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.czertainly.api.model.common.events.data.CertificateUploadedEventData;
 import com.czertainly.api.model.common.events.data.EventData;
 import com.czertainly.api.model.common.events.data.ScheduledJobFinishedEventData;
 import com.czertainly.api.model.core.auth.Resource;
@@ -40,6 +42,7 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.handlers.*;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.messaging.jms.listeners.NotificationListener;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
@@ -49,6 +52,7 @@ import com.czertainly.core.service.*;
 import com.czertainly.core.tasks.DiscoveryCertificateTask;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.BaseSpringBootTest;
+import com.czertainly.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Assertions;
@@ -57,6 +61,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.security.KeyPair;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -82,6 +88,8 @@ class EventHandlersTest extends BaseSpringBootTest {
     private CertificateStatusChangedEventHandler certificateStatusChangedEventHandler;
     @Autowired
     private CertificateActionPerformedEventHandler certificateActionPerformedEventHandler;
+    @Autowired
+    private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
     @Autowired
     private GroupRepository groupRepository;
@@ -371,6 +379,23 @@ class EventHandlersTest extends BaseSpringBootTest {
         eventData.setStatus(SchedulerJobExecutionStatus.SUCCESS.getLabel());
         NotificationMessage notificationMessage = new NotificationMessage(ResourceEvent.SCHEDULED_JOB_FINISHED, Resource.SCHEDULED_JOB, scheduledJob.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(UUID.randomUUID()), eventData);
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(notificationMessage));
+    }
+
+    @Test
+    void testCertificateUploadedEvent() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
+        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        CertificateUploadedEventData certificateUploadedEventData = new CertificateUploadedEventData();
+        certificateUploadedEventData.setCertificate(certificate);
+        certificateUploadedEventData.setFingerprint(fingerprint);
+
+        // Test without any triggers in settings
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(certificateUploadedEventData)));
+
+        Certificate uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        Assertions.assertEquals(certificate.getSubjectX500Principal().getName(), uploadedCertificate.getSubjectDn());
+        Assertions.assertNotNull(uploadedCertificate.getCertificateContent());
+        Assertions.assertNotNull(uploadedCertificate.getKey());
     }
 
     @Test
