@@ -55,6 +55,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
+import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
@@ -64,7 +65,6 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.tsp.TSPAlgorithms;
-import org.bouncycastle.tsp.TimeStampRequest;
 import org.bouncycastle.tsp.TimeStampRequestGenerator;
 import org.bouncycastle.tsp.TimeStampResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -81,6 +81,7 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Security;
+import java.security.Signature;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.Date;
@@ -137,10 +138,13 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
 
     private static final String TSP_PROFILE_NAME = "testTspProfile";
     private static final String SIGNING_PROFILE_NAME = "testSigningProfile";
+    private static final String TSP_PROFILE_VALIDATED_NAME = "testTspProfileValidated";
+    private static final String SIGNING_PROFILE_VALIDATED_NAME = "testSigningProfileValidated";
 
     // ── Per-test state ────────────────────────────────────────────────────────
 
     private UUID signingProfileUuid;
+    private UUID signingProfileValidatedUuid;
     private WireMockServer wireMockServer;
     private final ObjectMapper objectMapper = new ObjectMapper();
     /**
@@ -162,11 +166,9 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
     public void setUp() throws Exception {
         ensureBouncyCastleProvider();
 
-        // Key pair must be generated first so the WireMock transformer can sign with it.
         tsaKeyPair = generateRsaKeyPair();
-
-        // Pre-compute a valid RFC 3161 token so the formatter stub can return real bytes.
-        precomputedTokenBytes = TimestampTokenTestUtil.createTimestampToken().getEncoded();
+        tsaCert = buildTsaCertificate(tsaKeyPair);
+        precomputedTokenBytes = TimestampTokenTestUtil.createTimestampTokenSignedWith(tsaKeyPair, tsaCert).getEncoded();
 
         wireMockServer = new WireMockServer(
                 WireMockConfiguration.options()
@@ -191,48 +193,20 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
      * Happy-path end-to-end flow: build TSP request → call controller → assert GRANTED.
      */
     @Test
-    public void tspFullTimestampFlow() throws Exception {
-
-        // Build a SHA-256 TSP request over some arbitrary data imprint
-        byte[] data = "Hello, Timestamp!".getBytes();
-        MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
-        byte[] hash = sha256.digest(data);
-
-        TimeStampRequestGenerator gen = new TimeStampRequestGenerator();
-        gen.setCertReq(true);
-        TimeStampRequest tsRequest = gen.generate(TSPAlgorithms.SHA256, hash, BigInteger.valueOf(System.currentTimeMillis()));
-        byte[] requestBytes = tsRequest.getEncoded();
-
-        // Invoke TspController
-        ResponseEntity<byte[]> response = tspController.timestamp(TSP_PROFILE_NAME, requestBytes);
-
-        // HTTP 200
-        Assertions.assertEquals(200, response.getStatusCode().value());
-        byte[] responseBytes = response.getBody();
-        Assertions.assertNotNull(responseBytes);
-        Assertions.assertTrue(responseBytes.length > 0, "Response body must not be empty");
-
-        // Parse and validate the TimeStampResponse
-        TimeStampResponse tsResponse = new TimeStampResponse(responseBytes);
-        Assertions.assertEquals(
-                org.bouncycastle.asn1.cmp.PKIStatus.GRANTED,
-                tsResponse.getStatus(),
-                "Expected PKIStatus GRANTED (0) but got: " + tsResponse.getStatus()
-                        + " — " + tsResponse.getStatusString()
-        );
-
-        // Token must be present and carry the correct message imprint algorithm
-        Assertions.assertNotNull(tsResponse.getTimeStampToken(), "TimeStampToken must be present");
-        String imprintAlg = tsResponse.getTimeStampToken().getTimeStampInfo().getMessageImprintAlgOID().getId();
-        Assertions.assertEquals(TSPAlgorithms.SHA256.getId(), imprintAlg,
-                "Message imprint algorithm must be SHA-256");
+    public void tspFullTimestampFlowWithNoSignatureValidation() throws Exception {
+        assertGrantedSha256Response(tspController.timestamp(TSP_PROFILE_NAME, buildSha256TspRequestBytes()));
     }
 
-    // ── Infrastructure setup ──────────────────────────────────────────────────
+    /**
+     * Happy-path end-to-end flow with token signature validation enabled: build TSP request → call controller → assert GRANTED.
+     */
+    @Test
+    public void tspFullTimestampFlowWithTokenSignatureValidation() throws Exception {
+        assertGrantedSha256Response(tspController.timestamp(TSP_PROFILE_VALIDATED_NAME, buildSha256TspRequestBytes()));
+    }
 
     private void buildInfrastructure() throws Exception {
-        // tsaKeyPair was already generated in setUp() so the WireMock transformer has the private key.
-        tsaCert = buildTsaCertificate(tsaKeyPair);
+        // tsaKeyPair and tsaCert were already built in setUp() before stub registration.
 
         Connector connector = persistConnector();
         Connector formatterConnector = persistFormatterConnector();
@@ -241,8 +215,17 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
         CryptographicKey key = persistCryptographicKey(tokenInstance, tokenProfile, tsaKeyPair);
         Certificate certificate = persistTsaCertificate(key, tsaCert);
 
-        createSigningProfile(certificate, formatterConnector);
-        createTspProfile();
+        signingProfileUuid = createSigningProfile(
+                certificate, formatterConnector,
+                SIGNING_PROFILE_NAME, "TSP integration test signing profile",
+                false);
+        createTspProfile(TSP_PROFILE_NAME, "TSP integration test profile", signingProfileUuid);
+
+        signingProfileValidatedUuid = createSigningProfile(
+                certificate, formatterConnector,
+                SIGNING_PROFILE_VALIDATED_NAME, "TSP integration test signing profile with token signature validation",
+                true);
+        createTspProfile(TSP_PROFILE_VALIDATED_NAME, "TSP integration test profile with token signature validation", signingProfileValidatedUuid);
     }
 
     /**
@@ -423,7 +406,8 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
         return certificateRepository.saveAndFlush(cert);
     }
 
-    private void createSigningProfile(Certificate certificate, Connector formatterConnector) throws Exception {
+    private UUID createSigningProfile(Certificate certificate, Connector formatterConnector, String name, String description,
+                                      boolean validateTokenSignature) throws Exception {
         StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
         scheme.setCertificateUuid(certificate.getUuid());
         scheme.setSigningOperationAttributes(List.of(
@@ -434,25 +418,56 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
         workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
         workflow.setQualifiedTimestamp(false);
         workflow.setDefaultPolicyId("1.2.3.4.5");
-        workflow.setValidateTokenSignature(true);
+        workflow.setValidateTokenSignature(validateTokenSignature);
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(SIGNING_PROFILE_NAME);
-        request.setDescription("TSP integration test signing profile");
+        request.setName(name);
+        request.setDescription(description);
         request.setSigningScheme(scheme);
         request.setWorkflow(workflow);
 
-        signingProfileUuid = UUID.fromString(signingProfileService.createSigningProfile(request).getUuid());
+        return UUID.fromString(signingProfileService.createSigningProfile(request).getUuid());
     }
 
-    private void createTspProfile() throws Exception {
+    private void createTspProfile(String name, String description, UUID defaultSigningProfileUuid) throws Exception {
         TspProfileRequestDto request = new TspProfileRequestDto();
-        request.setName(TSP_PROFILE_NAME);
-        request.setDescription("TSP integration test profile");
-
-        request.setDefaultSigningProfileUuid(signingProfileUuid);
+        request.setName(name);
+        request.setDescription(description);
+        request.setDefaultSigningProfileUuid(defaultSigningProfileUuid);
 
         tspProfileService.createTspProfile(request);
+    }
+
+    // ── Test helpers ──────────────────────────────────────────────────────────
+
+    /**
+     * Builds an SHA-256 TSP request over a fixed test imprint, with certReq=true.
+     */
+    private static byte[] buildSha256TspRequestBytes() throws Exception {
+        byte[] hash = MessageDigest.getInstance("SHA-256").digest("Hello, Timestamp!".getBytes());
+        TimeStampRequestGenerator gen = new TimeStampRequestGenerator();
+        gen.setCertReq(true);
+        return gen.generate(TSPAlgorithms.SHA256, hash, BigInteger.valueOf(System.currentTimeMillis())).getEncoded();
+    }
+
+    /**
+     * Asserts HTTP 200, PKIStatus GRANTED, token present, and SHA-256 imprint algorithm.
+     */
+    private static void assertGrantedSha256Response(ResponseEntity<byte[]> response) throws Exception {
+        Assertions.assertEquals(200, response.getStatusCode().value());
+        byte[] responseBytes = response.getBody();
+        Assertions.assertNotNull(responseBytes);
+        Assertions.assertTrue(responseBytes.length > 0, "Response body must not be empty");
+
+        TimeStampResponse tsResponse = new TimeStampResponse(responseBytes);
+        Assertions.assertEquals(PKIStatus.GRANTED, tsResponse.getStatus(),
+                "Expected PKIStatus GRANTED (0) but got: " + tsResponse.getStatus() + " - " + tsResponse.getStatusString()
+        );
+
+        Assertions.assertNotNull(tsResponse.getTimeStampToken(), "TimeStampToken must be present");
+        String imprintAlg = tsResponse.getTimeStampToken().getTimeStampInfo().getMessageImprintAlgOID().getId();
+        Assertions.assertEquals(TSPAlgorithms.SHA256.getId(), imprintAlg,
+                "Message imprint algorithm must be SHA-256");
     }
 
     // ── Crypto helpers ────────────────────────────────────────────────────────
@@ -525,13 +540,7 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
      * signs the decoded bytes with the test TSA private key, and returns the signature
      * in the connector sign-response JSON ({@code signatures[0].data} = base64 signature).
      */
-    private static class RealRsaSignerTransformer implements ResponseDefinitionTransformerV2 {
-
-        private final PrivateKey privateKey;
-
-        RealRsaSignerTransformer(PrivateKey privateKey) {
-            this.privateKey = privateKey;
-        }
+    private record RealRsaSignerTransformer(PrivateKey privateKey) implements ResponseDefinitionTransformerV2 {
 
         @Override
         public ResponseDefinition transform(ServeEvent serveEvent) {
@@ -540,7 +549,7 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
                 JsonNode body = objectMapper.readTree(serveEvent.getRequest().getBodyAsString());
                 byte[] dtbs = Base64.getDecoder().decode(body.at("/data/0/data").asText());
 
-                java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
+                Signature sig = Signature.getInstance("SHA256withRSA");
                 sig.initSign(privateKey);
                 sig.update(dtbs);
                 byte[] signature = sig.sign();
