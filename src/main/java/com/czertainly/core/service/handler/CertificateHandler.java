@@ -21,6 +21,7 @@ import com.czertainly.core.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,7 +40,9 @@ import java.util.*;
 public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
-    private static final int VALIDATION_BATCH_SIZE = 10;
+
+    @Value("${certificate.validation.batch-size:10}")
+    private int validationBatchSize;
 
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
@@ -207,8 +210,8 @@ public class CertificateHandler {
     public void handleCertificateValidationEvent(CertificateValidationEvent event) {
         List<UUID> uuids = event.certificateUuids();
         int size = uuids.size();
-        for (int i = 0; i < size; i += VALIDATION_BATCH_SIZE) {
-            List<UUID> batch = uuids.subList(i, Math.min(i + VALIDATION_BATCH_SIZE, size));
+        for (int i = 0; i < size; i += validationBatchSize) {
+            List<UUID> batch = uuids.subList(i, Math.min(i + validationBatchSize, size));
             validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch,
                     event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName()));
         }

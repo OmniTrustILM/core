@@ -124,10 +124,12 @@ import java.util.stream.Collectors;
 @Slf4j
 public class CertificateServiceImpl implements CertificateService, AttributeResourceService {
 
+    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
+
     // batch size will prevent bloating size of enqueued message and better utilize parallel processing
     // NOTE: improve handling of large batches vs many produced messages to queue
-    private static final int VALIDATION_BATCH_SIZE = 10;
-    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
+    @Value("${certificate.validation.batch-size:10}")
+    private int validationBatchSize;
 
     @Value("${spring.jpa.properties.hibernate.jdbc.batch_size:500}")
     private int bulkDeleteBatchSize;
@@ -1417,8 +1419,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private void sendValidationBatches(List<UUID> certificateUuids) {
         if (certificateUuids == null || certificateUuids.isEmpty()) return;
         final int size = certificateUuids.size();
-        for (int i = 0; i < size; i += VALIDATION_BATCH_SIZE) {
-            List<UUID> batch = certificateUuids.subList(i, Math.min(i + VALIDATION_BATCH_SIZE, size));
+        for (int i = 0; i < size; i += validationBatchSize) {
+            List<UUID> batch = certificateUuids.subList(i, Math.min(i + validationBatchSize, size));
             validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch, null, null, null, null));
         }
     }
