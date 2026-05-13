@@ -703,7 +703,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         executionItem.setFieldIdentifier(FilterField.RA_PROFILE_NAME.toString());
         executionItem.setData(raProfile.getUuid());
 
-        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null);
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
 
         CertificateDetailDto certificateDetailDto = certificateService.getCertificate(certificate.getSecuredUuid());
@@ -757,7 +757,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         executionItem.setNotificationProfileUuid(UUID.fromString(notificationProfileDetailDto.getUuid()));
         executionItemRepository.save(executionItem);
 
-        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null);
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
         Assertions.assertEquals(0, triggerHistory.getRecords().size());
     }

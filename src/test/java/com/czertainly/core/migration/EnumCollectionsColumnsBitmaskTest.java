@@ -7,7 +7,6 @@ import com.czertainly.core.dao.entity.CertificateRequestEntity;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.entity.TokenProfile;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.util.BaseSpringBootTest;
 import db.migration.V202508261555__EnumCollectionsColumnsBitmask;
 import db.migration.V202509041555__CertificateRequestEntityBitmask;
 import org.flywaydb.core.api.migration.Context;
@@ -17,8 +16,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
-
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -29,8 +26,7 @@ import java.util.Set;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class EnumCollectionsColumnsBitmaskTest extends BaseSpringBootTest {
+class EnumCollectionsColumnsBitmaskTest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

@@ -65,6 +65,7 @@ public enum Resource {
     RULE("rules"),
     ACTION("actions"),
     TRIGGER("triggers"),
+    EVENT("resourceEvents"),
 
     // SAAS
     TRUSTED_CERTIFICATE("trustedCertificates"),

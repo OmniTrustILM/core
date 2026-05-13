@@ -22,10 +22,15 @@ public class SessionTableHelper {
                 CREATE TABLE IF NOT EXISTS spring_session_attributes (
                     SESSION_PRIMARY_ID CHAR(36) NOT NULL,
                     ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
-                    ATTRIBUTE_BYTES TEXT,
+                    ATTRIBUTE_BYTES JSONB NOT NULL,
                     CONSTRAINT spring_session_attributes_pkey PRIMARY KEY(SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
                     CONSTRAINT fk_session FOREIGN KEY(SESSION_PRIMARY_ID) REFERENCES spring_session(PRIMARY_ID) ON DELETE CASCADE
                 );
                 """);
+    }
+
+    public static void dropSessionTables(JdbcTemplate jdbcTemplate) {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS spring_session_attributes");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS spring_session");
     }
 }

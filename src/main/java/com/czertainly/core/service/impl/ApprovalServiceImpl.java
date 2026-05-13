@@ -16,6 +16,7 @@ import com.czertainly.core.events.handlers.ApprovalRequestedEventHandler;
 import com.czertainly.core.messaging.jms.producers.ActionProducer;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
+import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -33,6 +34,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.*;
@@ -243,8 +246,14 @@ public class ApprovalServiceImpl implements ApprovalService {
                     || lastProcessedApprovalRecipient.getApprovalStep().getOrder() != nextApprovalStep.getOrder()) {
 
                 final Approval approval = findApprovalByUuid(approvalUuid);
-                eventProducer.produceMessage(ApprovalRequestedEventHandler.constructEventMessage(approval.getUuid(), nextApprovalStep.mapToDto()));
-                logger.debug("Notification message about new approvals needed for the step was sent. Approval UUID: {}", approvalUuid);
+                final EventMessage approvalRequestedMessage = ApprovalRequestedEventHandler.constructEventMessage(approval.getUuid(), nextApprovalStep.mapToDto());
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        eventProducer.produceMessage(approvalRequestedMessage);
+                        logger.debug("Notification message about new approvals needed for the step was sent. Approval UUID: {}", approvalUuid);
+                    }
+                });
             }
         } else {
             logger.info("There is no more steps and the approval can be closed as successful.");
@@ -291,10 +300,17 @@ public class ApprovalServiceImpl implements ApprovalService {
         actionMessage.setResourceUuid(approval.getObjectUuid());
         actionMessage.setResource(approval.getResource());
         actionMessage.setResourceAction(approval.getAction());
-        actionProducer.produceMessage(actionMessage);
 
         // send event of approval closed
-        eventProducer.produceMessage(ApprovalClosedEventHandler.constructEventMessage(approval.getUuid()));
+        final EventMessage approvalClosedMessage = ApprovalClosedEventHandler.constructEventMessage(approval.getUuid());
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                actionProducer.produceMessage(actionMessage);
+                eventProducer.produceMessage(approvalClosedMessage);
+            }
+        });
     }
 
     private Approval findApprovalByUuid(final String uuid) throws NotFoundException {

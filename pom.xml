@@ -29,7 +29,7 @@
         <sonar.projectKey>ilm_core</sonar.projectKey>
         <sonar.sources>src/main/java</sonar.sources>
         <sonar.cpd.exclusions>src/main/java/com/czertainly/core/dao/entity/**</sonar.cpd.exclusions>
-        <sonar.coverage.exclusions>src/main/java/com/czertainly/core/dao/entity/**,src/main/java/com/czertainly/core/api/**</sonar.coverage.exclusions>
+        <sonar.coverage.exclusions>src/main/java/com/czertainly/core/dao/entity/**,src/main/java/com/czertainly/core/api/**,src/main/java/com/czertainly/core/util/converter/**</sonar.coverage.exclusions>
     </properties>
 
     <dependencyManagement>

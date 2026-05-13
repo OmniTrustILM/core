@@ -4,19 +4,16 @@ import com.czertainly.api.model.client.attribute.RequestAttributeV2;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
 import com.czertainly.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
-import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import db.migration.V202507311051__MigrateToComplianceProfilesV2;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
@@ -30,8 +27,7 @@ import java.util.UUID;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
+class MigrateToComplianceProfilesV2Test extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;
@@ -39,7 +35,7 @@ class MigrateToComplianceProfilesV2Test extends BaseSpringBootTest {
     @Autowired
     ObjectMapper objectMapper;
 
-    MigrateToComplianceProfilesV2Test() throws SQLException {
+    MigrateToComplianceProfilesV2Test() {
     }
 
     @Test
