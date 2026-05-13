@@ -307,6 +307,25 @@ class UpdateTrustedCaMarkTest extends BaseSpringBootTest {
     }
 
     @Test
+    void caWithNoContentNotQueuedEligibleDescendantsStillAre() throws Exception {
+        // given
+        Certificate ca = new Certificate();
+        ca.setFingerprint(UUID.randomUUID().toString());
+        ca.setValidationStatus(CertificateValidationStatus.VALID);
+        ca.setTrustedCa(false);
+        ca = certificateRepository.saveAndFlush(ca);
+        Certificate child = buildEligibleCert(ca);
+
+        // when
+        callUpdateTrustedCa(ca.getUuid(), true);
+
+        // then
+        CertificateValidationEvent event = capturePublishedEvent();
+        assertThat(event.certificateUuids()).containsExactly(child.getUuid());
+        assertThat(event.certificateUuids()).doesNotContain(ca.getUuid());
+    }
+
+    @Test
     void revokedCaNotQueuedEligibleDescendantsStillAre() throws Exception {
         // given
         Certificate ca = buildCaWithStatus(CertificateValidationStatus.REVOKED);

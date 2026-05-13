@@ -581,6 +581,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
+        if (certificate.isArchived() || certificate.getCertificateContent() == null) {
+            return false;
+        }
         CertificateValidationStatus status = certificate.getValidationStatus();
         if (status == CertificateValidationStatus.REVOKED || status == CertificateValidationStatus.EXPIRED) {
             return false;
