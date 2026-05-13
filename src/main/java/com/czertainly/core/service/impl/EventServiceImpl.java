@@ -128,14 +128,15 @@ public class EventServiceImpl implements EventService {
         // Batch 3: all trigger histories for the paginated object UUIDs in one query, then group in Java
         List<UUID> allPaginatedObjectUuids = paginatedObjectUuidsPerEvent.values().stream()
                 .flatMap(Collection::stream).distinct().toList();
-        Map<UUID, Map<UUID, List<TriggerHistory>>> triggerHistoriesByEventAndObject = allPaginatedObjectUuids.isEmpty()
-                ? Map.of()
-                : triggerHistoryRepository.findByEventHistoryUuidInAndObjectUuidInOrderByEventHistoryUuidAscObjectUuidAscTriggeredAtDesc(eventHistoryUuids, allPaginatedObjectUuids)
-                        .stream().collect(Collectors.groupingBy(
-                                TriggerHistory::getEventHistoryUuid,
-                                LinkedHashMap::new,
-                                Collectors.groupingBy(TriggerHistory::getObjectUuid, LinkedHashMap::new, Collectors.toList())
-                        ));
+        Map<UUID, Map<UUID, List<TriggerHistory>>> triggerHistoriesByEventAndObject = new LinkedHashMap<>();
+        if (!allPaginatedObjectUuids.isEmpty()) {
+            for (TriggerHistory th : triggerHistoryRepository.findByEventHistoryUuidsAndObjectUuids(eventHistoryUuids, allPaginatedObjectUuids)) {
+                triggerHistoriesByEventAndObject
+                        .computeIfAbsent(th.getEventHistoryUuid(), k -> new LinkedHashMap<>())
+                        .computeIfAbsent(th.getObjectUuid(), k -> new ArrayList<>())
+                        .add(th);
+            }
+        }
 
         List<EventHistoryDto> eventHistoriesResponse = eventHistories.stream()
                 .map(eventHistory -> {

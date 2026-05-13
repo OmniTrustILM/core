@@ -75,9 +75,17 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
     /**
      * Fetches all trigger histories for a set of event histories filtered to specific object UUIDs,
      * replacing one query per event history row. Results are grouped in Java by eventHistoryUuid → objectUuid.
+     * Includes rows where objectUuid IS NULL (e.g. ignored certificates that were never persisted).
      */
+    @Query("""
+            SELECT t FROM TriggerHistory t
+            WHERE t.eventHistoryUuid IN :eventHistoryUuids
+              AND (t.objectUuid IN :objectUuids OR t.objectUuid IS NULL)
+            ORDER BY t.eventHistoryUuid ASC, t.objectUuid ASC NULLS LAST, t.triggeredAt DESC
+            """)
     @EntityGraph(attributePaths = {"records", "triggerAssociation", "records.execution", "records.execution.items", "records.execution.items.notificationProfile"})
-    List<TriggerHistory> findByEventHistoryUuidInAndObjectUuidInOrderByEventHistoryUuidAscObjectUuidAscTriggeredAtDesc(
-            List<UUID> eventHistoryUuids, List<UUID> objectUuids);
+    List<TriggerHistory> findByEventHistoryUuidsAndObjectUuids(
+            @Param("eventHistoryUuids") List<UUID> eventHistoryUuids,
+            @Param("objectUuids") List<UUID> objectUuids);
 
 }
