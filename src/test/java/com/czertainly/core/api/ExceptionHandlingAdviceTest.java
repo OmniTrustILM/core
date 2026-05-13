@@ -40,7 +40,7 @@ class ExceptionHandlingAdviceTest {
     }
 
     @Test
-    void handleCbomRepositoryException_ShouldFallbackToExceptionMessageWhenDetailIsNull() {
+    void handleCbomRepositoryException_ShouldFallbackToDefaultMessageWhenDetailIsNull() {
         ProblemDetail problemDetail = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
         problemDetail.setDetail(null);
         CbomRepositoryException ex = new CbomRepositoryException(problemDetail);
@@ -49,7 +49,7 @@ class ExceptionHandlingAdviceTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals(ex.getMessage(), response.getBody().getMessage());
+        assertEquals("CBOM repository error", response.getBody().getMessage());
     }
 
     @Test
