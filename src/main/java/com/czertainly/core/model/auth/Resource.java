@@ -65,6 +65,7 @@ public enum Resource {
     RULE("rules"),
     ACTION("actions"),
     TRIGGER("triggers"),
+    EVENT("resourceEvents"),
 
     // SAAS
     TRUSTED_CERTIFICATE("trustedCertificates"),
@@ -78,9 +79,9 @@ public enum Resource {
     CBOM("cboms"),
 
     // SIGNING
-    SIGNING_PROFILE("signingProfiles"),
-    TSP_PROFILE("tspProfiles"),
     TIME_QUALITY_CONFIGURATION("timeQualityConfigurations"),
+    TSP_PROFILE("tspProfiles"),
+    SIGNING_PROFILE("signingProfiles"),
     SIGNING_RECORD("signingRecords")
     ;
 

@@ -146,7 +146,7 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
         return dto;
     }
 
-    public com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1 mapToApiClientDtoV1() {
+    public ConnectorApiClientDtoV1 mapToApiClientDtoV1() {
         var dto = new ConnectorApiClientDtoV1();
         populateApiClientV1Fields(dto);
         return dto;
@@ -167,7 +167,7 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
         return dto;
     }
 
-    private void populateApiClientV1Fields(com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1 dto) {
+    private void populateApiClientV1Fields(ConnectorApiClientDtoV1 dto) {
         dto.setUuid(this.uuid.toString());
         dto.setName(this.name);
         dto.setUrl(this.url);

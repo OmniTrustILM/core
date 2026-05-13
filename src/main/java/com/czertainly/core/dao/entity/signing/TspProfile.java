@@ -20,6 +20,7 @@ import java.util.UUID;
 @Table(name = "tsp_profile")
 public class TspProfile extends UniquelyIdentifiedAndAudited implements Securable {
 
+    @Getter(onMethod_ = {@Override})
     @Column(name = "name", nullable = false)
     private String name;
 
@@ -27,7 +28,7 @@ public class TspProfile extends UniquelyIdentifiedAndAudited implements Securabl
     private String description;
 
     @Column(name = "enabled", nullable = false)
-    private Boolean enabled = false;
+    private boolean enabled = false;
 
     @Column(name = "default_signing_profile_uuid")
     private UUID defaultSigningProfileUuid;
@@ -40,5 +41,15 @@ public class TspProfile extends UniquelyIdentifiedAndAudited implements Securabl
     public void setDefaultSigningProfile(SigningProfile defaultSigningProfile) {
         this.defaultSigningProfile = defaultSigningProfile;
         this.defaultSigningProfileUuid = defaultSigningProfile != null ? defaultSigningProfile.getUuid() : null;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

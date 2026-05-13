@@ -449,6 +449,27 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
     }
 
     @Test
+    void associateComplianceProfileRaProfileWithoutAuthorityRefSucceeds() throws AlreadyExistException, AttributeException, NotFoundException, ConnectorException {
+        // External Authority "without CA" scenario: the RA Profile has no authorityInstanceReference.
+        RaProfile externalRaProfile = new RaProfile();
+        externalRaProfile.setName("ExternalWithoutCaRaProfile");
+        externalRaProfile = raProfileRepository.save(externalRaProfile);
+
+        ComplianceProfileRequestDto requestDto = new ComplianceProfileRequestDto();
+        requestDto.setName("ExternalAuthorityComplianceProfile");
+        ComplianceProfileDto profileDto = complianceProfileService.createComplianceProfile(requestDto);
+        SecuredUUID profileUuid = SecuredUUID.fromUUID(profileDto.getUuid());
+
+        UUID externalRaProfileUuid = externalRaProfile.getUuid();
+        Assertions.assertDoesNotThrow(() -> complianceProfileService.associateComplianceProfile(profileUuid, Resource.RA_PROFILE, externalRaProfileUuid));
+
+        var associations = complianceProfileService.getAssociations(profileUuid);
+        Assertions.assertEquals(1, associations.size());
+        Assertions.assertEquals(Resource.RA_PROFILE, associations.getFirst().getResource());
+        Assertions.assertEquals(externalRaProfile.getUuid(), associations.getFirst().getObjectUuid());
+    }
+
+    @Test
     void associateRaProfile() throws NotFoundException, AlreadyExistException {
         Assertions.assertThrows(AlreadyExistException.class, () -> complianceProfileService.associateComplianceProfile(SecuredUUID.fromUUID(complianceProfile.getUuid()), Resource.RA_PROFILE, associatedRaProfileUuid));
         complianceProfileService.associateComplianceProfile(SecuredUUID.fromUUID(complianceProfile.getUuid()), Resource.RA_PROFILE, unassociatedRaProfileUuid);

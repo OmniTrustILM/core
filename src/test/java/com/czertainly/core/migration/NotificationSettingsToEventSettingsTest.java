@@ -9,7 +9,6 @@ import com.czertainly.core.dao.repository.notifications.NotificationInstanceRefe
 import com.czertainly.core.dao.repository.notifications.NotificationProfileRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.czertainly.core.dao.repository.workflows.*;
-import com.czertainly.core.util.BaseSpringBootTest;
 import db.migration.V202506131400__NotificationSettingsToEventSettings;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.Assertions;
@@ -18,8 +17,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
-
 import javax.sql.DataSource;
 import java.sql.Statement;
 import java.util.List;
@@ -28,8 +25,7 @@ import java.util.UUID;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class NotificationSettingsToEventSettingsTest extends BaseSpringBootTest {
+class NotificationSettingsToEventSettingsTest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

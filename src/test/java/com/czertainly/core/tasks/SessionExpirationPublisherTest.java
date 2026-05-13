@@ -1,7 +1,10 @@
 package com.czertainly.core.tasks;
 
 import com.czertainly.core.messaging.scheduler.SessionExpirationPublisher;
+import com.czertainly.core.util.SessionTableHelper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestInstance;
 import org.mockito.Mockito;
 import org.springframework.core.convert.support.GenericConversionService;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
@@ -11,7 +14,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
 import com.czertainly.core.util.BaseSpringBootTest;
-import com.czertainly.core.util.SessionTableHelper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.session.Session;
 
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SessionExpirationPublisherTest extends BaseSpringBootTest {
 
     @Autowired
@@ -36,8 +39,12 @@ class SessionExpirationPublisherTest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        // Ensure the session tables are created before each test
         SessionTableHelper.createSessionTables(jdbcTemplate);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     @Test

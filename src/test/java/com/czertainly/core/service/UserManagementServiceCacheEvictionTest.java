@@ -6,6 +6,7 @@ import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.SessionTableHelper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -33,6 +34,11 @@ class UserManagementServiceCacheEvictionTest extends BaseSpringBootTest {
     @BeforeEach
     void setupSessionTables() {
         SessionTableHelper.createSessionTables(jdbcTemplate);
+    }
+
+    @AfterEach
+    void tearDownSessionTables() {
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     @Test

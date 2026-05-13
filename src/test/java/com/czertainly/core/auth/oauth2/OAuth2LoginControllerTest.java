@@ -7,11 +7,13 @@ import com.czertainly.api.model.core.settings.authentication.AuthenticationSetti
 import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.service.AuditLogService;
 import com.czertainly.core.settings.SettingsCache;
+import com.czertainly.core.util.SessionTableHelper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OAuth2LoginControllerTest {
 
     private static WireMockServer mockServer;
@@ -69,38 +72,9 @@ class OAuth2LoginControllerTest {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
 
-        setupSessionTables();
+        SessionTableHelper.createSessionTables(jdbcTemplate);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
         reset(auditLogService);
-    }
-
-    private void setupSessionTables() {
-        jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS core;");
-
-        // Create spring_session table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS core.spring_session (
-                        PRIMARY_ID CHAR(36) NOT NULL,
-                        SESSION_ID CHAR(36) NOT NULL,
-                        CREATION_TIME BIGINT NOT NULL,
-                        LAST_ACCESS_TIME BIGINT NOT NULL,
-                        MAX_INACTIVE_INTERVAL INT NOT NULL,
-                        EXPIRY_TIME BIGINT NOT NULL,
-                        PRINCIPAL_NAME VARCHAR(100),
-                        CONSTRAINT spring_session_pkey PRIMARY KEY(PRIMARY_ID)
-                    );
-                """);
-
-        // Create spring_session_attributes table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS core.spring_session_attributes (
-                        SESSION_PRIMARY_ID CHAR(36) NOT NULL,
-                        ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
-                        ATTRIBUTE_BYTES JSONB,
-                        CONSTRAINT spring_session_attributes_pkey PRIMARY KEY(SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
-                        CONSTRAINT fk_session FOREIGN KEY(SESSION_PRIMARY_ID) REFERENCES core.spring_session(PRIMARY_ID) ON DELETE CASCADE
-                    );
-                """);
     }
 
     @AfterEach
@@ -109,6 +83,7 @@ class OAuth2LoginControllerTest {
         if (mockServer != null) {
             mockServer.stop();
         }
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     @ParameterizedTest

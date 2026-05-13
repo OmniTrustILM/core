@@ -38,13 +38,13 @@ public class TspProfileControllerImpl implements TspProfileController {
     }
 
     @Override
-    @AuthEndpoint(resourceName = Resource.TSP_PROFILE)
-    @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.LIST)
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SEARCH_FILTER, affiliatedResource = Resource.TSP_PROFILE, operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return tspProfileService.getSearchableFieldInformation();
     }
 
     @Override
+    @AuthEndpoint(resourceName = Resource.TSP_PROFILE)
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.LIST)
     public PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request) {
         return tspProfileService.listTspProfiles(request, SecurityFilter.create());

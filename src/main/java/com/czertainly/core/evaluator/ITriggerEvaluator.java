@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface ITriggerEvaluator<T> {
 
-    TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data) throws RuleException;
+    TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory) throws RuleException;
 
     /**
      * Method to evaluate a list of Rules on an Object

@@ -21,7 +21,7 @@ public class TspProfileMapper {
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
         dto.setDescription(profile.getDescription());
-        dto.setEnabled(profile.getEnabled() != null ? profile.getEnabled() : false);
+        dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             SimplifiedSigningProfileDto signingProfileDto = SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile());
             dto.setSigningUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
@@ -43,7 +43,7 @@ public class TspProfileMapper {
                 profile.getUuid(),
                 profile.getName(),
                 profile.getDescription(),
-                profile.getEnabled() != null ? profile.getEnabled() : false,
+                profile.isEnabled(),
                 defaultSigningProfile != null ? defaultSigningProfile.getUuid() : null,
                 defaultSigningProfile != null ? defaultSigningProfile.getName() : null,
                 signingUrl,
@@ -56,7 +56,7 @@ public class TspProfileMapper {
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
         dto.setDescription(profile.getDescription());
-        dto.setEnabled(profile.getEnabled() != null ? profile.getEnabled() : false);
+        dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             dto.setDefaultSigningProfile(SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile()));
         }
