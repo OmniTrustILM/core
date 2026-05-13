@@ -378,7 +378,7 @@ public class ExceptionHandlingAdvice {
                     + Resource.findByCode(resourceName).getLabel()
                     + "'");
         } else {
-            responseDto.setMessage("Access denied");
+            responseDto.setMessage("Access denied for the specified operation");
         }
         return response.body(responseDto);
     }
@@ -473,10 +473,9 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(ScepException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorMessageDto handleScepException(ScepException ex) {
-        String scepMessage = PlatformException.safeMessage(ex, "SCEP error");
         StringBuilder messageBuilder = new StringBuilder();
         messageBuilder.append("SCEP error occurred: ")
-                .append(scepMessage)
+                .append(PlatformException.safeMessage(ex, "SCEP error"))
                 .append(", ")
                 .append("failInfo=").append(ex.getFailInfo().getName());
 

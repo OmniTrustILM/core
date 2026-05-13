@@ -164,7 +164,7 @@ public class PollReqMessageHandler implements MessageHandler<PKIMessage> {
         } catch (CertificateException e) {
             log.error("TID={} | failed to parse stored certificate {}", tid, certificate.getUuid(), e);
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
-                    "failed to parse stored certificate: " + e.getMessage(), e);
+                    "failed to parse stored certificate", e);
         }
 
         try {
@@ -186,7 +186,7 @@ public class PollReqMessageHandler implements MessageHandler<PKIMessage> {
         } catch (Exception e) {
             log.error("TID={} | failed to build cert-ready pollReq response", tid, e);
             throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
-                    "failed to build cert-ready response: " + e.getMessage(), e);
+                    "failed to build cert-ready response", e);
         }
     }
 

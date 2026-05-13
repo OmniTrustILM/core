@@ -174,7 +174,7 @@ public class CertConfirmMessageHandler implements MessageHandler<PKIMessage> {
         } catch (Exception e) {
             LOG.error("TID={} | failed to compute certificate fingerprint", tid, e);
             throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
-                    "problem to compute certificate fingerprint (cert hash): " + e.getMessage(), e);
+                    "problem to compute certificate fingerprint (cert hash)", e);
         }
     }
 }

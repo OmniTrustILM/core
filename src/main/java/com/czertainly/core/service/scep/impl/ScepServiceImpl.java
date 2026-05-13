@@ -337,7 +337,7 @@ public class ScepServiceImpl implements ScepService {
                     scepProfile.getChallengePassword()
             );
         } catch (CMSException e) {
-            return buildResponse(scepRequest, buildFailedResponse(new ScepException("Unable to decrypt the data. " + e.getMessage(), FailInfo.BAD_REQUEST), scepRequest.getTransactionId()));
+            return buildResponse(scepRequest, buildFailedResponse(new ScepException("Unable to decrypt the data", e, FailInfo.BAD_REQUEST), scepRequest.getTransactionId()));
         }
 
         if (scepProfile.isIntuneEnabled()) {
@@ -751,7 +751,7 @@ public class ScepServiceImpl implements ScepService {
                 throw new ScepException("SCEP Request signature verification failed");
             }
         } catch (OperatorCreationException | CMSException e) {
-            throw new ScepException("Exception when verifying signature." + e.getMessage());
+            throw new ScepException("Exception when verifying signature", e);
         }
         // No need to verify the same key pair used in request since it is already handled by the rekey method in client operations
         checkRenewalTimeframe(extCertificate);

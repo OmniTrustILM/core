@@ -289,9 +289,9 @@ public class ConnectorServiceImpl implements ConnectorService {
                 }
 
                 if (connectInfo == null) {
-                    connectInfo = ConnectInfo.fromError(connectorAdapter.getVersion(), e.getMessage());
+                    connectInfo = ConnectInfo.fromError(connectorAdapter.getVersion(), PlatformException.safeMessage(e, "Connector connection failed"));
                 } else {
-                    connectInfo.setErrorMessage(e.getMessage());
+                    connectInfo.setErrorMessage(PlatformException.safeMessage(e, "Connector connection failed"));
                 }
             }
 
