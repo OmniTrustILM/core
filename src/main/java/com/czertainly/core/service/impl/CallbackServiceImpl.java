@@ -13,7 +13,7 @@ import com.czertainly.api.model.common.attribute.common.content.AttributeContent
 import com.czertainly.api.model.core.auth.AttributeResource;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeVersionHelper;
@@ -215,7 +215,7 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = authorityInstance.getConnector();
-                ConnectorApiClientDto raProfileConnectorDto = connector.mapToApiClientDtoV1();
+                ConnectorApiClientDtoV1 raProfileConnectorDto = connector.mapToApiClientDtoV1();
                 definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
                         raProfileConnectorDto,
                         authorityInstance.getAuthorityInstanceUuid()
@@ -247,7 +247,7 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = entityInstance.getConnector();
-                ConnectorApiClientDto locationConnectorDto = connector.mapToApiClientDtoV1();
+                ConnectorApiClientDtoV1 locationConnectorDto = connector.mapToApiClientDtoV1();
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
 
