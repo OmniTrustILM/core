@@ -447,8 +447,14 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             }
             case CERTIFICATE_UPLOADED -> {
                 CertificateUploadedEventData data = (CertificateUploadedEventData) eventData;
-                // Certificate for this message is not the model, but X509 Certificate
-                yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded".formatted(data.getCertificate().getSubjectX500Principal().getName(), data.getCertificate().getSerialNumber().toString(), data.getCertificate().getIssuerX500Principal().getName()), null);
+                String internalMessage = "Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded".formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn());
+                if (data.getUserUuid() != null) {
+                    internalMessage += "User identified by %s has been associated with the certificate".formatted(data.getUserUuid());
+                }
+                if (!data.getCustomAttributes().isEmpty()) {
+                    internalMessage += "Custom attributes %s from the upload request have been assigned".formatted(data.getCustomAttributes().toString());
+                }
+                yield new InternalNotificationEventData(internalMessage, null);
             }
             case DISCOVERY_FINISHED -> {
                 DiscoveryFinishedEventData data = (DiscoveryFinishedEventData) eventData;

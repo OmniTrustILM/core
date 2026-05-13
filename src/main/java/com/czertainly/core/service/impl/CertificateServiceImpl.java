@@ -56,6 +56,7 @@ import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
+import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
@@ -1217,12 +1218,13 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
         }
 
-        CertificateUploadedEventData eventData = new CertificateUploadedEventData();
-        eventData.setCertificate(certificate);
-        eventData.setFingerprint(fingerprint);
-        eventData.setCustomAttributes(request.getCustomAttributes());
-        eventData.setUserUuid(userUuid);
-        eventProducer.produceMessage(CertificateUploadedEventHandler.constructEventMessage(eventData));
+        CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+            .customAttributes(request.getCustomAttributes())
+            .userUuid(userUuid)
+            .certificateContent(request.getCertificate())
+            .fingerprint(fingerprint)
+            .build();
+        eventProducer.produceMessage(CertificateUploadedEventHandler.constructEventMessage(eventMessageData));
     }
 
     @Override

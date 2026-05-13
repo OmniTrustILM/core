@@ -8,26 +8,37 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateEvent;
 import com.czertainly.api.model.core.certificate.CertificateEventStatus;
 import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.workflows.EventStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
+import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.events.EventContext;
 import com.czertainly.core.events.EventHandler;
+import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
+import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.EventMessage;
+import com.czertainly.core.messaging.model.NotificationMessage;
+import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.service.CertificateEventHistoryService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
+import jakarta.transaction.Transactional;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-@Component
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.time.OffsetDateTime;
+
+@Component(ResourceEvent.Codes.CERTIFICATE_UPLOADED)
 public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
@@ -58,68 +69,107 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         super(repository, triggerEvaluator);
     }
 
-    public static EventMessage constructEventMessage(CertificateUploadedEventData data) {
+    public static EventMessage constructEventMessage(CertificateUploadEventMessageData data) {
         return new EventMessage(ResourceEvent.CERTIFICATE_UPLOADED, Resource.CERTIFICATE, null, data);
     }
 
     @Override
     protected Object getEventData(Certificate object, Object eventMessageData) {
-        return objectMapper.convertValue(eventMessageData, CertificateUploadedEventData.class);
+        CertificateUploadEventMessageData uploadEventMessageData = objectMapper.convertValue(eventMessageData, CertificateUploadEventMessageData.class);
+        return EventDataBuilder.getCertificateUploadedEventData(object, uploadEventMessageData.userUuid(), uploadEventMessageData.customAttributes());
     }
 
     @Override
     protected EventContext<Certificate> prepareContext(EventMessage eventMessage) throws EventException {
-        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator, null, null);
+        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator, new Certificate(), null);
         fetchEventTriggers(context, null, null); // triggers without resource and its UUID are platform ones
-
         return context;
     }
 
     @Override
+    @Transactional
     public void handleEvent(EventMessage eventMessage) throws EventException {
         EventContext<Certificate> context = prepareContext(eventMessage);
-        // TODO: add event history
-        CertificateUploadedEventData data = (CertificateUploadedEventData) context.getData();
-        Certificate certificate = new Certificate();
-        CertificateUtil.prepareIssuedCertificate(certificate, data.getCertificate());
+        EventHistory eventHistory = createEventHistory(ResourceEvent.CERTIFICATE_UPLOADED, null, null);
+        CertificateUploadEventMessageData eventMessageData = objectMapper.convertValue(eventMessage.getData(), CertificateUploadEventMessageData.class);
 
-        if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, context.getData())) {
+        X509Certificate x509Certificate = null;
+        try {
+            x509Certificate = CertificateUtil.parseCertificate(eventMessageData.certificateContent());
+        } catch (CertificateException e) {
+            logger.error("Unable to parse certificate {} from uploaded certificate: {}", eventMessageData.certificateContent(), e.getMessage());
+            eventHistory.setStatus(EventStatus.FAILED);
+            eventHistory.setFinishedAt(OffsetDateTime.now());
+            eventHistoryRepository.save(eventHistory);
+            return;
+        }
+        Certificate certificate = context.getResourceObjects().getFirst();
+        CertificateUtil.prepareIssuedCertificate(certificate, x509Certificate);
+        CertificateUploadedEventData eventData = (CertificateUploadedEventData) getEventData(certificate, eventMessageData);
+        try {
+            if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory)) {
+                eventHistory.setStatus(EventStatus.FINISHED);
+                eventHistory.setFinishedAt(OffsetDateTime.now());
+                eventHistoryRepository.save(eventHistory);
+                return;
+            }
+            saveCertificate(eventMessageData, certificate);
+            evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory);
+        } catch (Exception e) {
+            logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), certificate.toStringShort(), e.getMessage());
+            eventHistory.setStatus(EventStatus.FAILED);
+            eventHistory.setFinishedAt(OffsetDateTime.now());
+            eventHistoryRepository.save(eventHistory);
             return;
         }
 
-        saveCertificate(data, certificate);
-        evaluateTriggers(context, context.getPlatformTriggers(), certificate, context.getData());
+        eventHistory.setStatus(EventStatus.FINISHED);
+        eventHistory.setFinishedAt(OffsetDateTime.now());
+        eventHistoryRepository.save(eventHistory);
 
-        if (data.getCustomAttributes() != null && !data.getCustomAttributes().isEmpty()) {
+        if (eventMessageData.customAttributes() != null && !eventMessageData.customAttributes().isEmpty()) {
             try {
-                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), data.getCustomAttributes());
+                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), eventMessageData.customAttributes());
             } catch (NotFoundException | AttributeException e) {
+                ((CertificateUploadedEventData) context.getResourceObjectsEventData().getFirst()).setCustomAttributes(null);
                 logger.error("Error updating custom attributes for certificate {}: {}", certificate.getUuid(), e.getMessage());
             }
         }
 
-        if (data.getUserUuid() != null) {
+        if (eventMessageData.userUuid() != null) {
             try {
-                certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(data.getUserUuid()));
+                certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(eventMessageData.userUuid()));
             } catch (NotFoundException e) {
-                logger.error("Error updating user for certificate {}: {}", certificate.getUuid(), e.getMessage());
+                ((CertificateUploadedEventData) context.getResourceObjectsEventData().getFirst()).setUserUuid(null);
+                logger.error("Error updating user {} for certificate {}: {}", eventMessageData.userUuid(), certificate.getUuid(), e.getMessage());
             }
         }
 
         certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS, "Certificate uploaded", "");
         applicationEventPublisher.publishEvent(new CertificateValidationEvent(certificate.getUuid()));
+        sendFollowUpEventsNotifications(context);
     }
 
-    private void saveCertificate(CertificateUploadedEventData data, Certificate certificate) {
-        CertificateContent certificateContent = certificateService.checkAddCertificateContent(data.getFingerprint(), X509ObjectToString.toPem(data.getCertificate()));
-        certificate.setFingerprint(data.getFingerprint());
+    private void saveCertificate(CertificateUploadEventMessageData data, Certificate certificate) {
+        X509Certificate x509Certificate = CertificateUtil.parseUploadedCertificateContent(data.certificateContent());
+        CertificateContent certificateContent = certificateService.checkAddCertificateContent(data.fingerprint(), X509ObjectToString.toPem(x509Certificate));
         certificate.setCertificateContent(certificateContent);
         certificate.setCertificateContentId(certificateContent.getId());
+        certificate.setFingerprint(data.fingerprint());
 
-        byte[] altPublicKey = data.getCertificate().getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
-        certificateService.uploadCertificateKey(data.getCertificate().getPublicKey(), certificate, altPublicKey);
+        byte[] altPublicKey = x509Certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
+        certificateService.uploadCertificateKey(x509Certificate.getPublicKey(), certificate, altPublicKey);
         repository.save(certificate);
     }
 
-
+    @Override
+    protected void sendFollowUpEventsNotifications(EventContext<Certificate> eventContext) {
+        final Certificate certificate = eventContext.getResourceObjects().getFirst();
+        final Object eventData = eventContext.getResourceObjectsEventData().getFirst();
+        NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(certificate.getUserUuid()), eventData);
+        notificationProducer.produceMessage(notificationMessage);
+    }
 }
+
+
+

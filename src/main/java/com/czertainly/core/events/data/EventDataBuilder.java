@@ -1,6 +1,7 @@
 package com.czertainly.core.events.data;
 
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
+import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.common.events.data.*;
 import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
@@ -13,6 +14,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 
 @Transactional
@@ -120,6 +122,16 @@ public class EventDataBuilder {
         CertificateNotCompliantEventData eventData = new CertificateNotCompliantEventData();
         setCertificateEventData(eventData, certificate);
         eventData.setComplianceCheckResultDto(checkResultDto);
+        return eventData;
+    }
+
+    public static CertificateUploadedEventData getCertificateUploadedEventData(Certificate certificate, UUID userUuid, List<RequestAttribute> customAttributes) {
+        CertificateUploadedEventData eventData = new CertificateUploadedEventData();
+        setCertificateEventData(eventData, certificate);
+        eventData.setUserUuid(userUuid);
+        if (customAttributes != null) {
+            eventData.setCustomAttributes(customAttributes.stream().map(RequestAttribute::getName).toList());
+        }
         return eventData;
     }
 
