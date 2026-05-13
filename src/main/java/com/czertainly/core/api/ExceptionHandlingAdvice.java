@@ -546,7 +546,7 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(WebClientRequestException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorMessageDto handleWebClientRequestException(WebClientRequestException ex) {
-        LOG.error("WebClient request error occurred", ex);
+        LOG.error("WebClient request error occurred: {}", ex.getMessage(), ex);
         return ErrorMessageDto.getInstance("External service request failed");
     }
 
@@ -558,7 +558,7 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorMessageDto handleException(Exception ex) {
-        LOG.error("General error occurred", ex);
+        LOG.error("General error occurred: {}", ex.getMessage(), ex);
         return ErrorMessageDto.getInstance("Internal server error.");
     }
 

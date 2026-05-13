@@ -1,3 +1,4 @@
+Method <com.czertainly.core.api.ExceptionHandlingAdvice.handleCertificateRequestException(com.czertainly.api.exception.CertificateRequestException)> calls method <java.lang.Throwable.getMessage()> in (ExceptionHandlingAdvice.java:525)
 Method <com.czertainly.core.config.AsyncConfig.getAsyncUncaughtExceptionHandler()> calls method <java.lang.Throwable.getMessage()> in (AsyncConfig.java:30)
 Method <com.czertainly.core.messaging.jms.configuration.JmsRetryListener.onError(org.springframework.retry.RetryContext, org.springframework.retry.RetryCallback, java.lang.Throwable)> calls method <java.lang.Throwable.getMessage()> in (JmsRetryListener.java:61)
 Method <com.czertainly.core.messaging.jms.configuration.JmsRetryListener.onError(org.springframework.retry.RetryContext, org.springframework.retry.RetryCallback, java.lang.Throwable)> calls method <java.lang.Throwable.getMessage()> in (JmsRetryListener.java:66)
