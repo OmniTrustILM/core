@@ -165,7 +165,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     @Override
     protected void sendFollowUpEventsNotifications(EventContext<Certificate> eventContext) {
         final Certificate certificate = eventContext.getResourceObjects().getFirst();
-        final Object eventData = eventContext.getResourceObjectsEventData().getFirst();
+        final Object eventData = getEventData(certificate, eventContext.getData());
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(certificate.getUserUuid()), eventData);
         notificationProducer.produceMessage(notificationMessage);
     }
