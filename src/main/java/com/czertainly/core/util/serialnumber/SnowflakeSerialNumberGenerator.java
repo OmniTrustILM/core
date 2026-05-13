@@ -42,10 +42,10 @@ import java.util.concurrent.locks.ReentrantLock;
  * @see InstanceIdResolver
  */
 @Slf4j
-public final class SnowflakeSerialNumberGenerator implements SerialNumberGenerator {
+final class SnowflakeSerialNumberGenerator implements SerialNumberGenerator {
 
     /** Ticks are counted from this point, keeping values small and the 40-bit field valid until ~2374. */
-    public static final long EPOCH_MILLIS = Instant.parse("2026-02-01T00:00:00Z").toEpochMilli();
+    static final long EPOCH_MILLIS = Instant.parse("2026-02-01T00:00:00Z").toEpochMilli();
     /** Duration of one tick in milliseconds; determines time resolution and throughput ceiling. */
     static final int TICK_MS = 10;
 
@@ -76,7 +76,7 @@ public final class SnowflakeSerialNumberGenerator implements SerialNumberGenerat
     private long lastTick = -1;
     private int sequence = 0;
 
-    public SnowflakeSerialNumberGenerator(ClockSource clockSource, int instanceId) {
+    SnowflakeSerialNumberGenerator(ClockSource clockSource, int instanceId) {
         if (instanceId < 0 || instanceId > MAX_INSTANCE_ID) {
             throw new IllegalArgumentException("instanceId must be 0–65535, got: " + instanceId);
         }

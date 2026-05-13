@@ -32,14 +32,14 @@ import java.util.function.Supplier;
  * triggers a warning. Cross-cluster collisions cannot be detected at runtime.
  * Set {@code ILM_INSTANCE_ID} explicitly whenever the above conditions apply.
  */
-public final class InstanceIdResolver {
+    final class InstanceIdResolver {
 
     static final String INSTANCE_ID_ENV_VAR = "ILM_INSTANCE_ID";
 
     private InstanceIdResolver() {
     }
 
-    public static Resolution resolve() {
+    static Resolution resolve() {
         String envValue = System.getenv(INSTANCE_ID_ENV_VAR);
         if (envValue != null && !envValue.isBlank()) {
             int id = resolve(envValue, () -> null);
@@ -95,7 +95,7 @@ public final class InstanceIdResolver {
                 && !addr.isAnyLocalAddress();
     }
 
-    public static int resolve(String envValue, Supplier<InetAddress> addressSupplier) {
+    static int resolve(String envValue, Supplier<InetAddress> addressSupplier) {
         if (envValue != null && !envValue.isBlank()) {
             int id;
             try {
@@ -148,6 +148,6 @@ public final class InstanceIdResolver {
 
     enum Source {ENV_VAR, IP_ADDRESS}
 
-    public record Resolution(int id, Source source, short prefixLength) {
+    record Resolution(int id, Source source, short prefixLength) {
     }
 }
