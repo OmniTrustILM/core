@@ -6,6 +6,8 @@ import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.connector.AuthType;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
 import com.czertainly.api.model.core.connector.FunctionGroupDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
+import com.czertainly.api.model.core.connector.v2.ConnectorApiClientDtoV2;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -129,8 +131,8 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
         }
     }
 
-    public com.czertainly.api.model.core.connector.v2.ConnectorApiClientDto mapToApiClientDtoV2() {
-        var dto = new com.czertainly.api.model.core.connector.v2.ConnectorApiClientDto();
+    public ConnectorApiClientDtoV2 mapToApiClientDtoV2() {
+        var dto = new ConnectorApiClientDtoV2();
         dto.setUuid(this.uuid.toString());
         dto.setName(this.name);
         dto.setUrl(this.url);
@@ -144,8 +146,8 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
         return dto;
     }
 
-    public com.czertainly.api.model.core.connector.ConnectorApiClientDto mapToApiClientDtoV1() {
-        var dto = new com.czertainly.api.model.core.connector.ConnectorApiClientDto();
+    public ConnectorApiClientDtoV1 mapToApiClientDtoV1() {
+        var dto = new ConnectorApiClientDtoV1();
         populateApiClientV1Fields(dto);
         return dto;
     }
@@ -165,7 +167,7 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
         return dto;
     }
 
-    private void populateApiClientV1Fields(com.czertainly.api.model.core.connector.ConnectorApiClientDto dto) {
+    private void populateApiClientV1Fields(ConnectorApiClientDtoV1 dto) {
         dto.setUuid(this.uuid.toString());
         dto.setName(this.name);
         dto.setUrl(this.url);

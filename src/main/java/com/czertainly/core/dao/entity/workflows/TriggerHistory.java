@@ -1,5 +1,6 @@
 package com.czertainly.core.dao.entity.workflows;
 
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.workflows.TriggerHistoryDto;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
@@ -21,7 +22,7 @@ import java.util.UUID;
 @Table(name = "trigger_history")
 public class TriggerHistory extends UniquelyIdentified {
 
-    @Column(name = "trigger_uuid", nullable = false)
+    @Column(name = "trigger_uuid")
     private UUID triggerUuid;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -36,6 +37,10 @@ public class TriggerHistory extends UniquelyIdentified {
     @JoinColumn(name = "trigger_association_uuid", insertable = false, updatable = false)
     @ToString.Exclude
     private TriggerAssociation triggerAssociation;
+
+    @Column(name = "object_resource")
+    @Enumerated(EnumType.STRING)
+    private Resource objectResource;
 
     @Column(name = "event")
     @Enumerated(EnumType.STRING)
@@ -62,9 +67,17 @@ public class TriggerHistory extends UniquelyIdentified {
     @Column(name = "message")
     private String message;
 
-    @OneToMany(mappedBy = "triggerHistory", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "triggerHistory", fetch = FetchType.LAZY)
     @ToString.Exclude
     private List<TriggerHistoryRecord> records = new ArrayList<>();
+
+    @Column(name = "event_history_uuid")
+    private UUID eventHistoryUuid;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "event_history_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private EventHistory eventHistory;
 
     public TriggerHistoryDto mapToDto() {
         TriggerHistoryDto triggerHistoryDto = new TriggerHistoryDto();
@@ -93,5 +106,11 @@ public class TriggerHistory extends UniquelyIdentified {
     @Override
     public final int hashCode() {
         return this instanceof HibernateProxy ? ((HibernateProxy) this).getHibernateLazyInitializer().getPersistentClass().hashCode() : getClass().hashCode();
+    }
+
+    public void setEventHistory(EventHistory eventHistory) {
+        if (eventHistory == null) return;
+        this.eventHistoryUuid = eventHistory.getUuid();
+        this.eventHistory = eventHistory;
     }
 }
