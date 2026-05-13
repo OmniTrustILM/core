@@ -159,7 +159,7 @@ public class TspProfileServiceImpl implements TspProfileService {
                 self.deleteInOwnTransaction(profile);
             } catch (Exception e) {
                 log.error("Failed to delete TSP Profile {}", uuid, e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", safeBulkMessage(e)));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), profile != null ? profile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -193,7 +193,7 @@ public class TspProfileServiceImpl implements TspProfileService {
                 self.enableInOwnTransaction(profile);
             } catch (Exception e) {
                 log.error("Failed to enable TSP Profile {}", uuid, e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", safeBulkMessage(e)));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), profile != null ? profile.getName() : "", e, "Enable failed"));
             }
         }
         return messages;
@@ -218,7 +218,7 @@ public class TspProfileServiceImpl implements TspProfileService {
                 self.disableInOwnTransaction(profile);
             } catch (Exception e) {
                 log.error("Failed to disable TSP Profile {}", uuid, e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), profile != null ? profile.getName() : "", safeBulkMessage(e)));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), profile != null ? profile.getName() : "", e, "Disable failed"));
             }
         }
         return messages;
@@ -268,12 +268,6 @@ public class TspProfileServiceImpl implements TspProfileService {
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
-
-    private static String safeBulkMessage(Exception e) {
-        return e.getClass().getPackageName().startsWith("com.czertainly.api.exception") && e.getMessage() != null
-                ? e.getMessage()
-                : "Operation failed";
-    }
 
     private void validateCreateUpdateRequest(TspProfileRequestDto request) throws ValidationException {
         attributeEngine.validateCustomAttributesContent(Resource.TSP_PROFILE, request.getCustomAttributes());
