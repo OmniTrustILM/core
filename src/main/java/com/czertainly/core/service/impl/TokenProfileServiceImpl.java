@@ -9,7 +9,7 @@ import com.czertainly.api.model.client.cryptography.tokenprofile.EditTokenProfil
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
@@ -296,7 +296,7 @@ public class TokenProfileServiceImpl implements TokenProfileService {
             throw new ValidationException(ValidationError.create("Connector of the Entity is not available / deleted"));
         }
 
-        ConnectorApiClientDto connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
+        ConnectorApiClientDtoV1 connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
 
         // validate first by connector
         connectorApiFactory.getTokenInstanceApiClient(connectorDto).validateTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);

@@ -9,6 +9,8 @@ import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.SessionTableHelper;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.UUID;
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UserManagementServiceTest extends BaseSpringBootTest {
 
     @Autowired
@@ -39,6 +42,11 @@ class UserManagementServiceTest extends BaseSpringBootTest {
     @MockitoBean
     UserManagementApiClient userManagementApiClient;
 
+    @AfterAll
+    void tearDownSessionTables() {
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
+    }
+
     @Test
     void testDoNotUseArchivedCertificates() {
         Certificate archivedCertificate = new Certificate();
@@ -58,7 +66,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
 
     @Test
     void removeDisabledAndDeletedUserSession() {
-        setupSessionTables();
+        SessionTableHelper.createSessionTables(jdbcTemplate);
         UUID userUuid = UUID.randomUUID();
         createSession(userUuid);
         Assertions.assertFalse(sessionRepository.findByPrincipalName(userUuid.toString()).isEmpty());
@@ -77,9 +85,5 @@ class UserManagementServiceTest extends BaseSpringBootTest {
                 userUuid.toString()
         );
         sessionRepository.save(s);
-    }
-
-    private void setupSessionTables() {
-        SessionTableHelper.createSessionTables(jdbcTemplate);
     }
 }

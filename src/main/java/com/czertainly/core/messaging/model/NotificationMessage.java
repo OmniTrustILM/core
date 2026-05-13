@@ -25,6 +25,10 @@ public class NotificationMessage {
 
     private List<NotificationRecipient> recipients;
 
+    private UUID triggerHistoryUuid;
+
+    private UUID executionUuid;
+
     private Object data;
 
     public NotificationMessage(ResourceEvent event, Resource resource, UUID objectUuid, List<UUID> notificationProfileUuids, List<NotificationRecipient> recipients, Object data) {
@@ -34,6 +38,12 @@ public class NotificationMessage {
         this.notificationProfileUuids = notificationProfileUuids;
         this.recipients = recipients;
         this.data = data;
+    }
+
+    public NotificationMessage(ResourceEvent event, Resource resource, UUID objectUuid, List<UUID> notificationProfileUuids, List<NotificationRecipient> recipients, Object data,  UUID triggerHistoryUuid, UUID executionUuid) {
+        this(event, resource, objectUuid, notificationProfileUuids, recipients, data);
+        this.triggerHistoryUuid = triggerHistoryUuid;
+        this.executionUuid = executionUuid;
     }
 
 }
