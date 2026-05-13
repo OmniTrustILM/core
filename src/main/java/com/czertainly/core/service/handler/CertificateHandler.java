@@ -35,7 +35,6 @@ import java.security.cert.X509Certificate;
 import java.util.*;
 
 @Service
-@Transactional
 public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
@@ -180,6 +179,7 @@ public class CertificateHandler {
         return keyUuid;
     }
 
+    @Transactional
     public void updateDiscoveredCertificate(DiscoveryHistory discovery, Certificate certificate, List<MetadataAttribute> metadata) {
         // Set metadata attributes, create certificate event history entry and validate certificate
         try {

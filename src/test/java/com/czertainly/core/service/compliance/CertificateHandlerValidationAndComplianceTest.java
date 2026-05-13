@@ -16,8 +16,9 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.awaitility.Awaitility.await;
 
@@ -91,14 +93,12 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
         SecurityContextHolder.setStrategyName(SecurityContextHolder.MODE_THREADLOCAL);
     }
 
-    @Test
-    void validateAndCheckComplianceWithSuccessfulProvider() throws Exception {
-        WireMock.stubFor(WireMock.post(WireMock.urlPathEqualTo(
-                        "/v2/complianceProvider/%s/compliance".formatted(KIND_V2)))
-                .willReturn(WireMock.aResponse()
-                        .withStatus(200)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("""
+    static Stream<Arguments> providerScenarios() {
+        return Stream.of(
+                Arguments.of(
+                        "successfulProvider",
+                        200,
+                        """
                                 {
                                   "rules": [
                                     {
@@ -108,10 +108,51 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
                                     }
                                   ]
                                 }
-                                """.formatted(complianceV2RuleUuid))));
+                                """,
+                        "Test",
+                        ComplianceStatus.OK,
+                        CertificateValidationStatus.INVALID
+                ),
+                Arguments.of(
+                        "unavailableProvider",
+                        500,
+                        "{}",
+                        "Test-1455",
+                        ComplianceStatus.FAILED,
+                        CertificateValidationStatus.INVALID
+                )
+        );
+    }
+
+    /**
+     * Verifies the full validate → compliance-check → event-history flow for a certificate.
+     *
+     * @param providerHttpStatus       HTTP status the compliance provider WireMock stub returns
+     * @param providerBody             response body template (may contain a {@code %s} placeholder for the rule UUID)
+     * @param cnSuffix                 distinguishing suffix appended to issuer/subject CNs so parallel runs don't collide
+     * @param expectedComplianceStatus compliance status expected on the certificate after {@code validate()}
+     * @param expectedValidationStatus exact validation status expected
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("providerScenarios")
+    void validateAndCheckCompliance(
+            String displayName,
+            int providerHttpStatus,
+            String providerBody,
+            String cnSuffix,
+            ComplianceStatus expectedComplianceStatus,
+            CertificateValidationStatus expectedValidationStatus
+    ) throws Exception {
+        WireMock.stubFor(WireMock.post(WireMock.urlPathEqualTo(
+                        "/v2/complianceProvider/%s/compliance".formatted(KIND_V2)))
+                .willReturn(WireMock.aResponse()
+                        .withStatus(providerHttpStatus)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(providerBody.formatted(complianceV2RuleUuid))));
 
         var certInfo = CertificateGeneratorHelper.generateCertificateWithIssuer(
-                KeyAlgorithm.RSA, "CN=Test-Issuer", "CN=Test-Subject", null);
+                KeyAlgorithm.RSA, "CN=Test-Issuer-%s".formatted(cnSuffix),
+                "CN=Test-Subject-%s".formatted(cnSuffix), null);
         UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
         uploadDto.setCertificate(certInfo.getCaCertificateBase64Encoded());
         certificateService.upload(uploadDto, true);
@@ -141,11 +182,10 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
 
         Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
 
-        Assertions.assertEquals(ComplianceStatus.OK, reloaded.getComplianceStatus(),
-                "complianceStatus should be OK when the compliance provider returns all rules passing");
-
-        Assertions.assertNotEquals(CertificateValidationStatus.NOT_CHECKED, reloaded.getValidationStatus(),
-                "validationStatus must reflect the completed X.509 validation outcome");
+        Assertions.assertEquals(expectedComplianceStatus, reloaded.getComplianceStatus(),
+                "Unexpected complianceStatus for scenario: " + displayName);
+        Assertions.assertEquals(expectedValidationStatus, reloaded.getValidationStatus(),
+                "Unexpected validationStatus for scenario: " + displayName);
 
         // Wait for the CERTIFICATE_STATUS_CHANGED JMS event to be delivered end-to-end
         // (producer → RabbitMQ → EventListener → history writer).
@@ -156,67 +196,8 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
                     .filter(h -> h.getEvent() == CertificateEvent.UPDATE_VALIDATION_STATUS)
                     .count();
             Assertions.assertEquals(1L, validationStatusEntries,
-                    "Expected exactly one UPDATE_VALIDATION_STATUS event; found " + validationStatusEntries);
-        });
-    }
-
-    @Test
-    void validateAndCheckComplianceWithUnavailableProvider() throws Exception {
-        // Compliance provider is unavailable — returns 500 for any check request
-        WireMock.stubFor(WireMock.post(WireMock.urlPathEqualTo(
-                        "/v2/complianceProvider/%s/compliance".formatted(KIND_V2)))
-                .willReturn(WireMock.aResponse()
-                        .withStatus(500)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("{}")));
-
-        // Upload issuer + end-entity so the chain can be verified during X.509 validation
-        var certInfo = CertificateGeneratorHelper.generateCertificateWithIssuer(
-                KeyAlgorithm.RSA, "CN=Test-Issuer-1455", "CN=Test-Subject-1455", null);
-        UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
-        uploadDto.setCertificate(certInfo.getCaCertificateBase64Encoded());
-        certificateService.upload(uploadDto, true);
-        uploadDto.setCertificate(certInfo.getEndEntityCertificateBase64Encoded());
-        var certDto = certificateService.upload(uploadDto, true);
-
-        UUID certUuid = UUID.fromString(certDto.getUuid());
-
-        // Wait for the initial async X.509 validation triggered by upload to complete before associating the RA profile.
-        await().atMost(10, TimeUnit.SECONDS).until(() ->
-                certificateRepository.findByUuid(certUuid)
-                        .map(c -> c.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED)
-                        .orElse(false)
-        );
-
-        // Associate certificate with the RA profile that has a compliance profile.
-        Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
-        cert.setRaProfileUuid(associatedRaProfileUuid);
-        certificateRepository.save(cert);
-
-        // Load with associations exactly as ValidationListener.processMessage() does
-        Certificate certWithAssociations = certificateRepository
-                .findAllWithAssociationsByUuidIn(List.of(cert.getUuid()))
-                .getFirst();
-
-        certificateHandler.validate(certWithAssociations);
-
-        Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
-
-        // Compliance provider returned 500 → complianceStatus must reflect the failure
-        Assertions.assertEquals(ComplianceStatus.FAILED, reloaded.getComplianceStatus(),
-                "complianceStatus should be FAILED when the compliance provider returns 500");
-
-        Assertions.assertEquals(CertificateValidationStatus.INVALID, reloaded.getValidationStatus());
-
-        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
-            List<CertificateEventHistory> history = certificateEventHistoryRepository
-                    .findByCertificateOrderByCreatedDesc(reloaded);
-            long validationStatusEntries = history.stream()
-                    .filter(h -> h.getEvent() == CertificateEvent.UPDATE_VALIDATION_STATUS)
-                    .count();
-            Assertions.assertEquals(1L, validationStatusEntries,
-                    "Expected exactly 1 UPDATE_VALIDATION_STATUS event; found " + validationStatusEntries
-                            + " (issue #1455: duplicate entries)");
+                    "Expected exactly one UPDATE_VALIDATION_STATUS event for scenario '%s'; found %d"
+                            .formatted(displayName, validationStatusEntries));
         });
     }
 }
