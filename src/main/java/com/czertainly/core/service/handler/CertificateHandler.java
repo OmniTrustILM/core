@@ -181,7 +181,6 @@ public class CertificateHandler {
 
     @Transactional
     public void updateDiscoveredCertificate(DiscoveryHistory discovery, Certificate certificate, List<MetadataAttribute> metadata) {
-        // Set metadata attributes, create certificate event history entry and validate certificate
         try {
             attributeEngine.updateMetadataAttributes(metadata, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(discovery.getConnectorUuid()).source(Resource.DISCOVERY, discovery.getUuid()).sourceName(discovery.getName()).build());
         } catch (AttributeException e) {
