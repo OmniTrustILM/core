@@ -363,7 +363,7 @@ public class ExceptionHandlingAdvice {
      */
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<AuthenticationServiceExceptionDto> handleAccessDeniedException(AccessDeniedException ex) {
-        LOG.warn("Access denied", ex);
+        LOG.warn("Access denied: {}", ex.getMessage());
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.FORBIDDEN).contentType(MediaType.valueOf("application/problem+json"));
         AuthenticationServiceExceptionDto responseDto = new AuthenticationServiceExceptionDto();
         responseDto.setCode("ACCESS_DENIED");
@@ -487,8 +487,8 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(CertificateException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorMessageDto handleCertificateException(CertificateException ex) {
-        LOG.error("HTTP 500: certificate error", ex);
-        return ErrorMessageDto.getInstance("Certificate error");
+        LOG.error("HTTP 500: {}", ex.getMessage());
+        return ErrorMessageDto.getInstance(PlatformException.safeMessage(ex, "Certificate error"));
     }
 
     /**
@@ -522,7 +522,7 @@ public class ExceptionHandlingAdvice {
     @ExceptionHandler(CertificateRequestException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorMessageDto handleCertificateRequestException(CertificateRequestException ex) {
-        LOG.error("HTTP 400 (CertificateRequestException)", ex);
+        LOG.error("HTTP 400 (CertificateRequestException): {}, {}", ex.getMessage(), ex.getCause().getMessage());
         return ErrorMessageDto.getInstance(PlatformException.safeMessage(ex, "Certificate request error"));
     }
 
@@ -535,7 +535,7 @@ public class ExceptionHandlingAdvice {
     @ResponseStatus(HttpStatus.NOT_IMPLEMENTED)
     public ErrorMessageDto handleTokenInstanceException(NotSupportedException ex) {
         LOG.debug("HTTP 501: {}", ex.getMessage());
-        return ErrorMessageDto.getInstance(PlatformException.safeMessage(ex, "Operation not supported"));
+        return ErrorMessageDto.getInstance(PlatformException.safeMessage(ex, "Token instance exception"));
     }
 
     /**
@@ -569,7 +569,7 @@ public class ExceptionHandlingAdvice {
      */
     @ExceptionHandler(CbomRepositoryException.class)
     public ResponseEntity<ErrorMessageDto> handleCbomRepositoryException(CbomRepositoryException ex) {
-        LOG.error("CBOM repository error occurred", ex);
+        LOG.error("CBOM repository error occurred: {}. Detail: {}", ex.getMessage(), ex.getProblemDetail());
         if (ex.getProblemDetail() == null) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ErrorMessageDto(PlatformException.safeMessage(ex, "CBOM repository error")));
