@@ -79,19 +79,14 @@ public class TimeQualityConfigurationControllerImpl implements TimeQualityConfig
     }
 
     @Override
-    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(UUID uuid) throws NotFoundException {
-        throw new RuntimeException("Not implemented");
+    @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, affiliatedResource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
+    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(@LogResource(uuid = true) UUID uuid) {
+        return signingProfileService.listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromUUID(uuid), SecurityFilter.create());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, operation = Operation.DELETE)
     public List<BulkActionMessageDto> bulkDeleteTimeQualityConfigurations(@LogResource(uuid = true) List<UUID> uuids) {
         return timeQualityConfigurationService.bulkDeleteTimeQualityConfigurations(SecuredUUID.fromUuidList(uuids));
-    }
-
-    @Override
-    @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, affiliatedResource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
-    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(@LogResource(uuid = true) UUID uuid) {
-        return signingProfileService.listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromUUID(uuid), SecurityFilter.create());
     }
 }

@@ -1072,7 +1072,7 @@ setup_signing_profile() {
         ),
         signingScheme: {
           signingScheme: "managed",
-          managedSigningType: "staticKey",
+          managedSigningType: "static_key",
           certificateUuid: $certUuid,
           signingOperationAttributes: [
             {

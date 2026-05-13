@@ -17,21 +17,7 @@ CREATE TABLE "signing_profile" (
     UNIQUE ("name")
 );
 
--- ── 2. tsp_profile
-CREATE TABLE "tsp_profile" (
-    "uuid"                          UUID       NOT NULL,
-    "name"                          VARCHAR    NOT NULL,
-    "description"                   TEXT,
-    "enabled"                       BOOLEAN    NOT NULL DEFAULT FALSE,
-    "default_signing_profile_uuid"  UUID,
-    "i_author"                      VARCHAR,
-    "i_cre"                         TIMESTAMP  DEFAULT NOW(),
-    "i_upd"                         TIMESTAMP  DEFAULT NOW(),
-    PRIMARY KEY ("uuid"),
-    UNIQUE ("name")
-);
-
--- ── 3. signing_profile_version
+-- ── 2. signing_profile_version
 CREATE TABLE "signing_profile_version" (
     "uuid"                                  UUID         NOT NULL,
     "signing_profile_uuid"                  UUID         NOT NULL,
@@ -79,6 +65,9 @@ CREATE TABLE "signing_record" (
 CREATE INDEX idx_sr_profile_version ON "signing_record" ("signing_profile_uuid", "signing_profile_version");
 
 -- ── 5. Circular FK resolution: signing_profile ↔ tsp_profile ──────────────────────
+ALTER TABLE "tsp_profile"
+    ADD COLUMN "default_signing_profile_uuid" UUID;
+
 ALTER TABLE "signing_profile"
     ADD CONSTRAINT fk_signing_profile_tsp_profile
         FOREIGN KEY ("tsp_profile_uuid")
