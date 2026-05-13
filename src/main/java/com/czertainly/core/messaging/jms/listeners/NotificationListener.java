@@ -12,7 +12,7 @@ import com.czertainly.api.model.connector.notification.NotificationRecipientDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.RoleDetailDto;
 import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.notification.RecipientType;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -264,7 +264,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         }
 
         List<DataAttribute> mappingAttributes;
-        ConnectorApiClientDto connector = notificationInstanceReference.getConnector().mapToApiClientDtoV1();
+        ConnectorApiClientDtoV1 connector = notificationInstanceReference.getConnector().mapToApiClientDtoV1();
         try {
             mappingAttributes = connectorApiFactory.getNotificationInstanceApiClient(connector).listMappingAttributes(connector, notificationInstanceReference.getKind());
         } catch (ConnectorException e) {

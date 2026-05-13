@@ -20,7 +20,7 @@ import com.czertainly.api.model.connector.discovery.DiscoveryProviderCertificate
 import com.czertainly.api.model.connector.discovery.DiscoveryProviderDto;
 import com.czertainly.api.model.connector.discovery.DiscoveryRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.api.model.core.discovery.DiscoveryStatus;
@@ -266,7 +266,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
             if (referenceUuid != null && !referenceUuid.isEmpty()) {
                 Connector connector = connectorRepository.findByUuid(discovery.getConnectorUuid())
                         .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-                ConnectorApiClientDto connectorDto = connector.mapToApiClientDtoV1();
+                ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
                 connectorApiFactory.getDiscoveryApiClient(connectorDto).removeDiscovery(connectorDto, referenceUuid);
             }
         } catch (ConnectorException e) {
