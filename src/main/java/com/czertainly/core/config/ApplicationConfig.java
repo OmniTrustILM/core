@@ -19,7 +19,7 @@ import com.czertainly.api.clients.cryptography.KeyManagementApiClient;
 import com.czertainly.api.clients.cryptography.TokenInstanceApiClient;
 import com.czertainly.api.clients.secret.SecretApiClient;
 import com.czertainly.api.clients.secret.VaultApiClient;
-import com.czertainly.api.clients.signing.TimestampingConnectorApiClient;
+import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
 import com.czertainly.api.clients.v2.InfoApiClient;
 import com.czertainly.api.clients.v2.MetricsApiClient;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
@@ -202,7 +202,7 @@ public class ApplicationConfig {
     }
 
     @Bean
-    public TimestampingConnectorApiClient timestampingConnectorApiClient(WebClient webClient, TrustManager[] defaultTrustManagers) {
-        return new TimestampingConnectorApiClient(webClient, defaultTrustManagers);
+    public SignatureFormatterApiClient signatureFormatterApiClient(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new SignatureFormatterApiClient(webClient, defaultTrustManagers);
     }
 }

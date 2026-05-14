@@ -1,6 +1,6 @@
 package com.czertainly.core.service.tsa.formatter;
 
-import com.czertainly.api.clients.signing.TimestampingConnectorApiClient;
+import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.interfaces.core.tsp.error.TspException;
@@ -33,11 +33,11 @@ import java.util.List;
 @Component
 public class TimestampingConnectorSignatureFormatterClient implements SignatureFormatterClient {
 
-    private TimestampingConnectorApiClient apiClient;
+    private SignatureFormatterApiClient apiClient;
     private ConnectorService connectorService;
 
     @Autowired
-    public void setApiClient(TimestampingConnectorApiClient apiClient) {
+    public void setApiClient(SignatureFormatterApiClient apiClient) {
         this.apiClient = apiClient;
     }
 

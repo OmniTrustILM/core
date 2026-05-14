@@ -67,7 +67,7 @@ import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
-import com.czertainly.api.clients.signing.TimestampingConnectorApiClient;
+import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
 import com.czertainly.core.mapper.signing.SigningProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.signing.SigningProfileModel;
@@ -125,7 +125,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private TspProfileRepository tspProfileRepository;
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
-    private TimestampingConnectorApiClient timestampingConnectorApiClient;
+    private SignatureFormatterApiClient signatureFormatterApiClient;
     private ConnectorRepository connectorRepository;
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -762,7 +762,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private List<BaseAttribute> fetchAndUpdateFormatterAttributeDefinitions(UUID connectorUuid) throws AttributeException, ConnectorException, NotFoundException {
         Connector connector = connectorRepository.findByUuid(connectorUuid)
                 .orElseThrow(() -> new NotFoundException(Connector.class, connectorUuid));
-        List<BaseAttribute> definitions = timestampingConnectorApiClient.listFormatterAttributes(connector.mapToApiClientDtoV2());
+        List<BaseAttribute> definitions = signatureFormatterApiClient.listFormatterAttributes(connector.mapToApiClientDtoV2());
         attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.WORKFLOW_FORMATTER, definitions);
         return definitions;
     }
@@ -908,8 +908,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setTimestampingConnectorApiClient(TimestampingConnectorApiClient timestampingConnectorApiClient) {
-        this.timestampingConnectorApiClient = timestampingConnectorApiClient;
+    public void setSignatureFormatterApiClient(SignatureFormatterApiClient signatureFormatterApiClient) {
+        this.signatureFormatterApiClient = signatureFormatterApiClient;
     }
 
     @Autowired

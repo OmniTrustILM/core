@@ -1,6 +1,6 @@
 package com.czertainly.core.service.tsa.formatter;
 
-import com.czertainly.api.clients.signing.TimestampingConnectorApiClient;
+import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.interfaces.core.tsp.error.TspException;
@@ -36,10 +36,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class TimestampingConnectorSignatureFormatterClientTest {
+class TimestampingSignatureFormatterClientTest {
 
     @Mock
-    private TimestampingConnectorApiClient apiClient;
+    private SignatureFormatterApiClient apiClient;
     @Mock
     private ConnectorService connectorService;
 
