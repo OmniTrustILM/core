@@ -14,6 +14,7 @@
     <name>CZERTAINLY-Core</name>
 
     <properties>
+        <archunit.version>1.4.2</archunit.version>
         <log-schema.version>1.1</log-schema.version>
         <querydsl.version>5.1.0</querydsl.version>
         <hsqldb.version>2.7.3</hsqldb.version>
@@ -301,7 +302,7 @@
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
-            <version>1.4.2</version>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
 

@@ -15,6 +15,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.library.freeze.FreezingArchRule;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 
 import java.util.ArrayList;
@@ -26,6 +27,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 @AnalyzeClasses(packages = "com.czertainly.core.service", importOptions = ImportOption.DoNotIncludeTests.class)
 public class ExternalServiceAuthorizationArchTest {
@@ -106,6 +108,20 @@ public class ExternalServiceAuthorizationArchTest {
                             }
                         }
                     });
+
+    /**
+     * Ratchet: no method on an *ExternalService implementation may carry @ExternalAuthorizationMissing
+     * beyond the set frozen at the time this rule was last updated. The store in
+     * src/test/resources/archunit_store/ records outstanding violations by method name.
+     * When a violation is resolved the store auto-shrinks on the next run; new violations fail
+     * the build immediately.
+     */
+    @ArchTest
+    static final ArchRule no_new_external_authorization_missing =
+            FreezingArchRule.freeze(
+                    noMethods()
+                            .that().areDeclaredInClassesThat(IMPLEMENTS_EXTERNAL_SERVICE)
+                            .should().beAnnotatedWith(ExternalAuthorizationMissing.class));
 
     @ArchTest
     static void each_external_service_is_implemented_by_exactly_one_class(JavaClasses classes) {

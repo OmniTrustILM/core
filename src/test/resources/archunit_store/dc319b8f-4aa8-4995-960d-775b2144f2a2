@@ -1,0 +1,5 @@
+Method <com.czertainly.core.service.impl.NotificationServiceImpl.bulkDeleteNotifications(java.util.List)> is annotated with @ExternalAuthorizationMissing in (NotificationServiceImpl.java:158)
+Method <com.czertainly.core.service.impl.NotificationServiceImpl.bulkMarkNotificationAsRead(java.util.List)> is annotated with @ExternalAuthorizationMissing in (NotificationServiceImpl.java:170)
+Method <com.czertainly.core.service.impl.NotificationServiceImpl.deleteNotification(java.lang.String)> is annotated with @ExternalAuthorizationMissing in (NotificationServiceImpl.java:129)
+Method <com.czertainly.core.service.impl.NotificationServiceImpl.listNotifications(com.czertainly.api.model.client.notification.NotificationRequestDto)> is annotated with @ExternalAuthorizationMissing in (NotificationServiceImpl.java:108)
+Method <com.czertainly.core.service.impl.NotificationServiceImpl.markNotificationAsRead(java.lang.String)> is annotated with @ExternalAuthorizationMissing in (NotificationServiceImpl.java:142)
