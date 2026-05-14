@@ -417,13 +417,14 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         }
 
         // ─────────────────────────────────────────────
-        // NOT_CONTAINS with multiple connector interfaces
+        // NOT_EQUALS / NOT_CONTAINS with multiple connector interfaces
         // ─────────────────────────────────────────────
 
-        @Test
-        void notContains_connectorWithMultipleInterfaces_excludedIfAnyInterfaceContainsValue() {
+        @ParameterizedTest(name = "[{index}] {0} excludes connector if any interface contains the value")
+        @MethodSource("notEqualsAndNotContainsArgs")
+        void connectorWithMultipleInterfaces_excludedIfAnyInterfaceContainsValue(FilterConditionOperator operator) {
             // Connector with two interfaces: one has STATELESS, the other has OPEN_METRICS.
-            String name = "test-multi-iface";
+            String name = "test-multi-iface-" + operator.name().toLowerCase();
             Connector connector = new Connector();
             connector.setName(name);
             connector.setUrl("http://localhost:0/" + name);
@@ -446,20 +447,27 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
             iface2.setFeatures(List.of(FeatureFlag.OPEN_METRICS));
             connectorInterfaceRepository.save(iface2);
 
-            // STATELESS is in iface1 → the connector must be excluded despite iface2 not having it
+            // STATELESS is in iface1 → excluded even though iface2 does not have it
             Assertions.assertFalse(
-                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "stateless").contains(name),
+                    searchConnectorNames(operator, "stateless").contains(name),
                     "Connector must be excluded: iface1 contains STATELESS");
 
-            // OPEN_METRICS is in iface2 → excluded despite iface1 not having it
+            // OPEN_METRICS is in iface2 → excluded even though iface1 does not have it
             Assertions.assertFalse(
-                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "openMetrics").contains(name),
+                    searchConnectorNames(operator, "openMetrics").contains(name),
                     "Connector must be excluded: iface2 contains OPEN_METRICS");
 
             // No interface has TIMESTAMPING → connector must be included
             Assertions.assertTrue(
-                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "timestamping").contains(name),
+                    searchConnectorNames(operator, "timestamping").contains(name),
                     "Connector must be included: no interface contains TIMESTAMPING");
+        }
+
+        static Stream<Arguments> notEqualsAndNotContainsArgs() {
+            return Stream.of(
+                    Arguments.of(FilterConditionOperator.NOT_EQUALS),
+                    Arguments.of(FilterConditionOperator.NOT_CONTAINS)
+            );
         }
 
         // ─────────────────────────────────────────────
