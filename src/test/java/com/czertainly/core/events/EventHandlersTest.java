@@ -590,6 +590,17 @@ class EventHandlersTest extends BaseSpringBootTest {
                 .build();
 
         certificateService.deleteCertificate(uploadedCertificate.getSecuredUuid());
+        mockServer.stubFor(WireMock.put(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(
+                WireMock.okJson("""
+                {
+                    "uuid": "%s",
+                    "username": "%s",
+                    "email": "testuser1@example.com",
+                    "groups": [],
+                    "roles": []
+                }
+                """.formatted(userUuid, "user"))
+        ));
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData2)));
         uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
         certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());

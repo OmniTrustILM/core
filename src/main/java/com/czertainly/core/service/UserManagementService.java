@@ -24,6 +24,8 @@ public interface UserManagementService extends ResourceExtensionService  {
 
     UserDetailDto updateUserInternal(String userUuid, UpdateUserRequestDto request, String certificateUuid, String certificateFingerPrint) throws NotFoundException, CertificateException;
 
+    void updateUserCertificate(String userUuid, String certificateUuid, String certificateFingerprint) throws NotFoundException, CertificateException;
+
     void deleteUser(String userUuid);
 
     UserDetailDto updateRoles(String userUuid, List<String> roleUuids);

@@ -8,7 +8,6 @@ import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.core.auth.*;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.certificate.group.GroupDto;
 import com.czertainly.api.model.core.logging.enums.AuditLogOutput;
@@ -41,6 +40,7 @@ import com.czertainly.core.util.OAuth2Util;
 import com.nimbusds.jwt.SignedJWT;
 import jakarta.transaction.Transactional;
 import org.apache.commons.lang3.StringUtils;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -138,10 +138,15 @@ public class UserManagementServiceImpl implements UserManagementService {
         }
         UserRequestDto requestDto = new UserRequestDto();
         Certificate certificate = null;
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
-            certificate = addUserCertificate(null, request.getCertificateUuid(), request.getCertificateData());
-            requestDto.setCertificateUuid(certificate.getUuid().toString());
-            requestDto.setCertificateFingerprint(certificate.getFingerprint());
+        boolean userCertificateInRequest = (request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty());
+        // In case an existing certificate is provided in the request, it can be added to the request before user creation
+        if (userCertificateInRequest) {
+            certificate = getExistingCertificate(request.getCertificateUuid(), request.getCertificateData());
+            if (certificate != null) {
+                validateExistingCertificate(null, certificate);
+                requestDto.setCertificateUuid(certificate.getUuid().toString());
+                requestDto.setCertificateFingerprint(certificate.getFingerprint());
+            }
         }
         requestDto.setEmail(request.getEmail());
         requestDto.setEnabled(request.getEnabled());
@@ -160,6 +165,9 @@ public class UserManagementServiceImpl implements UserManagementService {
         UserDetailDto response = userManagementApiClient.createUser(requestDto);
         if (certificate != null) {
             certificateService.updateCertificateUser(certificate.getUuid(), response.getUuid());
+            // User certificate needs to be updated and assigned asynchronously
+        } else if (userCertificateInRequest) {
+            uploadNewCertificate(response.getUuid(), request.getCertificateData());
         }
 
         response.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.USER, UUID.fromString(response.getUuid()), request.getCustomAttributes()));
@@ -184,6 +192,23 @@ public class UserManagementServiceImpl implements UserManagementService {
         UserDetailDto dto = getUserUpdateRequestPayload(userUuid, request, certificateUuid, certificateFingerprint);
         authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
         return dto;
+    }
+
+    @Override
+    // Send update request only for certificate update, other user details are not changed. For internal use only - for certificate update from Auth Profile Update API
+    public void updateUserCertificate(String userUuid, String certificateUuid, String certificateFingerprint) throws NotFoundException, CertificateException {
+        UserDetailDto dto = getUser(userUuid);
+        // Only the certificate needs to be updated, so the request needs to be rebuilt from the existing user data
+        UpdateUserRequestDto request = new UpdateUserRequestDto();
+        request.setCertificateUuid(certificateUuid);
+        request.setEmail(dto.getEmail());
+        request.setDescription(dto.getDescription());
+        request.setFirstName(dto.getFirstName());
+        request.setLastName(dto.getLastName());
+        List<String> groupUuids = dto.getGroups().stream().map(NameAndUuidDto::getUuid).toList();
+        request.setGroupUuids(groupUuids);
+        getUserUpdateRequestPayload(userUuid, request, certificateUuid, certificateFingerprint);
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
     }
 
     @Override
@@ -322,9 +347,30 @@ public class UserManagementServiceImpl implements UserManagementService {
         getUser(uuid.toString());
     }
 
-    private Certificate addUserCertificate(String userUuid, String certificateUuid, String certificateData) throws CertificateException, NotFoundException {
+    private static void validateExistingCertificate(String userUuid, Certificate certificate) {
+        if (certificate.isArchived())
+            throw new ValidationException("Cannot assign archived certificate to the user.");
+        if (!certificate.getState().equals(CertificateState.ISSUED)) {
+            throw new ValidationException(ValidationError.create("Cannot assign certificate with state %s to the user".formatted(certificate.getState().getLabel())));
+        }
+        if (certificate.getUserUuid() != null && !certificate.getUserUuid().toString().equals(userUuid)) {
+            throw new ValidationException(ValidationError.create("Cannot assign certificate to the user because it is already assigned to other user"));
+        }
+    }
+
+    private void uploadNewCertificate(String userUuid, String certificateData) throws CertificateException {
+        try {
+            UploadCertificateRequestDto uploadRequest = new UploadCertificateRequestDto();
+            uploadRequest.setCertificate(certificateData);
+            certificateService.upload(uploadRequest, true, UUID.fromString(userUuid));
+            logger.getLogger().debug("New Certificate uploaded for the user {} has been queued for processing.", userUuid);
+        } catch (Exception e) {
+            throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
+        }
+    }
+
+    private @Nullable Certificate getExistingCertificate(String certificateUuid, String certificateData) throws NotFoundException, CertificateException {
         Certificate certificate = null;
-        boolean uploadCertificate = false;
         if (StringUtils.isNotBlank(certificateUuid)) {
             certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
         } else {
@@ -337,29 +383,9 @@ public class UserManagementServiceImpl implements UserManagementService {
             try {
                 certificate = certificateService.getCertificateEntityByFingerprint(CertificateUtil.getThumbprint(x509Cert));
             } catch (NotFoundException e) {
-                uploadCertificate = true;
+               // Certificate stays null
             } catch (NoSuchAlgorithmException e) {
                 throw new ValidationException(ValidationError.create("Cannot assign certificate to the user due to error in fingerprint calculation: " + e.getMessage()));
-            }
-        }
-
-        if (uploadCertificate) {
-            try {
-                UploadCertificateRequestDto uploadRequest = new UploadCertificateRequestDto();
-                uploadRequest.setCertificate(certificateData);
-                certificateService.upload(uploadRequest, true, UUID.fromString(userUuid));
-                logger.getLogger().debug("New Certificate uploaded for the user {} has been queued for processing.", userUuid);
-            } catch (Exception e) {
-                throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
-            }
-        } else {
-            if (certificate.isArchived())
-                throw new ValidationException("Cannot assign archived certificate to the user.");
-            if (!certificate.getState().equals(CertificateState.ISSUED)) {
-                throw new ValidationException(ValidationError.create("Cannot assign certificate with state %s to the user".formatted(certificate.getState().getLabel())));
-            }
-            if (certificate.getUserUuid() != null && !certificate.getUserUuid().toString().equals(userUuid)) {
-                throw new ValidationException(ValidationError.create("Cannot assign certificate to the user because it is already assigned to other user"));
             }
         }
         return certificate;
@@ -369,10 +395,14 @@ public class UserManagementServiceImpl implements UserManagementService {
         Certificate certificate = null;
         UserUpdateRequestDto requestDto = new UserUpdateRequestDto();
 
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
-            certificate = addUserCertificate(userUuid, request.getCertificateUuid(), request.getCertificateData());
-            requestDto.setCertificateUuid(certificate.getUuid().toString());
-            requestDto.setCertificateFingerprint(certificate.getFingerprint());
+        boolean certificateInRequest = (request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty());
+        if (certificateInRequest) {
+            certificate = getExistingCertificate(request.getCertificateUuid(), request.getCertificateData());
+            if (certificate != null) {
+                validateExistingCertificate(userUuid, certificate);
+                requestDto.setCertificateUuid(certificate.getUuid().toString());
+                requestDto.setCertificateFingerprint(certificate.getFingerprint());
+            }
         } else {
             if (!certificateUuid.isEmpty()) requestDto.setCertificateUuid(certificateUuid);
             if (!certificateFingerPrint.isEmpty()) requestDto.setCertificateFingerprint(certificateFingerPrint);
@@ -401,6 +431,8 @@ public class UserManagementServiceImpl implements UserManagementService {
         }
         if (certificate != null) {
             certificateService.updateCertificateUser(certificate.getUuid(), response.getUuid());
+        } else if (certificateInRequest) {
+            uploadNewCertificate(response.getUuid(), request.getCertificateData());
         }
         return response;
     }

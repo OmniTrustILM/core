@@ -25,6 +25,7 @@ import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.service.CertificateEventHistoryService;
 import com.czertainly.core.service.CertificateService;
+import com.czertainly.core.service.UserManagementService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
 import jakarta.transaction.Transactional;
@@ -45,12 +46,18 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private CertificateService certificateService;
     private CertificateEventHistoryService certificateEventHistoryService;
+    private UserManagementService userManagementService;
     private AttributeEngine attributeEngine;
 
 
     @Autowired
     public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
+    }
+
+    @Autowired
+    public void setUserManagementService(UserManagementService userManagementService) {
+        this.userManagementService = userManagementService;
     }
 
 
@@ -93,7 +100,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         EventHistory eventHistory = createEventHistory(ResourceEvent.CERTIFICATE_UPLOADED, null, null);
         CertificateUploadEventMessageData eventMessageData = objectMapper.convertValue(eventMessage.getData(), CertificateUploadEventMessageData.class);
 
-        X509Certificate x509Certificate = null;
+        X509Certificate x509Certificate;
         try {
             x509Certificate = CertificateUtil.parseCertificate(eventMessageData.certificateContent());
         } catch (CertificateException e) {
@@ -138,8 +145,9 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
         if (eventMessageData.userUuid() != null) {
             try {
+                userManagementService.updateUserCertificate(String.valueOf(eventMessageData.userUuid()), String.valueOf(certificate.getUuid()), null);
                 certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(eventMessageData.userUuid()));
-            } catch (NotFoundException e) {
+            } catch (NotFoundException | CertificateException e) {
                 ((CertificateUploadedEventData) context.getResourceObjectsEventData().getFirst()).setUserUuid(null);
                 logger.error("Error updating user {} for certificate {}: {}", eventMessageData.userUuid(), certificate.getUuid(), e.getMessage());
             }
