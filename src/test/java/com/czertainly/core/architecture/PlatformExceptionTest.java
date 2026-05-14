@@ -2,12 +2,15 @@ package com.czertainly.core.architecture;
 
 import com.czertainly.api.exception.PlatformException;
 import com.czertainly.api.model.common.BulkActionMessageDto;
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.lang.conditions.ArchConditions.callCodeUnitWhere;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
@@ -41,7 +44,11 @@ class PlatformExceptionTest {
     static final ArchRule bulkActionMessageDtoMustUseFactory =
             noClasses()
                     .that().resideInAPackage("com.czertainly.core..")
-                    .should().callConstructor(BulkActionMessageDto.class, String.class, String.class, String.class)
+                    .should(callCodeUnitWhere(DescribedPredicate.describe(
+                            "call a constructor of BulkActionMessageDto",
+                            (JavaCall<?> call) -> BulkActionMessageDto.class.getName().equals(
+                                    call.getTarget().getOwner().getName())
+                                    && "<init>".equals(call.getTarget().getName()))))
                     .because("BulkActionMessageDto must be created via BulkActionMessageDto.failure() " +
                             "so message content is controlled at the factory level; " +
                             "direct constructor calls bypass that gate");

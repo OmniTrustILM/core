@@ -292,7 +292,7 @@ public class CbomServiceImpl implements CbomService {
             try {
                 transactionHandler.runInNewTransaction(() -> cbomRepository.deleteById(uuid));
             } catch (Exception ex) {
-                messages.add(BulkActionMessageDto.failure(uuid.toString(), "", ex, "Delete failed"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), "", ex, "Error deleting CBOM entry"));
                 logger.logEvent(Operation.DELETE, OperationResult.FAILURE, null, List.of(new ResourceObjectIdentity(null, uuid)), ex.getMessage());
                 continue;
             }
