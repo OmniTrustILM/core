@@ -5,6 +5,7 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.dao.repository.workflows.*;
@@ -230,6 +231,12 @@ public class TriggerServiceImpl implements TriggerService {
         List<TriggerAssociation> ignoreTriggers = new ArrayList<>();
         for (UUID triggerUuid : triggerUuids) {
             Trigger trigger = getTriggerEntity(triggerUuid.toString());
+            if (event == ResourceEvent.CERTIFICATE_UPLOADED && trigger.getRules().stream()
+                    .flatMap(rule -> rule.getConditions().stream())
+                    .flatMap(condition -> condition.getItems().stream())
+                    .anyMatch(conditionItem -> conditionItem.getFieldSource() != FilterFieldSource.PROPERTY)) {
+                throw new ValidationException("Trigger '%s' cannot be associated with event '%s' as it contains rule with invalid field source, which is not allowed for this event.".formatted(trigger.getName(), event.getLabel()));
+            }
             if (trigger.getResource() != event.getResource()) {
                 throw new ValidationException("Trigger '%s' is for different resource (%s) than event '%s' (%s)".formatted(trigger.getName(), trigger.getResource().getLabel(), event.getLabel(), event.getResource().getLabel()));
             }
