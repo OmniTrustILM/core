@@ -1,5 +1,6 @@
 package com.czertainly.core.security.exception;
 
+import com.czertainly.api.exception.PlatformException;
 import com.czertainly.api.model.common.AuthenticationServiceExceptionDto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -8,7 +9,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.AuthenticationException;
 
-public class AuthenticationServiceException extends AuthenticationException {
+public class AuthenticationServiceException extends AuthenticationException implements PlatformException {
 
     @Schema(description = "Exception Information", required = true)
     private AuthenticationServiceExceptionDto exception;
