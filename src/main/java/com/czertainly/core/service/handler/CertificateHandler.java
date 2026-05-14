@@ -66,6 +66,11 @@ public class CertificateHandler {
         this.validationProducer = validationProducer;
     }
 
+    public void setValidationBatchSize(int validationBatchSize) {
+        if (validationBatchSize <= 0) throw new IllegalArgumentException("validationBatchSize must be positive");
+        this.validationBatchSize = validationBatchSize;
+    }
+
     @Autowired
     public void setComplianceService(ComplianceService complianceService) {
         this.complianceService = complianceService;
