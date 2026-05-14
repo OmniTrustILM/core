@@ -451,7 +451,12 @@ public class CertificateUtil {
                             && certificate.getCriticalExtensionOIDs().contains(Extension.extendedKeyUsage.getId()));
         }
 
-        QcStatementParseResult qc = parseQcStatements(certificate);
+        QcStatementParseResult qc = null;
+        try {
+            qc = parseQcStatements(certificate);
+        } catch (Exception e) {
+            logger.warn("Unable to parse QCStatements extension for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
+        }
         if (qc != null) {
             modal.setQcCompliance(qc.qcCompliance());
             modal.setQcSscd(qc.qcSscd());
