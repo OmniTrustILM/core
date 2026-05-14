@@ -279,7 +279,6 @@ public class FilterPredicatesBuilder {
         }
         final LocalDateTime now = LocalDateTime.now();
         boolean bitEnumProperty = filterField.getEnumClass() != null && BitMaskEnum.class.isAssignableFrom(filterField.getEnumClass());
-        boolean isNativeArrayField = filterField.getType() == SearchFieldTypeEnum.NATIVE_ARRAY;
         if (expression == null && !isCountOperator(conditionOperator))
             throw new ValidationException("Invalid filter configuration: no expression for field " + filterField + " with operator " + conditionOperator);
         final Expression finalExpression = expression;
@@ -289,7 +288,7 @@ public class FilterPredicatesBuilder {
                     predicate = criteriaBuilder.notEqual(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isTrue(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
-                else if (isNativeArrayField) {
+                else if (filterField.isNativeArrayField()) {
                     List<Predicate> nativeArrayPredicates = filterValues.stream()
                             .map(value -> criteriaBuilder.isTrue(criteriaBuilder.function(
                                     ARRAY_CONTAINS_FUNCTION_NAME,
@@ -309,7 +308,7 @@ public class FilterPredicatesBuilder {
                     predicate = criteriaBuilder.equal(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isFalse(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
-                else if (isNativeArrayField) {
+                else if (filterField.isNativeArrayField()) {
                     Predicate[] nativeArrayNotContainsPredicates = filterValues.stream()
                             .map(value -> criteriaBuilder.isFalse(criteriaBuilder.function(
                                     ARRAY_CONTAINS_FUNCTION_NAME,
@@ -336,19 +335,33 @@ public class FilterPredicatesBuilder {
             }
             case STARTS_WITH -> predicate = criteriaBuilder.like(expression, filterValues.getFirst() + "%");
             case ENDS_WITH -> predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst());
-            case CONTAINS -> predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst() + "%");
-            case NOT_CONTAINS ->
+            case CONTAINS -> {
+                if (filterField.isNativeArrayField()) {
+                    predicate = criteriaBuilder.isTrue(criteriaBuilder.function(ARRAY_CONTAINS_FUNCTION_NAME, Boolean.class, criteriaBuilder.literal(filterValues.getFirst().toString()), expression));
+                } else {
+                    predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst() + "%");
+                }
+            }
+            case NOT_CONTAINS -> {
+                if (filterField.isNativeArrayField()) {
+                    predicate = criteriaBuilder.or(
+                            criteriaBuilder.isNull(expression),
+                            criteriaBuilder.isFalse(criteriaBuilder.function(ARRAY_CONTAINS_FUNCTION_NAME, Boolean.class, criteriaBuilder.literal(filterValues.getFirst().toString()), expression))
+                    );
+                } else {
                     predicate = criteriaBuilder.or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, false, isJsonArray),
                             criteriaBuilder.notLike(expression, "%" + filterValues.getFirst() + "%"));
+                }
+            }
             case EMPTY -> {
-                if (isNativeArrayField)
+                if (filterField.isNativeArrayField())
                     predicate = criteriaBuilder.or(criteriaBuilder.isNull(expression),
                             criteriaBuilder.equal(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
                 else
                     predicate = getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, bitEnumProperty, isJsonArray);
             }
             case NOT_EMPTY -> {
-                if (isNativeArrayField)
+                if (filterField.isNativeArrayField())
                     predicate = criteriaBuilder.and(criteriaBuilder.isNotNull(expression),
                             criteriaBuilder.greaterThan(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
                 else
