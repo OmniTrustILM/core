@@ -136,6 +136,60 @@ public class CertificateTestUtil {
                 .getCertificate(certBuilder.build(signer));
     }
 
+    public static X509Certificate createTimestampingCertificate(boolean critical) throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-tsa"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-tsa"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, critical,
+                new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
+    public static X509Certificate createTimestampingCertificateWithExtraEku() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-tsa-extra"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-tsa-extra"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, true,
+                new ExtendedKeyUsage(new KeyPurposeId[]{KeyPurposeId.id_kp_timeStamping, KeyPurposeId.id_kp_serverAuth}));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
+    public static X509Certificate createQualifiedTimestampingCertificate() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-qtsa"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-qtsa"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, true,
+                new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+        ASN1EncodableVector stmts = new ASN1EncodableVector();
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance));
+        certBuilder.addExtension(Extension.qCStatements, false, new DERSequence(stmts));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
     public static X509Certificate createTimestampingCertificate() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
         ensureBouncyCastleProvider();
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
