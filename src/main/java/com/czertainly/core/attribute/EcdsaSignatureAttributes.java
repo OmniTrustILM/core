@@ -28,7 +28,7 @@ public class EcdsaSignatureAttributes {
     public static final String ATTRIBUTE_DATA_SIG_DIGEST_LABEL = "Digest Algorithm";
     public static final String ATTRIBUTE_DATA_SIG_DIGEST_DESCRIPTION = "Select on of the available digest (hash) algorithm";
 
-    @CoreAttributeDefinitions(operation = AttributeOperation.CERTIFICATE_REQUEST_SIGN)
+    @CoreAttributeDefinitions(operation = AttributeOperation.SIGN)
     public static List<BaseAttribute> getEcdsaSignatureAttributes() {
         return List.of(
                 buildDataDigest()
