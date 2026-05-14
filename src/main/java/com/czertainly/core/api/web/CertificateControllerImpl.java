@@ -97,8 +97,8 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
     public void upload(@RequestBody UploadCertificateRequestDto request)
-            throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException {
-        certificateService.upload(request, false, null);
+            throws CertificateException, AlreadyExistException {
+        certificateService.upload(request, null);
     }
 
     @Override

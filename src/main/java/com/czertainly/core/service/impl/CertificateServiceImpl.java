@@ -1,6 +1,5 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.model.common.events.data.CertificateUploadedEventData;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -1207,14 +1206,20 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Override
-    public void upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes, UUID userUuid) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException {
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void upload(UploadCertificateRequestDto request, UUID userUuid) throws CertificateException, AlreadyExistException {
         X509Certificate certificate = CertificateUtil.parseUploadedCertificateContent(request.getCertificate());
-        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        String fingerprint;
+        try {
+            fingerprint = CertificateUtil.getThumbprint(certificate);
+        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
+            throw new CertificateException("Failed to calculate certificate fingerprint: " + e.getMessage());
+        }
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }
 
-        if (!ignoreCustomAttributes) {
+        if (request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
         }
 

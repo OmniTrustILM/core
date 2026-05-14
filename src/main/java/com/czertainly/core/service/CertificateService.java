@@ -81,7 +81,7 @@ public interface CertificateService extends ResourceExtensionService  {
 
     CertificateContent checkAddCertificateContent(String fingerprint, String content);
 
-    void upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes, UUID userUuid) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException;
+    void upload(UploadCertificateRequestDto request, UUID userUuid) throws CertificateException, AlreadyExistException;
 
     Certificate createCertificateAtomic(String certificate, boolean assignOwner) throws CertificateException, NoSuchAlgorithmException, NotFoundException;
 
