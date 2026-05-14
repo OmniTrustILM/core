@@ -26,6 +26,7 @@ import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -35,11 +36,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
  * Integration tests for NATIVE_ARRAY filter operators.
- *
+ * <p>
  * Covers EQUALS, NOT_EQUALS, CONTAINS, NOT_CONTAINS, EMPTY, NOT_EMPTY on native
  * PostgreSQL text[] columns — tested against:
  * <ul>
@@ -171,7 +173,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         }
 
         // ─────────────────────────────────────────────
-        // CONTAINS (single value, exact array element)
+        // CONTAINS (single value, substring on array items)
         // ─────────────────────────────────────────────
 
         @ParameterizedTest(name = "[{index}] CONTAINS ''{0}'' expects OIDs {1}")
@@ -184,14 +186,29 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         static Stream<Arguments> altCodesContainsArgs() {
             return Stream.of(
                     Arguments.of("OFI", List.of("2.5.4.100")),
+                    Arguments.of("FI2", List.of("2.5.4.100")),
                     Arguments.of("OFI2", List.of("2.5.4.100")),
                     Arguments.of("ALONE", List.of("2.5.4.101")),
                     Arguments.of("NOSUCH", List.of())
             );
         }
 
+        @ParameterizedTest(name = "[{index}] CONTAINS {0} expects OIDs {1}")
+        @MethodSource("altCodesContainsMultiValueArgs")
+        void filterByAltCodes_contains_multiValue(List<String> values, Set<String> expectedOids) {
+            Assertions.assertEquals(expectedOids, new HashSet<>(searchOids(FilterConditionOperator.CONTAINS, values)));
+        }
+
+        static Stream<Arguments> altCodesContainsMultiValueArgs() {
+            return Stream.of(
+                    // "LON" matches ALONE and "FI2" matches OFI2, so both entries are returned.
+                    Arguments.of(List.of("LON", "FI2"), Set.of("2.5.4.100", "2.5.4.101")),
+                    Arguments.of(List.of("ZZZ", "YYY"), Set.of())
+            );
+        }
+
         // ─────────────────────────────────────────────
-        // NOT_CONTAINS (single value, exact array element)
+        // NOT_CONTAINS (single value, substring on array items)
         // ─────────────────────────────────────────────
 
         @ParameterizedTest(name = "[{index}] NOT_CONTAINS ''{0}'' expects OIDs {1}")
@@ -205,11 +222,27 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
             return Stream.of(
                     // multiCode {"OFI","OFI2"} is excluded; singleCode and noCode are included.
                     Arguments.of("OFI", List.of("2.5.4.101", "2.5.4.102")),
+                    // partial match in OFI/OFI2 still excludes multiCode.
+                    Arguments.of("FI", List.of("2.5.4.101", "2.5.4.102")),
                     Arguments.of("OFI2", List.of("2.5.4.101", "2.5.4.102")),
                     // singleCode {"ALONE"} is excluded; multiCode and noCode are included.
                     Arguments.of("ALONE", List.of("2.5.4.100", "2.5.4.102")),
                     // No entry contains "NOSUCH", so all three are included.
                     Arguments.of("NOSUCH", List.of("2.5.4.100", "2.5.4.101", "2.5.4.102"))
+            );
+        }
+
+        @ParameterizedTest(name = "[{index}] NOT_CONTAINS {0} expects OIDs {1}")
+        @MethodSource("altCodesNotContainsMultiValueArgs")
+        void filterByAltCodes_notContains_multiValue(List<String> values, Set<String> expectedOids) {
+            Assertions.assertEquals(expectedOids, new HashSet<>(searchOids(FilterConditionOperator.NOT_CONTAINS, values)));
+        }
+
+        static Stream<Arguments> altCodesNotContainsMultiValueArgs() {
+            return Stream.of(
+                    // multiCode matches "FI", singleCode matches "LON"; only empty-array entry survives.
+                    Arguments.of(List.of("FI", "LON"), Set.of("2.5.4.102")),
+                    Arguments.of(List.of("ZZZ", "YYY"), Set.of("2.5.4.100", "2.5.4.101", "2.5.4.102"))
             );
         }
 
@@ -264,9 +297,9 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
     @Nested
     class ConnectorFeaturesFilterTest {
 
-        static final String NAME_STATELESS  = "test-stateless";
+        static final String NAME_STATELESS = "test-stateless";
         static final String NAME_MULTI_FLAG = "test-multi-flag";
-        static final String NAME_NO_FLAG    = "test-no-flag";
+        static final String NAME_NO_FLAG = "test-no-flag";
 
         @Autowired
         private ConnectorService connectorService;
@@ -279,9 +312,9 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
 
         @BeforeEach
         void setUpConnectors() {
-            saveConnector(NAME_STATELESS,  List.of(FeatureFlag.STATELESS));
+            saveConnector(NAME_STATELESS, List.of(FeatureFlag.STATELESS));
             saveConnector(NAME_MULTI_FLAG, List.of(FeatureFlag.STATELESS, FeatureFlag.OPEN_METRICS));
-            saveConnector(NAME_NO_FLAG,    new ArrayList<>());
+            saveConnector(NAME_NO_FLAG, new ArrayList<>());
         }
 
         // ─────────────────────────────────────────────
@@ -297,8 +330,8 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
 
         static Stream<Arguments> equalsArgs() {
             return Stream.of(
-                    Arguments.of("stateless",    Set.of(NAME_STATELESS, NAME_MULTI_FLAG)),
-                    Arguments.of("openMetrics",  Set.of(NAME_MULTI_FLAG)),
+                    Arguments.of("stateless", Set.of(NAME_STATELESS, NAME_MULTI_FLAG)),
+                    Arguments.of("openMetrics", Set.of(NAME_MULTI_FLAG)),
                     Arguments.of("timestamping", Set.of())
             );
         }
@@ -317,9 +350,9 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         static Stream<Arguments> notEqualsArgs() {
             return Stream.of(
                     // Both stateless and multi-flag contain STATELESS → only no-flag survives.
-                    Arguments.of("stateless",    Set.of(NAME_NO_FLAG)),
+                    Arguments.of("stateless", Set.of(NAME_NO_FLAG)),
                     // Only multi-flag contains OPEN_METRICS → stateless and no-flag survive.
-                    Arguments.of("openMetrics",  Set.of(NAME_STATELESS, NAME_NO_FLAG)),
+                    Arguments.of("openMetrics", Set.of(NAME_STATELESS, NAME_NO_FLAG)),
                     // No connector contains TIMESTAMPING → all three survive.
                     Arguments.of("timestamping", Set.of(NAME_STATELESS, NAME_MULTI_FLAG, NAME_NO_FLAG))
             );
@@ -338,8 +371,8 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
 
         static Stream<Arguments> containsArgs() {
             return Stream.of(
-                    Arguments.of("stateless",    Set.of(NAME_STATELESS, NAME_MULTI_FLAG)),
-                    Arguments.of("openMetrics",  Set.of(NAME_MULTI_FLAG)),
+                    Arguments.of("stateless", Set.of(NAME_STATELESS, NAME_MULTI_FLAG)),
+                    Arguments.of("openMetrics", Set.of(NAME_MULTI_FLAG)),
                     Arguments.of("timestamping", Set.of())
             );
         }
@@ -359,8 +392,8 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
             return Stream.of(
                     // Connectors whose features array does NOT contain STATELESS.
                     // no-flag has empty array → passes NOT_CONTAINS.
-                    Arguments.of("stateless",    Set.of(NAME_NO_FLAG)),
-                    Arguments.of("openMetrics",  Set.of(NAME_STATELESS, NAME_NO_FLAG)),
+                    Arguments.of("stateless", Set.of(NAME_NO_FLAG)),
+                    Arguments.of("openMetrics", Set.of(NAME_STATELESS, NAME_NO_FLAG)),
                     Arguments.of("timestamping", Set.of(NAME_STATELESS, NAME_MULTI_FLAG, NAME_NO_FLAG))
             );
         }
@@ -378,9 +411,55 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
 
         static Stream<Arguments> emptyArgs() {
             return Stream.of(
-                    Arguments.of(FilterConditionOperator.EMPTY,     Set.of(NAME_NO_FLAG)),
+                    Arguments.of(FilterConditionOperator.EMPTY, Set.of(NAME_NO_FLAG)),
                     Arguments.of(FilterConditionOperator.NOT_EMPTY, Set.of(NAME_STATELESS, NAME_MULTI_FLAG))
             );
+        }
+
+        // ─────────────────────────────────────────────
+        // NOT_CONTAINS with multiple connector interfaces
+        // ─────────────────────────────────────────────
+
+        @Test
+        void notContains_connectorWithMultipleInterfaces_excludedIfAnyInterfaceContainsValue() {
+            // Connector with two interfaces: one has STATELESS, the other has OPEN_METRICS.
+            String name = "test-multi-iface";
+            Connector connector = new Connector();
+            connector.setName(name);
+            connector.setUrl("http://localhost:0/" + name);
+            connector.setVersion(ConnectorVersion.V2);
+            connector.setStatus(ConnectorStatus.CONNECTED);
+            connector.setAuthType(AuthType.NONE);
+            connector = connectorRepository.save(connector);
+
+            ConnectorInterfaceEntity iface1 = new ConnectorInterfaceEntity();
+            iface1.setConnectorUuid(connector.getUuid());
+            iface1.setInterfaceCode(ConnectorInterface.AUTHORITY);
+            iface1.setVersion("v2");
+            iface1.setFeatures(List.of(FeatureFlag.STATELESS));
+            connectorInterfaceRepository.save(iface1);
+
+            ConnectorInterfaceEntity iface2 = new ConnectorInterfaceEntity();
+            iface2.setConnectorUuid(connector.getUuid());
+            iface2.setInterfaceCode(ConnectorInterface.METRICS);
+            iface2.setVersion("v2");
+            iface2.setFeatures(List.of(FeatureFlag.OPEN_METRICS));
+            connectorInterfaceRepository.save(iface2);
+
+            // STATELESS is in iface1 → the connector must be excluded despite iface2 not having it
+            Assertions.assertFalse(
+                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "stateless").contains(name),
+                    "Connector must be excluded: iface1 contains STATELESS");
+
+            // OPEN_METRICS is in iface2 → excluded despite iface1 not having it
+            Assertions.assertFalse(
+                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "openMetrics").contains(name),
+                    "Connector must be excluded: iface2 contains OPEN_METRICS");
+
+            // No interface has TIMESTAMPING → connector must be included
+            Assertions.assertTrue(
+                    searchConnectorNames(FilterConditionOperator.NOT_CONTAINS, "timestamping").contains(name),
+                    "Connector must be included: no interface contains TIMESTAMPING");
         }
 
         // ─────────────────────────────────────────────
@@ -396,7 +475,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
                     connectorService.listConnectors(SecurityFilter.create(), request);
             return response.getItems().stream()
                     .map(ConnectorDto::getName)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
         }
 
         private void saveConnector(String name, List<FeatureFlag> features) {
