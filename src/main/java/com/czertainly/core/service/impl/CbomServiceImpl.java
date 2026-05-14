@@ -286,7 +286,7 @@ public class CbomServiceImpl implements CbomService {
         Set<UUID> existingUuids = cbomRepository.findExistingUuids(uuids);
         for (UUID uuid : uuids) {
             if (!existingUuids.contains(uuid)) {
-                messages.add(BulkActionMessageDto.failure(uuid.toString(), "", "CBOM entry not found"));
+                messages.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), "", "CBOM entry not found"));
                 continue;
             }
             try {

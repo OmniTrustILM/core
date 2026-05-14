@@ -30,9 +30,7 @@ The important modification are marked with the comment "MODIFICATION"
 */
 package com.czertainly.core.intune.scepvalidation;
 
-import com.czertainly.api.exception.PlatformException;
-
-public class IntuneClientException extends Exception implements PlatformException
+public class IntuneClientException extends Exception
 {
 
     private static final long serialVersionUID = -7994643837442182060L;
