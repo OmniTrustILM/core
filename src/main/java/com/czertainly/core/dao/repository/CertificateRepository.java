@@ -309,15 +309,18 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             LEFT JOIN {h-schema}ra_profile rp ON rp.uuid = c.ra_profile_uuid
             WHERE c.archived = false
               AND c.certificate_content_id IS NOT NULL
-              AND c.validation_status NOT IN ('REVOKED', 'EXPIRED')
+              AND c.validation_status NOT IN (
+                  ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).REVOKED.name()},
+                  ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).EXPIRED.name()}
+              )
               AND (
                   (rp.validation_enabled IS NULL AND :platformEnabled = true)
                   OR rp.validation_enabled = true
               )
             """, nativeQuery = true)
     Set<UUID> findAllDescendantCertificatesEligibleForValidation(@Param("caUuid") UUID caUuid,
-                                                                    @Param("platformEnabled") boolean platformEnabled,
-                                                                    @Param("maxDepth") int maxDepth);
+                                                                 @Param("platformEnabled") boolean platformEnabled,
+                                                                 @Param("maxDepth") int maxDepth);
 
     @Query(
             value = """
