@@ -445,6 +445,19 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void checkCertificateExistsByFingerprint_returnsTrueWhenFound() {
+        certificate.setFingerprint("abc123");
+        certificateRepository.save(certificate);
+
+        Assertions.assertTrue(certificateService.checkCertificateExistsByFingerprint("abc123"));
+    }
+
+    @Test
+    void checkCertificateExistsByFingerprint_returnsFalseWhenNotFound() {
+        Assertions.assertFalse(certificateService.checkCertificateExistsByFingerprint("nonexistent"));
+    }
+
+    @Test
     void testCreateCertificateEntity() {
         Certificate cert = certificateService.createCertificateEntity(x509Cert);
 
