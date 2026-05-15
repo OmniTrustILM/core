@@ -179,7 +179,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
         var session = sessionRepository.createSession();
         sessionRepository.save(session);
 
-        var result = mvc.perform(
+        mvc.perform(
                 post(NON_TSP_URL)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
