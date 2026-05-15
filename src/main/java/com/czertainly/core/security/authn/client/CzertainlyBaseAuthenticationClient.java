@@ -48,7 +48,7 @@ public class CzertainlyBaseAuthenticationClient extends CzertainlyBaseApiClient 
 
         if (clientResponse.statusCode().isError()) {
             return clientResponse.bodyToMono(String.class)
-                    .flatMap(body -> Mono.error(new AuthenticationServiceException(body, true)));
+                    .flatMap(body -> Mono.error(new AuthenticationServiceException(body)));
         }
 
         return Mono.just(clientResponse);

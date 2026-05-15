@@ -24,8 +24,10 @@ import java.util.List;
 
 public class CryptographyUtil {
     public static AlgorithmIdentifier prepareSignatureAlgorithm(KeyAlgorithm keyAlgorithm, String publicKey, List<RequestAttribute> signatureAttributes) {
-        String signatureAlgorithm;
+        return getAlgorithmIdentifierInstance(resolveSignatureAlgorithmName(keyAlgorithm, publicKey, signatureAttributes));
+    }
 
+    public static String resolveSignatureAlgorithmName(KeyAlgorithm keyAlgorithm, String publicKey, List<? extends RequestAttribute> signatureAttributes) {
         switch (keyAlgorithm) {
             case RSA -> {
                 final RsaSignatureScheme scheme = RsaSignatureScheme.findByCode(
@@ -39,12 +41,11 @@ public class CryptographyUtil {
                                 .getData()
                 );
 
-                signatureAlgorithm = digest.getProviderName() + "WITHRSA";
+                String name = digest.getProviderName() + "WITHRSA";
                 if (scheme == RsaSignatureScheme.PSS) {
-                    signatureAlgorithm += "ANDMGF1";
+                    name += "ANDMGF1";
                 }
-
-                return getAlgorithmIdentifierInstance(signatureAlgorithm);
+                return name;
             }
             case ECDSA -> {
                 final DigestAlgorithm digest = DigestAlgorithm.findByCode(
@@ -52,75 +53,48 @@ public class CryptographyUtil {
                                         EcdsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, signatureAttributes, StringAttributeContentV2.class)
                                 .getData()
                 );
-
-                signatureAlgorithm = digest.getProviderName() + "WITHECDSA";
-
-                return getAlgorithmIdentifierInstance(signatureAlgorithm);
+                return digest.getProviderName() + "WITHECDSA";
             }
+            // IOException is declared by each BC constructor but not triggered by any known input —
+            // caught defensively in case a future BC version starts throwing it for malformed payloads.
             case FALCON -> {
                 try {
-                    String algorithmName = new BCFalconPublicKey(
+                    return new BCFalconPublicKey(
                             SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
+                                    Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                            ValidationError.create("Failed obtaining signature algorithm"));
                 }
-
-
             }
             case MLDSA -> {
                 try {
-                    String algorithmName = new BCMLDSAPublicKey(
+                    return new BCMLDSAPublicKey(
                             SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
+                                    Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                            ValidationError.create("Failed obtaining signature algorithm"));
                 }
             }
             case SLHDSA -> {
                 try {
-                    String algorithmName = new BCSLHDSAPublicKey(
+                    return new BCSLHDSAPublicKey(
                             SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
+                                    Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                            ValidationError.create("Failed obtaining signature algorithm"));
                 }
             }
             default -> throw new ValidationException(
-                    ValidationError.create(
-                            "Cryptographic algorithm not supported"
-                    )
-            );
+                    ValidationError.create("Cryptographic algorithm not supported"));
         }
     }
 
