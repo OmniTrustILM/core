@@ -13,12 +13,6 @@ public class AuthenticationServiceException extends AuthenticationException {
     @Schema(description = "Exception Information", required = true)
     private AuthenticationServiceExceptionDto exception;
 
-
-    public AuthenticationServiceException(String message) {
-        super(message);
-        System.out.println(message);
-    }
-
     public AuthenticationServiceException(String message, Boolean isException) {
         super("Authorization Exception");
         ObjectMapper mapper = new ObjectMapper();
@@ -31,16 +25,12 @@ public class AuthenticationServiceException extends AuthenticationException {
         }
     }
 
-    public AuthenticationServiceException(AuthenticationServiceExceptionDto exception) {
-        super("Authentication Service Exception");
-        this.exception = exception;
-    }
-
     public AuthenticationServiceException(Integer statusCode, String message) {
         super("Authentication Service Exception");
         AuthenticationServiceExceptionDto dto = new AuthenticationServiceExceptionDto();
         dto.setMessage(message);
         dto.setStatusCode(statusCode);
+        this.exception = dto;
     }
 
     public AuthenticationServiceExceptionDto getException() {
