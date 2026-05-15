@@ -37,7 +37,10 @@ class NotificationServiceTest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     @Autowired
-    private NotificationService notificationService;
+    private NotificationExternalService notificationExternalService;
+
+    @Autowired
+    private NotificationInternalService notificationInternalService;
 
     @Autowired
     private NotificationRecipientRepository notificationRecipientRepository;
@@ -57,27 +60,27 @@ class NotificationServiceTest extends BaseSpringBootTest {
     void testNotificationsOperations() throws NotFoundException {
         setupAuthServiceMock();
 
-        notificationService.createNotificationForRole("TestMessage", null, MOCK_ROLE_UUID, Resource.DISCOVERY, UUID.randomUUID().toString());
-        notificationService.createNotificationForGroup("TestMessage2", null, MOCK_GROUP_1_UUID, Resource.DISCOVERY, "%s,%s".formatted(UUID.randomUUID().toString(), UUID.randomUUID().toString()));
-        notificationService.createNotificationForUser("TestMessage3", null, mockUser1Uuid, Resource.DISCOVERY, UUID.randomUUID().toString());
+        notificationInternalService.createNotificationForRole("TestMessage", null, MOCK_ROLE_UUID, Resource.DISCOVERY, UUID.randomUUID().toString());
+        notificationInternalService.createNotificationForGroup("TestMessage2", null, MOCK_GROUP_1_UUID, Resource.DISCOVERY, "%s,%s".formatted(UUID.randomUUID().toString(), UUID.randomUUID().toString()));
+        notificationInternalService.createNotificationForUser("TestMessage3", null, mockUser1Uuid, Resource.DISCOVERY, UUID.randomUUID().toString());
 
         Assertions.assertEquals(6, notificationRecipientRepository.findAll().size());
 
         NotificationRequestDto notificationRequestDto = new NotificationRequestDto();
         notificationRequestDto.setItemsPerPage(10);
         notificationRequestDto.setPageNumber(1);
-        NotificationResponseDto listingResponse = notificationService.listNotifications(notificationRequestDto);
+        NotificationResponseDto listingResponse = notificationExternalService.listNotifications(notificationRequestDto);
 
         Assertions.assertEquals(3, listingResponse.getItems().size());
 
-        notificationService.markNotificationAsRead(listingResponse.getItems().getFirst().getUuid().toString());
+        notificationExternalService.markNotificationAsRead(listingResponse.getItems().getFirst().getUuid().toString());
 
         notificationRequestDto.setUnread(true);
-        listingResponse = notificationService.listNotifications(notificationRequestDto);
+        listingResponse = notificationExternalService.listNotifications(notificationRequestDto);
 
         Assertions.assertEquals(2, listingResponse.getItems().size());
 
-        notificationService.bulkDeleteNotifications(notificationRecipientRepository.findAll().stream().map(n -> n.getNotificationUuid().toString()).toList());
+        notificationExternalService.bulkDeleteNotifications(notificationRecipientRepository.findAll().stream().map(n -> n.getNotificationUuid().toString()).toList());
 
         // all notifications that are present in DB are send to bulk delete, but deleted should be only those of logged user
         Assertions.assertEquals(3, notificationRecipientRepository.findAll().size());
