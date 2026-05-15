@@ -6,6 +6,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
@@ -421,8 +422,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
         if (dto.getCertificateRequest() != null) {
             dto.getCertificateRequest().setAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).build()));
-            dto.getCertificateRequest().setSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.SIGN).build()));
-            dto.getCertificateRequest().setAltSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.SIGN).purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY).build()));
+            dto.getCertificateRequest().setSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.CERTIFICATE_REQUEST_SIGN).build()));
+            dto.getCertificateRequest().setAltSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.CERTIFICATE_REQUEST_SIGN).purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY).build()));
         }
         // if has RA profile with authority and connector
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null && certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid() != null) {
@@ -1864,6 +1865,16 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
         return certificates.stream()
                 .map(Certificate::mapToListDto).toList();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
+    public List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp) {
+        setupSecurityFilter(filter);
+
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, List.of("groups", "owner"),
+                CertificateUtil.constructQueryDigitalSigningCertAcceptable(signingWorkflowType, qualifiedTimestamp));
+        return certificates.stream().map(Certificate::mapToListDto).toList();
     }
 
     @Override

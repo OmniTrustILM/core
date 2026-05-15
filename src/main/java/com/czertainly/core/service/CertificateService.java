@@ -4,6 +4,7 @@ import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.core.certificate.*;
@@ -134,11 +135,12 @@ public interface CertificateService extends ResourceExtensionService  {
      * @param uuid    UUID of the certificate
      * @param request Request for the certificate objects update
      */
-    void  updateCertificateObjects(SecuredUUID uuid, CertificateUpdateObjectsDto request) throws NotFoundException, CertificateOperationException, AttributeException;
+    void updateCertificateObjects(SecuredUUID uuid, CertificateUpdateObjectsDto request) throws NotFoundException, CertificateOperationException, AttributeException;
 
 
     /**
      * Method to switch RA profile of a Certificate
+     *
      * @param uuid          UUID of the certificate
      * @param raProfileUuid UUID of the RA profile to switch to
      */
@@ -146,7 +148,8 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * Method to change Certificate Group for a Certificate
-     * @param uuid      UUID of the certificate
+     *
+     * @param uuid       UUID of the certificate
      * @param groupUuids set of UUIDs of the certificate groups
      */
     void updateCertificateGroups(SecuredUUID uuid, Set<UUID> groupUuids) throws NotFoundException;
@@ -154,18 +157,18 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * Method to change Owner for a Certificate
-     * @param uuid        UUID of the certificate
-     * @param ownerUuid   UUID of the certificate owner
+     *
+     * @param uuid      UUID of the certificate
+     * @param ownerUuid UUID of the certificate owner
      */
     void updateOwner(SecuredUUID uuid, String ownerUuid) throws NotFoundException;
 
 
-
-        /**
-         * Method to update the Objects of multiple certificates
-         *
-         * @param request Request to update multiple objects
-         */
+    /**
+     * Method to update the Objects of multiple certificates
+     *
+     * @param request Request to update multiple objects
+     */
     void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotFoundException, NotSupportedException;
 
     /**
@@ -200,7 +203,7 @@ public interface CertificateService extends ResourceExtensionService  {
     /**
      * Add statistics information based on the permission with the logged in user
      *
-     * @param dto Statistics DTO with predefined records
+     * @param dto             Statistics DTO with predefined records
      * @param includeArchived include also archived certificates in statistics
      * @return Statistics DTO
      */
@@ -235,18 +238,21 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * Unassociate the given key from all the certificates.
+     *
      * @param keyUuid UUID of the key object or alternative key object to be unassociated
      */
     void clearKeyAssociations(UUID keyUuid);
 
     /**
      * Unassociate the given keys from all the certificates.
+     *
      * @param keyUuids list of UUID of the key objects or alternative key objects to be unassociated
      */
     void bulkClearKeyAssociations(List<UUID> keyUuids);
 
     /**
      * Function to update the certificate with the keys if known
+     *
      * @param keyUuid
      * @param publicKeyFingerprint
      * @throws NotFoundException
@@ -255,6 +261,7 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * Get the list of the certificate contents for the provided certificate UUIDs
+     *
      * @param uuids UUIDs of the certificate
      * @return List of certificate contents
      */
@@ -281,16 +288,18 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * Function to change the Certificate Entity from CSR to Certificate
-     * @param uuid UUID of the entity to be transformed
+     *
+     * @param uuid            UUID of the entity to be transformed
      * @param certificateData Issued Certificate Data
-     * @param meta Metadata of the certificate
+     * @param meta            Metadata of the certificate
      * @return Certificate detail DTO
      */
     CertificateDetailDto issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException;
 
     /**
      * List certificates eligible for CA certificate of SCEP requests
-     * @param filter Security Filter
+     *
+     * @param filter        Security Filter
      * @param intuneEnabled flag to return certificates that are eligible for Intune integration
      * @return List of available CA certificates
      */
@@ -298,10 +307,22 @@ public interface CertificateService extends ResourceExtensionService  {
 
     /**
      * List certificates eligible for signing CMP responses
+     *
      * @param filter Security Filter
      * @return List of available signing certificates
      */
     List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter);
+
+    /**
+     * List certificates eligible for digital signing.
+     *
+     * @param filter              security filter
+     * @param signingWorkflowType digital signing workflow type
+     * @param qualifiedTimestamp  when {@code true} and workflow is TIMESTAMPING, restricts results to certificates that satisfy
+     *                            ETSI EN 319 421 qualified timestamp requirements
+     * @return List of available certificates
+     */
+    List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp);
 
     /**
      * Find certificates which are expiring and not renewed and trigger event handling these certificates
