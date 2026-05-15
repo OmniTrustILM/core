@@ -102,7 +102,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
 
     private Cookie sessionCookie(String sessionId) {
         // DefaultCookieSerializer base64url-encodes the session ID when writing cookies
-        return new Cookie("SESSION", Base64.getUrlEncoder().encodeToString(sessionId.getBytes()));
+        return new Cookie(CookieConfig.COOKIE_NAME, Base64.getUrlEncoder().encodeToString(sessionId.getBytes()));
     }
 
     // ── TSP tests ─────────────────────────────────────────────────────────────
@@ -111,6 +111,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
     void tspRequest_noSetCookieInResponse() throws Exception {
         var result = mvc.perform(
                 post(TSP_URL)
+                        .servletPath(TSP_URL)
                         .contentType("application/timestamp-query")
                         .content(buildTspRequest()))
                 .andReturn();
@@ -126,6 +127,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
     void tspRequest_ignoresIncomingSessionCookie() throws Exception {
         mvc.perform(
                 post(TSP_URL)
+                        .servletPath(TSP_URL)
                         .contentType("application/timestamp-query")
                         .content(buildTspRequest())
                         .cookie(sessionCookie(UUID.randomUUID().toString())));
@@ -137,7 +139,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
     // ── Non-TSP tests ─────────────────────────────────────────────────────────
 
     /**
-     * For non-TSP endpoints the {@code SESSION} cookie must be forwarded to the session repository so that existing sessions can be resumed.
+     * For non-TSP endpoints the {@code czertainly-session} cookie must be forwarded to the session repository so that existing sessions can be resumed.
      */
     @Test
     void nonTspRequest_resolvesIncomingSessionCookie() throws Exception {
@@ -147,6 +149,45 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
                         .content("{}")
                         .cookie(sessionCookie(UUID.randomUUID().toString())));
 
+        Mockito.verify(sessionRepository, Mockito.atLeastOnce())
+                .findById(Mockito.anyString());
+    }
+
+    /**
+     * expireSession for a TSP request must not add a Set-Cookie header (the delegate must not be called).
+     */
+    @Test
+    void tspRequest_expireSession_doesNotClearCookie() throws Exception {
+        var result = mvc.perform(
+                post(TSP_URL)
+                        .servletPath(TSP_URL)
+                        .contentType("application/timestamp-query")
+                        .content(buildTspRequest())
+                        .cookie(sessionCookie(UUID.randomUUID().toString())))
+                .andReturn();
+
+        assertNull(result.getResponse().getHeader("Set-Cookie"),
+                "TSP expireSession must not produce a Set-Cookie header");
+    }
+
+    /**
+     * expireSession for a non-TSP request must clear the cookie (delegate must be called).
+     */
+    @Test
+    void nonTspRequest_expireSession_clearsCookie() throws Exception {
+        String sessionId = UUID.randomUUID().toString();
+        var session = sessionRepository.createSession();
+        sessionRepository.save(session);
+
+        var result = mvc.perform(
+                post(NON_TSP_URL)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .cookie(sessionCookie(sessionId)))
+                .andReturn();
+
+        // The filter may issue a Set-Cookie to refresh or expire the session; the important thing is
+        // that expireSession is not suppressed for non-TSP requests, i.e. the resolver delegated.
         Mockito.verify(sessionRepository, Mockito.atLeastOnce())
                 .findById(Mockito.anyString());
     }

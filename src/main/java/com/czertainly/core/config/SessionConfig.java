@@ -17,6 +17,7 @@ import org.springframework.session.config.SessionRepositoryCustomizer;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.jdbc.config.annotation.web.http.EnableJdbcHttpSession;
 import org.springframework.session.web.http.CookieHttpSessionIdResolver;
+import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.HttpSessionIdResolver;
 
 import java.io.IOException;
@@ -103,8 +104,10 @@ public class SessionConfig implements BeanClassLoaderAware {
      * TSP is a stateless binary protocol that does not use HTTP sessions.
      */
     @Bean
-    public HttpSessionIdResolver httpSessionIdResolver() {
+    public HttpSessionIdResolver httpSessionIdResolver(CookieSerializer cookieSerializer) {
         CookieHttpSessionIdResolver delegate = new CookieHttpSessionIdResolver();
+        delegate.setCookieSerializer(cookieSerializer);
+
         return new HttpSessionIdResolver() {
             @Override
             public List<String> resolveSessionIds(HttpServletRequest request) {
@@ -128,8 +131,9 @@ public class SessionConfig implements BeanClassLoaderAware {
                 }
             }
 
+            /** Uses a servlet path (context-path-agnostic) to correctly match TSP requests under any context path. */
             private boolean isTspRequest(HttpServletRequest request) {
-                return request.getRequestURI().startsWith("/v1/protocols/tsp");
+                return request.getServletPath().startsWith("/v1/protocols/tsp");
             }
         };
     }
