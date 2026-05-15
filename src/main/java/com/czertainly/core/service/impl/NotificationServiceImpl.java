@@ -14,7 +14,9 @@ import com.czertainly.core.dao.repository.notifications.NotificationRepository;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.NotificationService;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.czertainly.core.service.NotificationExternalService;
+import com.czertainly.core.service.NotificationInternalService;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.RequestValidatorHelper;
 import org.slf4j.Logger;
@@ -30,7 +32,7 @@ import java.util.*;
 
 @Service
 @Transactional
-public class NotificationServiceImpl implements NotificationService {
+public class NotificationServiceImpl implements NotificationExternalService, NotificationInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationServiceImpl.class);
 
@@ -101,6 +103,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public NotificationResponseDto listNotifications(NotificationRequestDto request) {
         RequestValidatorHelper.revalidatePaginationRequestDto(request);
         final Pageable pageable = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
@@ -121,6 +124,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void deleteNotification(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
@@ -133,6 +137,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void markNotificationAsRead(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
@@ -148,6 +153,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void bulkDeleteNotifications(List<String> uuids) {
         for (String uuid : uuids) {
             try {
@@ -159,6 +165,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void bulkMarkNotificationAsRead(List<String> uuids) {
         for (String uuid : uuids) {
             try {
