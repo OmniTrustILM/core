@@ -125,11 +125,15 @@ public class EventServiceImpl implements EventService {
                         Collectors.mapping(row -> (UUID) row[1], Collectors.toList())
                 ));
 
-        // Batch 3: all trigger histories for the paginated object UUIDs in one query, then group in Java
+        // Batch 3: all trigger histories for the paginated object UUIDs in one query, then group in Java.
+        // Null object_uuid (ignored certificates) is a valid paginated entry; filter it from the IN parameter
+        // since OR t.objectUuid IS NULL in the query handles that clause. Hibernate renders an empty IN as (1=0),
+        // so the OR branch still fires when the page contains only null entries.
         List<UUID> allPaginatedObjectUuids = paginatedObjectUuidsPerEvent.values().stream()
-                .flatMap(Collection::stream).distinct().toList();
+                .flatMap(Collection::stream).filter(Objects::nonNull).distinct().toList();
+        boolean hasNullObjectUuid = paginatedObjectUuidsPerEvent.values().stream().anyMatch(list -> list.contains(null));
         Map<UUID, Map<UUID, List<TriggerHistory>>> triggerHistoriesByEventAndObject = new LinkedHashMap<>();
-        if (!allPaginatedObjectUuids.isEmpty()) {
+        if (!allPaginatedObjectUuids.isEmpty() || hasNullObjectUuid) {
             for (TriggerHistory th : triggerHistoryRepository.findByEventHistoryUuidsAndObjectUuids(eventHistoryUuids, allPaginatedObjectUuids)) {
                 triggerHistoriesByEventAndObject
                         .computeIfAbsent(th.getEventHistoryUuid(), k -> new LinkedHashMap<>())

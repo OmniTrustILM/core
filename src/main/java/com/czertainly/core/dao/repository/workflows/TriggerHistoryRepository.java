@@ -35,9 +35,32 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
 
 
     /**
+     * Returns one row per event history with three counts in a single GROUP BY query,
+     * replacing three separate per-row count queries when mapping a page of EventHistory records.
+     * Each row is [eventHistoryUuid, objectsEvaluated, objectsMatched, objectsIgnored].
+     * Null object_uuid (ignored certificates never persisted) is counted as one distinct object
+     * via bool_or, since COUNT(DISTINCT ...) ignores nulls.
+     */
+    @Query(value = """
+            SELECT t.event_history_uuid,
+                   COUNT(DISTINCT t.object_uuid)
+                       + CASE WHEN bool_or(t.object_uuid IS NULL) THEN 1 ELSE 0 END,
+                   COUNT(DISTINCT CASE WHEN t.conditions_matched THEN t.object_uuid END)
+                       + CASE WHEN bool_or(t.conditions_matched AND t.object_uuid IS NULL) THEN 1 ELSE 0 END,
+                   COUNT(DISTINCT CASE WHEN t.conditions_matched AND tr.ignore_trigger THEN t.object_uuid END)
+                       + CASE WHEN bool_or(t.conditions_matched AND tr.ignore_trigger AND t.object_uuid IS NULL) THEN 1 ELSE 0 END
+            FROM trigger_history t
+            LEFT JOIN trigger tr ON t.trigger_uuid = tr.uuid
+            WHERE t.event_history_uuid IN :uuids
+            GROUP BY t.event_history_uuid
+            """, nativeQuery = true)
+    List<Object[]> countStatsByEventHistoryUuids(@Param("uuids") List<UUID> uuids);
+
+    /**
      * Returns paginated (event_history_uuid, object_uuid) pairs for a batch of event histories
      * in a single window-function query, replacing one paginated query per event history row.
      * Offset is zero-based; limit is the page size.
+     * Null object_uuid is treated as a distinct entry (e.g. ignored certificates) and counted in pagination.
      */
     @Query(value = """
             SELECT event_history_uuid, object_uuid
