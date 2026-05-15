@@ -169,7 +169,6 @@ public class AttributeEngine {
         ).toList();
     }
 
-
     public List<CustomAttribute> getCustomAttributesByResource(Resource resource, SecurityResourceFilter securityResourceFilter) {
         List<AttributeRelation> relations = attributeRelationRepository.findByResourceAndAttributeDefinitionTypeAndAttributeDefinitionEnabled(resource, AttributeType.CUSTOM, true);
 
