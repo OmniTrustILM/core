@@ -181,7 +181,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             extended_key_usage,fingerprint,issuer_common_name,issuer_dn,issuer_dn_normalized,
             issuer_serial_number,key_size,key_usage,key_uuid,public_key_algorithm,
             public_key_fingerprint,serial_number,signature_algorithm,subject_alternative_names,
-            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint)
+            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint,qc_compliance)
             VALUES (
             :#{#cert.uuid}, :#{#cert.author}, :#{#cert.created}, :#{#cert.updated}, :#{#cert.raProfileUuid}, :#{#cert.certificateContentId},
             :#{#cert.certificateRequestUuid}, :#{#cert.issuerCertificateUuid}, :#{#cert.certificateType.name()},
@@ -191,7 +191,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             :#{#cert.issuerSerialNumber}, :#{#cert.keySize}, :#{#cert.keyUsageBitMask}, :#{#cert.keyUuid}, :#{#cert.publicKeyAlgorithm},
             :#{#cert.publicKeyFingerprint}, :#{#cert.serialNumber}, :#{#cert.signatureAlgorithm}, :#{#cert.subjectAlternativeNames},
             :#{#cert.subjectDn}, :#{#cert.subjectDnNormalized}, :#{#cert.subjectType.name()}, :#{#cert.trustedCa}, :#{#cert.userUuid},
-            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint}
+            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint}, :#{#cert.qcCompliance}
             )
             ON CONFLICT (fingerprint)
             DO NOTHING

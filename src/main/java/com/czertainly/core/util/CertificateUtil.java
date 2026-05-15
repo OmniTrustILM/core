@@ -13,8 +13,10 @@ import com.czertainly.api.model.core.oid.SystemOid;
 import com.czertainly.api.model.core.settings.CertificateValidationSettingsDto;
 import com.czertainly.api.model.core.settings.PlatformSettingsDto;
 import com.czertainly.api.model.core.settings.SettingsSection;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Certificate_;
+import com.czertainly.core.dao.entity.CryptographicKey_;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.entity.CryptographicKeyItem_;
 import com.czertainly.core.dao.entity.DiscoveryCertificate;
@@ -43,6 +45,8 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
+import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -430,7 +434,9 @@ public class CertificateUtil {
         modal.setIssuerDnNormalized(X500Name.getInstance(new CzertainlyX500NameStyle(true), issuerDnPrincipalEncoded).toString());
         modal.setSubjectDnNormalized(X500Name.getInstance(new CzertainlyX500NameStyle(true), subjectDnPrincipalEncoded).toString());
         CertificateSubjectType subjectType = CertificateUtil.getCertificateSubjectType(certificate, modal.getSubjectDnNormalized().equals(modal.getIssuerDnNormalized()));
-        if (subjectType == CertificateSubjectType.ROOT_CA || subjectType == CertificateSubjectType.SELF_SIGNED_END_ENTITY) modal.setIssuerSerialNumber(modal.getSerialNumber());
+        if (subjectType == CertificateSubjectType.ROOT_CA || subjectType == CertificateSubjectType.SELF_SIGNED_END_ENTITY) {
+            modal.setIssuerSerialNumber(modal.getSerialNumber());
+        }
 
         List<String> extendedKeyUsage = null;
         try {
@@ -438,13 +444,87 @@ public class CertificateUtil {
         } catch (CertificateParsingException e) {
             logger.warn("Unable to get the extended key usage for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
         }
-        if (extendedKeyUsage != null) modal.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsage));
+        if (extendedKeyUsage != null) {
+            modal.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsage));
+            modal.setExtendedKeyUsageCritical(
+                    certificate.getCriticalExtensionOIDs() != null
+                            && certificate.getCriticalExtensionOIDs().contains(Extension.extendedKeyUsage.getId()));
+        }
+
+        QcStatementParseResult qc = null;
+        try {
+            qc = parseQcStatements(certificate);
+        } catch (Exception e) {
+            logger.warn("Unable to parse QCStatements extension for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
+        }
+        if (qc != null) {
+            modal.setQcCompliance(qc.qcCompliance());
+            modal.setQcSscd(qc.qcSscd());
+            modal.setQcType(qc.qcType() != null
+                    ? MetaDefinitions.serializeArrayString(
+                    qc.qcType().stream().map(QcType::name).toList())
+                    : null);
+            modal.setQcCcLegislation(qc.qcCcLegislation() != null
+                    ? MetaDefinitions.serializeArrayString(qc.qcCcLegislation())
+                    : null);
+        }
+
         modal.setKeyUsage(
-               CertificateUtil.keyUsageExtractor(certificate.getKeyUsage()));
+                CertificateUtil.keyUsageExtractor(certificate.getKeyUsage()));
         modal.setSubjectType(subjectType);
         // Set trusted certificate mark either for CA or for self-signed certificate
         if (subjectType != CertificateSubjectType.END_ENTITY)
             modal.setTrustedCa(false);
+    }
+
+    /**
+     * Parses the QCStatements extension (OID 1.3.6.1.5.5.7.1.3) of an X.509 certificate and extracts the four operationally
+     * relevant statements per ETSI EN 319 412-5. Returns null when the extension is absent.
+     */
+    private static QcStatementParseResult parseQcStatements(X509Certificate cert) {
+        byte[] raw = cert.getExtensionValue(Extension.qCStatements.getId());
+        if (raw == null) return null;
+
+        boolean qcCompliance = false;
+        boolean qcSscd = false;
+        List<QcType> qcType = new ArrayList<>();
+        List<String> qcCcLegislation = new ArrayList<>();
+
+        ASN1Sequence seq = ASN1Sequence.getInstance(ASN1OctetString.getInstance(raw).getOctets());
+        for (ASN1Encodable el : seq) {
+            QCStatement stmt = QCStatement.getInstance(el);
+            ASN1ObjectIdentifier id = stmt.getStatementId();
+
+            if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance.equals(id)) {
+                qcCompliance = true;
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcSSCD.equals(id)) {
+                qcSscd = true;
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcType.equals(id)) {
+                ASN1Sequence types = ASN1Sequence.getInstance(stmt.getStatementInfo());
+                for (ASN1Encodable t : types) {
+                    ASN1ObjectIdentifier typeOid = ASN1ObjectIdentifier.getInstance(t);
+                    if (ETSIQCObjectIdentifiers.id_etsi_qct_esign.equals(typeOid)) qcType.add(QcType.ESIGN);
+                    else if (ETSIQCObjectIdentifiers.id_etsi_qct_eseal.equals(typeOid)) qcType.add(QcType.ESEAL);
+                    else if (ETSIQCObjectIdentifiers.id_etsi_qct_web.equals(typeOid)) qcType.add(QcType.WEB);
+                }
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcCClegislation.equals(id)) {
+                ASN1Sequence countries = ASN1Sequence.getInstance(stmt.getStatementInfo());
+                for (ASN1Encodable cc : countries) {
+                    qcCcLegislation.add(DERPrintableString.getInstance(cc).getString());
+                }
+            }
+            // QcLimitValue, QcRetentionPeriod, QcPDS intentionally not parsed since they are not operationally relevant
+        }
+
+        return new QcStatementParseResult(qcCompliance, qcSscd,
+                qcType.isEmpty() ? null : qcType,
+                qcCcLegislation.isEmpty() ? null : qcCcLegislation);
+    }
+
+    record QcStatementParseResult(boolean qcCompliance,
+                                  boolean qcSscd,
+                                  List<QcType> qcType,
+                                  List<String> qcCcLegislation) {
     }
 
     public static String getAlternativeSignatureAlgorithm(byte[] alternativeSignatureAlgorithm) throws IOException {
@@ -773,6 +853,123 @@ public class CertificateUtil {
             }
         }
         return privateKeyAvailable;
+    }
+
+    /*
+     * Constructed Query Graph for Digital Signing Certificate Filtering:
+     *
+     * Certificate (root)
+     * |-- NOT archived
+     * |-- keyUuid IS NOT NULL
+     * |-- state == ISSUED
+     * |-- validationStatus IN (VALID, EXPIRING)
+     * |-- key.tokenProfileUuid IS NOT NULL  (associated Token Profile)
+     * |-- AT LEAST ONE private key must exist
+     * |-- ALL private keys must meet criteria
+     *     |-- state=ACTIVE AND usage & SIGN
+     * |-- (TIMESTAMPING only) extendedKeyUsage is exclusively the TSA OID (RFC 3161)
+     * |-- (TIMESTAMPING only) extendedKeyUsageCritical is true (RFC 3161)
+     * |-- (TIMESTAMPING + qualifiedTimestamp only) certificate carries id-etsi-qcs-QcCompliance (ETSI EN 319 412-5 / EN 319 421)
+     */
+    public static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> constructQueryDigitalSigningCertAcceptable(SigningWorkflowType workflowType, boolean qualifiedTimestamp) {
+        return (root, cb, cr) -> {
+            // Subquery to ensure at least one private key exists.
+            Subquery<Integer> privateKeySubquery = cr.subquery(Integer.class);
+            Root<CryptographicKeyItem> pkSubRoot = privateKeySubquery.from(CryptographicKeyItem.class);
+            privateKeySubquery.select(cb.literal(1));
+            privateKeySubquery.where(
+                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
+                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY)
+            );
+
+            // Subquery to check if there are any private keys that DO NOT meet criteria.
+            Subquery<Integer> invalidPrivateKeySubquery = cr.subquery(Integer.class);
+            Root<CryptographicKeyItem> invPkSubRoot = invalidPrivateKeySubquery.from(CryptographicKeyItem.class);
+            invalidPrivateKeySubquery.select(cb.literal(1));
+            invalidPrivateKeySubquery.where(
+                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
+                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY),
+                    cb.not(constructKeyItemPredicate(cb, invPkSubRoot, null, KeyState.ACTIVE, KeyUsage.SIGN.getBit()))
+            );
+
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.not(root.get(Certificate_.ARCHIVED)));
+            predicates.add(cb.isNotNull(root.get(Certificate_.KEY_UUID)));
+            predicates.add(cb.equal(root.get(Certificate_.STATE), CertificateState.ISSUED));
+            predicates.add(root.get(Certificate_.VALIDATION_STATUS).in(List.of(CertificateValidationStatus.VALID, CertificateValidationStatus.EXPIRING)));
+            predicates.add(cb.exists(privateKeySubquery));
+            predicates.add(cb.not(cb.exists(invalidPrivateKeySubquery)));
+            predicates.add(cb.isNotNull(root.get(Certificate_.KEY).get(CryptographicKey_.TOKEN_PROFILE_UUID)));
+
+            // RFC 3161: the EKU extension MUST contain only id-kp-timeStamping and MUST be critical.
+            if (workflowType == SigningWorkflowType.TIMESTAMPING) {
+                String exclusiveTsaEku = MetaDefinitions.serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid()));
+                predicates.add(cb.equal(root.get(Certificate_.EXTENDED_KEY_USAGE), exclusiveTsaEku));
+                predicates.add(cb.isTrue(root.get(Certificate_.EXTENDED_KEY_USAGE_CRITICAL)));
+                // ETSI EN 319 421 §6.2: for a qualified TSA the signer certificate MUST carry the
+                // id-etsi-qcs-QcCompliance statement (OID 0.4.0.1862.1.1, ETSI EN 319 412-5).
+                if (qualifiedTimestamp) {
+                    predicates.add(cb.isTrue(root.get(Certificate_.QC_COMPLIANCE)));
+                }
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    /**
+     * Determines whether a {@link Certificate} entity is acceptable for digital signing under the given workflow type and qualification level.
+     *
+     * <p>For {@link SigningWorkflowType#TIMESTAMPING}, RFC 3161 requirements are enforced (exclusive, critical extended key usage EKU).
+     * When {@code qualifiedTimestamp} is {@code true}, the certificate is additionally required to carry the
+     * {@code id-etsi-qcs-QcCompliance} statement (OID {@code 0.4.0.1862.1.1}) as mandated by ETSI EN 319 421 §6.2
+     * and defined in ETSI EN 319 412-5.
+     *
+     * @param certificate        the entity to evaluate
+     * @param workflowType       the signing workflow
+     * @param qualifiedTimestamp when {@code true} and workflow is TIMESTAMPING, also requires id-etsi-qcs-QcCompliance in QCStatements
+     * @return {@code true} iff all applicable requirements are satisfied
+     */
+    public static boolean isCertificateDigitalSigningAcceptable(Certificate certificate, SigningWorkflowType workflowType, boolean qualifiedTimestamp) {
+        if (certificate.isArchived()) return false;
+        if (certificate.getKey() == null ||
+                certificate.getState() != CertificateState.ISSUED ||
+                (certificate.getValidationStatus() != CertificateValidationStatus.VALID
+                        && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING)
+        ) {
+            return false;
+        }
+
+        // The associated CryptographicKey must have a Token Profile assigned.
+        if (certificate.getKey().getTokenProfile() == null) return false;
+
+        // All private keys must be ACTIVE and carry the SIGN usage.
+        // Other key types (split keys, secret keys) do not apply to certificate signing.
+        boolean privateKeyAvailable = false;
+        for (CryptographicKeyItem item : certificate.getKey().getItems()) {
+            if (item.getType().equals(KeyType.PRIVATE_KEY)) {
+                if (item.getState() != KeyState.ACTIVE || !item.getUsage().contains(KeyUsage.SIGN)) {
+                    return false;
+                }
+                privateKeyAvailable = true;
+            }
+        }
+        if (!privateKeyAvailable) return false;
+
+        if (workflowType == SigningWorkflowType.TIMESTAMPING) {
+            // RFC 3161: the EKU extension MUST contain only id-kp-timeStamping and MUST be critical.
+            List<String> ekuOids = MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage());
+            boolean ekuCompliant = ekuOids.size() == 1
+                    && ekuOids.contains(SystemOid.TIME_STAMPING.getOid())
+                    && Boolean.TRUE.equals(certificate.getExtendedKeyUsageCritical());
+            if (!ekuCompliant) return false;
+
+            // ETSI EN 319 421 §6.2: for a qualified TSA the signer certificate MUST carry the
+            // id-etsi-qcs-QcCompliance statement (OID 0.4.0.1862.1.1, ETSI EN 319 412-5).
+            return !qualifiedTimestamp || Boolean.TRUE.equals(certificate.getQcCompliance());
+        }
+
+        return true;
     }
 
     public static String generateRandomX509CertificateBase64(KeyPair keyPair) throws CertificateException, NoSuchAlgorithmException, SignatureException, InvalidKeyException, NoSuchProviderException, OperatorCreationException {
