@@ -73,4 +73,12 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
             @Param("eventHistoryUuids") List<UUID> eventHistoryUuids,
             @Param("objectUuids") List<UUID> objectUuids);
 
+
+
+    @Query("""
+            UPDATE TriggerHistory th SET th.objectUuid = :objectUuid, th.objectResource = :objectResource
+            WHERE th.eventHistoryUuid = :eventHistoryUuid
+            """)
+    @Modifying
+    void updateObjectUuidAndObjectResource(@Param("objectUuid") UUID objectUuid, @Param("objectResource") Resource objectResource, @Param("eventHistoryUuid") UUID eventHistoryUuid);
 }

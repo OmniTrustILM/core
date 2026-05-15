@@ -14,6 +14,7 @@ import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.repository.CertificateRepository;
+import com.czertainly.core.dao.repository.workflows.TriggerHistoryRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.events.EventContext;
 import com.czertainly.core.events.EventHandler;
@@ -48,7 +49,13 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     private CertificateEventHistoryService certificateEventHistoryService;
     private UserManagementService userManagementService;
     private AttributeEngine attributeEngine;
+    private TriggerHistoryRepository triggerHistoryRepository;
 
+
+    @Autowired
+    public void setTriggerHistoryRepository(TriggerHistoryRepository triggerHistoryRepository) {
+        this.triggerHistoryRepository = triggerHistoryRepository;
+    }
 
     @Autowired
     public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
@@ -121,6 +128,9 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                 return;
             }
             saveCertificate(eventMessageData, certificate);
+            // Retroactively link trigger histories of the ignore triggers to the certificate
+            triggerHistoryRepository.updateObjectUuidAndObjectResource(certificate.getUuid(), Resource.CERTIFICATE, eventHistory.getUuid());
+
             evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory);
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), certificate.toStringShort(), e.getMessage());
