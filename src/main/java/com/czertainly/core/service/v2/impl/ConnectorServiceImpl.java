@@ -383,7 +383,8 @@ public class ConnectorServiceImpl implements ConnectorService {
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_STATUS),
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_AUTH_TYPE),
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_INTERFACE),
-                SearchHelper.prepareSearch(FilterField.CONNECTOR_FUNCTION_GROUP)
+                SearchHelper.prepareSearch(FilterField.CONNECTOR_FUNCTION_GROUP),
+                SearchHelper.prepareSearch(FilterField.CONNECTOR_FEATURES)
         );
 
         fields = new ArrayList<>(fields);

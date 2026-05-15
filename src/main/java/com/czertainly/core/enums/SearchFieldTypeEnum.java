@@ -30,7 +30,7 @@ public enum SearchFieldTypeEnum {
     // Like LIST but the underlying column is a native PostgreSQL array (text[]).
     // EQUALS/NOT_EQUALS use = ANY(column) instead of column = value.
     NATIVE_ARRAY(FilterFieldType.LIST,
-            List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY)
+            List.of(FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS, FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY)
             , true, null),
     BOOLEAN(FilterFieldType.BOOLEAN,
          List.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY), false, Boolean.class)
