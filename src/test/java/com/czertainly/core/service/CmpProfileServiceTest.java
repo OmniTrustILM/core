@@ -5,6 +5,7 @@ import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.cmp.CmpProfileEditRequestDto;
 import com.czertainly.api.model.client.cmp.CmpProfileRequestDto;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
@@ -198,5 +199,27 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = cmpProfileService.getResourceObjectExternal(cmpProfile.getSecuredUuid());
         Assertions.assertEquals(cmpProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cmpProfile.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testBulkDeleteCmpProfile_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkDeleteCmpProfile(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveCmpProfiles_nonExistentUuid_returnsErrorMessage() throws NotFoundException, ValidationException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkForceRemoveCmpProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

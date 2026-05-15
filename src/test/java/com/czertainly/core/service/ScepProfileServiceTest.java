@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.scep.ScepProfileEditRequestDto;
 import com.czertainly.api.model.client.scep.ScepProfileRequestDto;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
@@ -376,5 +377,27 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = scepProfileService.getResourceObjectExternal(scepProfile.getSecuredUuid());
         Assertions.assertEquals(scepProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(scepProfile.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testBulkDeleteScepProfile_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = scepProfileService.bulkDeleteScepProfile(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveScepProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = scepProfileService.bulkForceRemoveScepProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

@@ -548,4 +548,15 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
         var groups = complianceProfileService.getComplianceGroupRules(complianceV2Group2Uuid, connectorV2.getUuid(), KIND_V2);
         Assertions.assertEquals(1, groups.size());
     }
+
+    @Test
+    void testForceDeleteComplianceProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = complianceProfileService.forceDeleteComplianceProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
 }

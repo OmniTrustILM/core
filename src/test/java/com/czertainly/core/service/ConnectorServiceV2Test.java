@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 class ConnectorServiceV2Test extends BaseSpringBootTest {
 
@@ -430,5 +431,36 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
         NameAndUuidDto nameAndUuidDto = connectorService.getResourceObjectExternal(connector.getSecuredUuid());
         Assertions.assertEquals(connector.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(connector.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testBulkDeleteConnector_nonExistentUuid_returnsErrorMessage() throws ValidationException, NotFoundException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.bulkDeleteConnector(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testForceDeleteConnector_nonExistentUuid_returnsErrorMessage() throws ValidationException, NotFoundException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.forceDeleteConnector(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkApprove_alreadyConnectedConnector_returnsErrorMessage() {
+        List<BulkActionMessageDto> messages = connectorService.bulkApprove(List.of(connector.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(connector.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

@@ -344,4 +344,26 @@ class AcmeProfileServiceTest extends BaseSpringBootTest {
         Assertions.assertTrue(exception.getMessage().contains("Cannot remove the RA Profile"));
         Assertions.assertTrue(exception.getMessage().contains("because there are existing ACME accounts"));
     }
+
+    @Test
+    void testBulkDeleteAcmeProfile_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkDeleteAcmeProfile(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveACMEProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkForceRemoveACMEProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
 }
