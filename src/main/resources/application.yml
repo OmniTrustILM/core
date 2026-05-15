@@ -11,6 +11,8 @@ caching:
 certificate:
   chain:
     max-depth: 20
+  validation:
+    batch-size: 10
 
 # Authentication and authorization
 auth-service:
