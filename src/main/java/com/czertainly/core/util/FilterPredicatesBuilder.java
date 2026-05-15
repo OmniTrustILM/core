@@ -44,6 +44,7 @@ public class FilterPredicatesBuilder {
     private static final String JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME = "jsonb_extract_path_text";
     private static final String TEXTREGEXEQ_FUNCTION_NAME = "textregexeq";
     private static final String ARRAY_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_CONTAINS;
+    private static final String ARRAY_ITEM_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_ITEM_CONTAINS;
 
     public static <T> Predicate getFiltersPredicate(final CriteriaBuilder criteriaBuilder, final CommonAbstractCriteria query, final Root<T> root, final List<SearchFilterRequestDto> filterDtos) {
         Map<String, From> joinedAssociations = new HashMap<>();
@@ -279,7 +280,6 @@ public class FilterPredicatesBuilder {
         }
         final LocalDateTime now = LocalDateTime.now();
         boolean bitEnumProperty = filterField.getEnumClass() != null && BitMaskEnum.class.isAssignableFrom(filterField.getEnumClass());
-        boolean isNativeArrayField = filterField.getType() == SearchFieldTypeEnum.NATIVE_ARRAY;
         if (expression == null && !isCountOperator(conditionOperator))
             throw new ValidationException("Invalid filter configuration: no expression for field " + filterField + " with operator " + conditionOperator);
         final Expression finalExpression = expression;
@@ -289,19 +289,9 @@ public class FilterPredicatesBuilder {
                     predicate = criteriaBuilder.notEqual(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isTrue(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
-                else if (isNativeArrayField) {
-                    List<Predicate> nativeArrayPredicates = filterValues.stream()
-                            .map(value -> criteriaBuilder.isTrue(criteriaBuilder.function(
-                                    ARRAY_CONTAINS_FUNCTION_NAME,
-                                    Boolean.class,
-                                    criteriaBuilder.literal(value.toString()),
-                                    finalExpression
-                            )))
-                            .toList();
-                    predicate = nativeArrayPredicates.size() == 1
-                            ? nativeArrayPredicates.getFirst()
-                            : criteriaBuilder.or(nativeArrayPredicates.toArray(new Predicate[0]));
-                } else
+                else if (filterField.isNativeArrayField())
+                    predicate = getNativeArrayEqualsExpression(criteriaBuilder, filterValues, finalExpression);
+                else
                     predicate = multipleValues ? expression.in(filterValues) : criteriaBuilder.equal(expression, filterValues.getFirst());
             }
             case NOT_EQUALS -> {
@@ -309,20 +299,10 @@ public class FilterPredicatesBuilder {
                     predicate = criteriaBuilder.equal(getBitwiseEqualExpression(filterValues.getFirst(), expression, criteriaBuilder), 0);
                 else if (isJsonArray)
                     predicate = criteriaBuilder.isFalse(getJsonArrayEqualsExpression(criteriaBuilder, expression, filterValues.getFirst().toString()));
-                else if (isNativeArrayField) {
-                    Predicate[] nativeArrayNotContainsPredicates = filterValues.stream()
-                            .map(value -> criteriaBuilder.isFalse(criteriaBuilder.function(
-                                    ARRAY_CONTAINS_FUNCTION_NAME,
-                                    Boolean.class,
-                                    criteriaBuilder.literal(value.toString()),
-                                    finalExpression
-                            )))
-                            .toArray(Predicate[]::new);
-                    predicate = criteriaBuilder.or(
-                            criteriaBuilder.isNull(expression),
-                            criteriaBuilder.and(nativeArrayNotContainsPredicates)
-                    );
-                }
+                else if (filterField.isNativeArrayField())
+                    predicate = filterField.getJoinAttributes().isEmpty()
+                            ? getNativeArrayNotEqualsExpression(criteriaBuilder, filterValues, finalExpression, expression)
+                            : buildNativeArrayNotExistsPredicate(criteriaBuilder, query, root, filterField, filterValues, ARRAY_CONTAINS_FUNCTION_NAME);
                 else {
                     // hack how to filter out correctly Has private key property filter for certificate. Needs to find correct solution for SET attributes predicates!
                     if (filterField.getExpectedValue() != null && filterField == FilterField.PRIVATE_KEY) {
@@ -336,19 +316,32 @@ public class FilterPredicatesBuilder {
             }
             case STARTS_WITH -> predicate = criteriaBuilder.like(expression, filterValues.getFirst() + "%");
             case ENDS_WITH -> predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst());
-            case CONTAINS -> predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst() + "%");
-            case NOT_CONTAINS ->
+            case CONTAINS -> {
+                if (filterField.isNativeArrayField()) {
+                    predicate = getNativeArrayContainsExpression(criteriaBuilder, filterValues, finalExpression);
+                } else {
+                    predicate = criteriaBuilder.like(expression, "%" + filterValues.getFirst() + "%");
+                }
+            }
+            case NOT_CONTAINS -> {
+                if (filterField.isNativeArrayField()) {
+                    predicate = filterField.getJoinAttributes().isEmpty()
+                            ? getNativeArrayNotContainsExpression(criteriaBuilder, filterValues, finalExpression, expression)
+                            : buildNativeArrayNotExistsPredicate(criteriaBuilder, query, root, filterField, filterValues, ARRAY_ITEM_CONTAINS_FUNCTION_NAME);
+                } else {
                     predicate = criteriaBuilder.or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, false, isJsonArray),
                             criteriaBuilder.notLike(expression, "%" + filterValues.getFirst() + "%"));
+                }
+            }
             case EMPTY -> {
-                if (isNativeArrayField)
+                if (filterField.isNativeArrayField())
                     predicate = criteriaBuilder.or(criteriaBuilder.isNull(expression),
                             criteriaBuilder.equal(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
                 else
                     predicate = getNotPresentPredicate(criteriaBuilder, from, expression, hasParent, isParentCollection, bitEnumProperty, isJsonArray);
             }
             case NOT_EMPTY -> {
-                if (isNativeArrayField)
+                if (filterField.isNativeArrayField())
                     predicate = criteriaBuilder.and(criteriaBuilder.isNotNull(expression),
                             criteriaBuilder.greaterThan(criteriaBuilder.function("cardinality", Integer.class, expression), 0));
                 else
@@ -426,6 +419,94 @@ public class FilterPredicatesBuilder {
                         "[\"%s\"]".formatted(filterValue)
                 )
         );
+    }
+
+    private static Predicate getNativeArrayEqualsExpression(CriteriaBuilder criteriaBuilder, List<Object> filterValues, Expression finalExpression) {
+        List<Predicate> nativeArrayPredicates = filterValues.stream()
+                .map(value -> criteriaBuilder.isTrue(criteriaBuilder.function(
+                        ARRAY_CONTAINS_FUNCTION_NAME,
+                        Boolean.class,
+                        criteriaBuilder.literal(value.toString()),
+                        finalExpression
+                )))
+                .toList();
+        return nativeArrayPredicates.size() == 1
+                ? nativeArrayPredicates.getFirst()
+                : criteriaBuilder.or(nativeArrayPredicates.toArray(new Predicate[0]));
+    }
+
+    private static Predicate getNativeArrayNotEqualsExpression(CriteriaBuilder criteriaBuilder, List<Object> filterValues, Expression finalExpression, Expression expression) {
+        Predicate[] nativeArrayNotContainsPredicates = filterValues.stream()
+                .map(value -> criteriaBuilder.isFalse(criteriaBuilder.function(
+                        ARRAY_CONTAINS_FUNCTION_NAME,
+                        Boolean.class,
+                        criteriaBuilder.literal(value.toString()),
+                        finalExpression
+                )))
+                .toArray(Predicate[]::new);
+        return criteriaBuilder.or(
+                criteriaBuilder.isNull(expression),
+                criteriaBuilder.and(nativeArrayNotContainsPredicates)
+        );
+    }
+
+    private static Predicate getNativeArrayContainsExpression(CriteriaBuilder criteriaBuilder, List<Object> filterValues, Expression finalExpression) {
+        List<Predicate> nativeArrayContainsPredicates = filterValues.stream()
+                .map(value -> criteriaBuilder.isTrue(criteriaBuilder.function(
+                        ARRAY_ITEM_CONTAINS_FUNCTION_NAME,
+                        Boolean.class,
+                        criteriaBuilder.literal(value.toString()),
+                        finalExpression
+                )))
+                .toList();
+
+        // Multi-value CONTAINS should match when any filter value is present in array items
+        return nativeArrayContainsPredicates.size() == 1
+                ? nativeArrayContainsPredicates.getFirst()
+                : criteriaBuilder.or(nativeArrayContainsPredicates.toArray(new Predicate[0]));
+    }
+
+    private static Predicate getNativeArrayNotContainsExpression(CriteriaBuilder criteriaBuilder, List<Object> filterValues, Expression finalExpression, Expression expression) {
+        Predicate[] nativeArrayNotContainsPredicates = filterValues.stream()
+                .map(value -> criteriaBuilder.isFalse(criteriaBuilder.function(
+                        ARRAY_ITEM_CONTAINS_FUNCTION_NAME,
+                        Boolean.class,
+                        criteriaBuilder.literal(value.toString()),
+                        finalExpression
+                )))
+                .toArray(Predicate[]::new);
+
+        // Keep existing NOT_* semantics: include null arrays as not containing searched values
+        return criteriaBuilder.or(
+                criteriaBuilder.isNull(expression),
+                criteriaBuilder.and(nativeArrayNotContainsPredicates)
+        );
+    }
+
+    // NOT EXISTS subquery is required here instead of a per-row predicate because the array field is accessed
+    // through a collection join (e.g. connector → connector_interface), producing multiple rows per root entity.
+    // A per-row check would incorrectly include an entity if any of its joined rows has a null/non-matching
+    // array, even when another row does contain the value. NOT EXISTS ensures the entity is excluded whenever
+    // any of its joined rows satisfies the positive condition.
+    private static <T> Predicate buildNativeArrayNotExistsPredicate(
+            CriteriaBuilder criteriaBuilder, CommonAbstractCriteria query, Root<T> root,
+            FilterField filterField, List<Object> filterValues, String functionName) {
+        Predicate[] notExistsPredicates = filterValues.stream()
+                .map(value -> {
+                    Subquery<Integer> subquery = query.subquery(Integer.class);
+                    From subFrom = subquery.correlate(root);
+                    for (Attribute attr : filterField.getJoinAttributes()) {
+                        subFrom = subFrom.join(attr.getName(), JoinType.INNER);
+                    }
+                    subquery.select(criteriaBuilder.literal(1))
+                            .where(criteriaBuilder.isTrue(criteriaBuilder.function(
+                                    functionName, Boolean.class,
+                                    criteriaBuilder.literal(value.toString()),
+                                    subFrom.get(filterField.getFieldAttribute().getName()))));
+                    return criteriaBuilder.not(criteriaBuilder.exists(subquery));
+                })
+                .toArray(Predicate[]::new);
+        return notExistsPredicates.length == 1 ? notExistsPredicates[0] : criteriaBuilder.and(notExistsPredicates);
     }
 
     private static Expression<?> getBitwiseEqualExpression(Object bit, Expression expression, CriteriaBuilder criteriaBuilder) {
@@ -525,6 +606,9 @@ public class FilterPredicatesBuilder {
                     }
                 } else {
                     preparedFilterValue = findEnumByCustomValue(value, filterField.getEnumClass());
+                    if (preparedFilterValue == null && filterField.isNativeArrayField()) {
+                        throw new ValidationException("Unknown filter value '%s' for field %s".formatted(value, filterField));
+                    }
                 }
             } else {
                 String stringValue = value.toString();
