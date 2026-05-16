@@ -121,6 +121,33 @@ class CertificateUtilTest {
     }
 
     @Test
+    void testPrepareIssuedCertificate_noEku_extendedKeyUsageCriticalIsNull() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        Certificate entity = new Certificate();
+        CertificateUtil.prepareIssuedCertificate(entity, x509);
+        Assertions.assertNull(entity.getExtendedKeyUsage(), "extendedKeyUsage should be null when EKU extension is absent");
+        Assertions.assertNull(entity.getExtendedKeyUsageCritical(), "extendedKeyUsageCritical should be null when EKU extension is absent — criticality is not applicable");
+    }
+
+    @Test
+    void testPrepareIssuedCertificate_criticalEku_extendedKeyUsageCriticalIsTrue() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithEku(true);
+        Certificate entity = new Certificate();
+        CertificateUtil.prepareIssuedCertificate(entity, x509);
+        Assertions.assertNotNull(entity.getExtendedKeyUsage(), "extendedKeyUsage should be set when EKU extension is present");
+        Assertions.assertTrue(entity.getExtendedKeyUsageCritical(), "extendedKeyUsageCritical should be true when EKU extension is marked critical");
+    }
+
+    @Test
+    void testPrepareIssuedCertificate_nonCriticalEku_extendedKeyUsageCriticalIsFalse() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithEku(false);
+        Certificate entity = new Certificate();
+        CertificateUtil.prepareIssuedCertificate(entity, x509);
+        Assertions.assertNotNull(entity.getExtendedKeyUsage(), "extendedKeyUsage should be set when EKU extension is present");
+        Assertions.assertFalse(entity.getExtendedKeyUsageCritical(), "extendedKeyUsageCritical should be false when EKU extension is present but not marked critical");
+    }
+
+    @Test
     void testPrepareIssuedCertificate_qcComplianceOnly() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithQcStatements(true, false, null, null);
         Certificate entity = new Certificate();

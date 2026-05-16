@@ -6,7 +6,7 @@ import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.DERSequence;
-import org.bouncycastle.asn1.DERUTF8String;
+import org.bouncycastle.asn1.DERPrintableString;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -136,6 +136,60 @@ public class CertificateTestUtil {
                 .getCertificate(certBuilder.build(signer));
     }
 
+    public static X509Certificate createTimestampingCertificate(boolean critical) throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-tsa"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-tsa"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, critical,
+                new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
+    public static X509Certificate createTimestampingCertificateWithExtraEku() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-tsa-extra"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-tsa-extra"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, true,
+                new ExtendedKeyUsage(new KeyPurposeId[]{KeyPurposeId.id_kp_timeStamping, KeyPurposeId.id_kp_serverAuth}));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
+    public static X509Certificate createQualifiedTimestampingCertificate() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
+        ensureBouncyCastleProvider();
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        Date notBefore = new Date();
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
+                new X500Name("CN=test-qtsa"), BigInteger.ONE, notBefore, notAfter, new X500Name("CN=test-qtsa"), keyPair.getPublic());
+        certBuilder.addExtension(Extension.extendedKeyUsage, true,
+                new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+        ASN1EncodableVector stmts = new ASN1EncodableVector();
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance));
+        certBuilder.addExtension(Extension.qCStatements, false, new DERSequence(stmts));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(certBuilder.build(signer));
+    }
+
     public static X509Certificate createTimestampingCertificate() throws NoSuchAlgorithmException, OperatorCreationException, CertificateException, IOException {
         ensureBouncyCastleProvider();
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
@@ -145,7 +199,7 @@ public class CertificateTestUtil {
 
     /**
      * Creates an end-entity certificate whose issuer is a freshly-generated CA key that is <em>not</em> stored in any
-     * certificate inventory. Because the certificate is signed bya key other than its own, {@code isSelfSigned}
+     * certificate inventory. Because the certificate is signed by a key other than its own, {@code isSelfSigned}
      * returns {@code false}, and because the issuing CA is absent from the inventory, {@code getCertificateChain} will
      * report an incomplete chain.
      */
@@ -249,7 +303,7 @@ public class CertificateTestUtil {
         if (ccLegislation != null && !ccLegislation.isEmpty()) {
             ASN1EncodableVector ccVec = new ASN1EncodableVector();
             for (String cc : ccLegislation) {
-                ccVec.add(new DERUTF8String(cc));
+                ccVec.add(new DERPrintableString(cc));
             }
             statements.add(new QCStatement(QC_CC_LEGISLATION, new DERSequence(ccVec)));
         }

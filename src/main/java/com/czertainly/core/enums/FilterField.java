@@ -4,6 +4,7 @@ import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
 import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
+import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
@@ -142,8 +143,7 @@ public enum FilterField {
     CONNECTOR_AUTH_TYPE(Resource.CONNECTOR, null, null, Connector_.authType, "Auth type", SearchFieldTypeEnum.LIST, AuthType.class),
     CONNECTOR_STATUS(Resource.CONNECTOR, null, null, Connector_.status, "Status", SearchFieldTypeEnum.LIST, ConnectorStatus.class),
     CONNECTOR_INTERFACE(Resource.CONNECTOR, null, List.of(Connector_.interfaces), ConnectorInterfaceEntity_.interfaceCode, "Interface", SearchFieldTypeEnum.LIST, ConnectorInterface.class),
-    CONNECTOR_FEATURES(Resource.CONNECTOR, null, List.of(Connector_.interfaces), ConnectorInterfaceEntity_.features,
-            "Features", SearchFieldTypeEnum.NATIVE_ARRAY, FeatureFlag.class, null, false, null),
+    CONNECTOR_FEATURES(Resource.CONNECTOR, null, List.of(Connector_.interfaces), ConnectorInterfaceEntity_.features, "Features", SearchFieldTypeEnum.NATIVE_ARRAY, FeatureFlag.class, null, false, null),
     CONNECTOR_FUNCTION_GROUP(Resource.CONNECTOR, null, List.of(Connector_.functionGroups, Connector2FunctionGroup_.functionGroup), FunctionGroup_.code, "Function group", SearchFieldTypeEnum.LIST, FunctionGroupCode.class),
 
     // Audit Logs
@@ -279,7 +279,7 @@ public enum FilterField {
         this.expectedValue = expectedValue;
     }
 
-    public boolean isNatriveArrayField() {
+    public boolean isNativeArrayField() {
         return this.type == SearchFieldTypeEnum.NATIVE_ARRAY;
     }
 

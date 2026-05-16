@@ -29,11 +29,14 @@ public class V202604011901__BackfillExtendedKeyUsageCritical extends BaseJavaMig
 
     @Override
     public void migrate(Context context) throws Exception {
+        // Only process certificates that have EKU data — those without EKU should remain NULL,
+        // because criticality is a property of the extension itself, not applicable when absent.
         String selectSql = """
                 SELECT c.uuid, cc.content
                 FROM certificate c
                 JOIN certificate_content cc ON cc.id = c.certificate_content_id
-                WHERE c.extended_key_usage_critical IS NULL
+                WHERE c.extended_key_usage IS NOT NULL
+                  AND c.extended_key_usage_critical IS NULL
                 """;
 
         String updateSql = "UPDATE certificate SET extended_key_usage_critical = ? WHERE uuid = ?";
@@ -45,17 +48,21 @@ public class V202604011901__BackfillExtendedKeyUsageCritical extends BaseJavaMig
             while (rows.next()) {
                 String uuid = rows.getString("uuid");
                 String content = rows.getString("content");
-                boolean critical = false;
+                Boolean critical = null;
                 try {
                     X509Certificate cert = CertificateUtil.parseCertificate(content);
-                    Set<String> criticalOids = cert.getCriticalExtensionOIDs();
-                    critical = criticalOids != null && criticalOids.contains(EKU_OID);
+                    if (cert.getExtendedKeyUsage() != null) {
+                        Set<String> criticalOids = cert.getCriticalExtensionOIDs();
+                        critical = criticalOids != null && criticalOids.contains(EKU_OID);
+                    }
                 } catch (Exception e) {
-                    // If the certificate cannot be parsed, leave critical=false (safe default).
+                    // Leave null if the certificate cannot be parsed.
                 }
-                update.setBoolean(1, critical);
-                update.setObject(2, UUID.fromString(uuid));
-                update.addBatch();
+                if (critical != null) {
+                    update.setBoolean(1, critical);
+                    update.setObject(2, UUID.fromString(uuid));
+                    update.addBatch();
+                }
             }
             update.executeBatch();
         }

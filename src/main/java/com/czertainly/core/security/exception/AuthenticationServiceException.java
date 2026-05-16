@@ -13,14 +13,8 @@ public class AuthenticationServiceException extends AuthenticationException {
     @Schema(description = "Exception Information", required = true)
     private AuthenticationServiceExceptionDto exception;
 
-
     public AuthenticationServiceException(String message) {
-        super(message);
-        System.out.println(message);
-    }
-
-    public AuthenticationServiceException(String message, Boolean isException) {
-        super("Authorization Exception");
+        super("Authentication Service Exception");
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -29,11 +23,6 @@ public class AuthenticationServiceException extends AuthenticationException {
         } catch (JsonProcessingException e) {
             this.exception = new AuthenticationServiceExceptionDto(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Failed parsing error from Authentication Service");
         }
-    }
-
-    public AuthenticationServiceException(AuthenticationServiceExceptionDto exception) {
-        super("Authentication Service Exception");
-        this.exception = exception;
     }
 
     public AuthenticationServiceException(Integer statusCode, String message) {

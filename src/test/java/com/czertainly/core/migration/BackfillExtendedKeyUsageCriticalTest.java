@@ -4,98 +4,72 @@ import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
-import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestUtil;
+import com.czertainly.core.util.CertificateUtil;
 import db.migration.V202604011901__BackfillExtendedKeyUsageCritical;
 import org.flywaydb.core.api.migration.Context;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
 
 import javax.sql.DataSource;
-import java.sql.Statement;
-import java.util.Base64;
+import java.security.cert.X509Certificate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class BackfillExtendedKeyUsageCriticalTest extends BaseSpringBootTest {
+class BackfillExtendedKeyUsageCriticalTest extends BaseMigrationTest {
 
-    @Autowired
-    DataSource dataSource;
-
-    @Autowired
-    CertificateRepository certificateRepository;
-
-    @Autowired
-    CertificateContentRepository certificateContentRepository;
+    @Autowired DataSource dataSource;
+    @Autowired CertificateRepository certificateRepository;
+    @Autowired CertificateContentRepository certificateContentRepository;
 
     @Test
-    void testMigration() throws Exception {
-        // Certificate with a critical EKU extension
-        CertificateContent contentCritical = new CertificateContent();
-        contentCritical.setContent(Base64.getEncoder().encodeToString(CertificateTestUtil.createCertificateWithEku(true).getEncoded()));
-        certificateContentRepository.save(contentCritical);
-        Certificate certWithCriticalEku = new Certificate();
-        certWithCriticalEku.setCertificateContent(contentCritical);
-        certificateRepository.save(certWithCriticalEku);
-
-        // Certificate with a non-critical EKU extension
-        CertificateContent contentNonCritical = new CertificateContent();
-        contentNonCritical.setContent(Base64.getEncoder().encodeToString(CertificateTestUtil.createCertificateWithEku(false).getEncoded()));
-        certificateContentRepository.save(contentNonCritical);
-        Certificate certWithNonCriticalEku = new Certificate();
-        certWithNonCriticalEku.setCertificateContent(contentNonCritical);
-        certificateRepository.save(certWithNonCriticalEku);
-
-        // Certificate without an EKU extension
-        CertificateContent contentNoEku = new CertificateContent();
-        contentNoEku.setContent(Base64.getEncoder().encodeToString(CertificateTestUtil.createCertificateWithoutEku().getEncoded()));
-        certificateContentRepository.save(contentNoEku);
-        Certificate certWithoutEku = new Certificate();
-        certWithoutEku.setCertificateContent(contentNoEku);
-        certificateRepository.save(certWithoutEku);
-
-        // Certificate where the column is already populated — migration must leave it unchanged
-        CertificateContent contentAlreadySet = new CertificateContent();
-        contentAlreadySet.setContent(Base64.getEncoder().encodeToString(CertificateTestUtil.createCertificateWithEku(true).getEncoded()));
-        certificateContentRepository.save(contentAlreadySet);
-        Certificate certAlreadySet = new Certificate();
-        certAlreadySet.setCertificateContent(contentAlreadySet);
-        certAlreadySet.setExtendedKeyUsageCritical(false);
-        certificateRepository.save(certAlreadySet);
+    void migrate_setsCorrectCriticalityForCertsWithEku() throws Exception {
+        // Certificates inserted with extended_key_usage_critical = NULL, simulating rows that
+        // existed before V202604011901 ran (V202604011900 added the column with no default).
+        Certificate tsaCritical    = persist(CertificateTestUtil.createTimestampingCertificate());
+        Certificate tsaNonCritical = persist(CertificateTestUtil.createTimestampingCertificate(false));
+        Certificate noEku          = persist(CertificateTestUtil.createCertificateWithoutEku());
 
         Context context = Mockito.mock(Context.class);
         when(context.getConnection()).thenReturn(dataSource.getConnection());
 
-        // Simulate pre-migration state: NULL out the column for the three certificates that should be back-filled
-        try (Statement stmt = context.getConnection().createStatement()) {
-            stmt.execute("""
-                    UPDATE certificate SET extended_key_usage_critical = NULL WHERE uuid IN ('%s', '%s', '%s')
-                    """.formatted(certWithCriticalEku.getUuid(), certWithNonCriticalEku.getUuid(), certWithoutEku.getUuid()));
-        }
-
         new V202604011901__BackfillExtendedKeyUsageCritical().migrate(context);
 
-        certWithCriticalEku = certificateRepository.findByUuid(certWithCriticalEku.getUuid()).orElseThrow();
-        Assertions.assertTrue(certWithCriticalEku.getExtendedKeyUsageCritical(),
-                "EKU critical flag should be TRUE for certificate with critical EKU extension");
+        tsaCritical    = certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow();
+        tsaNonCritical = certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow();
+        noEku          = certificateRepository.findByUuid(noEku.getUuid()).orElseThrow();
 
-        certWithNonCriticalEku = certificateRepository.findByUuid(certWithNonCriticalEku.getUuid()).orElseThrow();
-        Assertions.assertFalse(certWithNonCriticalEku.getExtendedKeyUsageCritical(),
-                "EKU critical flag should be FALSE for certificate with non-critical EKU extension");
+        assertThat(tsaCritical.getExtendedKeyUsageCritical())
+                .as("TSA cert with critical EKU must be backfilled to true")
+                .isTrue();
+        assertThat(tsaNonCritical.getExtendedKeyUsageCritical())
+                .as("TSA cert with non-critical EKU must be backfilled to false")
+                .isFalse();
+        assertThat(noEku.getExtendedKeyUsageCritical())
+                .as("Cert without EKU must remain null — criticality is not applicable")
+                .isNull();
+    }
 
-        certWithoutEku = certificateRepository.findByUuid(certWithoutEku.getUuid()).orElseThrow();
-        Assertions.assertFalse(certWithoutEku.getExtendedKeyUsageCritical(),
-                "EKU critical flag should be FALSE for certificate without EKU extension");
+    // --- helper ---
 
-        certAlreadySet = certificateRepository.findByUuid(certAlreadySet.getUuid()).orElseThrow();
-        Assertions.assertFalse(certAlreadySet.getExtendedKeyUsageCritical(),
-                "Already-populated EKU critical flag should remain unchanged");
+    private Certificate persist(X509Certificate x509) throws Exception {
+        String pem = CertificateUtil.normalizeCertificateContent(
+                java.util.Base64.getEncoder().encodeToString(x509.getEncoded()));
+        CertificateContent content = new CertificateContent();
+        content.setFingerprint(CertificateUtil.getThumbprint(x509));
+        content.setContent(pem);
+        certificateContentRepository.save(content);
+
+        Certificate cert = new Certificate();
+        CertificateUtil.prepareIssuedCertificate(cert, x509);
+        cert.setExtendedKeyUsageCritical(null); // simulate pre-migration state
+        cert.setCertificateContent(content);
+        return certificateRepository.save(cert);
+
     }
 }

@@ -16,7 +16,6 @@ import com.czertainly.api.model.core.settings.SettingsSection;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Certificate_;
-import com.czertainly.core.dao.entity.CryptographicKey;
 import com.czertainly.core.dao.entity.CryptographicKey_;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.entity.CryptographicKeyItem_;
@@ -452,7 +451,12 @@ public class CertificateUtil {
                             && certificate.getCriticalExtensionOIDs().contains(Extension.extendedKeyUsage.getId()));
         }
 
-        QcStatementParseResult qc = parseQcStatements(certificate);
+        QcStatementParseResult qc = null;
+        try {
+            qc = parseQcStatements(certificate);
+        } catch (Exception e) {
+            logger.warn("Unable to parse QCStatements extension for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
+        }
         if (qc != null) {
             modal.setQcCompliance(qc.qcCompliance());
             modal.setQcSscd(qc.qcSscd());
@@ -506,7 +510,7 @@ public class CertificateUtil {
             } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcCClegislation.equals(id)) {
                 ASN1Sequence countries = ASN1Sequence.getInstance(stmt.getStatementInfo());
                 for (ASN1Encodable cc : countries) {
-                    qcCcLegislation.add(cc.toString());
+                    qcCcLegislation.add(DERPrintableString.getInstance(cc).getString());
                 }
             }
             // QcLimitValue, QcRetentionPeriod, QcPDS intentionally not parsed since they are not operationally relevant
@@ -929,9 +933,9 @@ public class CertificateUtil {
     public static boolean isCertificateDigitalSigningAcceptable(Certificate certificate, SigningWorkflowType workflowType, boolean qualifiedTimestamp) {
         if (certificate.isArchived()) return false;
         if (certificate.getKey() == null ||
-                !certificate.getState().equals(CertificateState.ISSUED) ||
-                (!certificate.getValidationStatus().equals(CertificateValidationStatus.VALID)
-                        && !certificate.getValidationStatus().equals(CertificateValidationStatus.EXPIRING))
+                certificate.getState() != CertificateState.ISSUED ||
+                (certificate.getValidationStatus() != CertificateValidationStatus.VALID
+                        && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING)
         ) {
             return false;
         }

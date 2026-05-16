@@ -10,6 +10,7 @@ public class PostgresFunctionContributor implements FunctionContributor {
     public static final String BIT_AND_FUNCTION = "bitand";
     public static final String JSONB_CONTAINS = "jsonb_contains";
     public static final String ARRAY_CONTAINS = "text_array_contains";
+    public static final String ARRAY_ITEM_CONTAINS = "text_array_item_contains";
 
     @Override
     public void contributeFunctions(FunctionContributions functionContributions) {
@@ -20,5 +21,8 @@ public class PostgresFunctionContributor implements FunctionContributor {
         functionContributions.getFunctionRegistry().registerPattern(JSONB_CONTAINS, "jsonb_contains(?1, ?2::jsonb)", booleanType);
         // CAST(?1 AS TEXT) = ANY(?2)  —  check scalar membership in a native text[] column
         functionContributions.getFunctionRegistry().registerPattern(ARRAY_CONTAINS, "CAST(?1 AS TEXT) = ANY(?2)", booleanType);
+        // EXISTS over unnest(...) + LIKE  — check substring match in any native text[] item
+        functionContributions.getFunctionRegistry().registerPattern(ARRAY_ITEM_CONTAINS,
+                "EXISTS (SELECT 1 FROM unnest(?2) AS item WHERE item LIKE '%' || CAST(?1 AS TEXT) || '%')", booleanType);
     }
 }

@@ -55,6 +55,8 @@ public class CryptographyUtil {
                 );
                 return digest.getProviderName() + "WITHECDSA";
             }
+            // IOException is declared by each BC constructor but not triggered by any known input —
+            // caught defensively in case a future BC version starts throwing it for malformed payloads.
             case FALCON -> {
                 try {
                     return new BCFalconPublicKey(
@@ -62,7 +64,7 @@ public class CryptographyUtil {
                                     Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
                             ValidationError.create("Failed obtaining signature algorithm"));
                 }
@@ -74,7 +76,7 @@ public class CryptographyUtil {
                                     Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
                             ValidationError.create("Failed obtaining signature algorithm"));
                 }
@@ -86,7 +88,7 @@ public class CryptographyUtil {
                                     Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec()
                             .getName();
-                } catch (IOException e) {
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
                     throw new ValidationException(
                             ValidationError.create("Failed obtaining signature algorithm"));
                 }
