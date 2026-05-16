@@ -100,6 +100,9 @@ spring:
       notification: core.notifications
       scheduler: core.scheduler
       validation: core.validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     listener:
       initial-interval: 1000
       multiplier: 1.5
@@ -112,6 +115,9 @@ spring:
       notification: notification
       scheduler: scheduler
       validation: validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     producer:
       retry:
         enabled: true
@@ -127,6 +133,8 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+    time-quality-config-request: 1
+    time-quality-results: 1
 
 otel:
   instrumentation:

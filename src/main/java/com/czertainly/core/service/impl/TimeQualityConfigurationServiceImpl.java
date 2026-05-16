@@ -18,6 +18,8 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.messaging.jms.producers.TimeQualityConfigurationProducer;
+import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
@@ -39,6 +41,7 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -61,6 +64,8 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private AttributeEngine attributeEngine;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
+    private TimeQualityConfigurationProducer timeQualityConfigurationProducer;
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @Override
     @ExternalAuthorization(resource = Resource.TIME_QUALITY_CONFIGURATION, action = ResourceAction.LIST)
@@ -230,12 +235,15 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
 
     private void deleteTimeQualityConfiguration(TimeQualityConfiguration configuration) {
         attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
+        applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
         timeQualityConfigurationRepository.delete(configuration);
     }
 
     private TimeQualityConfiguration saveOrTranslateUniqueViolation(TimeQualityConfiguration configuration, String name) throws AlreadyExistException {
         try {
-            return timeQualityConfigurationRepository.saveAndFlush(configuration);
+            TimeQualityConfiguration saved = timeQualityConfigurationRepository.saveAndFlush(configuration);
+            applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
+            return saved;
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException("Time Quality Configuration with name '" + name + "' already exists.");
         }
@@ -255,5 +263,15 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     @Autowired
     public void setSelf(TimeQualityConfigurationServiceImpl self) {
         this.self = self;
+    }
+
+    @Autowired
+    public void setTimeQualityConfigurationProducer(TimeQualityConfigurationProducer timeQualityConfigurationProducer) {
+        this.timeQualityConfigurationProducer = timeQualityConfigurationProducer;
+    }
+
+    @Autowired
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 }

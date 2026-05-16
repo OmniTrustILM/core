@@ -113,13 +113,24 @@ public record MessagingProperties(
         return producerDestination(routingKey().validation());
     }
 
+    public String produceDestinationTimeQualityConfig() {
+        return producerDestination(routingKey().timeQualityConfig());
+    }
+
+    public String produceDestinationTimeQualityConfigRequest() {
+        return producerDestination(routingKey().timeQualityConfigRequest());
+    }
+
     public record Queue (
             @NotBlank String actions,
             @NotBlank String auditLogs,
             @NotBlank String event,
             @NotBlank String notification,
             @NotBlank String scheduler,
-            @NotBlank String validation
+            @NotBlank String validation,
+            @NotBlank String timeQualityConfigRequest,
+            @NotBlank String timeQualityConfig,
+            @NotBlank String timeQualityResults
     ) {}
 
     public record RoutingKey(
@@ -128,7 +139,10 @@ public record MessagingProperties(
             @NotBlank String event,
             @NotBlank String notification,
             @NotBlank String scheduler,
-            @NotBlank String validation
+            @NotBlank String validation,
+            @NotBlank String timeQualityConfigRequest,
+            @NotBlank String timeQualityConfig,
+            @NotBlank String timeQualityResults
     ) {}
 
     public record Listener(
