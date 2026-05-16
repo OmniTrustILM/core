@@ -38,7 +38,7 @@ import java.util.UUID;
 class StatisticsServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private StatisticsService statisticsService;
+    private StatisticsExternalService statisticsService;
 
     @Autowired
     private GroupRepository groupRepository;

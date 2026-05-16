@@ -9,6 +9,6 @@ import com.czertainly.api.model.core.auth.UserDetailDto;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 
-public interface LocalAdminService {
+public interface LocalAdminExternalService {
     UserDetailDto createUser(AddUserRequestDto request) throws NotFoundException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, AttributeException;
 }

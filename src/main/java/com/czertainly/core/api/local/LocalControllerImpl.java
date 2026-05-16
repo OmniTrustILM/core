@@ -10,7 +10,7 @@ import com.czertainly.api.model.core.auth.UserDetailDto;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.LocalAdminService;
+import com.czertainly.core.service.LocalAdminExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,7 +26,7 @@ public class LocalControllerImpl implements LocalController {
 
 
     @Autowired
-    private LocalAdminService localAdminService;
+    private LocalAdminExternalService localAdminService;
 
     @Override
     @AuditLogged(module = Module.AUTH, resource = Resource.USER, operation = Operation.CREATE)

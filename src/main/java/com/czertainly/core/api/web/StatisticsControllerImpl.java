@@ -6,17 +6,17 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.StatisticsService;
+import com.czertainly.core.service.StatisticsExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class StatisticsControllerImpl implements StatisticsController {
 
-	private StatisticsService statisticsService;
+	private StatisticsExternalService statisticsService;
 
 	@Autowired
-	public void setStatisticsService(StatisticsService statisticsService) {
+	public void setStatisticsService(StatisticsExternalService statisticsService) {
 		this.statisticsService = statisticsService;
 	}
 	

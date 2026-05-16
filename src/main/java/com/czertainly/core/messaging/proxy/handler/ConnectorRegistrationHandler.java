@@ -4,7 +4,7 @@ import com.czertainly.api.clients.mq.model.ConnectorRegistrationRequest;
 import com.czertainly.api.clients.mq.model.ProxyMessage;
 import com.czertainly.api.model.client.connector.ConnectorRequestDto;
 import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.core.service.ConnectorRegistrationService;
+import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,9 +24,9 @@ public class ConnectorRegistrationHandler implements MessageTypeResponseHandler 
 
     private static final String MESSAGE_TYPE = "connector.register";
 
-    private final ConnectorRegistrationService connectorRegistrationService;
+    private final ConnectorRegistrationExternalService connectorRegistrationService;
 
-    public ConnectorRegistrationHandler(ConnectorRegistrationService connectorRegistrationService) {
+    public ConnectorRegistrationHandler(ConnectorRegistrationExternalService connectorRegistrationService) {
         this.connectorRegistrationService = connectorRegistrationService;
     }
 

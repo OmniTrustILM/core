@@ -11,6 +11,7 @@ import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContent
 import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.czertainly.api.model.core.connector.AuthType;
 import com.czertainly.core.util.BaseSpringBootTest;
+import com.czertainly.core.service.ConnectorAuthExternalService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +35,7 @@ import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_USERNAME;
 class ConnectorAuthServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private ConnectorAuthService connectorAuthService;
+    private ConnectorAuthExternalService connectorAuthService;
 
     @Test
     void testGetAuthenticationTypes() {
