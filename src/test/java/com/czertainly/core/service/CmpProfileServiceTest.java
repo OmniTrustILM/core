@@ -24,10 +24,12 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.ProtocolCertificateAssociations;
+import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsRepository;
+import com.czertainly.core.dao.repository.RaProfileRepository;
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -60,6 +62,9 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
 
     @Autowired
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
+
+    @Autowired
+    private RaProfileRepository raProfileRepository;
 
     private CmpProfile cmpProfile;
     private RequestAttributeV3 domainAttrRequestAttribute;
@@ -220,6 +225,22 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, messages.size());
         Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteCmpProfile_withAssociatedRaProfile_returnsErrorWithEntityName() {
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("linkedRaProfile");
+        raProfile.setCmpProfile(cmpProfile);
+        raProfileRepository.save(raProfile);
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkDeleteCmpProfile(
+                List.of(cmpProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(cmpProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(cmpProfile.getName(), messages.getFirst().getName());
         Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }
