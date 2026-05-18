@@ -147,7 +147,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
                         )
         );
 
-        certificate = createCertificate();
+        certificate = createCertificate(UUID.fromString(CERTIFICATE_UUID), "123456", "123456789", "testCertificate");
 
         CustomAttributeV3 attribute = new CustomAttributeV3();
         attribute.setUuid(ATTRIBUTE_UUID);
@@ -177,20 +177,20 @@ class ResourceServiceTest extends BaseSpringBootTest {
         attributeRelationRepository.save(attributeRelation);
     }
 
-    private Certificate createCertificate() {
+    private Certificate createCertificate(UUID uuid, String content, String serialNumber, String subjectDn) {
         CertificateContent certificateContent = new CertificateContent();
-        certificateContent.setContent("123456");
+        certificateContent.setContent(content);
         certificateContent = certificateContentRepository.save(certificateContent);
 
         Certificate newCertificate = new Certificate();
-        newCertificate.setSubjectDn("testCertificate");
+        newCertificate.setSubjectDn(subjectDn);
         newCertificate.setIssuerDn("testCertificate");
-        newCertificate.setSerialNumber("123456789");
+        newCertificate.setSerialNumber(serialNumber);
         newCertificate.setState(CertificateState.ISSUED);
         newCertificate.setValidationStatus(CertificateValidationStatus.VALID);
         newCertificate.setCertificateContent(certificateContent);
         newCertificate.setCertificateContentId(certificateContent.getId());
-        newCertificate.setUuid(UUID.fromString(CERTIFICATE_UUID));
+        newCertificate.setUuid(uuid);
         return certificateRepository.save(newCertificate);
     }
 
@@ -325,7 +325,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
         nonResourceAttribute.setName("name");
         nonResourceAttribute.setContentType(AttributeContentType.DATE);
 
-        Certificate certificate1 = createCertificate();
+        Certificate certificate1 = createCertificate(UUID.randomUUID(), "1234567", "1234567890", "testCertificate1");
         
         DataAttributeV3 resourceAttribute = new DataAttributeV3();
         resourceAttribute.setContentType(AttributeContentType.RESOURCE);
