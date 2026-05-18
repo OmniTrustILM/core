@@ -15,7 +15,7 @@ import com.czertainly.api.model.connector.authority.CaCertificatesResponseDto;
 import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.raprofile.RaProfileDto;
 import com.czertainly.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
@@ -617,7 +617,7 @@ public class RaProfileServiceImpl implements RaProfileService {
                 .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, authorityUuid));
 
         List<RequestAttribute> requestAttributes = attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(authorityInstanceReference.getConnectorUuid()).build());
-        ConnectorApiClientDto connectorDto = authorityInstanceReference.getConnector().mapToApiClientDtoV1();
+        ConnectorApiClientDtoV1 connectorDto = authorityInstanceReference.getConnector().mapToApiClientDtoV1();
         CaCertificatesResponseDto caCertificatesResponseDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getCaCertificates(connectorDto, authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
         List<CertificateDataResponseDto> certificateDataResponseDtos = caCertificatesResponseDto.getCertificates();
         List<CertificateDetailDto> certificateDetailDtos = new ArrayList<>();
@@ -661,7 +661,7 @@ public class RaProfileServiceImpl implements RaProfileService {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
 
-        ConnectorApiClientDto connectorDto = authorityInstanceRef.getConnector().mapToApiClientDtoV1();
+        ConnectorApiClientDtoV1 connectorDto = authorityInstanceRef.getConnector().mapToApiClientDtoV1();
 
         // validate first by connector
         if (Boolean.FALSE.equals(connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {

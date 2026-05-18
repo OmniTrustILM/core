@@ -4,6 +4,7 @@ import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.interfaces.core.web.TimeQualityConfigurationController;
+import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
@@ -71,6 +72,11 @@ public class TimeQualityConfigurationControllerImpl implements TimeQualityConfig
     @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, operation = Operation.DELETE)
     public void deleteTimeQualityConfiguration(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
         timeQualityConfigurationService.deleteTimeQualityConfiguration(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(UUID uuid) throws NotFoundException {
+        throw new RuntimeException("Not implemented");
     }
 
     @Override
