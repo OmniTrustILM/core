@@ -42,7 +42,7 @@ public class CertificateDetailDtoMapper {
             dto.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
             dto.setSerialNumber(certificate.getSerialNumber());
 
-            boolean hasAnyQc = Boolean.TRUE.equals(certificate.getQcCompliance()) || Boolean.TRUE.equals(certificate.getQcSscd())
+            boolean hasAnyQc = certificate.getQcCompliance() != null || certificate.getQcSscd() != null
                     || certificate.getQcType() != null || certificate.getQcCcLegislation() != null;
             if (hasAnyQc) {
                 CertificateQcStatementsDto qcDto = new CertificateQcStatementsDto();

@@ -2,8 +2,13 @@ package com.czertainly.core.helpers;
 
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import lombok.Getter;
+import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.DERPrintableString;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
+import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -90,6 +95,41 @@ public class CertificateGeneratorHelper {
                 .getCertificate(builder.build(signer));
     }
 
+    public static X509Certificate generateCACertificateWithQcStatements(KeyPair caKeyPair, String subjectDn) throws Exception {
+        if (caKeyPair == null) {
+            caKeyPair = generateKeyPair(KeyAlgorithm.RSA, null);
+        }
+
+        X500Name issuer = new X500Name(subjectDn);
+        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        Date start = new Date();
+        Date end = new Date(System.currentTimeMillis() + 3650 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                issuer, serial, start, end, issuer, caKeyPair.getPublic()
+        );
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(true));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign));
+
+        // qcCompliance=true, qcSscd=false, qcType=ESIGN, qcCcLegislation=CZ
+        ASN1EncodableVector stmts = new ASN1EncodableVector();
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance));
+        ASN1EncodableVector typeVec = new ASN1EncodableVector();
+        typeVec.add(ETSIQCObjectIdentifiers.id_etsi_qct_esign);
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcType, new DERSequence(typeVec)));
+        ASN1EncodableVector ccVec = new ASN1EncodableVector();
+        ccVec.add(new DERPrintableString("CZ"));
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcCClegislation, new DERSequence(ccVec)));
+        builder.addExtension(Extension.qCStatements, false, new DERSequence(stmts));
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA")
+                .build(caKeyPair.getPrivate());
+
+        return new JcaX509CertificateConverter()
+                .getCertificate(builder.build(signer));
+    }
+
     public static X509Certificate generateEndEntityCertificate(
             KeyPair caKeyPair, X509Certificate caCert, KeyPair eeKeyPair, String subjectDn, String ocspUrl) throws Exception {
 
@@ -133,6 +173,31 @@ public class CertificateGeneratorHelper {
             case MLKEM -> MLKEMParameterSpec.ml_kem_1024;
             default -> throw new UnsupportedOperationException("Unsupported algorithm: " + algorithm);
         };
+    }
+
+    public static X509Certificate generateEndEntityCertificateWithCaIssuers(
+            KeyPair caKeyPair, X509Certificate caCert, KeyPair eeKeyPair, String subjectDn, String caIssuersUrl) throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name(subjectDn);
+        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        Date start = new Date();
+        Date end = new Date(System.currentTimeMillis() + 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                issuer, serial, start, end, subject, eeKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+
+        if (caIssuersUrl != null) {
+            GeneralName location = new GeneralName(GeneralName.uniformResourceIdentifier, caIssuersUrl);
+            AccessDescription caIssuersAccess = new AccessDescription(X509ObjectIdentifiers.id_ad_caIssuers, location);
+            builder.addExtension(Extension.authorityInfoAccess, false, new AuthorityInformationAccess(caIssuersAccess));
+        }
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
     }
 
     public static OCSPResp generateOCSPResponse(
