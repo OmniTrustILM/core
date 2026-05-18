@@ -312,7 +312,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
                 logger.error("Token Instance not found: {}", uuid);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), tokenInstanceReference != null ? tokenInstanceReference.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), tokenInstanceReference != null ? tokenInstanceReference.getName() : "", e, "Delete failed"));
             }
         }
     }

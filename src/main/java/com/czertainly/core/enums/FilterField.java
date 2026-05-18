@@ -2,8 +2,8 @@ package com.czertainly.core.enums;
 
 import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
+import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
