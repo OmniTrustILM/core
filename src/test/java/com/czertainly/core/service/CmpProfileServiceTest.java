@@ -5,6 +5,7 @@ import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.cmp.CmpProfileEditRequestDto;
 import com.czertainly.api.model.client.cmp.CmpProfileRequestDto;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
@@ -23,10 +24,12 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.ProtocolCertificateAssociations;
+import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsRepository;
+import com.czertainly.core.dao.repository.RaProfileRepository;
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -34,9 +37,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 class CmpProfileServiceTest extends BaseSpringBootTest {
 
@@ -52,6 +59,9 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
     @Autowired
     private CmpProfileRepository cmpProfileRepository;
 
+    @MockitoSpyBean
+    private CmpProfileRepository cmpProfileRepositorySpy;
+
     @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
@@ -59,6 +69,9 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
 
     @Autowired
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
+
+    @Autowired
+    private RaProfileRepository raProfileRepository;
 
     private CmpProfile cmpProfile;
     private RequestAttributeV3 domainAttrRequestAttribute;
@@ -198,5 +211,57 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = cmpProfileService.getResourceObjectExternal(cmpProfile.getSecuredUuid());
         Assertions.assertEquals(cmpProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cmpProfile.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testBulkDeleteCmpProfile_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkDeleteCmpProfile(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveCmpProfiles_nonExistentUuid_returnsErrorMessage() throws NotFoundException, ValidationException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkForceRemoveCmpProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteCmpProfile_withAssociatedRaProfile_returnsErrorWithEntityName() {
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("linkedRaProfile");
+        raProfile.setCmpProfile(cmpProfile);
+        raProfileRepository.save(raProfile);
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkDeleteCmpProfile(
+                List.of(cmpProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(cmpProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(cmpProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveCmpProfiles_deleteFailure_returnsErrorWithEntityName() throws NotFoundException, ValidationException {
+        doThrow(new RuntimeException("DB delete error"))
+                .when(cmpProfileRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = cmpProfileService.bulkForceRemoveCmpProfiles(
+                List.of(cmpProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(cmpProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(cmpProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

@@ -286,13 +286,13 @@ public class CbomServiceImpl implements CbomService {
         Set<UUID> existingUuids = cbomRepository.findExistingUuids(uuids);
         for (UUID uuid : uuids) {
             if (!existingUuids.contains(uuid)) {
-                messages.add(new BulkActionMessageDto(uuid.toString(), "", "CBOM entry not found"));
+                messages.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), "", "CBOM entry not found"));
                 continue;
             }
             try {
                 transactionHandler.runInNewTransaction(() -> cbomRepository.deleteById(uuid));
             } catch (Exception ex) {
-                messages.add(new BulkActionMessageDto(uuid.toString(), "", "Error deleting CBOM entry: %s".formatted(ex.getMessage())));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), "", ex, "Error deleting CBOM entry"));
                 logger.logEvent(Operation.DELETE, OperationResult.FAILURE, null, List.of(new ResourceObjectIdentity(null, uuid)), ex.getMessage());
                 continue;
             }
