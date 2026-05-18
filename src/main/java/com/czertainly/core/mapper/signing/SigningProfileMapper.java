@@ -175,6 +175,11 @@ public class SigningProfileMapper {
     }
 
     private static void setFormatterRef(SigningProfileVersion profileVersion, Consumer<NameAndUuidDto> setter) {
+        if (profileVersion.getSignatureFormatterConnector() == null
+                || profileVersion.getSignatureFormatterConnectorUuid() == null) {
+            setter.accept(null);
+            return;
+        }
         NameAndUuidDto ref = new NameAndUuidDto();
         ref.setName(profileVersion.getSignatureFormatterConnector().getName());
         ref.setUuid(profileVersion.getSignatureFormatterConnectorUuid().toString());
