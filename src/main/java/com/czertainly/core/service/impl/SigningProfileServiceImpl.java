@@ -51,7 +51,6 @@ import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfile_;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.TspProfile;
-import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyItemRepository;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
@@ -62,7 +61,6 @@ import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.TokenProfile;
-import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
 import com.czertainly.core.mapper.signing.SigningProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
@@ -70,6 +68,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CertificateService;
+import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CryptographicOperationService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.SigningProfileService;
@@ -88,14 +87,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.IOException;
-import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -113,6 +109,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private CacheManager cacheManager;
     private CryptographicOperationService cryptographicOperationService;
     private CertificateService certificateService;
+    private ConnectorService connectorService;
     private TokenProfileService tokenProfileService;
     private RaProfileService raProfileService;
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
@@ -123,7 +120,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorRepository connectorRepository;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -524,7 +520,9 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 version.setCsrTemplateUuid(s.getCsrTemplateUuid());
             }
             case DelegatedSigningRequestDto s -> {
+                Connector connector = connectorService.getConnectorEntity(SecuredUUID.fromUUID(s.getConnectorUuid()));
                 version.setDelegatedSignerConnectorUuid(s.getConnectorUuid());
+                version.setDelegatedSignerConnector(connector);
             }
             default ->
                     throw new IllegalStateException("Unexpected type for Signing Scheme: " + scheme.getSigningScheme());
@@ -551,8 +549,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 if (w.getSignatureFormatterConnectorUuid() == null) {
                     throw new ValidationException("Signature formatter connector is required for content signing workflow");
                 }
-                Connector contentConnector = connectorRepository.findByUuid(w.getSignatureFormatterConnectorUuid())
-                        .orElseThrow(() -> new NotFoundException(Connector.class, w.getSignatureFormatterConnectorUuid()));
+                Connector contentConnector =
+                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormatterConnectorUuid()));
                 validateFormatterConnectorFeature(contentConnector, FeatureFlag.CONTENT_SIGNING, SigningWorkflowType.CONTENT_SIGNING);
                 version.setSignatureFormatterConnector(contentConnector);
             }
@@ -563,8 +561,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 if (w.getSignatureFormatterConnectorUuid() == null) {
                     throw new ValidationException("Signature formatter connector is required for timestamping workflow");
                 }
-                Connector tsaConnector = connectorRepository.findByUuid(w.getSignatureFormatterConnectorUuid())
-                        .orElseThrow(() -> new NotFoundException(Connector.class, w.getSignatureFormatterConnectorUuid()));
+                Connector tsaConnector =
+                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormatterConnectorUuid()));
                 validateFormatterConnectorFeature(tsaConnector, FeatureFlag.TIMESTAMPING, SigningWorkflowType.TIMESTAMPING);
                 version.setSignatureFormatterConnector(tsaConnector);
                 version.setQualifiedTimestamp(w.getQualifiedTimestamp());
@@ -688,8 +686,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
      * However, this is a temporary solution; a better solution for this should be implemented in general.</p>
      */
     private List<BaseAttribute> fetchAndUpdateFormatterAttributeDefinitions(UUID connectorUuid) throws AttributeException, ConnectorException, NotFoundException {
-        Connector connector = connectorRepository.findByUuid(connectorUuid)
-                .orElseThrow(() -> new NotFoundException(Connector.class, connectorUuid));
+        Connector connector = connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid));
         List<BaseAttribute> definitions = connectorApiFactory.getSignatureFormatterApiClient(connector.mapToApiClientDtoV2()).listFormatterAttributes(connector.mapToApiClientDtoV2());
         attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.WORKFLOW_FORMATTER, definitions);
         return definitions;
@@ -790,6 +787,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
+    public void setConnectorService(ConnectorService connectorService) {
+        this.connectorService = connectorService;
+    }
+
+    @Autowired
     public void setTokenProfileService(TokenProfileService tokenProfileService) {
         this.tokenProfileService = tokenProfileService;
     }
@@ -833,10 +835,5 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
-    }
-
-    @Autowired
-    public void setConnectorRepository(ConnectorRepository connectorRepository) {
-        this.connectorRepository = connectorRepository;
     }
 }
