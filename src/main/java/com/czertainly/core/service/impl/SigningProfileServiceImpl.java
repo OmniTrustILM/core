@@ -90,6 +90,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -106,7 +108,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     private CacheManager cacheManager;
     private CryptographicOperationService cryptographicOperationService;
-    private CertificateRepository certificateRepository;
     private CertificateService certificateService;
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SigningProfileRepository signingProfileRepository;
@@ -198,8 +199,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Override
     @Transactional(readOnly = true)
     public List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException {
-        Certificate certificate = certificateRepository.findByUuid(certificateUuid)
-                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
         if (certificate.getKey() == null) {
             return List.of();
         }
@@ -498,8 +498,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         switch (scheme) {
             case StaticKeyManagedSigningRequestDto s -> {
                 version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
-                Certificate certificate = certificateRepository.findWithAssociationsByUuid(s.getCertificateUuid())
-                        .orElseThrow(() -> new NotFoundException(Certificate.class, s.getCertificateUuid()));
+                Certificate certificate =
+                        certificateService.getCertificateEntity(SecuredUUID.fromUUID(s.getCertificateUuid()));
                 if (CertificateUtil.isCertificateDigitalSigningAcceptable(certificate, p.getWorkflowType(), Boolean.TRUE.equals(version.getQualifiedTimestamp()))) {
                     version.setCertificate(certificate);
                 } else {
@@ -772,11 +772,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
-    }
-
-    @Autowired
-    public void setCertificateRepository(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
     }
 
     @Autowired

@@ -93,12 +93,16 @@ import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
@@ -414,6 +418,42 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         Assertions.assertTrue(returnedTypes.contains(SigningWorkflowType.RAW_SIGNING));
         Assertions.assertTrue(returnedTypes.contains(SigningWorkflowType.CONTENT_SIGNING));
         Assertions.assertTrue(returnedTypes.contains(SigningWorkflowType.TIMESTAMPING));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // listSignatureAttributesForCertificate
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testListSignatureAttributesForCertificate_allowedCert_returnsAttributes() throws NotFoundException {
+        List<com.czertainly.api.model.common.attribute.common.BaseAttribute> attrs =
+                signingProfileService.listSignatureAttributesForCertificate(rsaCertificate.getUuid());
+
+        Assertions.assertNotNull(attrs);
+        Assertions.assertFalse(attrs.isEmpty(), "RSA certificate should produce non-empty signature attributes");
+    }
+
+    @Test
+    void testListSignatureAttributesForCertificate_deniedCert_throwsAccessDeniedException() {
+        OpaResourceAccessResult denied = new OpaResourceAccessResult();
+        denied.setAuthorized(false);
+
+        Mockito.when(
+                opaClient.checkResourceAccess(
+                        Mockito.any(),
+                        Mockito.argThat(req -> req != null
+                                && req.getProperties() != null
+                                && Resource.CERTIFICATE.getCode().equals(req.getProperties().get("name"))
+                                && ResourceAction.DETAIL.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(),
+                        Mockito.any()
+                )
+        ).thenReturn(denied);
+
+        Assertions.assertThrows(
+                AccessDeniedException.class,
+                () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificate.getUuid())
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────────
