@@ -20,13 +20,13 @@ import com.czertainly.core.events.EventContext;
 import com.czertainly.core.events.EventHandler;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
+import com.czertainly.core.events.transaction.UserCertificateAssignedEvent;
 import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.service.CertificateEventHistoryService;
 import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.UserManagementService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
 import jakarta.transaction.Transactional;
@@ -47,7 +47,6 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private CertificateService certificateService;
     private CertificateEventHistoryService certificateEventHistoryService;
-    private UserManagementService userManagementService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
 
@@ -61,12 +60,6 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
-
-    @Autowired
-    public void setUserManagementService(UserManagementService userManagementService) {
-        this.userManagementService = userManagementService;
-    }
-
 
     @Autowired
     public void setCertificateService(CertificateService certificateService) {
@@ -154,12 +147,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
         if (eventMessageData.userUuid() != null) {
             try {
-                userManagementService.updateUserCertificate(String.valueOf(eventMessageData.userUuid()), String.valueOf(certificate.getUuid()), null);
                 certificateService.updateCertificateUser(certificate.getUuid(), String.valueOf(eventMessageData.userUuid()));
-            } catch (NotFoundException | CertificateException e) {
+            } catch (NotFoundException e) {
                 ((CertificateUploadedEventData) context.getResourceObjectsEventData().getFirst()).setUserUuid(null);
-                logger.error("Error updating user {} for certificate {}: {}", eventMessageData.userUuid(), certificate.getUuid(), e.getMessage());
+                logger.error("Error linking user {} to certificate {}: {}", eventMessageData.userUuid(), certificate.getUuid(), e.getMessage());
             }
+            applicationEventPublisher.publishEvent(new UserCertificateAssignedEvent(String.valueOf(eventMessageData.userUuid()), String.valueOf(certificate.getUuid()), null));
         }
 
         certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS, "Certificate uploaded", "");

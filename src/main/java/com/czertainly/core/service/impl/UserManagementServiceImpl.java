@@ -30,6 +30,7 @@ import com.czertainly.core.model.auth.AuthenticationRequestDto;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
+import com.czertainly.core.events.transaction.UserCertificateAssignedEvent;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -46,6 +47,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
@@ -194,21 +197,23 @@ public class UserManagementServiceImpl implements UserManagementService {
         return dto;
     }
 
-    @Override
-    // Send update request only for certificate update, other user details are not changed. For internal use only - for certificate update from Auth Profile Update API
-    public void updateUserCertificate(String userUuid, String certificateUuid, String certificateFingerprint) throws NotFoundException, CertificateException {
-        UserDetailDto dto = getUser(userUuid);
-        // Only the certificate needs to be updated, so the request needs to be rebuilt from the existing user data
-        UpdateUserRequestDto request = new UpdateUserRequestDto();
-        request.setCertificateUuid(certificateUuid);
-        request.setEmail(dto.getEmail());
-        request.setDescription(dto.getDescription());
-        request.setFirstName(dto.getFirstName());
-        request.setLastName(dto.getLastName());
-        List<String> groupUuids = dto.getGroups().stream().map(NameAndUuidDto::getUuid).toList();
-        request.setGroupUuids(groupUuids);
-        getUserUpdateRequestPayload(userUuid, request, certificateUuid, certificateFingerprint);
-        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void updateUserCertificate(UserCertificateAssignedEvent event) {
+        try {
+            UserDetailDto dto = getUser(event.userUuid());
+            UpdateUserRequestDto request = new UpdateUserRequestDto();
+            request.setCertificateUuid(event.certificateUuid());
+            request.setEmail(dto.getEmail());
+            request.setDescription(dto.getDescription());
+            request.setFirstName(dto.getFirstName());
+            request.setLastName(dto.getLastName());
+            List<String> groupUuids = dto.getGroups().stream().map(NameAndUuidDto::getUuid).toList();
+            request.setGroupUuids(groupUuids);
+            getUserUpdateRequestPayload(event.userUuid(), request, event.certificateUuid(), event.certificateFingerprint());
+            authenticationCache.evictByUserUuid(UUID.fromString(event.userUuid()));
+        } catch (NotFoundException | CertificateException e) {
+            logger.getLogger().error("Failed to update certificate {} for user {} in auth service: {}", event.certificateUuid(), event.userUuid(), e.getMessage());
+        }
     }
 
     @Override
