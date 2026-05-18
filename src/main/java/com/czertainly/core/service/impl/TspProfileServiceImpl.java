@@ -282,12 +282,6 @@ public class TspProfileServiceImpl implements TspProfileService {
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static String safeBulkMessage(Exception e) {
-        return e.getClass().getPackageName().startsWith("com.czertainly.api.exception") && e.getMessage() != null
-                ? e.getMessage()
-                : "Operation failed";
-    }
-
     private SigningProfile validateCreateUpdateRequest(TspProfileRequestDto request) throws NotFoundException, ValidationException {
         attributeEngine.validateCustomAttributesContent(Resource.TSP_PROFILE, request.getCustomAttributes());
 
