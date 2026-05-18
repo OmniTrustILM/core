@@ -1,4 +1,6 @@
 package com.czertainly.core.api;
 
-public class ScheduledJobSkippedException extends RuntimeException {
+import com.czertainly.api.exception.PlatformException;
+
+public class ScheduledJobSkippedException extends RuntimeException implements PlatformException {
 }
