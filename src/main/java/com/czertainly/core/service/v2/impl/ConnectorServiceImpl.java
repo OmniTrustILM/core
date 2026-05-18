@@ -236,7 +236,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 deleteConnector(connector);
             } catch (Exception e) {
                 logger.error("Unable to delete Connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -254,7 +254,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 deleteConnector(connector);
             } catch (Exception e) {
                 logger.error("Unable to force delete Connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Force delete failed"));
             }
         }
         return messages;
@@ -328,7 +328,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 reconnect(connector);
             } catch (Exception e) {
                 logger.error("Unable to reconnect connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Reconnect failed"));
             }
         }
         return messages;
@@ -352,7 +352,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 approve(connector);
             } catch (Exception e) {
                 logger.error("Unable to approve connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Approve failed"));
             }
         }
         return messages;

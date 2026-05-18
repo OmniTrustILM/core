@@ -30,7 +30,9 @@ import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +51,9 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
     @Autowired
     private TspProfileRepository tspRepository;
+
+    @MockitoSpyBean
+    private TspProfileRepository tspRepositorySpy;
 
     @Autowired
     private AttributeDefinitionRepository attributeDefinitionRepository;
@@ -418,5 +423,73 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(savedTspProfile.getName(), dto.getName());
         Assertions.assertEquals("updated description", dto.getDescription());
+    }
+
+    @Test
+    void testBulkEnableTspProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = tspService.bulkEnableTspProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDisableTspProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = tspService.bulkDisableTspProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Bulk-op catch-block entity-name branches (profile != null path)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testBulkDeleteTspProfiles_deleteFailure_returnsErrorWithProfileName() {
+        org.mockito.Mockito.doThrow(new RuntimeException("DB error during delete"))
+                .when(tspRepositorySpy).delete(ArgumentMatchers.any());
+
+        List<BulkActionMessageDto> messages = tspService.bulkDeleteTspProfiles(
+                List.of(savedTspProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedTspProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(savedTspProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkEnableTspProfiles_saveFailure_returnsErrorWithProfileName() {
+        org.mockito.Mockito.doThrow(new RuntimeException("DB error during save"))
+                .when(tspRepositorySpy).save(ArgumentMatchers.any());
+
+        List<BulkActionMessageDto> messages = tspService.bulkEnableTspProfiles(
+                List.of(savedTspProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedTspProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(savedTspProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDisableTspProfiles_saveFailure_returnsErrorWithProfileName() {
+        org.mockito.Mockito.doThrow(new RuntimeException("DB error during save"))
+                .when(tspRepositorySpy).save(ArgumentMatchers.any());
+
+        List<BulkActionMessageDto> messages = tspService.bulkDisableTspProfiles(
+                List.of(savedTspProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedTspProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(savedTspProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

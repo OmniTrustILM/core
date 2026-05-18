@@ -33,9 +33,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 class AcmeProfileServiceTest extends BaseSpringBootTest {
 
@@ -47,6 +51,9 @@ class AcmeProfileServiceTest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
+
+    @MockitoSpyBean
+    private AcmeProfileRepository acmeProfileRepositorySpy;
 
     @Autowired
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
@@ -343,5 +350,57 @@ class AcmeProfileServiceTest extends BaseSpringBootTest {
         // Verify the error message
         Assertions.assertTrue(exception.getMessage().contains("Cannot remove the RA Profile"));
         Assertions.assertTrue(exception.getMessage().contains("because there are existing ACME accounts"));
+    }
+
+    @Test
+    void testBulkDeleteAcmeProfile_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkDeleteAcmeProfile(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveACMEProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkForceRemoveACMEProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteAcmeProfile_withAssociatedRaProfile_returnsErrorWithEntityName() {
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("linkedRaProfile");
+        raProfile.setAcmeProfile(acmeProfile);
+        raProfileRepository.save(raProfile);
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkDeleteAcmeProfile(
+                List.of(acmeProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(acmeProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(acmeProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkForceRemoveACMEProfiles_deleteFailure_returnsErrorWithEntityName() {
+        doThrow(new RuntimeException("DB delete error"))
+                .when(acmeProfileRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = acmeProfileService.bulkForceRemoveACMEProfiles(
+                List.of(acmeProfile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(acmeProfile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(acmeProfile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

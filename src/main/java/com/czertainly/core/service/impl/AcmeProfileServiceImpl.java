@@ -391,7 +391,7 @@ public class AcmeProfileServiceImpl implements AcmeProfileService {
                 deleteAcmeProfile(acmeProfile);
             } catch (Exception e) {
                 logger.error(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), acmeProfile != null ? acmeProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), acmeProfile != null ? acmeProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -421,7 +421,7 @@ public class AcmeProfileServiceImpl implements AcmeProfileService {
                 deleteAcmeProfile(acmeProfile);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), acmeProfile != null ? acmeProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), acmeProfile != null ? acmeProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;

@@ -22,6 +22,7 @@
         <mockwebserver.version>5.3.2</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <testcontainers.version>1.21.4</testcontainers.version>
+        <archunit.version>1.4.2</archunit.version>
         <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
         <java.version>21</java.version>
 
@@ -291,6 +292,12 @@
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
