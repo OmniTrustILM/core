@@ -333,7 +333,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
                 deleteScepProfile(scepProfile);
             } catch (Exception e) {
                 logger.error(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), scepProfile != null ? scepProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), scepProfile != null ? scepProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -361,7 +361,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
                 deleteScepProfile(scepProfile);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), scepProfile != null ? scepProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), scepProfile != null ? scepProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;

@@ -24,9 +24,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 class ConnectorServiceV2Test extends BaseSpringBootTest {
 
@@ -37,6 +42,9 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
+
+    @MockitoSpyBean
+    private ConnectorRepository connectorRepositorySpy;
 
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
@@ -52,6 +60,9 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
 
     @Autowired
     private VaultInstanceRepository vaultInstanceRepository;
+
+    @Autowired
+    private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -430,5 +441,92 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
         NameAndUuidDto nameAndUuidDto = connectorService.getResourceObjectExternal(connector.getSecuredUuid());
         Assertions.assertEquals(connector.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(connector.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testBulkDeleteConnector_nonExistentUuid_returnsErrorMessage() throws ValidationException, NotFoundException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.bulkDeleteConnector(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testForceDeleteConnector_nonExistentUuid_returnsErrorMessage() throws ValidationException, NotFoundException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.forceDeleteConnector(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+        Assertions.assertEquals("", messages.getFirst().getName());
+    }
+
+    @Test
+    void testBulkApprove_alreadyConnectedConnector_returnsErrorMessage() {
+        List<BulkActionMessageDto> messages = connectorService.bulkApprove(List.of(connector.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(connector.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteConnector_withAssociatedAuthorityInstance_returnsErrorWithConnectorName() {
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setName("dependentAuthority");
+        authority.setConnector(connector);
+        authority.setKind("ApiKey");
+        authority.setAuthorityInstanceUuid("test-instance-uuid");
+        authorityInstanceReferenceRepository.save(authority);
+
+        List<BulkActionMessageDto> messages = connectorService.bulkDeleteConnector(
+                List.of(connector.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(connector.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkReconnect_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.bulkReconnect(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+        Assertions.assertEquals("", messages.getFirst().getName());
+    }
+
+    @Test
+    void testBulkApprove_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = connectorService.bulkApprove(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+        Assertions.assertEquals("", messages.getFirst().getName());
+    }
+
+    @Test
+    void testForceDeleteConnector_deleteFailure_returnsErrorWithConnectorName() {
+        doThrow(new RuntimeException("DB delete error"))
+                .when(connectorRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = connectorService.forceDeleteConnector(
+                List.of(connector.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(connector.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(connector.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

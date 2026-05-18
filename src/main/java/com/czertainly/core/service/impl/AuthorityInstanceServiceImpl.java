@@ -293,7 +293,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
                 logger.error("Authority Instance not found: {}", uuid);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), authorityInstanceRef != null ? authorityInstanceRef.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), authorityInstanceRef != null ? authorityInstanceRef.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -319,7 +319,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
                 removeAuthorityInstance(authorityInstanceRef);
             } catch (Exception e) {
                 logger.warn("Unable to delete the Authority instance with uuid {}. It may have been deleted. {}", uuid, e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), authorityInstanceRef != null ? authorityInstanceRef.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), authorityInstanceRef != null ? authorityInstanceRef.getName() : "", e, "Delete failed"));
             }
         }
         return messages;

@@ -253,7 +253,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                 deleteCmpProfile(cmpProfile);
             } catch (Exception e) {
                 logger.error(e.getMessage());
-                messages.add(new BulkActionMessageDto(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -275,7 +275,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                 deleteCmpProfile(cmpProfile);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
