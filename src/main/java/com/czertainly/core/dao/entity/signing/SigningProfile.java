@@ -28,6 +28,7 @@ import java.util.UUID;
 @Table(name = "signing_profile")
 public class SigningProfile extends UniquelyIdentifiedAndAudited implements Securable {
 
+    @Getter(onMethod_ = {@Override})
     @Column(name = "name", nullable = false)
     private String name;
 
