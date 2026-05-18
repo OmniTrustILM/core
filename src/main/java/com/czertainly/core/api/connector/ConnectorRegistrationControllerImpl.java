@@ -12,7 +12,7 @@ import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.ConnectorRegistrationService;
+import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,10 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ConnectorRegistrationControllerImpl implements ConnectorRegistrationController {
 
-    private ConnectorRegistrationService connectorRegistrationService;
+    private ConnectorRegistrationExternalService connectorRegistrationService;
 
     @Autowired
-    public void setConnectorRegistrationService(ConnectorRegistrationService connectorRegistrationService) {
+    public void setConnectorRegistrationService(ConnectorRegistrationExternalService connectorRegistrationService) {
         this.connectorRegistrationService = connectorRegistrationService;
     }
 
