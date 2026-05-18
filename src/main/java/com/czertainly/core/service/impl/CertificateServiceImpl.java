@@ -36,7 +36,6 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;

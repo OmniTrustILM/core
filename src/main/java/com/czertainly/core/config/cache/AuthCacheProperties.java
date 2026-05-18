@@ -1,4 +1,4 @@
-package com.czertainly.core.config;
+package com.czertainly.core.config.cache;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
