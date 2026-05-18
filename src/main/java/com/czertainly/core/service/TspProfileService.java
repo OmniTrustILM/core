@@ -28,6 +28,10 @@ public interface TspProfileService extends ResourceExtensionService {
 
     TspProfileDto getTspProfile(SecuredUUID uuid) throws NotFoundException;
 
+    TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException;
+
+    List<String> findAllNames();
+
     TspProfileModel getTspProfile(String name) throws NotFoundException;
 
     TspProfileDto createTspProfile(TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;

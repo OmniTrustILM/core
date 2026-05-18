@@ -61,7 +61,6 @@ import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.TokenProfile;
-import com.czertainly.core.dao.repository.signing.TspProfileRepository;
 import com.czertainly.core.mapper.signing.SigningProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -116,7 +115,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private SigningProfileRepository signingProfileRepository;
     private SigningProfileVersionRepository signingProfileVersionRepository;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
-    private TspProfileRepository tspProfileRepository;
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
@@ -134,7 +132,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_ENABLED),
                 SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_SIGNING_SCHEME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_WORKFLOW_TYPE),
-                SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_TSP_PROFILE, tspProfileRepository.findAllNames()),
+                SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_TSP_PROFILE, tspProfileService.findAllNames()),
                 SearchHelper.prepareSearch(FilterField.SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION, timeQualityConfigurationRepository.findAllNames())
         ));
         fields.sort(new SearchFieldDataComparator());
@@ -441,8 +439,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     public TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid) throws NotFoundException {
         SigningProfile signingProfile = findByUuid(signingProfileUuid);
         validateSupportedProtocol(signingProfile.getWorkflowType(), SigningProtocol.TSP);
-        TspProfile tspProfile = tspProfileRepository.findByUuid(tspProfileUuid)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + tspProfileUuid));
+        TspProfile tspProfile = tspProfileService.getTspProfileEntity(tspProfileUuid);
         signingProfile.setTspProfile(tspProfile);
         signingProfileRepository.save(signingProfile);
         return SigningProfileMapper.toTspActivationDto(signingProfile);
@@ -819,11 +816,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setTimeQualityConfigurationRepository(TimeQualityConfigurationRepository timeQualityConfigurationRepository) {
         this.timeQualityConfigurationRepository = timeQualityConfigurationRepository;
-    }
-
-    @Autowired
-    public void setTspProfileRepository(TspProfileRepository tspProfileRepository) {
-        this.tspProfileRepository = tspProfileRepository;
     }
 
     @Autowired

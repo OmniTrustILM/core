@@ -279,6 +279,21 @@ public class TspProfileServiceImpl implements TspProfileService {
         getTspProfileEntity(uuid);
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
+        return tspProfileRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.LIST)
+    public List<String> findAllNames() {
+        return tspProfileRepository.findAllNames();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
@@ -340,11 +355,6 @@ public class TspProfileServiceImpl implements TspProfileService {
     private void disableTspProfile(TspProfile profile) {
         profile.setEnabled(false);
         tspProfileRepository.save(profile);
-    }
-
-    private TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
-        return tspProfileRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
     }
 
     @Autowired
