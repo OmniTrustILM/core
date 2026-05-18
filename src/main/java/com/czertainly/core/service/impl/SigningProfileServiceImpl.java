@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
@@ -67,8 +68,7 @@ import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
-import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
-import com.czertainly.core.mapper.signing.SigningProfileMapper;
+|import com.czertainly.core.mapper.signing.SigningProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -125,7 +125,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private TspProfileRepository tspProfileRepository;
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
-    private SignatureFormatterApiClient signatureFormatterApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private ConnectorRepository connectorRepository;
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -762,7 +762,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private List<BaseAttribute> fetchAndUpdateFormatterAttributeDefinitions(UUID connectorUuid) throws AttributeException, ConnectorException, NotFoundException {
         Connector connector = connectorRepository.findByUuid(connectorUuid)
                 .orElseThrow(() -> new NotFoundException(Connector.class, connectorUuid));
-        List<BaseAttribute> definitions = signatureFormatterApiClient.listFormatterAttributes(connector.mapToApiClientDtoV2());
+        List<BaseAttribute> definitions = connectorApiFactory.getSignatureFormatterApiClient(connector.mapToApiClientDtoV2()).listFormatterAttributes(connector.mapToApiClientDtoV2());
         attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.WORKFLOW_FORMATTER, definitions);
         return definitions;
     }
@@ -908,8 +908,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setSignatureFormatterApiClient(SignatureFormatterApiClient signatureFormatterApiClient) {
-        this.signatureFormatterApiClient = signatureFormatterApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
