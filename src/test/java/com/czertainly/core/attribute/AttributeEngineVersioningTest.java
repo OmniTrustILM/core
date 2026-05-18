@@ -49,7 +49,7 @@ import java.util.UUID;
 class AttributeEngineVersioningTest extends BaseSpringBootTest {
 
     // ── Operation constants mimicking signing-profile usage ──────────────────
-    private static final String OPERATION_SIGN = AttributeOperation.CERTIFICATE_REQUEST_SIGN;
+    private static final String OPERATION_SIGN = AttributeOperation.SIGN;
     private static final String OPERATION_FORMAT = "connectorFormatter";
     private static final Resource VERSIONED_RESOURCE = Resource.CRYPTOGRAPHIC_KEY;
     private static final List<RequestAttribute> EMPTY_REQUEST_ATTRIBUTES = List.of();

@@ -18,9 +18,12 @@ import java.util.UUID;
 public class TriggerHistoryRecord extends UniquelyIdentified {
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "trigger_history_uuid", nullable = false)
+    @JoinColumn(name = "trigger_history_uuid", updatable = false, insertable = false)
     @ToString.Exclude
     private TriggerHistory triggerHistory;
+
+    @Column(name = "trigger_history_uuid", nullable = false)
+    private UUID triggerHistoryUuid;
 
     @Column(name = "condition_uuid")
     private UUID conditionUuid;

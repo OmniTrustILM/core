@@ -13,7 +13,7 @@ import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.connector.v2.*;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.FilterFieldSource;
@@ -236,7 +236,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 deleteConnector(connector);
             } catch (Exception e) {
                 logger.error("Unable to delete Connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -254,7 +254,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 deleteConnector(connector);
             } catch (Exception e) {
                 logger.error("Unable to force delete Connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Force delete failed"));
             }
         }
         return messages;
@@ -265,7 +265,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     public List<ConnectInfo> connect(ConnectRequestDto request) throws ConnectorException {
         List<ConnectInfo> connectInfos = new ArrayList<>();
 
-        ConnectorApiClientDto apiClientDto = new ConnectorApiClientDto();
+        ConnectorApiClientDtoV1 apiClientDto = new ConnectorApiClientDtoV1();
         apiClientDto.setUuid(request.getUuid());
         apiClientDto.setUrl(request.getUrl());
         apiClientDto.setAuthType(request.getAuthType());
@@ -328,7 +328,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 reconnect(connector);
             } catch (Exception e) {
                 logger.error("Unable to reconnect connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Reconnect failed"));
             }
         }
         return messages;
@@ -352,7 +352,7 @@ public class ConnectorServiceImpl implements ConnectorService {
                 approve(connector);
             } catch (Exception e) {
                 logger.error("Unable to approve connector", e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), connector != null ? connector.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), connector != null ? connector.getName() : "", e, "Approve failed"));
             }
         }
         return messages;
@@ -383,7 +383,8 @@ public class ConnectorServiceImpl implements ConnectorService {
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_STATUS),
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_AUTH_TYPE),
                 SearchHelper.prepareSearch(FilterField.CONNECTOR_INTERFACE),
-                SearchHelper.prepareSearch(FilterField.CONNECTOR_FUNCTION_GROUP)
+                SearchHelper.prepareSearch(FilterField.CONNECTOR_FUNCTION_GROUP),
+                SearchHelper.prepareSearch(FilterField.CONNECTOR_FEATURES)
         );
 
         fields = new ArrayList<>(fields);
@@ -456,7 +457,7 @@ public class ConnectorServiceImpl implements ConnectorService {
             ConnectInfo connectInfo = connectorAdapter.validateConnection(connector.mapToApiClientDtoV2());
             connectorAdapter.updateConnectorFunctions(connector, connectInfo);
         } else {
-            ConnectorApiClientDto connectorApiDto = new ConnectorApiClientDto();
+            ConnectorApiClientDtoV1 connectorApiDto = new ConnectorApiClientDtoV1();
             connectorApiDto.setName(request.getName());
             connectorApiDto.setUrl(request.getUrl());
             connectorApiDto.setAuthType(request.getAuthType());
