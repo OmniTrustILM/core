@@ -62,7 +62,7 @@ class ConnectorServiceMockTest {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
 
     @Mock
-    private ConnectorAuthExternalService connectorAuthService;
+    private ConnectorAuthInternalService connectorAuthService;
 
     @Mock
     private AttributeEngine attributeEngine;
