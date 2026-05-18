@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowT
 import java.beans.PropertyEditorSupport;
 
 public class SigningWorkflowTypeConverter extends PropertyEditorSupport {
+    @Override
     public void setAsText(final String text) throws IllegalArgumentException {
         setValue(SigningWorkflowType.findByCode(text));
     }
