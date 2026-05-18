@@ -6,6 +6,7 @@ import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.*;
 import com.czertainly.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.api.model.core.location.LocationDto;
@@ -14,11 +15,16 @@ import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
+import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
@@ -74,11 +80,15 @@ public interface CertificateService extends ResourceExtensionService  {
      */
     Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException;
 
+    void upload(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
+
+    void upload(String certificateData, List<RequestAttribute> customAttributes, UUID userUuid) throws CertificateException, AlreadyExistException;
+
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
-    CertificateContent checkAddCertificateContent(String fingerprint, String content);
+    void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded);
 
-    CertificateDetailDto upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException;
+    CertificateContent checkAddCertificateContent(String fingerprint, String content);
 
     Certificate createCertificateAtomic(String certificate, boolean assignOwner) throws CertificateException, NoSuchAlgorithmException, NotFoundException;
 
