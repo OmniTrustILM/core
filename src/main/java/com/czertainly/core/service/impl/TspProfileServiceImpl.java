@@ -3,6 +3,7 @@ package com.czertainly.core.service.impl;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
@@ -290,6 +291,9 @@ public class TspProfileServiceImpl implements TspProfileService {
             UUID defaultSigningProfileUuid = request.getDefaultSigningProfileUuid();
             defaultSigningProfile = signingProfileRepository.findByUuid(SecuredUUID.fromUUID(defaultSigningProfileUuid))
                     .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + defaultSigningProfileUuid));
+            if (defaultSigningProfile.getWorkflowType() != SigningWorkflowType.TIMESTAMPING) {
+                throw new ValidationException("Default Signing Profile must have TIMESTAMPING workflow type");
+            }
         }
 
         return defaultSigningProfile;
