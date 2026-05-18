@@ -642,7 +642,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             throws AttributeException, ConnectorException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
-                fetchAndUpdateFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                List<BaseAttribute> formatterDefinitions = fetchAndUpdateFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormatterConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formatterDefinitions, w.getSignatureFormatterConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
                                 .connector(w.getSignatureFormatterConnectorUuid())
@@ -659,7 +660,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
-                fetchAndUpdateFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                List<BaseAttribute> formatterDefinitions = fetchAndUpdateFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormatterConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formatterDefinitions, w.getSignatureFormatterConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
                                 .connector(w.getSignatureFormatterConnectorUuid())

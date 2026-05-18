@@ -2005,6 +2005,100 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // Formatter attribute validation against connector-returned definitions
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testCreateSigningProfile_contentSigning_formatterAttributeMatchesConnectorDefinition_valid()
+            throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        Connector formatter = createFormatterConnector("formatter-valid-content");
+
+        UUID attrUuid = UUID.fromString("00000000-dead-beef-0001-000000000001");
+        String attrName = "data_validFormatterAttr";
+
+        // WireMock returns the definition so fetchAndUpdateFormatterAttributeDefinitions stores it.
+        // validateUpdateDataAttributes is then called with that definition and the submitted content.
+        mockServer.stubFor(
+                WireMock.get(WireMock.urlPathEqualTo("/formatter-valid-content/v1/signatureProvider/formatting/attributes"))
+                        .willReturn(WireMock.okJson("""
+                                [{"uuid":"%s","name":"%s","type":"data","version":"2","contentType":"string",\
+                                "properties":{"label":"Valid Formatter Attribute","required":false,"readOnly":false,"list":false,"multiSelect":false,"visible":true}}]
+                                """.formatted(attrUuid, attrName)))
+        );
+
+        ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
+        workflow.setSignatureFormatterConnectorUuid(formatter.getUuid());
+        workflow.setSignatureFormatterConnectorAttributes(
+                List.of(buildFormatterAttribute(attrUuid, attrName, "valid-value")));
+
+        SigningProfileRequestDto request = new SigningProfileRequestDto();
+        request.setName("content-valid-formatter-attrs");
+        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setWorkflow(workflow);
+
+        SigningProfileDto dto = signingProfileService.createSigningProfile(request);
+
+        Assertions.assertNotNull(dto);
+        Assertions.assertEquals(SigningWorkflowType.CONTENT_SIGNING, dto.getWorkflow().getType());
+        ContentSigningWorkflowDto wfDto = (ContentSigningWorkflowDto) dto.getWorkflow();
+        Assertions.assertFalse(wfDto.getSignatureFormatterConnectorAttributes().isEmpty(),
+                "Formatter attribute that passes connector-definition validation must be persisted");
+    }
+
+    @Test
+    void testCreateSigningProfile_contentSigning_requiredFormatterAttributeMissing_throwsValidationException() {
+        Connector formatter = createFormatterConnector("formatter-required-content");
+
+        // WireMock returns a required attribute definition — the client submits nothing.
+        mockServer.stubFor(
+                WireMock.get(WireMock.urlPathEqualTo("/formatter-required-content/v1/signatureProvider/formatting/attributes"))
+                        .willReturn(WireMock.okJson("""
+                                [{"uuid":"00000000-dead-beef-0002-000000000001","name":"req_content_attr","type":"data","version":"2","contentType":"string",\
+                                "properties":{"label":"Required Content Attr","required":true,"readOnly":false,"list":false,"multiSelect":false,"visible":true}}]
+                                """))
+        );
+
+        ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
+        workflow.setSignatureFormatterConnectorUuid(formatter.getUuid());
+        workflow.setSignatureFormatterConnectorAttributes(List.of());
+
+        SigningProfileRequestDto request = new SigningProfileRequestDto();
+        request.setName("content-missing-required-attr");
+        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setWorkflow(workflow);
+
+        Assertions.assertThrows(ValidationException.class,
+                () -> signingProfileService.createSigningProfile(request),
+                "createSigningProfile must reject missing required formatter attribute in CONTENT_SIGNING workflow");
+    }
+
+    @Test
+    void testCreateSigningProfile_timestamping_requiredFormatterAttributeMissing_throwsValidationException() {
+        Connector formatter = createFormatterConnector("formatter-required-timestamping");
+
+        mockServer.stubFor(
+                WireMock.get(WireMock.urlPathEqualTo("/formatter-required-timestamping/v1/signatureProvider/formatting/attributes"))
+                        .willReturn(WireMock.okJson("""
+                                [{"uuid":"00000000-dead-beef-0003-000000000001","name":"req_ts_attr","type":"data","version":"2","contentType":"string",\
+                                "properties":{"label":"Required Timestamping Attr","required":true,"readOnly":false,"list":false,"multiSelect":false,"visible":true}}]
+                                """))
+        );
+
+        TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
+        workflow.setSignatureFormatterConnectorUuid(formatter.getUuid());
+        workflow.setSignatureFormatterConnectorAttributes(List.of());
+
+        SigningProfileRequestDto request = new SigningProfileRequestDto();
+        request.setName("ts-missing-required-attr");
+        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setWorkflow(workflow);
+
+        Assertions.assertThrows(ValidationException.class,
+                () -> signingProfileService.createSigningProfile(request),
+                "createSigningProfile must reject missing required formatter attribute in TIMESTAMPING workflow");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Custom attributes via ResourceExtensionService
     // ──────────────────────────────────────────────────────────────────────────
 
