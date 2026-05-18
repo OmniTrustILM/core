@@ -1,18 +1,14 @@
 package com.czertainly.core.dao.entity;
 
 import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
 import com.czertainly.api.model.common.enums.BitMaskEnum;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
 import com.czertainly.api.model.core.certificate.*;
 import com.czertainly.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
 import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.mapper.certificate.CertificateDetailDtoMapper;
 import com.czertainly.core.util.DtoMapper;
-import com.czertainly.core.util.MetaDefinitions;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -115,6 +111,21 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
 
     @Column(name = "extended_key_usage")
     private String extendedKeyUsage;
+
+    @Column(name = "extended_key_usage_critical")
+    private Boolean extendedKeyUsageCritical;
+
+    @Column(name = "qc_compliance")
+    private Boolean qcCompliance;
+
+    @Column(name = "qc_sscd")
+    private Boolean qcSscd;
+
+    @Column(name = "qc_type")
+    private String qcType;
+
+    @Column(name = "qc_cc_legislation")
+    private String qcCcLegislation;
 
     @Column(name = "key_usage")
     private int keyUsage;
@@ -282,203 +293,22 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
 
     @Override
     public CertificateDetailDto mapToDto() {
-        return buildDetailDto(false);
+        return CertificateDetailDtoMapper.toDetailDto(this);
     }
 
     /**
      * Chain-aware variant of {@link #mapToDto()} for use in {@code getCertificateChain}.
      */
     public CertificateDetailDto mapToChainDto() {
-        return buildDetailDto(true);
-    }
-
-    /**
-     * Shared implementation for {@link #mapToDto()} and {@link #mapToChainDto()}.
-     *
-     * @param chainContext when {@code true}, key associations are mapped with {@link CryptographicKey#mapToChainDto()} (omits the {@code associations} count);
-     *                    when {@code false}, the full {@link CryptographicKey#mapToDto()} is used.
-     */
-    private CertificateDetailDto buildDetailDto(boolean chainContext) {
-        final CertificateDetailDto dto = new CertificateDetailDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(this.commonName));
-        dto.setIssuerCommonName(getIssuerCommonNameToDto());
-        if (certificateContent != null) {
-            dto.setCertificateContent(certificateContent.getContent());
-            dto.setIssuerDn(issuerDn);
-            dto.setNotBefore(notBefore);
-            dto.setNotAfter(notAfter);
-            dto.setSubjectType(subjectType);
-            dto.setExtendedKeyUsage(MetaDefinitions.deserializeArrayString(extendedKeyUsage));
-            dto.setKeyUsage(getKeyUsage().stream().toList());
-            dto.setFingerprint(fingerprint);
-            dto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(subjectAlternativeNames));
-            dto.setIssuerSerialNumber(issuerSerialNumber);
-            dto.setSerialNumber(serialNumber);
-        }
-        dto.setSubjectDn(subjectDn);
-        dto.setPublicKeyAlgorithm(publicKeyAlgorithm);
-        dto.setAltPublicKeyAlgorithm(altPublicKeyAlgorithm);
-        dto.setSignatureAlgorithm(signatureAlgorithm);
-        if (altSignatureAlgorithm != null) dto.setAltSignatureAlgorithm(altSignatureAlgorithm);
-        dto.setKeySize(keySize);
-        dto.setAltKeySize(altKeySize);
-        dto.setUuid(uuid.toString());
-        dto.setState(state);
-        dto.setValidationStatus(validationStatus);
-        dto.setCertificateType(certificateType);
-        dto.setTrustedCa(trustedCa);
-        dto.setHybridCertificate(hybridCertificate);
-        dto.setArchived(archived);
-        if (!predecessorRelations.isEmpty()) dto.setSourceCertificateUuid(predecessorRelations.stream().toList().getFirst().getPredecessorCertificate().getUuid());
-        if (issuerCertificateUuid != null) dto.setIssuerCertificateUuid(issuerCertificateUuid.toString());
-        if (owner != null) {
-            dto.setOwnerUuid(owner.getOwnerUuid().toString());
-            dto.setOwner(owner.getOwnerUsername());
-        }
-        /*
-         * Result for the compliance check of a certificate is stored in the database in the form of List of Rule IDs.
-         * When the details of the certificate is requested, the Service will transform the result into the user understandable
-         * format and send it. It is not moved into the mapToDto function, as the computation involves other repositories
-         * like complianceRules etc., So only the overall status of the compliance will be set in the mapToDto function
-         */
-        dto.setComplianceStatus(complianceStatus);
-        if (raProfile != null) {
-            SimplifiedRaProfileDto raDto = new SimplifiedRaProfileDto();
-            raDto.setName(raProfile.getName());
-            raDto.setUuid(raProfile.getUuid().toString());
-            raDto.setEnabled(raProfile.getEnabled());
-            if (raProfile.getAuthorityInstanceReference() != null) {
-                raDto.setAuthorityInstanceUuid(raProfile.getAuthorityInstanceReference().getUuid().toString());
-            }
-            dto.setRaProfile(raDto);
-        }
-
-        if (groups != null) {
-            dto.setGroups(groups.stream().map(Group::mapToDto).toList());
-        }
-
-        //Check and assign private key availability
-        dto.setPrivateKeyAvailability(false);
-
-        if (this.certificateRequestEntity != null) {
-            final CertificateRequestDto certificateRequestDto = new CertificateRequestDto();
-            certificateRequestDto.setUuid(this.certificateRequestEntity.getUuid());
-            certificateRequestDto.setContent(this.certificateRequestEntity.getContent());
-            certificateRequestDto.setCertificateType(this.certificateRequestEntity.getCertificateType());
-            certificateRequestDto.setCommonName(CertificateUtil.formatCommonName(this.certificateRequestEntity.getCommonName()));
-            certificateRequestDto.setSubjectDn(this.certificateRequestEntity.getSubjectDn());
-            certificateRequestDto.setSignatureAlgorithm(this.certificateRequestEntity.getSignatureAlgorithm());
-            certificateRequestDto.setAltSignatureAlgorithm(this.certificateRequestEntity.getAltSignatureAlgorithm());
-            certificateRequestDto.setPublicKeyAlgorithm(this.certificateRequestEntity.getPublicKeyAlgorithm());
-            certificateRequestDto.setCertificateRequestFormat(this.certificateRequestEntity.getCertificateRequestFormat());
-            certificateRequestDto.setSubjectAlternativeNames(CertificateUtil.deserializeSans(this.certificateRequestEntity.getSubjectAlternativeNames()));
-            certificateRequestDto.setKeyUuid(this.certificateRequestEntity.getKeyUuid() != null ? this.certificateRequestEntity.getKeyUuid().toString() : null);
-            certificateRequestDto.setAltKeyUuid(this.certificateRequestEntity.getAltKeyUuid() != null ? this.certificateRequestEntity.getAltKeyUuid().toString() : null);
-            certificateRequestDto.setComplianceStatus(certificateRequestEntity.getComplianceStatus());
-            dto.setCertificateRequest(certificateRequestDto);
-        }
-        if (key != null && !key.getItems().isEmpty()
-                && !key.getItems().stream().filter(item -> item.getType().equals(KeyType.PRIVATE_KEY) && item.getState().equals(KeyState.ACTIVE)).toList().isEmpty()) {
-            dto.setPrivateKeyAvailability(true);
-        }
-
-        if (key != null) dto.setKey(chainContext ? key.mapToChainDto() : key.mapToDto());
-
-        if (altKey != null) dto.setAltKey(chainContext ? altKey.mapToChainDto() : altKey.mapToDto());
-
-        if (protocolAssociation != null) {
-            CertificateProtocolDto protocolDto = new CertificateProtocolDto();
-            protocolDto.setProtocol(protocolAssociation.getProtocol());
-            protocolDto.setProtocolProfileUuid(protocolAssociation.getProtocolProfileUuid());
-            protocolDto.setAdditionalProtocolUuid(protocolAssociation.getAdditionalProtocolUuid());
-            dto.setProtocolInfo(protocolDto);
-        }
-
-        return dto;
+        return CertificateDetailDtoMapper.toChainDto(this);
     }
 
     public CertificateDto mapToListDto() {
-        CertificateDto dto = new CertificateDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(commonName));
-        dto.setIssuerCommonName(getIssuerCommonNameToDto());
-        dto.setSerialNumber(serialNumber);
-        dto.setIssuerCommonName(issuerCommonName);
-        dto.setIssuerDn(issuerDn);
-        dto.setSubjectDn(subjectDn);
-        dto.setNotBefore(notBefore);
-        dto.setNotAfter(notAfter);
-        dto.setPublicKeyAlgorithm(publicKeyAlgorithm);
-        dto.setAltPublicKeyAlgorithm(altPublicKeyAlgorithm);
-        dto.setSignatureAlgorithm(signatureAlgorithm);
-        dto.setAltSignatureAlgorithm(altSignatureAlgorithm);
-        dto.setKeySize(keySize);
-        dto.setAltKeySize(altKeySize);
-        dto.setUuid(uuid.toString());
-        dto.setState(state);
-        dto.setValidationStatus(validationStatus);
-        dto.setFingerprint(fingerprint);
-        dto.setTrustedCa(trustedCa);
-        dto.setHybridCertificate(hybridCertificate);
-        dto.setArchived(archived);
-        if (issuerCertificateUuid != null) dto.setIssuerCertificateUuid(issuerCertificateUuid.toString());
-        if (owner != null) {
-            dto.setOwnerUuid(owner.getOwnerUuid().toString());
-            dto.setOwner(owner.getOwnerUsername());
-        }
-        dto.setCertificateType(certificateType);
-        dto.setIssuerSerialNumber(issuerSerialNumber);
-        /*
-         * Result for the compliance check of a certificate is stored in the database in the form of List of Rule IDs.
-         * When the details of the certificate is requested, the Service will transform the result into the user understandable
-         * format and send it. It is not moved into the mapToDto function, as the computation involves other repositories
-         * like complianceRules etc., So only the overall status of the compliance will be set in the mapToDto function
-         */
-        dto.setComplianceStatus(complianceStatus);
-
-        if (raProfile != null) {
-            SimplifiedRaProfileDto raDto = new SimplifiedRaProfileDto();
-            raDto.setName(raProfile.getName());
-            raDto.setUuid(raProfile.getUuid().toString());
-            raDto.setEnabled(raProfile.getEnabled());
-            if (raProfile.getAuthorityInstanceReference() != null) {
-                raDto.setAuthorityInstanceUuid(raProfile.getAuthorityInstanceReference().getUuid().toString());
-            }
-            dto.setRaProfile(raDto);
-        }
-
-        if (groups != null) {
-            dto.setGroups(groups.stream().map(Group::mapToDto).toList());
-        }
-
-        //Check and assign private key availability
-        dto.setPrivateKeyAvailability(false);
-        if (key != null && !key.getItems().isEmpty()
-                && !key.getItems().stream().filter(item -> item.getType().equals(KeyType.PRIVATE_KEY) && item.getState().equals(KeyState.ACTIVE)).toList().isEmpty()) {
-            dto.setPrivateKeyAvailability(true);
-        }
-
-        return dto;
+        return CertificateDetailDtoMapper.toListDto(this);
     }
 
     public CertificateSimpleDto mapToSimpleDto(CertificateRelationType relationType) {
-        CertificateSimpleDto simpleDto = new CertificateSimpleDto();
-        simpleDto.setUuid(uuid);
-        simpleDto.setCertificateType(certificateType);
-        simpleDto.setState(state);
-        simpleDto.setRelationType(relationType);
-        simpleDto.setCommonName(commonName);
-        simpleDto.setSubjectDn(subjectDn);
-        simpleDto.setIssuerCommonName(issuerCommonName);
-        simpleDto.setIssuerDn(issuerDn);
-        simpleDto.setSerialNumber(serialNumber);
-        simpleDto.setFingerprint(fingerprint);
-        simpleDto.setPublicKeyAlgorithm(publicKeyAlgorithm);
-        simpleDto.setAltPublicKeyAlgorithm(altPublicKeyAlgorithm);
-        simpleDto.setSignatureAlgorithm(signatureAlgorithm);
-        simpleDto.setAltSignatureAlgorithm(altSignatureAlgorithm);
-        simpleDto.setNotBefore(notBefore);
-        simpleDto.setNotAfter(notAfter);
-        return simpleDto;
+        return CertificateDetailDtoMapper.toSimpleDto(this, relationType);
     }
 
 
@@ -528,15 +358,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
         this.certificateRequestEntity = certificateRequestEntity;
     }
 
-
-    private String getIssuerCommonNameToDto() {
-        if (issuerCommonName != null) {
-            return issuerCommonName;
-        } else if (issuerCertificateUuid != null) {
-            return CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER;
-        }
-        return null;
-    }
 
     public void setTrustedCa(boolean trustedCa) {
         this.trustedCa = trustedCa;
