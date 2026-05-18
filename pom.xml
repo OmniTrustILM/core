@@ -132,7 +132,7 @@
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
-            <version>1.18.1</version>
+            <version>1.18.3</version>
         </dependency>
         <dependency>
             <groupId>org.messaginghub</groupId>
