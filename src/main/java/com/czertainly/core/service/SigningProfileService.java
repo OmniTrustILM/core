@@ -43,6 +43,10 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     SigningProfileDto getSigningProfile(SecuredUUID uuid, Integer version) throws NotFoundException;
 
+    SigningProfile getSigningProfileEntity(SecuredUUID uuid) throws NotFoundException;
+
+    List<String> findAllNames();
+
     List<SigningProtocol> listSupportedProtocols(SigningWorkflowType workflowType);
 
     SigningProfileDto createSigningProfile(SigningProfileRequestDto request) throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException;

@@ -555,6 +555,62 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // Get entity
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testGetSigningProfileEntity_returnsCorrectEntity() throws NotFoundException {
+        SigningProfile entity = signingProfileService.getSigningProfileEntity(savedProfile.getSecuredUuid());
+
+        Assertions.assertNotNull(entity);
+        Assertions.assertEquals(savedProfile.getUuid(), entity.getUuid());
+        Assertions.assertEquals(savedProfile.getName(), entity.getName());
+    }
+
+    @Test
+    void testGetSigningProfileEntity_notFound() {
+        Assertions.assertThrows(NotFoundException.class,
+                () -> signingProfileService.getSigningProfileEntity(
+                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Find all names
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testFindAllNames_returnsExistingNames() {
+        List<String> names = signingProfileService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertEquals(1, names.size());
+        Assertions.assertTrue(names.contains(savedProfile.getName()));
+    }
+
+    @Test
+    void testFindAllNames_returnsAllWhenMultipleExist() {
+        SigningProfile second = new SigningProfile();
+        second.setName("second-signing-profile");
+        signingProfileRepository.save(second);
+
+        List<String> names = signingProfileService.findAllNames();
+
+        Assertions.assertEquals(2, names.size());
+        Assertions.assertTrue(names.contains(savedProfile.getName()));
+        Assertions.assertTrue(names.contains("second-signing-profile"));
+    }
+
+    @Test
+    void testFindAllNames_emptyWhenNoneExist() {
+        signingProfileRepository.delete(savedProfile);
+
+        List<String> names = signingProfileService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertTrue(names.isEmpty());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Create
     // ──────────────────────────────────────────────────────────────────────────
 

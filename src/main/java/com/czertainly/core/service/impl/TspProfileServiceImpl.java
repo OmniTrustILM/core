@@ -25,7 +25,6 @@ import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.dao.entity.signing.TspProfile_;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
-import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.mapper.signing.TspProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.signing.TspProfileModel;
@@ -62,7 +61,6 @@ import java.util.stream.Collectors;
 public class TspProfileServiceImpl implements TspProfileService {
     private AttributeEngine attributeEngine;
     private TspProfileServiceImpl self;
-    private SigningProfileRepository signingProfileRepository;
     private SigningProfileService signingProfileService;
     private TspProfileRepository tspProfileRepository;
 
@@ -74,7 +72,7 @@ public class TspProfileServiceImpl implements TspProfileService {
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.TSP_PROFILE_NAME),
                 SearchHelper.prepareSearch(FilterField.TSP_PROFILE_ENABLED),
-                SearchHelper.prepareSearch(FilterField.TSP_PROFILE_DEFAULT_SIGNING_PROFILE, signingProfileRepository.findAllNames())
+                SearchHelper.prepareSearch(FilterField.TSP_PROFILE_DEFAULT_SIGNING_PROFILE, signingProfileService.findAllNames())
         ));
         fields.sort(new SearchFieldDataComparator());
         searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fields, FilterFieldSource.PROPERTY));
@@ -304,8 +302,8 @@ public class TspProfileServiceImpl implements TspProfileService {
         SigningProfile defaultSigningProfile = null;
         if (request.getDefaultSigningProfileUuid() != null) {
             UUID defaultSigningProfileUuid = request.getDefaultSigningProfileUuid();
-            defaultSigningProfile = signingProfileRepository.findByUuid(SecuredUUID.fromUUID(defaultSigningProfileUuid))
-                    .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + defaultSigningProfileUuid));
+            SecuredUUID securedDefaultSigningProfileUuid = SecuredUUID.fromUUID(defaultSigningProfileUuid);
+            defaultSigningProfile = signingProfileService.getSigningProfileEntity(securedDefaultSigningProfileUuid);
             if (defaultSigningProfile.getWorkflowType() != SigningWorkflowType.TIMESTAMPING) {
                 throw new ValidationException("Default Signing Profile must have TIMESTAMPING workflow type");
             }
@@ -365,11 +363,6 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Autowired
     public void setTspProfileRepository(TspProfileRepository tspProfileRepository) {
         this.tspProfileRepository = tspProfileRepository;
-    }
-
-    @Autowired
-    public void setSigningProfileRepository(SigningProfileRepository signingProfileRepository) {
-        this.signingProfileRepository = signingProfileRepository;
     }
 
     @Autowired

@@ -217,9 +217,21 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         return fetchAndUpdateFormatterAttributeDefinitions(connectorUuid);
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.LIST)
+    public List<String> findAllNames() {
+        return signingProfileRepository.findAllNames();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Get (with optional version)
     // ──────────────────────────────────────────────────────────────────────────
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
+    public SigningProfile getSigningProfileEntity(SecuredUUID uuid) throws NotFoundException {
+        return findByUuid(uuid);
+    }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
