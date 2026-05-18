@@ -60,6 +60,8 @@ import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationReposi
 import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
 import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
+import com.czertainly.core.dao.entity.RaProfile;
+import com.czertainly.core.dao.entity.TokenProfile;
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
 import com.czertainly.core.mapper.signing.SigningProfileMapper;
@@ -69,7 +71,9 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.CryptographicOperationService;
+import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.SigningProfileService;
+import com.czertainly.core.service.TokenProfileService;
 import com.czertainly.core.service.TspProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.CertificateUtil;
@@ -109,6 +113,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private CacheManager cacheManager;
     private CryptographicOperationService cryptographicOperationService;
     private CertificateService certificateService;
+    private TokenProfileService tokenProfileService;
+    private RaProfileService raProfileService;
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SigningProfileRepository signingProfileRepository;
     private SigningProfileVersionRepository signingProfileVersionRepository;
@@ -511,8 +517,10 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             }
             case OneTimeKeyManagedSigningRequestDto s -> {
                 version.setManagedSigningType(ManagedSigningType.ONE_TIME_KEY);
-                version.setTokenProfileUuid(s.getTokenProfileUuid());
-                version.setRaProfileUuid(s.getRaProfileUuid());
+                TokenProfile tokenProfile = tokenProfileService.getTokenProfileEntity(SecuredUUID.fromUUID(s.getTokenProfileUuid()));
+                version.setTokenProfile(tokenProfile);
+                RaProfile raProfile = raProfileService.getRaProfileEntity(SecuredUUID.fromUUID(s.getRaProfileUuid()));
+                version.setRaProfile(raProfile);
                 version.setCsrTemplateUuid(s.getCsrTemplateUuid());
             }
             case DelegatedSigningRequestDto s -> {
@@ -779,6 +787,16 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setCertificateService(CertificateService certificateService) {
         this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setTokenProfileService(TokenProfileService tokenProfileService) {
+        this.tokenProfileService = tokenProfileService;
+    }
+
+    @Autowired
+    public void setRaProfileService(RaProfileService raProfileService) {
+        this.raProfileService = raProfileService;
     }
 
     @Autowired
