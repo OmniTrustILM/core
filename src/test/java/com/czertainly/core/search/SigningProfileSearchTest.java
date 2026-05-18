@@ -1,15 +1,23 @@
 package com.czertainly.core.search;
 
+import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.PaginationResponseDto;
+import com.czertainly.api.model.common.attribute.common.AttributeType;
+import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
+import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.czertainly.api.model.common.attribute.v3.content.TextAttributeContentV3;
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.search.FilterConditionOperator;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.entity.signing.TspProfile;
@@ -27,11 +35,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 
 class SigningProfileSearchTest extends BaseSpringBootTest {
 
+    private static final String CUSTOM_ATTR_NAME = "profile-tag";
+    private static final String CUSTOM_ATTR_VALUE = "alpha-tag-value";
+
     @Autowired
     private SigningProfileService signingProfileService;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Autowired
     private SigningProfileRepository signingProfileRepository;
@@ -52,7 +67,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     private TimeQualityConfiguration tqcSlow;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         tspAlpha = new TspProfile();
         tspAlpha.setName("alpha-tsp");
         tspAlpha.setEnabled(true);
@@ -108,6 +123,23 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
         profileC.setLatestVersion(1);
         profileC.setTimeQualityConfiguration(tqcSlow);
         profileC = signingProfileRepository.save(profileC);
+
+        // Attach a custom TEXT attribute to profileA only.
+        CustomAttributeV3 customAttr = new CustomAttributeV3();
+        customAttr.setUuid(UUID.randomUUID().toString());
+        customAttr.setName(CUSTOM_ATTR_NAME);
+        customAttr.setType(AttributeType.CUSTOM);
+        customAttr.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties props = new CustomAttributeProperties();
+        props.setLabel("Profile Tag");
+        customAttr.setProperties(props);
+        attributeEngine.updateCustomAttributeDefinition(customAttr, List.of(Resource.SIGNING_PROFILE));
+
+        RequestAttributeV3 requestAttr = new RequestAttributeV3();
+        requestAttr.setUuid(UUID.fromString(customAttr.getUuid()));
+        requestAttr.setName(CUSTOM_ATTR_NAME);
+        requestAttr.setContent(List.of(new TextAttributeContentV3("ref-1", CUSTOM_ATTR_VALUE)));
+        attributeEngine.updateObjectCustomAttributesContent(Resource.SIGNING_PROFILE, profileA.getUuid(), List.of(requestAttr));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -343,6 +375,46 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, response.getTotalItems());
         Assertions.assertEquals("profile-alpha", response.getItems().getFirst().getName());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Filter by custom attribute
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
+        List<SigningProfileListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertEquals(1, results.size(),
+                "Expected exactly the profile tagged with the custom attribute value");
+        Assertions.assertEquals("profile-alpha", results.getFirst().getName());
+    }
+
+    @Test
+    void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
+        List<SigningProfileListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.NOT_EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("profile-alpha")),
+                "Profile with the custom attribute value must be excluded by NOT_EQUALS");
+    }
+
+    @Test
+    void getSearchableFieldInformation_includesCustomAttributeGroup() {
+        List<SearchFieldDataByGroupDto> groups = signingProfileService.getSearchableFieldInformation();
+
+        boolean hasCustomGroup = groups.stream()
+                .anyMatch(g -> g.getFilterFieldSource() == FilterFieldSource.CUSTOM);
+
+        Assertions.assertTrue(hasCustomGroup,
+                "getSearchableFieldInformation must expose a CUSTOM attribute group so the UI can offer attribute-based filters");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
