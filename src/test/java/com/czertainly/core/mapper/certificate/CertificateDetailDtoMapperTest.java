@@ -198,6 +198,34 @@ class CertificateDetailDtoMapperTest {
         Assertions.assertEquals(additionalProtocolUuid,         protocolDto.getAdditionalProtocolUuid());
     }
 
+    @Test
+    void toDetailDto_qcStatements_nullWhenExtensionAbsent() {
+        CertificateContent content = new CertificateContent();
+        content.setContent("base64cert==");
+        certificate.setCertificateContent(content);
+
+        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        Assertions.assertNull(dto.getQcStatements());
+    }
+
+    @Test
+    void toDetailDto_qcStatements_emittedWhenAllFlagsAreFalse() {
+        CertificateContent content = new CertificateContent();
+        content.setContent("base64cert==");
+        certificate.setCertificateContent(content);
+        certificate.setQcCompliance(false);
+        certificate.setQcSscd(false);
+
+        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        CertificateQcStatementsDto qc = dto.getQcStatements();
+        Assertions.assertNotNull(qc, "qcStatements must be emitted even when qcCompliance and qcSscd are both false");
+        Assertions.assertFalse(qc.getQcCompliance());
+        Assertions.assertFalse(qc.getQcSscd());
+        Assertions.assertNull(qc.getQcType());
+        Assertions.assertNull(qc.getQcCcLegislation());
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // toListDto
     // ──────────────────────────────────────────────────────────────────────────
