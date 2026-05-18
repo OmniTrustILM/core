@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.sql.DataSource;
 import java.security.cert.X509Certificate;
+import java.sql.Connection;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -35,10 +36,11 @@ class BackfillExtendedKeyUsageCriticalTest extends BaseMigrationTest {
         Certificate tsaNonCritical = persist(CertificateTestUtil.createTimestampingCertificate(false));
         Certificate noEku          = persist(CertificateTestUtil.createCertificateWithoutEku());
 
-        Context context = Mockito.mock(Context.class);
-        when(context.getConnection()).thenReturn(dataSource.getConnection());
-
-        new V202604011901__BackfillExtendedKeyUsageCritical().migrate(context);
+        try (Connection conn = dataSource.getConnection()) {
+            Context context = Mockito.mock(Context.class);
+            when(context.getConnection()).thenReturn(conn);
+            new V202604011901__BackfillExtendedKeyUsageCritical().migrate(context);
+        }
 
         tsaCritical    = certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow();
         tsaNonCritical = certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow();
@@ -52,6 +54,31 @@ class BackfillExtendedKeyUsageCriticalTest extends BaseMigrationTest {
                 .isFalse();
         assertThat(noEku.getExtendedKeyUsageCritical())
                 .as("Cert without EKU must remain null — criticality is not applicable")
+                .isNull();
+    }
+
+    @Test
+    void migrate_isIdempotent() throws Exception {
+        Certificate tsaCritical    = persist(CertificateTestUtil.createTimestampingCertificate());
+        Certificate tsaNonCritical = persist(CertificateTestUtil.createTimestampingCertificate(false));
+        Certificate noEku          = persist(CertificateTestUtil.createCertificateWithoutEku());
+
+        V202604011901__BackfillExtendedKeyUsageCritical migration = new V202604011901__BackfillExtendedKeyUsageCritical();
+        try (Connection conn = dataSource.getConnection()) {
+            Context context = Mockito.mock(Context.class);
+            when(context.getConnection()).thenReturn(conn);
+            migration.migrate(context);
+            migration.migrate(context); // second run must leave already-set values untouched
+        }
+
+        assertThat(certificateRepository.findByUuid(tsaCritical.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
+                .as("second run must not overwrite true")
+                .isTrue();
+        assertThat(certificateRepository.findByUuid(tsaNonCritical.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
+                .as("second run must not overwrite false")
+                .isFalse();
+        assertThat(certificateRepository.findByUuid(noEku.getUuid()).orElseThrow().getExtendedKeyUsageCritical())
+                .as("second run must not set criticality on certs without EKU")
                 .isNull();
     }
 

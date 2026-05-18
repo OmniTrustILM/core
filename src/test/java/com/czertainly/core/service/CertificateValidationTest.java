@@ -796,4 +796,56 @@ public class CertificateValidationTest extends BaseSpringBootTest {
         signature.update(newTbsCert.getEncoded());
         signature.verify(altCertificateSignature);
     }
+
+    @Test
+    void testValidateDownloadsAndInsertsIssuerFromAia() throws Exception {
+        // The CA is deliberately absent from the inventory so validate() must follow the AIA download path.
+        KeyPair caKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate caCert = CertificateGeneratorHelper.generateCACertificateWithQcStatements(caKeyPair, "CN=AIA-Test-CA");
+
+        KeyPair eeKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        String caIssuersPath = "/aiaissuer.crt";
+        X509Certificate eeCert = CertificateGeneratorHelper.generateEndEntityCertificateWithCaIssuers(
+                caKeyPair, caCert, eeKeyPair, "CN=AIA-Test-EE", mockServer.baseUrl() + caIssuersPath);
+
+        // Serve the CA in DER format at the AIA URL.
+        mockServer.stubFor(WireMock.get(WireMock.urlPathEqualTo(caIssuersPath))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/pkix-cert")
+                        .withBody(caCert.getEncoded())));
+
+        // Insert only the EE cert; CA is absent.
+        Certificate eeEntity = certificateService.createCertificate(
+                Base64.getEncoder().encodeToString(eeCert.getEncoded()), CertificateType.X509);
+
+        String caFingerprint = CertificateUtil.getThumbprint(caCert);
+        Assertions.assertTrue(certificateRepository.findByFingerprint(caFingerprint).isEmpty(),
+                "CA should not be in inventory before validate");
+
+        certificateService.validate(eeEntity);
+        // Reload to pick up the issuerCertificateUuid written by validate() on its own managed instance.
+        eeEntity = certificateRepository.findByUuid(eeEntity.getUuid()).orElseThrow();
+
+        // CA must have been downloaded and inserted via insertWithFingerprintConflictResolve.
+        Optional<Certificate> insertedCa = certificateRepository.findByFingerprint(caFingerprint);
+        Assertions.assertTrue(insertedCa.isPresent(),
+                "CA certificate should have been downloaded from AIA and inserted");
+        Assertions.assertNotNull(eeEntity.getIssuerCertificateUuid(),
+                "EE issuer UUID should be set after AIA download");
+        Assertions.assertEquals(insertedCa.get().getUuid(), eeEntity.getIssuerCertificateUuid());
+
+        Certificate ca = insertedCa.get();
+        Assertions.assertTrue(ca.getQcCompliance(), "qcCompliance must be persisted");
+        Assertions.assertFalse(ca.getQcSscd(), "qcSscd must be persisted as false");
+        Assertions.assertEquals(List.of("ESIGN"), MetaDefinitions.deserializeArrayString(ca.getQcType()),
+                "qcType must be persisted");
+        Assertions.assertEquals(List.of("CZ"), MetaDefinitions.deserializeArrayString(ca.getQcCcLegislation()),
+                "qcCcLegislation must be persisted");
+
+        // Idempotency: a second validate must not re-download the CA (issuer is now in inventory).
+        mockServer.resetRequests();
+        certificateService.validate(eeEntity);
+        mockServer.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo(caIssuersPath)));
+    }
 }
