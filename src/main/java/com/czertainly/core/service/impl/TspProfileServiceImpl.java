@@ -1,11 +1,9 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
@@ -25,6 +23,7 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.dao.entity.signing.TspProfile_;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
 import com.czertainly.core.mapper.signing.TspProfileMapper;
 import com.czertainly.core.model.auth.ResourceAction;
@@ -33,6 +32,8 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.TspProfileService;
+import com.czertainly.core.service.SigningProfileService;
+import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -53,12 +54,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service(Resource.Codes.TSP_PROFILE)
 @Slf4j
 public class TspProfileServiceImpl implements TspProfileService {
     private AttributeEngine attributeEngine;
     private TspProfileServiceImpl self;
+    private SigningProfileService signingProfileService;
     private TspProfileRepository tspProfileRepository;
 
     @Override
@@ -68,7 +71,8 @@ public class TspProfileServiceImpl implements TspProfileService {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.TSP_PROFILE, false);
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.TSP_PROFILE_NAME),
-                SearchHelper.prepareSearch(FilterField.TSP_PROFILE_ENABLED)
+                SearchHelper.prepareSearch(FilterField.TSP_PROFILE_ENABLED),
+                SearchHelper.prepareSearch(FilterField.TSP_PROFILE_DEFAULT_SIGNING_PROFILE, signingProfileService.findAllNames())
         ));
         fields.sort(new SearchFieldDataComparator());
         searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fields, FilterFieldSource.PROPERTY));
@@ -92,6 +96,14 @@ public class TspProfileServiceImpl implements TspProfileService {
         response.setTotalItems(tspProfileRepository.countUsingSecurityFilter(filter, predicate));
         response.setTotalPages((int) Math.ceil((double) response.getTotalItems() / request.getItemsPerPage()));
         return response;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public SecuredList<TspProfile> listTspProfilesUsingSigningProfileAsDefault(SecuredUUID signingProfileUuid, SecurityFilter filter) {
+        List<TspProfile> tspProfiles = tspProfileRepository.findAllByDefaultSigningProfileUuid(signingProfileUuid.getValue());
+        return SecuredList.fromFilter(filter, tspProfiles);
     }
 
     @Override
@@ -121,9 +133,9 @@ public class TspProfileServiceImpl implements TspProfileService {
         if (tspProfileRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException("TSP Profile with name '" + request.getName() + "' already exists.");
         }
-        validateCreateUpdateRequest(request);
+        SigningProfile defaultSigningProfile = validateCreateUpdateRequest(request);
         TspProfile profile = new TspProfile();
-        return updateAndMapToDto(profile, request);
+        return updateAndMapToDto(profile, request, defaultSigningProfile);
     }
 
     @Override
@@ -137,8 +149,8 @@ public class TspProfileServiceImpl implements TspProfileService {
             throw new AlreadyExistException("TSP Profile with name '" + request.getName() + "' already exists.");
         }
 
-        validateCreateUpdateRequest(request);
-        return updateAndMapToDto(profile, request);
+        SigningProfile defaultSigningProfile = validateCreateUpdateRequest(request);
+        return updateAndMapToDto(profile, request, defaultSigningProfile);
     }
 
     @Override
@@ -265,17 +277,45 @@ public class TspProfileServiceImpl implements TspProfileService {
         getTspProfileEntity(uuid);
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
+        return tspProfileRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.LIST)
+    public List<String> findAllNames() {
+        return tspProfileRepository.findAllNames();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
 
-    private void validateCreateUpdateRequest(TspProfileRequestDto request) throws ValidationException {
+    private SigningProfile validateCreateUpdateRequest(TspProfileRequestDto request) throws NotFoundException, ValidationException {
         attributeEngine.validateCustomAttributesContent(Resource.TSP_PROFILE, request.getCustomAttributes());
+
+        SigningProfile defaultSigningProfile = null;
+        if (request.getDefaultSigningProfileUuid() != null) {
+            UUID defaultSigningProfileUuid = request.getDefaultSigningProfileUuid();
+            SecuredUUID securedDefaultSigningProfileUuid = SecuredUUID.fromUUID(defaultSigningProfileUuid);
+            defaultSigningProfile = signingProfileService.getSigningProfileEntity(securedDefaultSigningProfileUuid);
+            if (defaultSigningProfile.getWorkflowType() != SigningWorkflowType.TIMESTAMPING) {
+                throw new ValidationException("Default Signing Profile must have TIMESTAMPING workflow type");
+            }
+        }
+
+        return defaultSigningProfile;
     }
 
-    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
+    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request, SigningProfile defaultSigningProfile) throws AlreadyExistException, AttributeException, NotFoundException {
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
+        profile.setDefaultSigningProfile(defaultSigningProfile);
         TspProfile saved;
         try {
             saved = tspProfileRepository.saveAndFlush(profile);
@@ -289,6 +329,18 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     private void deleteTspProfile(TspProfile profile) {
+        SecuredList<SigningProfile> signingProfiles = signingProfileService.listSigningProfilesAssociatedWithTsp(SecuredUUID.fromUUID(profile.getUuid()), SecurityFilter.create());
+        if (!signingProfiles.isEmpty()) {
+            throw new ValidationException(
+                    ValidationError.create(String.format(
+                                    "Cannot delete TSP Profile: associated with Signing Profiles (%d): %s",
+                                    signingProfiles.size(),
+                                    signingProfiles.getAllowed().stream().map(SigningProfile::getName).collect(Collectors.joining(","))
+                            )
+                    )
+            );
+        }
+
         attributeEngine.deleteObjectAttributeContent(Resource.TSP_PROFILE, profile.getUuid());
         tspProfileRepository.delete(profile);
     }
@@ -303,11 +355,6 @@ public class TspProfileServiceImpl implements TspProfileService {
         tspProfileRepository.save(profile);
     }
 
-    private TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
-        return tspProfileRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
-    }
-
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
@@ -316,6 +363,11 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Autowired
     public void setTspProfileRepository(TspProfileRepository tspProfileRepository) {
         this.tspProfileRepository = tspProfileRepository;
+    }
+
+    @Autowired
+    public void setSigningProfileService(SigningProfileService signingProfileService) {
+        this.signingProfileService = signingProfileService;
     }
 
     @Lazy

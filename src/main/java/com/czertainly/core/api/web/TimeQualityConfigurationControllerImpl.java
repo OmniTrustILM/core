@@ -20,6 +20,7 @@ import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.SigningProfileService;
 import com.czertainly.core.service.TimeQualityConfigurationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,10 +32,13 @@ import java.util.UUID;
 public class TimeQualityConfigurationControllerImpl implements TimeQualityConfigurationController {
 
     private final TimeQualityConfigurationService timeQualityConfigurationService;
+    private final SigningProfileService signingProfileService;
 
     @Autowired
-    public TimeQualityConfigurationControllerImpl(TimeQualityConfigurationService timeQualityConfigurationService) {
+    public TimeQualityConfigurationControllerImpl(TimeQualityConfigurationService timeQualityConfigurationService,
+                                                  SigningProfileService signingProfileService) {
         this.timeQualityConfigurationService = timeQualityConfigurationService;
+        this.signingProfileService = signingProfileService;
     }
 
     @Override
@@ -75,8 +79,9 @@ public class TimeQualityConfigurationControllerImpl implements TimeQualityConfig
     }
 
     @Override
-    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(UUID uuid) throws NotFoundException {
-        throw new RuntimeException("Not implemented");
+    @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, affiliatedResource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
+    public List<SimplifiedSigningProfileDto> listSigningProfilesForTimeQualityConfiguration(@LogResource(uuid = true) UUID uuid) {
+        return signingProfileService.listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromUUID(uuid), SecurityFilter.create());
     }
 
     @Override

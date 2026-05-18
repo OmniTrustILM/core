@@ -268,6 +268,37 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             """, nativeQuery = true)
     List<String> findCertificateChainUuids(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
 
+    /**
+     * Hot-path variant. Walks the same recursive CTE as {@link #findCertificateChainUuids(UUID, int)} and joins
+     * {@code certificate_content} so Base64 certificate contents are returned in a single round-trip, in chain order
+     * (index 0 = start certificate, last element = topmost ancestor present in the inventory).
+     *
+     * @param startUuid the UUID of the certificate whose chain is requested
+     * @param maxDepth  maximum number of hops to follow (safety cap against circular references)
+     * @return ordered list of Base64-encoded certificate contents
+     */
+    // NOTE: PostgreSQL 14+ supports a cleaner native cycle-detection syntax via the CYCLE clause.
+    @Query(value = """
+            WITH RECURSIVE chain AS (
+                SELECT uuid, issuer_certificate_uuid, certificate_content_id, 0 AS depth, ARRAY[uuid] AS path
+                FROM {h-schema}certificate
+                WHERE uuid = :startUuid
+            
+                UNION ALL
+            
+                SELECT c.uuid, c.issuer_certificate_uuid, c.certificate_content_id, chain.depth + 1, chain.path || c.uuid
+                FROM {h-schema}certificate c
+                INNER JOIN chain ON chain.issuer_certificate_uuid = c.uuid
+                WHERE chain.depth < :maxDepth
+                  AND NOT (c.uuid = ANY(chain.path))
+            )
+            SELECT cc.content
+            FROM chain ch
+            JOIN {h-schema}certificate_content cc ON cc.id = ch.certificate_content_id
+            ORDER BY ch.depth ASC
+            """, nativeQuery = true)
+    List<String> findCertificateChainContents(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
+
     @Query(
             value = """
                         UPDATE {h-schema}certificate

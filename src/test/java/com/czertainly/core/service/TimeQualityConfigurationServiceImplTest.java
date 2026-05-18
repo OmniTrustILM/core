@@ -3,6 +3,9 @@ package com.czertainly.core.service;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
@@ -20,9 +23,11 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.AttributeDefinition;
 import com.czertainly.core.dao.entity.AttributeRelation;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.AttributeDefinitionRepository;
 import com.czertainly.core.dao.repository.AttributeRelationRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -62,6 +67,9 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeRelationRepository attributeRelationRepository;
+
+    @Autowired
+    private SigningProfileRepository signingProfileRepository;
 
     /**
      * A pre-existing TimeQualityConfiguration saved directly via repository.
@@ -479,6 +487,55 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
                         SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
     }
 
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_throwsValidationException() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(savedConfiguration.getSecuredUuid()));
+    }
+
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_entityNotRemoved() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        try {
+            timeQualityConfigurationService.deleteTimeQualityConfiguration(savedConfiguration.getSecuredUuid());
+        } catch (ValidationException | NotFoundException ignored) {
+        }
+
+        Assertions.assertTrue(timeQualityConfigurationRepository.findById(savedConfiguration.getUuid()).isPresent(),
+                "Configuration must remain in the database when referenced by a signing profile");
+    }
+
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_errorMessageContainsProfileName() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(savedConfiguration.getSecuredUuid()));
+        Assertions.assertTrue(ex.getMessage().contains("referencing-profile"),
+                "Error message should contain the name of the referencing signing profile");
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Bulk Delete
     // ──────────────────────────────────────────────────────────────────────────
@@ -504,6 +561,25 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Assertions.assertEquals(1, messages.size());
         Assertions.assertEquals("00000000-0000-0000-0000-000000000099", messages.getFirst().getUuid());
         Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteTimeQualityConfigurations_referencedBySigningProfile_returnsErrorMessage() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("bulk-referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        List<BulkActionMessageDto> messages = timeQualityConfigurationService.bulkDeleteTimeQualityConfigurations(
+                List.of(savedConfiguration.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedConfiguration.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertTrue(timeQualityConfigurationRepository.findById(savedConfiguration.getUuid()).isPresent(),
+                "Configuration must remain in the database after a failed bulk delete");
     }
 
     @Test

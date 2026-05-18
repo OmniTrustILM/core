@@ -3,6 +3,7 @@ package com.czertainly.core.service;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.cryptography.operations.*;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
@@ -87,6 +88,17 @@ public interface CryptographicOperationService {
             UUID keyItemUuid,
             KeyAlgorithm keyAlgorithm
     ) throws ConnectorException, NotFoundException;
+
+    /**
+     * Returns the Core-internal signature attribute definitions for the given key algorithm.
+     * Unlike the connector-backed overload, this method operates purely in-memory and requires
+     * no token instance or connector interaction.
+     *
+     * @param keyAlgorithm the key algorithm
+     * @return list of Core-internal attribute definitions for signing operations
+     * @throws ValidationException when the key algorithm is not supported
+     */
+    List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance

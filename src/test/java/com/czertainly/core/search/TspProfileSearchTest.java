@@ -1,13 +1,21 @@
 package com.czertainly.core.search;
 
+import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
+import com.czertainly.api.model.common.attribute.common.AttributeType;
+import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
+import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.czertainly.api.model.common.attribute.v3.content.TextAttributeContentV3;
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.search.FilterConditionOperator;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;
 import com.czertainly.core.enums.FilterField;
@@ -20,11 +28,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.UUID;
 
 class TspProfileSearchTest extends BaseSpringBootTest {
 
+    private static final String CUSTOM_ATTR_NAME = "tsp-tag";
+    private static final String CUSTOM_ATTR_VALUE = "alpha-tag-value";
+
     @Autowired
     private TspProfileService tspProfileService;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Autowired
     private TspProfileRepository tspProfileRepository;
@@ -34,7 +49,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     private TspProfile gamma;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         alpha = new TspProfile();
         alpha.setName("alpha-tsp");
         alpha.setEnabled(true);
@@ -49,6 +64,22 @@ class TspProfileSearchTest extends BaseSpringBootTest {
         gamma.setName("gamma-tsp");
         gamma.setEnabled(true);
         gamma = tspProfileRepository.save(gamma);
+
+        CustomAttributeV3 customAttr = new CustomAttributeV3();
+        customAttr.setUuid(UUID.randomUUID().toString());
+        customAttr.setName(CUSTOM_ATTR_NAME);
+        customAttr.setType(AttributeType.CUSTOM);
+        customAttr.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties props = new CustomAttributeProperties();
+        props.setLabel("TSP Tag");
+        customAttr.setProperties(props);
+        attributeEngine.updateCustomAttributeDefinition(customAttr, List.of(Resource.TSP_PROFILE));
+
+        RequestAttributeV3 requestAttr = new RequestAttributeV3();
+        requestAttr.setUuid(UUID.fromString(customAttr.getUuid()));
+        requestAttr.setName(CUSTOM_ATTR_NAME);
+        requestAttr.setContent(List.of(new TextAttributeContentV3("ref-1", CUSTOM_ATTR_VALUE)));
+        attributeEngine.updateObjectCustomAttributesContent(Resource.TSP_PROFILE, alpha.getUuid(), List.of(requestAttr));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -153,6 +184,33 @@ class TspProfileSearchTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(2, response.getTotalItems());
         Assertions.assertTrue(response.getItems().stream().allMatch(TspProfileListDto::isEnabled));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Filter by custom attribute
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
+        List<TspProfileListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertEquals(1, results.size());
+        Assertions.assertEquals("alpha-tsp", results.getFirst().getName());
+    }
+
+    @Test
+    void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
+        List<TspProfileListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.NOT_EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("alpha-tsp")));
     }
 
     // ──────────────────────────────────────────────────────────────────────────

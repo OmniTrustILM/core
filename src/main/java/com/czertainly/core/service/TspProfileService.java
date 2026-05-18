@@ -10,9 +10,11 @@ import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.model.signing.TspProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.model.SecuredList;
 
 import java.util.List;
 
@@ -22,7 +24,13 @@ public interface TspProfileService extends ResourceExtensionService {
 
     PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter);
 
+    SecuredList<TspProfile> listTspProfilesUsingSigningProfileAsDefault(SecuredUUID signingProfileUuid, SecurityFilter filter);
+
     TspProfileDto getTspProfile(SecuredUUID uuid) throws NotFoundException;
+
+    TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException;
+
+    List<String> findAllNames();
 
     TspProfileModel getTspProfile(String name) throws NotFoundException;
 
