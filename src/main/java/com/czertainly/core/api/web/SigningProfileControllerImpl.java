@@ -53,7 +53,6 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     }
 
     @Override
-    @AuthEndpoint(resourceName = Resource.SIGNING_PROFILE)
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return signingProfileService.getSearchableFieldInformation();
@@ -66,6 +65,7 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     }
 
     @Override
+    @AuthEndpoint(resourceName = Resource.SIGNING_PROFILE)
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
     public PaginationResponseDto<SigningProfileListDto> listSigningProfiles(SearchRequestDto request) {
         return signingProfileService.listSigningProfiles(request, SecurityFilter.create());
