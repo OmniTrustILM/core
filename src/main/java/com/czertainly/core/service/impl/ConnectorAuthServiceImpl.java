@@ -14,7 +14,9 @@ import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContent
 import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
 import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.core.service.ConnectorAuthService;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.czertainly.core.service.ConnectorAuthExternalService;
+import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -30,13 +32,14 @@ import static com.czertainly.api.clients.BaseApiClient.*;
 
 @Service
 @Transactional
-public class ConnectorAuthServiceImpl implements ConnectorAuthService {
+public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, ConnectorAuthInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ConnectorAuthServiceImpl.class);
 
     private static final ArrayList<String> SUPPORTED_KEY_STORE_TYPES = new ArrayList<>(List.of("PKCS12", "JKS"));
 
 
     @Override
+    @ExternalAuthorizationMissing
     public Set<AuthType> getAuthenticationTypes() {
         return EnumSet.allOf(AuthType.class);
     }
@@ -74,6 +77,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<DataAttribute> getBasicAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -108,12 +112,14 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public Boolean validateBasicAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getBasicAuthAttributes(), attributes);
         return true;
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<DataAttribute> getCertificateAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -212,6 +218,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public Boolean validateCertificateAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getCertificateAttributes(), attributes);
 
@@ -252,6 +259,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<DataAttribute> getApiKeyAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -293,17 +301,20 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public Boolean validateApiKeyAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getApiKeyAuthAttributes(), attributes);
         return true;
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<DataAttribute> getJWTAuthAttributes() {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public Boolean validateJWTAuthAttributes(List<RequestAttribute> attributes) {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }
