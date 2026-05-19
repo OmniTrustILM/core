@@ -1,6 +1,7 @@
 package com.czertainly.core.signing.tsa.timequality;
 
 import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfiguration;
 import com.czertainly.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
 import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
@@ -9,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,13 +40,18 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
     }
 
     public void update(TimeQualityResult result) {
-        entryFor(result.configurationId()).set(result);
-
-        if (result.status() == TimeQualityStatus.OK) {
-            driftDetector.captureReference(result.configurationId(), result.measuredDriftMs() != null ? result.measuredDriftMs() : 0.0);
-        } else {
-            driftDetector.clearReference(result.configurationId());
-        }
+        entries.compute(result.configurationId(), (id, ref) -> {
+            if (ref == null) {
+                ref = new AtomicReference<>();
+            }
+            ref.set(result);
+            if (result.status() == TimeQualityStatus.OK) {
+                driftDetector.captureReference(id, result.measuredDriftMs() != null ? result.measuredDriftMs() : 0.0);
+            } else {
+                driftDetector.clearReference(id);
+            }
+            return ref;
+        });
 
         logger.atTrace()
                 .addKeyValue("configurationId", result.configurationId())
@@ -52,6 +60,17 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
                 .addKeyValue("reason", result.reason())
                 .addKeyValue("driftMs", result.measuredDriftMs())
                 .log("Received time quality result");
+    }
+
+    public void remove(UUID configurationId) {
+        entries.remove(configurationId);
+        lastLoggedStatus.remove(configurationId);
+        driftDetector.remove(configurationId);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onConfigDeleted(TimeQualityConfigDeletedEvent event) {
+        remove(event.getConfigurationId());
     }
 
     public TimeQualityStatus getStatus(TimeQualityConfigurationModel profile) {

@@ -18,8 +18,8 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
-import com.czertainly.core.messaging.jms.producers.TimeQualityConfigurationProducer;
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
+import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
@@ -64,7 +64,6 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private AttributeEngine attributeEngine;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
-    private TimeQualityConfigurationProducer timeQualityConfigurationProducer;
     private ApplicationEventPublisher applicationEventPublisher;
 
     @Override
@@ -234,8 +233,10 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     private void deleteTimeQualityConfiguration(TimeQualityConfiguration configuration) {
-        attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
+        UUID uuid = configuration.getUuid();
+        attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, uuid);
         applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
+        applicationEventPublisher.publishEvent(new TimeQualityConfigDeletedEvent(this, uuid));
         timeQualityConfigurationRepository.delete(configuration);
     }
 
@@ -263,11 +264,6 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     @Autowired
     public void setSelf(TimeQualityConfigurationServiceImpl self) {
         this.self = self;
-    }
-
-    @Autowired
-    public void setTimeQualityConfigurationProducer(TimeQualityConfigurationProducer timeQualityConfigurationProducer) {
-        this.timeQualityConfigurationProducer = timeQualityConfigurationProducer;
     }
 
     @Autowired

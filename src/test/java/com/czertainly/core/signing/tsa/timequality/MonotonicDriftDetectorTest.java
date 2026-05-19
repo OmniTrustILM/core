@@ -76,19 +76,35 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void rejectsAtExactThreshold() {
+    void rejectsJustOverThreshold() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
 
         detector.captureReference(PROFILE_ID, 0.0);
 
-        // when drift exactly at 501ms (just over 500ms)
+        // when drift = 501ms (just over 500ms threshold)
         clock.advanceMonoNanos(1_000_000_000L);
         clock.advanceWallMillis(1_501);
 
         // then
         assertThat(detector.isDriftExceeded(PROFILE_ID, MAX_DRIFT_500MS)).isTrue();
+    }
+
+    @Test
+    void allowsAtExactThreshold() {
+        // given — the check is `Math.abs(drift) > maxDrift`, so exactly-at-threshold must NOT trip
+        var clock = TestClockSource.aTestClock();
+        var detector = new MonotonicDriftDetector(clock);
+
+        detector.captureReference(PROFILE_ID, 0.0);
+
+        // when drift = 500ms (exactly at threshold)
+        clock.advanceMonoNanos(1_000_000_000L);
+        clock.advanceWallMillis(1_500);
+
+        // then
+        assertThat(detector.isDriftExceeded(PROFILE_ID, MAX_DRIFT_500MS)).isFalse();
     }
 
     @Test
@@ -111,6 +127,20 @@ class MonotonicDriftDetectorTest {
         detector.clearReference(PROFILE_ID);
 
         // then
+        assertThat(detector.isDriftExceeded(PROFILE_ID, MAX_DRIFT_500MS)).isTrue();
+    }
+
+    @Test
+    void returnsTrueAfterRemove() {
+        // given
+        var detector = new MonotonicDriftDetector(TestClockSource.aTestClock());
+
+        detector.captureReference(PROFILE_ID, 0.0);
+
+        // when
+        detector.remove(PROFILE_ID);
+
+        // then — same fail-closed semantic as no-reference
         assertThat(detector.isDriftExceeded(PROFILE_ID, MAX_DRIFT_500MS)).isTrue();
     }
 

@@ -219,6 +219,22 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
+        void removeClearsAllPerKeyState() {
+            // given — register holds an OK result and a captured drift reference for an id
+            var clock = TestClockSource.ofWallTime(FIXED_NOW);
+            var register = new TimeQualityRegisterImpl(clock);
+            register.update(aTimeQualityResult().withDefaults().status(TimeQualityStatus.OK).timestamp(FIXED_NOW).build());
+            // status read also populates lastLoggedStatus
+            register.getStatus(ExplicitTimeQualityConfigurationBuilder.valid("profile1"));
+
+            // when
+            register.remove(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+            // then — after removal, status reverts to "no result yet" → DEGRADED
+            assertThat(register.getStatus(ExplicitTimeQualityConfigurationBuilder.valid("profile1"))).isEqualTo(TimeQualityStatus.DEGRADED);
+        }
+
+        @Test
         void concurrentUpdatesDoNotLoseData() throws InterruptedException {
             // given
             var clock = TestClockSource.ofWallTime(FIXED_NOW);

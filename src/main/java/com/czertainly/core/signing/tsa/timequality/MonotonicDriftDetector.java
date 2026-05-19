@@ -29,6 +29,17 @@ public class MonotonicDriftDetector {
         refFor(id).set(null);
     }
 
+    public void remove(UUID id) {
+        referencePairs.remove(id);
+    }
+
+    /**
+     * Returns whether the wall clock has drifted beyond {@code maxClockDrift} since the last
+     * reference was captured for this id. Fails closed: when no reference has been captured
+     * (or after {@link #clearReference} / {@link #remove}), returns {@code true} so callers
+     * treat the configuration as DEGRADED until an OK result arms the detector via
+     * {@link #captureReference}.
+     */
     public boolean isDriftExceeded(UUID id, Duration maxClockDrift) {
         var pair = refFor(id).get();
         if (pair == null) {

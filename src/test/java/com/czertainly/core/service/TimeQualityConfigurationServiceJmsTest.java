@@ -7,6 +7,7 @@ import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurat
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
+import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import org.springframework.test.context.event.RecordApplicationEvents;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -74,5 +76,17 @@ class TimeQualityConfigurationServiceJmsTest extends BaseSpringBootTest {
 
         assertThat(applicationEvents.stream(TimeQualityConfigChangedEvent.class).count())
                 .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void deleteTimeQualityConfiguration_firesConfigDeletedEventWithUuid() throws AlreadyExistException, AttributeException, NotFoundException {
+        var created = service.createTimeQualityConfiguration(buildRequest("jms-delete-uuid-test"));
+        applicationEvents.clear();
+
+        service.deleteTimeQualityConfiguration(SecuredUUID.fromString(created.getUuid()));
+
+        assertThat(applicationEvents.stream(TimeQualityConfigDeletedEvent.class)
+                .map(TimeQualityConfigDeletedEvent::getConfigurationId))
+                .containsExactly(UUID.fromString(created.getUuid()));
     }
 }
