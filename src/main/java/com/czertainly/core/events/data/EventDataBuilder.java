@@ -123,8 +123,8 @@ public class EventDataBuilder {
         return eventData;
     }
 
-    public static CertificateUploadedEventData getCertificateUploadedEventData(Certificate certificate) {
-        CertificateUploadedEventData eventData = new CertificateUploadedEventData();
+    public static CertificateEventData getCertificateUploadedEventData(Certificate certificate) {
+        CertificateEventData eventData = new CertificateEventData();
         setCertificateEventData(eventData, certificate);
         return eventData;
     }

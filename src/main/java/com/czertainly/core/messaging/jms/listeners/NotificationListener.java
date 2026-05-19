@@ -446,12 +446,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                         .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()), null);
             }
             case CERTIFICATE_UPLOADED -> {
-                CertificateUploadedEventData data = (CertificateUploadedEventData) eventData;
-                String internalMessage = "Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded.".formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn());
-                if (data.getUserUuid() != null) {
-                    internalMessage += " User identified by %s has been associated with the certificate.".formatted(data.getUserUuid());
-                }
-                yield new InternalNotificationEventData(internalMessage, null);
+                CertificateEventData data = (CertificateEventData) eventData;
+                yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded.".formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()), null);
             }
             case DISCOVERY_FINISHED -> {
                 DiscoveryFinishedEventData data = (DiscoveryFinishedEventData) eventData;

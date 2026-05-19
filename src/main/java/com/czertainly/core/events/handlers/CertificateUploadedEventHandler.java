@@ -3,7 +3,7 @@ package com.czertainly.core.events.handlers;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.EventException;
 import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.events.data.CertificateUploadedEventData;
+import com.czertainly.api.model.common.events.data.CertificateEventData;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateEvent;
 import com.czertainly.api.model.core.certificate.CertificateEventStatus;
@@ -131,7 +131,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         }
         Certificate certificate = context.getResourceObjects().getFirst();
         CertificateUtil.prepareIssuedCertificate(certificate, x509Certificate);
-        CertificateUploadedEventData eventData = (CertificateUploadedEventData) getEventData(certificate, eventMessageData);
+        CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
         try {
             if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory)) {
                 eventHistory.setStatus(EventStatus.FINISHED);
