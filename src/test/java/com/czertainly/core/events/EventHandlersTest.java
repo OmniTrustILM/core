@@ -10,6 +10,7 @@ import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
+import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.notification.NotificationProfileDetailDto;
 import com.czertainly.api.model.client.notification.NotificationProfileRequestDto;
@@ -547,6 +548,38 @@ class EventHandlersTest extends BaseSpringBootTest {
         createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_UPLOADED, null, null, true);
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
         Assertions.assertFalse(certificateRepository.findByFingerprint(fingerprint).isPresent());
+    }
+
+    @Test
+    void testCertificateUploadedEventCertificateMalformedContent() {
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent("invalid")
+                .fingerprint("fingerprint")
+                .build();
+
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        EventHistory eventHistory = eventHistoryRepository.findAll().stream().findFirst().orElseThrow();
+        Assertions.assertEquals(EventStatus.FAILED, eventHistory.getStatus());
+    }
+
+    @Test
+    void testCertificateUploadedEventCertificateDuplicateFingerprint() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
+        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
+                .fingerprint(fingerprint)
+                .build();
+
+        UploadCertificateRequestDto uploadCertificateRequestDto = new UploadCertificateRequestDto();
+        uploadCertificateRequestDto.setCertificate(Base64.getEncoder().encodeToString(certificate.getEncoded()));
+        certificateService.uploadSync(uploadCertificateRequestDto);
+
+        // Test duplicate fingerprint
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        // The first history is for the created certificate, so we need to check the second one
+        EventHistory eventHistory = eventHistoryRepository.findAll().getLast();
+        Assertions.assertEquals(EventStatus.FAILED, eventHistory.getStatus());
     }
 
     @Test

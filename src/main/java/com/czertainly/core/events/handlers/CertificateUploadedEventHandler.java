@@ -44,6 +44,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
 
+    private final CertificateRepository certificateRepository;
     private CertificateService certificateService;
     private CertificateEventHistoryService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
@@ -73,6 +74,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     protected CertificateUploadedEventHandler(CertificateRepository repository, TriggerEvaluator<Certificate> triggerEvaluator) {
         super(repository, triggerEvaluator);
+        this.certificateRepository = repository;
     }
 
     public static EventMessage constructEventMessage(CertificateUploadEventMessageData data) {
@@ -103,6 +105,13 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             x509Certificate = CertificateUtil.parseCertificate(eventMessageData.certificateContent());
         } catch (CertificateException e) {
             logger.error("Unable to parse certificate {} from uploaded certificate: {}", eventMessageData.certificateContent(), e.getMessage());
+            eventHistory.setStatus(EventStatus.FAILED);
+            eventHistory.setFinishedAt(OffsetDateTime.now());
+            eventHistoryRepository.save(eventHistory);
+            return;
+        }
+        if (certificateRepository.findByFingerprint(eventMessageData.fingerprint()).isPresent()) {
+            logger.warn("Certificate with fingerprint {} already exists, skipping upload event", eventMessageData.fingerprint());
             eventHistory.setStatus(EventStatus.FAILED);
             eventHistory.setFinishedAt(OffsetDateTime.now());
             eventHistoryRepository.save(eventHistory);
