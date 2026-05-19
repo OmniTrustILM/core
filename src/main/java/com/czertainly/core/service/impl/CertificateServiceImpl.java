@@ -422,8 +422,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
         if (dto.getCertificateRequest() != null) {
             dto.getCertificateRequest().setAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).build()));
-            dto.getCertificateRequest().setSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.CERTIFICATE_REQUEST_SIGN).build()));
-            dto.getCertificateRequest().setAltSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.CERTIFICATE_REQUEST_SIGN).purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY).build()));
+            dto.getCertificateRequest().setSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.SIGN).build()));
+            dto.getCertificateRequest().setAltSignatureAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificate.getCertificateRequest().getUuid()).operation(AttributeOperation.SIGN).purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY).build()));
         }
         // if has RA profile with authority and connector
         if (certificate.getRaProfile() != null && certificate.getRaProfile().getAuthorityInstanceReference() != null && certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid() != null) {
