@@ -140,6 +140,10 @@ public class SigningProfileMapper {
         return signingProfileDto;
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // DTO builders (read from version)
+    // ──────────────────────────────────────────────────────────────────────────
+
     private static ContentSigningWorkflowDto buildContentSigningWorkflowDto(
             SigningProfileVersion version, List<ResponseAttribute> signatureFormatterConnectorAttributes) {
         ContentSigningWorkflowDto wf = new ContentSigningWorkflowDto();
@@ -147,10 +151,6 @@ public class SigningProfileMapper {
         wf.setSignatureFormatterConnectorAttributes(safeList(signatureFormatterConnectorAttributes));
         return wf;
     }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // DTO builders (read from version)
-    // ──────────────────────────────────────────────────────────────────────────
 
     private static TimestampingWorkflowDto buildTimestampingWorkflowDto(
             SigningProfile header, SigningProfileVersion version, List<ResponseAttribute> signatureFormatterConnectorAttributes) {
@@ -173,6 +173,9 @@ public class SigningProfileMapper {
         }
         return wf;
     }
+    // ──────────────────────────────────────────────────────────────────────────
+    // Shared utilities
+    // ──────────────────────────────────────────────────────────────────────────
 
     private static void setFormatterRef(SigningProfileVersion profileVersion, Consumer<NameAndUuidDto> setter) {
         if (profileVersion.getSignatureFormatterConnector() == null
@@ -186,18 +189,7 @@ public class SigningProfileMapper {
         setter.accept(ref);
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // Shared utilities
-    // ──────────────────────────────────────────────────────────────────────────
-
     private static <T> List<T> safeList(List<T> list) {
         return list != null ? list : new ArrayList<>();
-    }
-
-    @FunctionalInterface
-    public interface SigningProfileModelFactory<T> {
-        T create(SigningProfile header, SigningProfileVersion version,
-                 List<RequestAttribute> signingOperationAttributes,
-                 List<RequestAttribute> signatureFormatterConnectorAttributes);
     }
 }

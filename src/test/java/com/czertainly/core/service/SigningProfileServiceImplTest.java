@@ -75,6 +75,7 @@ import com.czertainly.core.dao.entity.CryptographicKey;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.entity.TokenInstanceReference;
 import com.czertainly.core.dao.entity.TokenProfile;
+import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.dao.repository.CertificateRepository;
@@ -82,6 +83,7 @@ import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyItemRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyRepository;
 import com.czertainly.core.dao.repository.TokenInstanceReferenceRepository;
+import com.czertainly.core.dao.repository.RaProfileRepository;
 import com.czertainly.core.dao.repository.TokenProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
@@ -165,10 +167,18 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
 
+    @Autowired
+    private RaProfileRepository raProfileRepository;
+
     /**
      * A signing profile saved directly via repository, used as pre-existing data in tests.
      */
     private SigningProfile savedProfile;
+
+    /**
+     * A minimal RaProfile used as FK reference in ONE_TIME_KEY managed signing scheme requests.
+     */
+    private RaProfile raProfile;
 
     /**
      * A token profile used as an FK reference in static-key managed signing scheme requests.
@@ -212,6 +222,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
      * that do not exercise formatter attribute persistence specifically.
      */
     private Connector formatterConnector;
+
+    /**
+     * A Connector used as the delegated signer connector in DELEGATED scheme tests that do not exercise
+     * delegated-connector attribute persistence specifically.
+     */
+    private Connector delegatedConnector;
 
     /**
      * WireMock server that backs every formatter connector URL created via {@link #createFormatterConnector}.
@@ -333,6 +349,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         attachSelfSignedContent(tsaCertificate);
 
         formatterConnector = createFormatterConnector("default-formatter-connector");
+
+        Connector dc = new Connector();
+        dc.setName("delegated-signer-connector");
+        dc.setUrl("http://delegated-signer-connector");
+        dc.setVersion(ConnectorVersion.V1);
+        dc.setStatus(ConnectorStatus.CONNECTED);
+        delegatedConnector = connectorRepository.save(dc);
+
+        raProfile = new RaProfile();
+        raProfile.setName("test-ra-profile");
+        raProfile = raProfileRepository.save(raProfile);
 
         // Register a custom attribute available for Signing Profile resources
         CustomAttributeV3 attrDef = new CustomAttributeV3();
@@ -591,6 +618,9 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     void testFindAllNames_returnsAllWhenMultipleExist() {
         SigningProfile second = new SigningProfile();
         second.setName("second-signing-profile");
+        second.setSigningScheme(SigningScheme.DELEGATED);
+        second.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        second.setLatestVersion(1);
         signingProfileRepository.save(second);
 
         List<String> names = signingProfileService.findAllNames();
@@ -602,6 +632,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testFindAllNames_emptyWhenNoneExist() {
+        signingProfileVersionRepository.findBySigningProfileUuidAndVersion(savedProfile.getUuid(), savedProfile.getLatestVersion())
+                .ifPresent(signingProfileVersionRepository::delete);
         signingProfileRepository.delete(savedProfile);
 
         List<String> names = signingProfileService.findAllNames();
@@ -643,8 +675,9 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileVersion currentVersion = signingProfileVersionRepository
                 .findBySigningProfileUuidAndVersion(entity.getUuid(), entity.getLatestVersion()).orElseThrow();
-        // For delegated scheme without connector UUID in request, it should be null
-        Assertions.assertNull(currentVersion.getDelegatedSignerConnectorUuid());
+        Assertions.assertEquals(delegatedConnector.getUuid(), currentVersion.getDelegatedSignerConnectorUuid());
+        // RAW_SIGNING workflow has no formatter connector
+        Assertions.assertNull(currentVersion.getSignatureFormatterConnectorUuid());
         // Version snapshot must carry scheme and workflow type
         Assertions.assertNotNull(currentVersion.getSigningScheme());
         Assertions.assertNotNull(currentVersion.getWorkflowType());
@@ -787,7 +820,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("timestamping-with-policies");
         request.setDescription("Timestamping profile with policies");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(timestampingWorkflow);
 
         SigningProfileDto dto = signingProfileService.createSigningProfile(request);
@@ -957,7 +990,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto createRequest = new SigningProfileRequestDto();
         createRequest.setName("formatter-attrs-bump-preserve");
-        createRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        createRequest.setSigningScheme(buildDelegatedScheme());
         createRequest.setWorkflow(wfV1);
         SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
         UUID profileUuid = UUID.fromString(created.getUuid());
@@ -978,7 +1011,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto updateRequest = new SigningProfileRequestDto();
         updateRequest.setName("formatter-attrs-bump-preserve");
-        updateRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        updateRequest.setSigningScheme(buildDelegatedScheme());
         updateRequest.setWorkflow(wfV2);
         SigningProfileDto updated = signingProfileService.updateSigningProfile(SecuredUUID.fromUUID(profileUuid), updateRequest);
         Assertions.assertEquals(2, updated.getVersion(), "Version must be bumped to 2");
@@ -1147,7 +1180,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("workflow-changed");
         request.setDescription("Changed to timestamping");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(timestampingWorkflow);
 
         SigningProfileDto dto = signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), request);
@@ -1887,7 +1920,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("doc-profile-with-formatter-attrs");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         SigningProfileDto dto = signingProfileService.createSigningProfile(request);
@@ -1926,7 +1959,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto createRequest = new SigningProfileRequestDto();
         createRequest.setName("workflow-formatter-switch");
-        createRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        createRequest.setSigningScheme(buildDelegatedScheme());
         createRequest.setWorkflow(workflowA);
 
         SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
@@ -1941,7 +1974,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto updateRequest = new SigningProfileRequestDto();
         updateRequest.setName("workflow-formatter-switch");
-        updateRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        updateRequest.setSigningScheme(buildDelegatedScheme());
         updateRequest.setWorkflow(workflowB);
 
         signingProfileService.updateSigningProfile(profileUuid, updateRequest);
@@ -1999,7 +2032,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             SigningProfileRequestDto request = new SigningProfileRequestDto();
             request.setName("formatter-attrs-" + workflowLabel);
-            request.setSigningScheme(new DelegatedSigningRequestDto());
+            request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(wfRequest);
 
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
@@ -2044,7 +2077,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("delete-clears-formatter-attrs");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         SigningProfileDto created = signingProfileService.createSigningProfile(request);
@@ -2089,7 +2122,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("content-valid-formatter-attrs");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         SigningProfileDto dto = signingProfileService.createSigningProfile(request);
@@ -2120,7 +2153,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("content-missing-required-attr");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         Assertions.assertThrows(ValidationException.class,
@@ -2146,7 +2179,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("ts-missing-required-attr");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         Assertions.assertThrows(ValidationException.class,
@@ -2254,7 +2287,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("ts-with-tqc");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         SigningProfileDto dto = signingProfileService.createSigningProfile(request);
@@ -2280,7 +2313,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName("ts-bad-tqc");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(workflow);
 
         Assertions.assertThrows(NotFoundException.class,
@@ -2299,7 +2332,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto createRequest = new SigningProfileRequestDto();
         createRequest.setName("ts-to-raw-profile");
-        createRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        createRequest.setSigningScheme(buildDelegatedScheme());
         createRequest.setWorkflow(timestampingWorkflow);
 
         SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
@@ -2311,7 +2344,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         // Update to RAW_SIGNING - TQC must be cleared from the workflow
         SigningProfileRequestDto updateRequest = new SigningProfileRequestDto();
         updateRequest.setName("ts-to-raw-profile");
-        updateRequest.setSigningScheme(new DelegatedSigningRequestDto());
+        updateRequest.setSigningScheme(buildDelegatedScheme());
         updateRequest.setWorkflow(new RawSigningWorkflowRequestDto());
         signingProfileService.updateSigningProfile(SecuredUUID.fromString(created.getUuid()), updateRequest);
 
@@ -2337,7 +2370,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         SigningProfileRequestDto r1 = new SigningProfileRequestDto();
         r1.setName("list-ts-profile-one");
-        r1.setSigningScheme(new DelegatedSigningRequestDto());
+        r1.setSigningScheme(buildDelegatedScheme());
         r1.setWorkflow(workflow);
         SigningProfileDto p1 = signingProfileService.createSigningProfile(r1);
 
@@ -2346,7 +2379,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         workflow2.setTimeQualityConfigurationUuid(tqcUuid);
         SigningProfileRequestDto r2 = new SigningProfileRequestDto();
         r2.setName("list-ts-profile-two");
-        r2.setSigningScheme(new DelegatedSigningRequestDto());
+        r2.setSigningScheme(buildDelegatedScheme());
         r2.setWorkflow(workflow2);
         SigningProfileDto p2 = signingProfileService.createSigningProfile(r2);
 
@@ -2385,7 +2418,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         workflowA.setTimeQualityConfigurationUuid(UUID.fromString(tqcA.getUuid()));
         SigningProfileRequestDto reqA = new SigningProfileRequestDto();
         reqA.setName("profile-linked-to-tqc-A");
-        reqA.setSigningScheme(new DelegatedSigningRequestDto());
+        reqA.setSigningScheme(buildDelegatedScheme());
         reqA.setWorkflow(workflowA);
         SigningProfileDto profileA = signingProfileService.createSigningProfile(reqA);
 
@@ -2394,7 +2427,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         workflowB.setTimeQualityConfigurationUuid(UUID.fromString(tqcB.getUuid()));
         SigningProfileRequestDto reqB = new SigningProfileRequestDto();
         reqB.setName("profile-linked-to-tqc-B");
-        reqB.setSigningScheme(new DelegatedSigningRequestDto());
+        reqB.setSigningScheme(buildDelegatedScheme());
         reqB.setWorkflow(workflowB);
         signingProfileService.createSigningProfile(reqB);
 
@@ -2414,11 +2447,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
      * Builds a minimal valid SigningProfileRequestDto using a DELEGATED scheme and RAW_SIGNING workflow
      * (no foreign-key dependencies on connectors, token profiles, or keys).
      */
+    private DelegatedSigningRequestDto buildDelegatedScheme() {
+        DelegatedSigningRequestDto scheme = new DelegatedSigningRequestDto();
+        scheme.setConnectorUuid(delegatedConnector.getUuid());
+        return scheme;
+    }
+
     private SigningProfileRequestDto buildDelegatedRawRequest(String name) {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test description for " + name);
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         request.setWorkflow(new RawSigningWorkflowRequestDto());
         return request;
     }
@@ -2444,10 +2483,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
      * No FK UUIDs are set, so the request is safe to use against any test database.
      */
     private SigningProfileRequestDto buildManagedOneTimeKeyRawRequest(String name) {
+        OneTimeKeyManagedSigningRequestDto scheme = new OneTimeKeyManagedSigningRequestDto();
+        scheme.setTokenProfileUuid(tokenProfile.getUuid());
+        scheme.setRaProfileUuid(raProfile.getUuid());
+        scheme.setCsrTemplateUuid(UUID.randomUUID());
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test description for " + name);
-        request.setSigningScheme(new OneTimeKeyManagedSigningRequestDto());
+        request.setSigningScheme(scheme);
         request.setWorkflow(new RawSigningWorkflowRequestDto());
         return request;
     }
@@ -2459,7 +2502,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test description for " + name);
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
         workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
         request.setWorkflow(workflow);
@@ -2473,7 +2516,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test description for " + name);
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        request.setSigningScheme(buildDelegatedScheme());
         TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
         workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
         request.setWorkflow(workflow);
