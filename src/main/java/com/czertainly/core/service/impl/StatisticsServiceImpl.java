@@ -1,13 +1,14 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.DiscoveryService;
 import com.czertainly.core.service.GroupService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.SecretService;
-import com.czertainly.core.service.StatisticsService;
+import com.czertainly.core.service.StatisticsExternalService;
 import com.czertainly.core.service.VaultInstanceService;
 import com.czertainly.core.service.VaultProfileService;
 import org.slf4j.Logger;
@@ -20,7 +21,7 @@ import jakarta.transaction.Transactional;
 
 @Service
 @Transactional
-public class StatisticsServiceImpl implements StatisticsService {
+public class StatisticsServiceImpl implements StatisticsExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(StatisticsServiceImpl.class);
 
@@ -34,6 +35,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
 
     @Override
+    @ExternalAuthorizationMissing
     public StatisticsDto getStatistics(boolean includeArchived) {
         logger.info("Gathering the statistics information from database");
         StatisticsDto dto = new StatisticsDto();

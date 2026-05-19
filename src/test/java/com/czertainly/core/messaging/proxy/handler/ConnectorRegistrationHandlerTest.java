@@ -5,7 +5,7 @@ import com.czertainly.api.clients.mq.model.ProxyMessage;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.model.client.connector.ConnectorRequestDto;
 import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.core.service.ConnectorRegistrationService;
+import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,7 +23,7 @@ import static org.mockito.Mockito.*;
 class ConnectorRegistrationHandlerTest {
 
     @Mock
-    private ConnectorRegistrationService connectorRegistrationService;
+    private ConnectorRegistrationExternalService connectorRegistrationService;
 
     private ConnectorRegistrationHandler handler;
 

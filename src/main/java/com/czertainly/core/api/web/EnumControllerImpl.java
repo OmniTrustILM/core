@@ -7,7 +7,7 @@ import com.czertainly.api.model.core.enums.EnumItemDto;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.EnumService;
+import com.czertainly.core.service.EnumExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -16,10 +16,10 @@ import java.util.Map;
 @RestController
 public class EnumControllerImpl implements EnumController {
 
-    private EnumService enumService;
+    private EnumExternalService enumService;
 
     @Autowired
-    public void setEnumService(EnumService enumService) {
+    public void setEnumService(EnumExternalService enumService) {
         this.enumService = enumService;
     }
 
