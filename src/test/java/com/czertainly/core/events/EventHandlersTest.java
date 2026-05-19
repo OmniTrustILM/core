@@ -581,26 +581,13 @@ class EventHandlersTest extends BaseSpringBootTest {
         requestAttributeV3.setName(CERTIFICATE_CUSTOM_ATTRIBUTE_NAME);
         requestAttributeV3.setContentType(AttributeContentType.STRING);
         requestAttributeV3.setContent(List.of(new StringAttributeContentV3("fromRequest")));
-        UUID userUuid = UUID.randomUUID();
         CertificateUploadEventMessageData eventMessageData2 = CertificateUploadEventMessageData.builder()
                 .fingerprint(fingerprint)
                 .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
                 .customAttributes(List.of(requestAttributeV3))
-                .userUuid(userUuid)
                 .build();
 
         certificateService.deleteCertificate(uploadedCertificate.getSecuredUuid());
-        mockServer.stubFor(WireMock.put(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(
-                WireMock.okJson("""
-                {
-                    "uuid": "%s",
-                    "username": "%s",
-                    "email": "testuser1@example.com",
-                    "groups": [],
-                    "roles": []
-                }
-                """.formatted(userUuid, "user"))
-        ));
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData2)));
         uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
         certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
@@ -608,7 +595,6 @@ class EventHandlersTest extends BaseSpringBootTest {
         Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto.getCustomAttributes().stream().filter(attr -> CERTIFICATE_CUSTOM_ATTRIBUTE_NAME.equals(attr.getName())).findFirst();
         Assertions.assertTrue(customAttributeDtoOptional.isPresent());
         Assertions.assertEquals("fromRequest", ((List<StringAttributeContentV3>) customAttributeDtoOptional.get().getContent()).getFirst().getData());
-        Assertions.assertEquals(userUuid, uploadedCertificate.getUserUuid());
     }
 
     @Test
