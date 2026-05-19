@@ -8,7 +8,6 @@ import java.util.List;
 @Builder
 public record CertificateUploadEventMessageData(
         List<RequestAttribute> customAttributes,
-        String fingerprint,
         String certificateContent
 ) {
 }

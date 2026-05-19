@@ -159,14 +159,12 @@ class ComplianceServiceTest extends BaseComplianceTest {
         String fingerprint = CertificateUtil.getThumbprint(x509Certificate);
         CertificateUploadEventMessageData eventData = CertificateUploadEventMessageData.builder()
                 .certificateContent(certificateChainInfo.getCaCertificateBase64Encoded())
-                .fingerprint(fingerprint)
                 .build();
         certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventData));
         x509Certificate = CertificateUtil.parseCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded());
         String fingerprint2 = CertificateUtil.getThumbprint(x509Certificate);
         eventData = CertificateUploadEventMessageData.builder()
                 .certificateContent(certificateChainInfo.getEndEntityCertificateBase64Encoded())
-                .fingerprint(fingerprint2)
                 .build();
         certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventData));
 
@@ -368,7 +366,6 @@ class ComplianceServiceTest extends BaseComplianceTest {
         String fingerprint = CertificateUtil.getThumbprint(x509Certificate);
         CertificateUploadEventMessageData eventData = CertificateUploadEventMessageData.builder()
                 .certificateContent(certificateChainInfo.getEndEntityCertificateBase64Encoded())
-                .fingerprint(fingerprint)
                 .build();
         certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventData));
         Certificate certWithRsaKey = certificateRepository.findByFingerprint(fingerprint).orElseThrow();

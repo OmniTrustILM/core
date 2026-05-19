@@ -727,7 +727,6 @@ public class CertificateValidationTest extends BaseSpringBootTest {
         String fingerprint = CertificateUtil.getThumbprint(x509);
         CertificateUploadEventMessageData eventData = CertificateUploadEventMessageData.builder()
                 .certificateContent(base64cert)
-                .fingerprint(fingerprint)
                 .build();
         certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventData));
         return certificateRepository.findByFingerprint(fingerprint).orElseThrow();

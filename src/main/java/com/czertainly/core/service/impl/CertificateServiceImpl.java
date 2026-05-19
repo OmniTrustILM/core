@@ -1249,7 +1249,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
                 .customAttributes(customAttributes)
                 .certificateContent(certificateData)
-                .fingerprint(fingerprint)
                 .build();
         EventMessage eventMessage = CertificateUploadedEventHandler.constructEventMessage(eventMessageData);
         if (sync) {

@@ -69,8 +69,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -542,19 +540,18 @@ class EventHandlersTest extends BaseSpringBootTest {
         String fingerprint = CertificateUtil.getThumbprint(certificate);
         final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
                 .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
-                .fingerprint(fingerprint)
                 .build();
 
         createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_UPLOADED, null, null, true);
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
         Assertions.assertFalse(certificateRepository.findByFingerprint(fingerprint).isPresent());
+        mockServer.stop();
     }
 
     @Test
     void testCertificateUploadedEventCertificateMalformedContent() {
         final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
                 .certificateContent("invalid")
-                .fingerprint("fingerprint")
                 .build();
 
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
@@ -565,10 +562,8 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Test
     void testCertificateUploadedEventCertificateDuplicateFingerprint() throws Exception {
         X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
-        String fingerprint = CertificateUtil.getThumbprint(certificate);
         final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
                 .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
-                .fingerprint(fingerprint)
                 .build();
 
         UploadCertificateRequestDto uploadCertificateRequestDto = new UploadCertificateRequestDto();
@@ -588,7 +583,6 @@ class EventHandlersTest extends BaseSpringBootTest {
         String fingerprint = CertificateUtil.getThumbprint(certificate);
         final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
                 .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
-                .fingerprint(fingerprint)
                 .build();
 
         // Test without any triggers in settings
@@ -615,7 +609,6 @@ class EventHandlersTest extends BaseSpringBootTest {
         requestAttributeV3.setContentType(AttributeContentType.STRING);
         requestAttributeV3.setContent(List.of(new StringAttributeContentV3("fromRequest")));
         CertificateUploadEventMessageData eventMessageData2 = CertificateUploadEventMessageData.builder()
-                .fingerprint(fingerprint)
                 .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
                 .customAttributes(List.of(requestAttributeV3))
                 .build();
@@ -628,6 +621,7 @@ class EventHandlersTest extends BaseSpringBootTest {
         Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto.getCustomAttributes().stream().filter(attr -> CERTIFICATE_CUSTOM_ATTRIBUTE_NAME.equals(attr.getName())).findFirst();
         Assertions.assertTrue(customAttributeDtoOptional.isPresent());
         Assertions.assertEquals("fromRequest", ((List<StringAttributeContentV3>) customAttributeDtoOptional.get().getContent()).getFirst().getData());
+        mockServer.stop();
     }
 
     @Test

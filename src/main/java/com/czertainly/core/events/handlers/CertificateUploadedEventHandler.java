@@ -35,6 +35,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.OffsetDateTime;
@@ -110,8 +112,18 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             eventHistoryRepository.save(eventHistory);
             return;
         }
-        if (certificateRepository.findByFingerprint(eventMessageData.fingerprint()).isPresent()) {
-            logger.warn("Certificate with fingerprint {} already exists, skipping upload event", eventMessageData.fingerprint());
+        String fingerprint;
+        try {
+            fingerprint = CertificateUtil.getThumbprint(x509Certificate);
+        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
+            logger.error("Unable to calculate fingerprint for certificate {}: {}", eventMessageData.certificateContent(), e.getMessage());
+            eventHistory.setStatus(EventStatus.FAILED);
+            eventHistory.setFinishedAt(OffsetDateTime.now());
+            eventHistoryRepository.save(eventHistory);
+            return;
+        }
+        if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
+            logger.warn("Certificate with fingerprint {} already exists, skipping upload event", fingerprint);
             eventHistory.setStatus(EventStatus.FAILED);
             eventHistory.setFinishedAt(OffsetDateTime.now());
             eventHistoryRepository.save(eventHistory);
@@ -127,7 +139,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                 eventHistoryRepository.save(eventHistory);
                 return;
             }
-            saveCertificate(eventMessageData, certificate);
+            saveCertificate(eventMessageData, certificate, fingerprint);
             // Retroactively link trigger histories of the ignore triggers to the certificate
             triggerHistoryRepository.updateObjectUuidAndObjectResource(certificate.getUuid(), Resource.CERTIFICATE, eventHistory.getUuid());
 
@@ -157,12 +169,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         sendFollowUpEventsNotifications(context);
     }
 
-    private void saveCertificate(CertificateUploadEventMessageData data, Certificate certificate) {
+    private void saveCertificate(CertificateUploadEventMessageData data, Certificate certificate, String fingerprint) {
         X509Certificate x509Certificate = CertificateUtil.parseUploadedCertificateContent(data.certificateContent());
-        CertificateContent certificateContent = certificateService.checkAddCertificateContent(data.fingerprint(), X509ObjectToString.toPem(x509Certificate));
+        CertificateContent certificateContent = certificateService.checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(x509Certificate));
         certificate.setCertificateContent(certificateContent);
         certificate.setCertificateContentId(certificateContent.getId());
-        certificate.setFingerprint(data.fingerprint());
+        certificate.setFingerprint(fingerprint);
 
         byte[] altPublicKey = x509Certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
         certificateService.uploadCertificateKey(x509Certificate.getPublicKey(), certificate, altPublicKey);
