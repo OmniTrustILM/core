@@ -45,6 +45,7 @@ import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -146,20 +147,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
                         )
         );
 
-        CertificateContent certificateContent = new CertificateContent();
-        certificateContent.setContent("123456");
-        certificateContent = certificateContentRepository.save(certificateContent);
-
-        certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
-        certificate.setUuid(UUID.fromString(CERTIFICATE_UUID));
-        certificateRepository.save(certificate);
+        certificate = createCertificate(UUID.fromString(CERTIFICATE_UUID), "123456", "123456789", "testCertificate");
 
         CustomAttributeV3 attribute = new CustomAttributeV3();
         attribute.setUuid(ATTRIBUTE_UUID);
@@ -187,6 +175,23 @@ class ResourceServiceTest extends BaseSpringBootTest {
         attributeRelation.setResource(Resource.CERTIFICATE);
         attributeRelation.setAttributeDefinitionUuid(attributeDefinition.getUuid());
         attributeRelationRepository.save(attributeRelation);
+    }
+
+    private Certificate createCertificate(UUID uuid, String content, String serialNumber, String subjectDn) {
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent(content);
+        certificateContent = certificateContentRepository.save(certificateContent);
+
+        Certificate newCertificate = new Certificate();
+        newCertificate.setSubjectDn(subjectDn);
+        newCertificate.setIssuerDn("testCertificate");
+        newCertificate.setSerialNumber(serialNumber);
+        newCertificate.setState(CertificateState.ISSUED);
+        newCertificate.setValidationStatus(CertificateValidationStatus.VALID);
+        newCertificate.setCertificateContent(certificateContent);
+        newCertificate.setCertificateContentId(certificateContent.getId());
+        newCertificate.setUuid(uuid);
+        return certificateRepository.save(newCertificate);
     }
 
     @Test
@@ -314,28 +319,40 @@ class ResourceServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    @Transactional
     void testLoadResourceObjectContentDataFromDataAttributes() throws NotFoundException, AttributeException, ConnectorException {
         DataAttributeV3 nonResourceAttribute = new DataAttributeV3();
         nonResourceAttribute.setName("name");
         nonResourceAttribute.setContentType(AttributeContentType.DATE);
 
+        Certificate certificate1 = createCertificate(UUID.randomUUID(), "1234567", "1234567890", "testCertificate1");
+        
         DataAttributeV3 resourceAttribute = new DataAttributeV3();
         resourceAttribute.setContentType(AttributeContentType.RESOURCE);
         resourceAttribute.setName("resource");
         ResourceCertificateContentData data = new ResourceCertificateContentData();
         data.setUuid(certificate.getUuid().toString());
-        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data)));
+        ResourceCertificateContentData data2 = new ResourceCertificateContentData();
+        data2.setUuid(certificate1.getUuid().toString());
+        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data), new ResourceObjectContent("ref2", data2)));
         DataAttributeProperties properties = new DataAttributeProperties();
         resourceAttribute.setProperties(properties);
         properties.setResource(AttributeResource.CERTIFICATE);
 
         resourceService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
         Assertions.assertNull(nonResourceAttribute.getContent());
+        Assertions.assertEquals(2, resourceAttribute.getContent().size());
         ResourceCertificateContentData dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().getFirst().getData();
         Assertions.assertEquals(certificate.getContentData(), dataWithResource.getContent());
         Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
         Assertions.assertEquals(certificate.getCommonName(), dataWithResource.getName());
         Assertions.assertEquals(certificate.getUuid().toString(), dataWithResource.getUuid());
+
+        dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().get(1).getData();
+        Assertions.assertEquals(certificate1.getContentData(), dataWithResource.getContent());
+        Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
+        Assertions.assertEquals(certificate1.getCommonName(), dataWithResource.getName());
+        Assertions.assertEquals(certificate1.getUuid().toString(), dataWithResource.getUuid());
     }
 
     @Test
