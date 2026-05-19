@@ -269,7 +269,7 @@ public class TriggerServiceImpl implements TriggerService {
     }
 
     private static boolean isCertificateUploadedEventCompatible(ResourceEvent event, Trigger trigger) {
-        return event == ResourceEvent.CERTIFICATE_UPLOADED && trigger.getRules().stream()
+        return event != ResourceEvent.CERTIFICATE_UPLOADED || trigger.getRules().stream()
                 .flatMap(rule -> rule.getConditions().stream())
                 .flatMap(condition -> condition.getItems().stream())
                 .allMatch(TriggerServiceImpl::isCertificateUploadedEventCompatible);
