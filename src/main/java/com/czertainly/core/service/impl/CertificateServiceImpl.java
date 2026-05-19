@@ -1258,6 +1258,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             } catch (EventException e) {
                 throw new CertificateException("Failed to produce certificate upload event: " + e.getMessage());
             }
+            if (certificateRepository.findByFingerprint(fingerprint).isEmpty()) {
+                throw new CertificateException("Certificate was not uploaded. See Certificate Uploaded Event History for more details.");}
         } else {
             eventProducer.produceMessage(eventMessage);
         }
