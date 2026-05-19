@@ -29,7 +29,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ConnectorAuthService;
+import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.service.handler.ConnectorAdapter;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
@@ -73,7 +73,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ProxyRepository proxyRepository;
 
-    private ConnectorAuthService connectorAuthService;
+    private ConnectorAuthInternalService connectorAuthService;
 
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
@@ -144,7 +144,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Autowired
-    public void setConnectorAuthService(ConnectorAuthService connectorAuthService) {
+    public void setConnectorAuthService(ConnectorAuthInternalService connectorAuthService) {
         this.connectorAuthService = connectorAuthService;
     }
 

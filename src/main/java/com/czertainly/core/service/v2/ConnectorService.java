@@ -27,7 +27,7 @@ public interface ConnectorService extends ResourceExtensionService {
     ConnectorDetailDto createConnector(ConnectorRequestDto request) throws ConnectorException, NotFoundException, AlreadyExistException, AttributeException;
 
     /**
-     * This method is used to create a new Connector with status WAITING_FOR_APPROVAL. It is used by the ConnectorRegistrationService when a new Connector is registered by itself.
+     * This method is used to create a new Connector with status WAITING_FOR_APPROVAL. It is used by the ConnectorRegistrationExternalService when a new Connector is registered by itself.
      * **WARNING:** Should not use as replacement for createConnector method, as it will create connector without any authorization check
      * @param request ConnectorRequestDto containing the details of the Connector to be created. The status of the Connector will be set to WAITING_FOR_APPROVAL.
      * @return ConnectorDetailDto containing the details of the created Connector.
