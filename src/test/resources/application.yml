@@ -8,6 +8,9 @@ caching:
   connectors:
     ttl-minutes: 5
     max-size: 100
+  crypto-keys:
+    ttl-minutes: 5
+    max-size: 10000
 
 auth-service:
   base-url: http://authservice.dev

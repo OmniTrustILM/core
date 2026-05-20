@@ -7,14 +7,14 @@ caching:
   authentication:
     ttl-minutes: ${AUTH_CACHE_TTL_MINUTES:5}   # How long a cached identity is considered valid
     max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
-  # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
-  crypto-keys:
-    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
-    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
   # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
   connectors:
     ttl-minutes: ${CONNECTOR_CACHE_TTL_MINUTES:5}
     max-size: ${CONNECTOR_CACHE_MAX_SIZE:100}
+  # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
+  crypto-keys:
+    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
+    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
 
 certificate:
   chain:
