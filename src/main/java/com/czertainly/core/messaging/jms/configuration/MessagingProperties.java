@@ -117,10 +117,6 @@ public record MessagingProperties(
         return producerDestination(routingKey().timeQualityConfig());
     }
 
-    public String produceDestinationTimeQualityConfigRequest() {
-        return producerDestination(routingKey().timeQualityConfigRequest());
-    }
-
     public record Queue (
             @NotBlank String actions,
             @NotBlank String auditLogs,

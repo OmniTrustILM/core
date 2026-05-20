@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TimeQualityRegisterImplTest {
     private static final Instant FIXED_NOW = Instant.parse("2026-03-04T10:05:00Z");
-    private static final Duration MAX_AGE_5_MINUTES = Duration.ofMinutes(5);
     private static final Duration MAX_DRIFT_500MS = Duration.ofMillis(500);
 
     @Nested

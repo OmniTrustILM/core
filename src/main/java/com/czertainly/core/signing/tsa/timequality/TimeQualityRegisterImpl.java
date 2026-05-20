@@ -22,6 +22,11 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
 
     private static final Logger logger = LoggerFactory.getLogger(TimeQualityRegisterImpl.class);
 
+    private static final String KEY_CONFIGURATION_ID = "configurationId";
+    private static final String KEY_NAME = "name";
+    private static final String KEY_REASON = "reason";
+    private static final String KEY_STATUS = "status";
+
     private final ConcurrentHashMap<UUID, AtomicReference<TimeQualityResult>> entries = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, TimeQualityStatus> lastLoggedStatus = new ConcurrentHashMap<>();
     private final ClockSource clockSource;
@@ -56,17 +61,17 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
 
         if (result.status() == TimeQualityStatus.DEGRADED) {
             logger.atWarn()
-                    .addKeyValue("configurationId", result.configurationId())
-                    .addKeyValue("name", result.name())
-                    .addKeyValue("reason", result.reason())
+                    .addKeyValue(KEY_CONFIGURATION_ID, result.configurationId())
+                    .addKeyValue(KEY_NAME, result.name())
+                    .addKeyValue(KEY_REASON, result.reason())
                     .log("Received degraded time quality result from Monitor");
         }
 
         logger.atTrace()
-                .addKeyValue("configurationId", result.configurationId())
-                .addKeyValue("name", result.name())
-                .addKeyValue("status", result.status())
-                .addKeyValue("reason", result.reason())
+                .addKeyValue(KEY_CONFIGURATION_ID, result.configurationId())
+                .addKeyValue(KEY_NAME, result.name())
+                .addKeyValue(KEY_STATUS, result.status())
+                .addKeyValue(KEY_REASON, result.reason())
                 .addKeyValue("driftMs", result.measuredDriftMs())
                 .log("Received time quality result");
     }
@@ -123,9 +128,9 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
         var previousStatus = lastLoggedStatus.put(id, TimeQualityStatus.DEGRADED);
         if (previousStatus != TimeQualityStatus.DEGRADED) {
             logger.atWarn()
-                    .addKeyValue("configurationId", id)
-                    .addKeyValue("status", "DEGRADED")
-                    .addKeyValue("reason", reason)
+                    .addKeyValue(KEY_CONFIGURATION_ID, id)
+                    .addKeyValue(KEY_STATUS, "DEGRADED")
+                    .addKeyValue(KEY_REASON, reason)
                     .log("Time quality degraded");
         }
         return TimeQualityStatus.DEGRADED;
@@ -135,8 +140,8 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
         var previousStatus = lastLoggedStatus.put(id, TimeQualityStatus.OK);
         if (previousStatus != TimeQualityStatus.OK) {
             logger.atDebug()
-                    .addKeyValue("configurationId", id)
-                    .addKeyValue("status", "OK")
+                    .addKeyValue(KEY_CONFIGURATION_ID, id)
+                    .addKeyValue(KEY_STATUS, "OK")
                     .log("Time quality recovered");
         }
         return TimeQualityStatus.OK;
