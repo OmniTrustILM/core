@@ -226,7 +226,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceService {
             throw new ValidationException("Cannot list vault profile attributes for vault without associated connector");
         }
 
-        ApiClientConnectorInfo connectorInfo = vaultInstance.getConnector().mapToApiClientDtoV2();
+        ApiClientConnectorInfo connectorInfo = connectorService.getConnectorForApiClient(vaultInstance.getConnectorUuid());
         List<BaseAttribute> vaultAttributes = connectorApiFactory.getVaultApiClient(connectorInfo).listVaultAttributes(connectorInfo);
         List<RequestAttribute> requestVaultAttributes = connectorRequestAttributesBuilder.prepareRequestAttributesForConnectorRequest(vaultInstance.getConnectorUuid(), vaultAttributes, attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.VAULT, vaultInstance.getUuid()).connector(vaultInstance.getConnectorUuid()).build()));
 
