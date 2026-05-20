@@ -217,7 +217,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         List<NotificationRecipient> recipients = new ArrayList<>();
         switch (event) {
             case CERTIFICATE_STATUS_CHANGED, CERTIFICATE_ACTION_PERFORMED, CERTIFICATE_EXPIRING,
-                 CERTIFICATE_NOT_COMPLIANT -> {
+                 CERTIFICATE_NOT_COMPLIANT, CERTIFICATE_UPLOADED -> {
                 NameAndUuidDto ownerInfo = resourceObjectAssociationService.getOwner(resource, objectUuid);
                 if (ownerInfo != null) {
                     recipients.add(new NotificationRecipient(RecipientType.USER, UUID.fromString(ownerInfo.getUuid())));
