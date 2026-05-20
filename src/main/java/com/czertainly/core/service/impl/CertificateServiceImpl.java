@@ -102,6 +102,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
@@ -697,7 +698,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
-
         return certificates.size();
     }
 
@@ -823,6 +823,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                     assert nextInChain != null;
                     previousCertificate.setIssuerCertificateUuid(nextInChain.getUuid());
                     previousCertificate.setIssuerSerialNumber(nextInChain.getSerialNumber());
+                    certificateRepository.save(previousCertificate);
                     previousCertificate = nextInChain;
                     ++downloadedCertificates;
                 } catch (NoSuchAlgorithmException | CertificateException | NotFoundException e) {
@@ -863,6 +864,18 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
         constructCertificateChainFromInventory(certificate, certificateChain);
         return certificateChain;
+    }
+
+    @Override
+    @Cacheable(value = CacheConfig.CERTIFICATE_CHAIN_CACHE, key = "#certificateUuid + '_' + #withEndCertificate", sync = true)
+    public List<X509Certificate> getCertificateChainForSigning(UUID certificateUuid, boolean withEndCertificate) throws CertificateException {
+        List<String> contents = certificateRepository.findCertificateChainContents(certificateUuid, certificateChainMaxDepth);
+        int startIdx = withEndCertificate ? 0 : 1;
+        List<X509Certificate> chain = new ArrayList<>(Math.max(0, contents.size() - startIdx));
+        for (int i = startIdx; i < contents.size(); i++) {
+            chain.add(CertificateUtil.parseCertificate(contents.get(i)));
+        }
+        return chain;
     }
 
     private boolean completeCertificateChain(Certificate lastCertificate, List<Certificate> certificateChain) {
@@ -1270,7 +1283,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 throw new CertificateException("Failed to produce certificate upload event: " + e.getMessage());
             }
             if (certificateRepository.findByFingerprint(fingerprint).isEmpty()) {
-                throw new CertificateException("Certificate was not uploaded. See Certificate Uploaded Event History for more details.");}
+                throw new CertificateException("Certificate was not uploaded. See Certificate Uploaded Event History for more details.");
+            }
         } else {
             eventProducer.produceMessage(eventMessage);
         }
