@@ -139,7 +139,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                 eventHistoryRepository.save(eventHistory);
                 return;
             }
-            saveCertificate(eventMessageData, certificate, fingerprint);
+            saveCertificate(certificate, fingerprint, x509Certificate);
             // Retroactively link trigger histories of the ignore triggers to the certificate
             triggerHistoryRepository.updateObjectUuidAndObjectResource(certificate.getUuid(), Resource.CERTIFICATE, eventHistory.getUuid());
 
@@ -169,8 +169,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         sendFollowUpEventsNotifications(context);
     }
 
-    private void saveCertificate(CertificateUploadEventMessageData data, Certificate certificate, String fingerprint) {
-        X509Certificate x509Certificate = CertificateUtil.parseUploadedCertificateContent(data.certificateContent());
+    private void saveCertificate(Certificate certificate, String fingerprint, X509Certificate x509Certificate) {
         CertificateContent certificateContent = certificateService.checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(x509Certificate));
         certificate.setCertificateContent(certificateContent);
         certificate.setCertificateContentId(certificateContent.getId());
@@ -189,6 +188,3 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         notificationProducer.produceMessage(notificationMessage);
     }
 }
-
-
-
