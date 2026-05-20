@@ -52,7 +52,7 @@ public class TimeQualityConfigurationProducer {
         msg.setNtpCheckTimeout(config.getNtpCheckTimeout());
         msg.setNtpServersMinReachable(config.getNtpServersMinReachable());
         msg.setMaxClockDrift(config.getMaxClockDrift());
-        msg.setLeapSecondGuard(Boolean.TRUE.equals(config.getLeapSecondGuard()));
+        msg.setLeapSecondGuard(config.isLeapSecondGuard());
         return msg;
     }
 }

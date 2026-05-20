@@ -47,5 +47,5 @@ public class TimeQualityConfiguration extends UniquelyIdentifiedAndAudited {
     private Duration maxClockDrift;
 
     @Column(name = "leap_second_guard", nullable = false)
-    private Boolean leapSecondGuard;
+    private boolean leapSecondGuard;
 }

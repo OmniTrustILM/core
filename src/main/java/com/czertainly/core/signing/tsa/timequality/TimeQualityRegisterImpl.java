@@ -113,7 +113,7 @@ public class TimeQualityRegisterImpl implements TimeQualityRegister {
             return degraded(config.uuid(), "TimeMonitor reported degraded status");
         }
 
-        if (Boolean.TRUE.equals(config.leapSecondGuard()) && leapSecondGuard.isLeapSecondRisk(result.leapSecondWarning())) {
+        if (config.leapSecondGuard() && leapSecondGuard.isLeapSecondRisk(result.leapSecondWarning())) {
             return degraded(config.uuid(), "leap second guard active");
         }
 
