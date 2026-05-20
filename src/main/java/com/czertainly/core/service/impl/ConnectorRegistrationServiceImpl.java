@@ -8,7 +8,7 @@ import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorRequestDto;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.czertainly.core.security.authz.UnauthenticatedEndpoint;
 import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import com.czertainly.core.service.v2.ConnectorService;
 import org.slf4j.Logger;
@@ -31,7 +31,7 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationEx
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @UnauthenticatedEndpoint
     public UuidDto registerConnector(com.czertainly.api.model.client.connector.ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         ConnectorRequestDto requestV2 = new ConnectorRequestDto();
         requestV2.setName(request.getName());
@@ -52,7 +52,7 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationEx
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @UnauthenticatedEndpoint
     public ConnectorDetailDto registerConnectorV2(ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         return connectorService.createNewWaitingConnector(request);
     }

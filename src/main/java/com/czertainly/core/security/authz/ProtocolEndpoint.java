@@ -7,9 +7,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * The protocol stack authenticates the caller — for example ACME (JWK signature), SCEP/CMP (CMS/PKI message),
- * or connector registration (HMAC/signature). No resource-level authorization check via {@link ExternalAuthorization}
- * is needed because the protocol itself carries the authentication proof.
+ * The protocol stack authenticates the caller — for example ACME (JWK signature) or SCEP/CMP (CMS/PKI message).
+ * No resource-level authorization check via {@link ExternalAuthorization} is needed because the protocol itself
+ * carries the authentication proof.
  * <p>
  * Permanent: the authentication model for protocol endpoints does not change after migration.
  */
