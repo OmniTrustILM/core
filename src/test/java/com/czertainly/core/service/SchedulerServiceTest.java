@@ -42,18 +42,32 @@ import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.UUID;
 
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+
 class SchedulerServiceTest extends BaseSpringBootTest {
 
-    private static final int SCHEDULER_PORT = 8080;
+    @RegisterExtension
+    static WireMockExtension schedulerMock = WireMockExtension.newInstance()
+            .options(wireMockConfig().dynamicPort())
+            .build();
+
+    @DynamicPropertySource
+    static void schedulerProperties(DynamicPropertyRegistry registry) {
+        registry.add("scheduler.base-url", schedulerMock::baseUrl);
+    }
 
     @Autowired
     private SchedulerService schedulerService;
@@ -326,15 +340,11 @@ class SchedulerServiceTest extends BaseSpringBootTest {
         final String jobName = "TestDiscoveryScheduled";
         final String cronExpressionUpdate = "0 0/30 * * * ? *";
 
-        WireMockServer mockServer = new WireMockServer(SCHEDULER_PORT);
-        mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-
-        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(
+        schedulerMock.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(
                 WireMock.ok()));
-        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/scheduler/update")).willReturn(
+        schedulerMock.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/scheduler/update")).willReturn(
                 WireMock.ok()));
-        mockServer.stubFor(WireMock.delete(WireMock.urlPathMatching("/v1/scheduler/" + jobName)).willReturn(
+        schedulerMock.stubFor(WireMock.delete(WireMock.urlPathMatching("/v1/scheduler/" + jobName)).willReturn(
                 WireMock.noContent()));
 
         ScheduledJobDetailDto jobDetailDto = schedulerService.registerScheduledJob(DiscoveryCertificateTask.class,jobName, "0 0/3 * * * ? *", true, null);
@@ -351,42 +361,29 @@ class SchedulerServiceTest extends BaseSpringBootTest {
 
         ScheduledJobsResponseDto listResponse = schedulerService.listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
         Assertions.assertEquals(0, listResponse.getTotalItems());
-
-        mockServer.stop();
     }
 
     @Test
     void testSystemScheduledJobsRegistration() throws SchedulerException {
-        WireMockServer mockServer = new WireMockServer(SCHEDULER_PORT);
-        mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-
-        // 2. Stub the create endpoint
-        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create"))
+        schedulerMock.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create"))
                 .willReturn(WireMock.ok()));
 
-        try {
-            SystemScheduledJobs systemScheduledJobs = new SystemScheduledJobs();
-            systemScheduledJobs.setSchedulerService(schedulerService);
+        SystemScheduledJobs systemScheduledJobs = new SystemScheduledJobs();
+        systemScheduledJobs.setSchedulerService(schedulerService);
 
-            systemScheduledJobs.registerJobs();
+        systemScheduledJobs.registerJobs();
 
-            // Verify all expected jobs are registered
-            ScheduledJobsResponseDto jobs = schedulerService.listScheduledJobs(
-                    SecurityFilter.create(), new PaginationRequestDto());
+        ScheduledJobsResponseDto jobs = schedulerService.listScheduledJobs(
+                SecurityFilter.create(), new PaginationRequestDto());
 
-            Assertions.assertEquals(3, jobs.getScheduledJobs().size());
+        Assertions.assertEquals(3, jobs.getScheduledJobs().size());
 
-            List<String> jobClassNames = jobs.getScheduledJobs().stream()
-                    .map(ScheduledJobDto::getJobName)
-                    .toList();
+        List<String> jobClassNames = jobs.getScheduledJobs().stream()
+                .map(ScheduledJobDto::getJobName)
+                .toList();
 
-            Assertions.assertTrue(jobClassNames.stream()
-                    .anyMatch(name -> name.contains(CbomSyncTask.NAME)));
-        } finally {
-            // 3. Ensure server is stopped to free up the port
-            mockServer.stop();
-        }
+        Assertions.assertTrue(jobClassNames.stream()
+                .anyMatch(name -> name.contains(CbomSyncTask.NAME)));
     }
 
 }
