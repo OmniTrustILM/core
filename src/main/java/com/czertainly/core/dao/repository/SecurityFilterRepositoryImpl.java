@@ -181,7 +181,9 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                         nameExpression
                 )
         );
-        query.orderBy(cb.asc(root.get(nameAttribute)));
+        if (nameAttribute != null) {
+            query.orderBy(cb.asc(root.get(nameAttribute)));
+        }
 
         final List<Predicate> predicates = getPredicates(securityFilter, additionalWhereClause, root, cb, query);
         if (!predicates.isEmpty()) {

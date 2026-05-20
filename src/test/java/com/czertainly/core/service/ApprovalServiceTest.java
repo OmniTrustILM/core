@@ -8,6 +8,7 @@ import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDetailDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserProfileDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -107,6 +109,62 @@ class ApprovalServiceTest extends ApprovalProfileData {
 
         Assertions.assertTrue(approvalOptional.isPresent());
         Assertions.assertEquals(ApprovalStatusEnum.REJECTED, approvalOptional.get().getStatus());
+    }
+
+    @Test
+    void testGetResourceObjectInternal() throws NotFoundException {
+        NameAndUuidDto result = approvalService.getResourceObjectInternal(approval.getUuid());
+        Assertions.assertEquals(approval.getUuid().toString(), result.getUuid());
+    }
+
+    @Test
+    void testGetResourceObjectInternalNotFound() {
+        Assertions.assertThrows(
+                NotFoundException.class,
+                () -> approvalService.getResourceObjectInternal(UUID.randomUUID())
+        );
+    }
+
+    @Test
+    void testGetResourceObjectExternal() throws NotFoundException {
+        NameAndUuidDto result = approvalService.getResourceObjectExternal(SecuredUUID.fromUUID(approval.getUuid()));
+        Assertions.assertEquals(approval.getUuid().toString(), result.getUuid());
+    }
+
+    @Test
+    void testGetResourceObjectExternalNotFound() {
+        Assertions.assertThrows(
+                NotFoundException.class,
+                () -> approvalService.getResourceObjectExternal(SecuredUUID.fromUUID(UUID.randomUUID()))
+        );
+    }
+
+    @Test
+    void testListResourceObjects() throws NotFoundException {
+        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+
+        List<NameAndUuidDto> result = approvalService.listResourceObjects(SecurityFilter.create(), null, null);
+        Assertions.assertEquals(3, result.size());
+    }
+
+    @Test
+    void testListResourceObjectsWithPagination() throws NotFoundException {
+        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+
+        PaginationRequestDto pagination = new PaginationRequestDto();
+        pagination.setPageNumber(1);
+        pagination.setItemsPerPage(2);
+        List<NameAndUuidDto> result = approvalService.listResourceObjects(SecurityFilter.create(), null, pagination);
+        Assertions.assertEquals(2, result.size());
+    }
+
+    @Test
+    void testEvaluatePermissionChain() {
+        Assertions.assertDoesNotThrow(
+                () -> approvalService.evaluatePermissionChain(SecuredUUID.fromUUID(approval.getUuid()))
+        );
     }
 
     // SETTERs
