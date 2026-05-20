@@ -25,6 +25,10 @@
         <archunit.version>1.4.2</archunit.version>
         <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
         <java.version>21</java.version>
+        <!-- Temporary override for CVE-2026-41293 and CVE-2026-43512.
+          Remove after the parent com.czertainly:dependencies upgrades to a Spring Boot release that ships Tomcat 10.1.55+
+          (expected with Spring Boot 3.5.15). Then delete this override. -->
+        <tomcat.version>10.1.55</tomcat.version>
 
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.organization>ilm</sonar.organization>
