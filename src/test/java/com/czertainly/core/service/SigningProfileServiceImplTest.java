@@ -459,9 +459,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void returnsExistingEntries() {
+            // given: savedProfile from setUp
             SearchRequestDto request = new SearchRequestDto();
+
+            // when
             PaginationResponseDto<SigningProfileListDto> response = signingProfileService.listSigningProfiles(request, SecurityFilter.create());
 
+            // then
             assertNotNull(response);
             assertEquals(1, response.getTotalItems());
             SigningProfileListDto listed = response.getItems().getFirst();
@@ -474,11 +478,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void emptyWhenNoneExist() {
+            // given: no profiles (delete the one from setUp)
             signingProfileService.bulkDeleteSigningProfiles(List.of(savedProfile.getSecuredUuid()));
 
-            SearchRequestDto request = new SearchRequestDto();
-            PaginationResponseDto<SigningProfileListDto> response = signingProfileService.listSigningProfiles(request, SecurityFilter.create());
+            // when
+            PaginationResponseDto<SigningProfileListDto> response = signingProfileService.listSigningProfiles(new SearchRequestDto(), SecurityFilter.create());
 
+            // then
             assertNotNull(response);
             assertEquals(0, response.getTotalItems());
             assertTrue(response.getItems().isEmpty());
@@ -487,13 +493,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void multipleProfilesWithDifferentWorkflowTypes()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create additional profiles with different workflow types
+            // given: savedProfile (RAW_SIGNING) from setUp plus two more profiles with different workflow types
             signingProfileService.createSigningProfile(buildDelegatedContentRequest("content-profile"));
             signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("timestamping-profile"));
 
-            SearchRequestDto request = new SearchRequestDto();
-            PaginationResponseDto<SigningProfileListDto> response = signingProfileService.listSigningProfiles(request, SecurityFilter.create());
+            // when
+            PaginationResponseDto<SigningProfileListDto> response = signingProfileService.listSigningProfiles(new SearchRequestDto(), SecurityFilter.create());
 
+            // then
             assertNotNull(response);
             assertEquals(3, response.getTotalItems());
 
@@ -505,22 +512,27 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertTrue(returnedTypes.contains(SigningWorkflowType.TIMESTAMPING));
         }
 
-    } // end ListTests
+    }
 
     @Nested
     class ListSignatureAttributesTests {
 
         @Test
         void allowedCert_returnsAttributes() throws NotFoundException {
+            // given: rsaCertificate from setUp (access allowed by default)
+
+            // when
             List<com.czertainly.api.model.common.attribute.common.BaseAttribute> attrs =
                     signingProfileService.listSignatureAttributesForCertificate(rsaCertificate.getUuid());
 
+            // then
             assertNotNull(attrs);
             assertFalse(attrs.isEmpty(), "RSA certificate should produce non-empty signature attributes");
         }
 
         @Test
         void deniedCert_throwsAccessDeniedException() {
+            // given: OPA mock configured to deny certificate DETAIL access
             OpaResourceAccessResult denied = new OpaResourceAccessResult();
             denied.setAuthorized(false);
 
@@ -536,21 +548,26 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     )
             ).thenReturn(denied);
 
+            // when/then
             assertThrows(
                     AccessDeniedException.class,
                     () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificate.getUuid())
             );
         }
 
-    } // end ListSignatureAttributesTests
+    }
 
     @Nested
     class GetTests {
 
         @Test
         void returnsCorrectDto() throws NotFoundException {
+            // given: savedProfile from setUp
+
+            // when
             SigningProfileDto dto = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
 
+            // then
             assertNotNull(dto);
             assertEquals(savedProfile.getUuid().toString(), dto.getUuid());
             assertEquals(savedProfile.getName(), dto.getName());
@@ -561,13 +578,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void specificVersion_returnsSnapshotData() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a profile via service — this creates the version 1 snapshot
+            // given: a profile created via service with a version 1 snapshot
             SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("profile-for-version-get"));
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Get with explicit version=1
+            // when: fetch with explicit version=1
             SigningProfileDto dto = signingProfileService.getSigningProfile(profileUuid, 1);
 
+            // then
             assertNotNull(dto);
             assertEquals(1, dto.getVersion());
             assertNotNull(dto.getSigningScheme());
@@ -578,10 +596,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void nonExistentVersion_throwsNotFoundException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile with only version 1
             SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("profile-missing-version"));
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Version 99 does not exist
+            // when/then: version 99 does not exist
             assertThrows(NotFoundException.class,
                     () -> signingProfileService.getSigningProfile(profileUuid, 99));
         }
@@ -589,29 +608,34 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void afterVersionBump_oldVersionPreservesOriginalWorkflowType()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create with DELEGATED + RAW_SIGNING (version 1)
+            // given: a profile created with DELEGATED + RAW_SIGNING (version 1), then updated to CONTENT_SIGNING (version 2)
             SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("profile-history"));
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
-
-            // Update to DELEGATED + CONTENT_SIGNING → should bump to version 2
             signingProfileService.updateSigningProfile(profileUuid, buildDelegatedContentRequest("profile-history"));
 
-            // Version 1 snapshot must still report RAW_SIGNING
+            // when: fetch version 1
             SigningProfileDto v1 = signingProfileService.getSigningProfile(profileUuid, 1);
+
+            // then: version 1 snapshot still reports RAW_SIGNING
             assertEquals(1, v1.getVersion());
             assertEquals(SigningWorkflowType.RAW_SIGNING, v1.getWorkflow().getType());
 
-            // Latest (version 2) must report CONTENT_SIGNING
+            // when: fetch latest
             SigningProfileDto latest = signingProfileService.getSigningProfile(profileUuid, null);
+
+            // then: latest (version 2) reports CONTENT_SIGNING
             assertEquals(2, latest.getVersion());
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, latest.getWorkflow().getType());
         }
 
         @Test
         void noProtocolsLinked_enabledProtocolsIsEmpty() throws NotFoundException {
-            // savedProfile has no TSP linked
+            // given: savedProfile from setUp with no TSP linked
+
+            // when
             SigningProfileDto dto = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
 
+            // then
             assertNotNull(dto.getEnabledProtocols());
             assertTrue(dto.getEnabledProtocols().isEmpty(),
                     "No protocols should be enabled when none are linked");
@@ -619,15 +643,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void withTspLinked_enabledProtocolsContainsTsp() throws NotFoundException {
+            // given: savedProfile with a TSP profile linked
             TspProfile tspProfile = new TspProfile();
             tspProfile.setName("tsp-for-dto-test");
             tspProfile = tspRepository.save(tspProfile);
-
             savedProfile.setTspProfile(tspProfile);
             signingProfileRepository.save(savedProfile);
 
+            // when
             SigningProfileDto dto = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
 
+            // then
             assertNotNull(dto.getEnabledProtocols());
             assertTrue(dto.getEnabledProtocols().contains(SigningProtocol.TSP),
                     "TSP should appear in enabledProtocols");
@@ -635,22 +661,30 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void entity_returnsCorrectEntity() throws NotFoundException {
+            // given: savedProfile from setUp
+
+            // when
             SigningProfile entity = signingProfileService.getSigningProfileEntity(savedProfile.getSecuredUuid());
 
+            // then
             assertNotNull(entity);
             assertEquals(savedProfile.getUuid(), entity.getUuid());
             assertEquals(savedProfile.getName(), entity.getName());
         }
 
-    } // end GetTests
+    }
 
     @Nested
     class FindAllNamesTests {
 
         @Test
         void returnsExistingNames() {
+            // given: savedProfile from setUp
+
+            // when
             List<String> names = signingProfileService.findAllNames();
 
+            // then
             assertNotNull(names);
             assertEquals(1, names.size());
             assertTrue(names.contains(savedProfile.getName()));
@@ -658,6 +692,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void returnsAllWhenMultipleExist() {
+            // given: savedProfile from setUp plus a second profile saved directly
             SigningProfile second = new SigningProfile();
             second.setName("second-signing-profile");
             second.setSigningScheme(SigningScheme.DELEGATED);
@@ -665,8 +700,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             second.setLatestVersion(1);
             signingProfileRepository.save(second);
 
+            // when
             List<String> names = signingProfileService.findAllNames();
 
+            // then
             assertEquals(2, names.size());
             assertTrue(names.contains(savedProfile.getName()));
             assertTrue(names.contains("second-signing-profile"));
@@ -674,28 +711,33 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void emptyWhenNoneExist() {
+            // given: no profiles (delete the one from setUp)
             signingProfileVersionRepository.findBySigningProfileUuidAndVersion(savedProfile.getUuid(), savedProfile.getLatestVersion())
                     .ifPresent(signingProfileVersionRepository::delete);
             signingProfileRepository.delete(savedProfile);
 
+            // when
             List<String> names = signingProfileService.findAllNames();
 
+            // then
             assertNotNull(names);
             assertTrue(names.isEmpty());
         }
 
-    } // end FindAllNamesTests
+    }
 
     @Nested
     class CreateScheme {
 
         @Test
         void delegatedRawSigning_assertDtoAndDbEntity() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildDelegatedRawRequest("new-delegated-profile");
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // Assert returned DTO
+            // then: DTO
             assertNotNull(dto);
             assertNotNull(dto.getUuid());
             assertEquals("new-delegated-profile", dto.getName());
@@ -705,7 +747,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertNotNull(dto.getSigningScheme());
             assertNotNull(dto.getWorkflow());
 
-            // Assert entity reloaded from the database
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -729,15 +771,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void staticKeyManaged_assertSchemeAndEntityFields()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildManagedStaticKeyRawRequest("static-key-profile");
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // Assert scheme type in DTO
+            // then: DTO
             assertNotNull(dto.getSigningScheme());
             assertEquals(SigningScheme.MANAGED, dto.getSigningScheme().getSigningScheme());
 
-            // Assert entity fields
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -756,6 +800,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void staticKeyManaged_incompleteChain_throwsValidationException()
                 throws CertificateException, NoSuchAlgorithmException, OperatorCreationException {
+            // given: a certificate whose chain cannot be verified
             Certificate incompleteChainCert = buildIncompleteChainCertificate();
 
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
@@ -765,6 +810,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(scheme);
             request.setWorkflow(new RawSigningWorkflowRequestDto());
 
+            // when/then
             assertThrows(ValidationException.class,
                     () -> signingProfileService.createSigningProfile(request),
                     "createSigningProfile must reject a certificate whose chain is incomplete");
@@ -773,14 +819,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void oneTimeKeyManaged_assertSchemeAndEntityFields()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildManagedOneTimeKeyRawRequest("one-time-key-profile");
+
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // Assert scheme type in DTO
+            // then: DTO
             assertNotNull(dto.getSigningScheme());
             assertEquals(SigningScheme.MANAGED, dto.getSigningScheme().getSigningScheme());
 
-            // Assert entity fields
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -795,7 +844,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertNull(currentVersion.getCertificateUuid());
         }
 
-    } // end CreateScheme
+    }
 
     @Nested
     class CreateWorkflow {
@@ -803,12 +852,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void contentSigningWorkflow_assertWorkflowTypeAndEntity()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildDelegatedContentRequest("content-signing-profile");
+
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then: DTO
             assertNotNull(dto.getWorkflow());
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, dto.getWorkflow().getType());
 
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, fromDb.get().getWorkflowType());
@@ -817,12 +871,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void timestampingWorkflow_assertWorkflowTypeAndEntity()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildDelegatedTimestampingRequest("timestamping-profile");
+
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then: DTO
             assertNotNull(dto.getWorkflow());
             assertEquals(SigningWorkflowType.TIMESTAMPING, dto.getWorkflow().getType());
 
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             assertEquals(SigningWorkflowType.TIMESTAMPING, fromDb.get().getWorkflowType());
@@ -831,6 +890,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void timestampingWorkflowWithPoliciesAndAlgorithms_assertEntityFields()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             TimestampingWorkflowRequestDto timestampingWorkflow = new TimestampingWorkflowRequestDto();
             timestampingWorkflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
             timestampingWorkflow.setDefaultPolicyId("1.2.3.4.5");
@@ -845,9 +905,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(timestampingWorkflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // Assert workflow fields in DTO
+            // then: DTO
             assertNotNull(dto.getWorkflow());
             assertEquals(SigningWorkflowType.TIMESTAMPING, dto.getWorkflow().getType());
             TimestampingWorkflowDto tsDto = (TimestampingWorkflowDto) dto.getWorkflow();
@@ -858,7 +919,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(tsDto.getQualifiedTimestamp());
             assertTrue(tsDto.getValidateTokenSignature());
 
-            // Assert entity fields in the database
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -879,6 +940,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void managedStaticKey_withContentSigningWorkflow_assertBothFields()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = new SigningProfileRequestDto();
             request.setName("managed-content-profile");
             request.setDescription("Managed static-key profile with content signing workflow");
@@ -889,12 +951,15 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             managedContentWorkflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
             request.setWorkflow(managedContentWorkflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then: DTO
             assertEquals(SigningScheme.MANAGED, dto.getSigningScheme().getSigningScheme());
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, dto.getWorkflow().getType());
             assertFalse(dto.isEnabled());
 
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -906,19 +971,21 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertEquals(ManagedSigningType.STATIC_KEY, currentVersion.getManagedSigningType());
         }
 
-    } // end CreateWorkflow
+    }
 
     @Nested
     class UpdateTests {
 
         @Test
         void assertDtoAndDbEntity() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             SigningProfileRequestDto request = buildDelegatedRawRequest("updated-profile");
             request.setDescription("Updated description");
 
+            // when
             SigningProfileDto dto = signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), request);
 
-            // Assert returned DTO
+            // then: DTO
             assertNotNull(dto);
             assertEquals(savedProfile.getUuid().toString(), dto.getUuid());
             assertEquals("updated-profile", dto.getName());
@@ -926,7 +993,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(dto.isEnabled());
             assertEquals(2, dto.getVersion());
 
-            // Assert entity reloaded from the database
+            // then: DB
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -941,7 +1008,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void versionBump_oldVersionAttributesPreservedInEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a STATIC_KEY profile (version 1) with known signing-op attributes
+            // given: a STATIC_KEY profile (version 1) with PKCS1-v1_5/SHA-256 signing-op attributes
             StaticKeyManagedSigningRequestDto schemeV1 = new StaticKeyManagedSigningRequestDto();
             schemeV1.setCertificateUuid(rsaCertificate.getUuid());
             schemeV1.setSigningOperationAttributes(List.of(
@@ -954,12 +1021,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
             UUID profileUuid = UUID.fromString(created.getUuid());
 
-            // Verify v1 signing-op attributes are readable with version=1
             List<ResponseAttribute> v1Attrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .operation(AttributeOperation.SIGN).version(1).build());
             assertFalse(v1Attrs.isEmpty(), "Version 1 signing-op attributes should be stored");
 
+            // when: update to PSS/SHA-512 (bumps to version 2)
             StaticKeyManagedSigningRequestDto schemeV2 = new StaticKeyManagedSigningRequestDto();
             schemeV2.setCertificateUuid(rsaCertificate.getUuid());
             schemeV2.setSigningOperationAttributes(List.of(
@@ -970,16 +1037,16 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             updateRequest.setSigningScheme(schemeV2);
             updateRequest.setWorkflow(new RawSigningWorkflowRequestDto());
             SigningProfileDto updated = signingProfileService.updateSigningProfile(SecuredUUID.fromUUID(profileUuid), updateRequest);
+
+            // then
             assertEquals(2, updated.getVersion());
 
-            // Version 1 attributes must still be readable (historical record preserved)
             List<ResponseAttribute> v1AttrAfterBump = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .operation(AttributeOperation.SIGN).version(1).build());
             assertFalse(v1AttrAfterBump.isEmpty(),
                     "Version 1 signing-op attributes must be preserved after a version bump");
 
-            // Version 2 must have the new attributes
             List<ResponseAttribute> v2Attrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .operation(AttributeOperation.SIGN).version(2).build());
@@ -990,10 +1057,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void versionBump_oldFormatterAttributesPreservedInEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a CONTENT_SIGNING profile (version 1) with formatter attributes
             Connector formatter = createFormatterConnector("formatter-bump-preserve");
             FormatterAttr fa = registerFormatterAttribute(formatter, "data_bumpPreserveAttr");
 
-            // Create a CONTENT_SIGNING profile (version 1) with formatter attributes
             ContentSigningWorkflowRequestDto wfV1 = new ContentSigningWorkflowRequestDto();
             wfV1.setSignatureFormatterConnectorUuid(formatter.getUuid());
             wfV1.setSignatureFormatterConnectorAttributes(List.of(buildFormatterAttribute(fa.uuid(), fa.name(), "v1-value")));
@@ -1005,13 +1072,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
             UUID profileUuid = UUID.fromString(created.getUuid());
 
-            // Verify v1 formatter attributes are stored
             List<ResponseAttribute> v1AttrsBefore = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .connector(formatter.getUuid())
                             .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
             assertFalse(v1AttrsBefore.isEmpty(), "Version 1 formatter attributes should be stored after create");
 
+            // when: update with new formatter attribute value (bumps to version 2)
             ContentSigningWorkflowRequestDto wfV2 = new ContentSigningWorkflowRequestDto();
             wfV2.setSignatureFormatterConnectorUuid(formatter.getUuid());
             wfV2.setSignatureFormatterConnectorAttributes(List.of(buildFormatterAttribute(fa.uuid(), fa.name(), "v2-value")));
@@ -1021,9 +1088,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             updateRequest.setSigningScheme(buildDelegatedScheme());
             updateRequest.setWorkflow(wfV2);
             SigningProfileDto updated = signingProfileService.updateSigningProfile(SecuredUUID.fromUUID(profileUuid), updateRequest);
+
+            // then
             assertEquals(2, updated.getVersion(), "Version must be bumped to 2");
 
-            // Version 1 formatter attributes must still be readable (historical record preserved)
             List<ResponseAttribute> v1AttrsAfterBump = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .connector(formatter.getUuid())
@@ -1031,7 +1099,6 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(v1AttrsAfterBump.isEmpty(),
                     "Version 1 formatter attributes must be preserved after a version bump");
 
-            // Version 2 must have its own formatter attributes
             List<ResponseAttribute> v2Attrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .connector(formatter.getUuid())
@@ -1043,12 +1110,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void changeSchemeFromDelegatedToStaticKeyManaged()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // savedProfile uses DELEGATED scheme
+            // given: savedProfile uses DELEGATED scheme
             assertEquals(SigningScheme.DELEGATED, savedProfile.getSigningScheme());
 
-            // Update to MANAGED/STATIC_KEY
+            // when: update to MANAGED/STATIC_KEY
             signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), buildManagedStaticKeyRawRequest("scheme-switched"));
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -1064,6 +1132,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void staticKeyManaged_incompleteChain_throwsValidationException()
                 throws CertificateException, NoSuchAlgorithmException, OperatorCreationException {
+            // given: a certificate whose chain cannot be verified
             Certificate incompleteChainCert = buildIncompleteChainCertificate();
 
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
@@ -1073,6 +1142,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(scheme);
             request.setWorkflow(new RawSigningWorkflowRequestDto());
 
+            // when/then
             assertThrows(ValidationException.class,
                     () -> signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), request),
                     "updateSigningProfile must reject a certificate whose chain is incomplete");
@@ -1081,13 +1151,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void changeSchemeFromStaticKeyManagedToDelegated()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a MANAGED/STATIC_KEY profile first
+            // given: a MANAGED/STATIC_KEY profile
             SigningProfileDto created = signingProfileService.createSigningProfile(buildManagedStaticKeyRawRequest("managed-to-delegated"));
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Switch to DELEGATED
+            // when: switch to DELEGATED
             signingProfileService.updateSigningProfile(profileUuid, buildDelegatedRawRequest("managed-to-delegated"));
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(created.getUuid()));
             assertTrue(fromDb.isPresent());
             SigningProfile entity = fromDb.get();
@@ -1104,7 +1175,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void changeWorkflowFromRawToTimestamping()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // savedProfile uses RAW_SIGNING workflow
+            // given: savedProfile uses RAW_SIGNING workflow; build a TIMESTAMPING update request
             TimestampingWorkflowRequestDto timestampingWorkflow = new TimestampingWorkflowRequestDto();
             timestampingWorkflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
             timestampingWorkflow.setDefaultPolicyId("1.2.3.4.5");
@@ -1118,8 +1189,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(timestampingWorkflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), request);
 
+            // then
             assertEquals(SigningWorkflowType.TIMESTAMPING, dto.getWorkflow().getType());
 
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
@@ -1136,45 +1209,44 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void multipleBumps_versionsAccumulate()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a profile (version 1)
+            // given: a profile at version 1 (RAW_SIGNING), updated twice to reach version 3 (TIMESTAMPING)
             SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("multi-bump-profile"));
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
             UUID profileUuidRaw = UUID.fromString(created.getUuid());
 
-            // Trigger first bump: update → v2
+            // when
             signingProfileService.updateSigningProfile(profileUuid, buildDelegatedContentRequest("multi-bump-profile"));
-
-            // Trigger second bump: update → v3
             signingProfileService.updateSigningProfile(profileUuid, buildDelegatedTimestampingRequest("multi-bump-profile"));
 
-            // Verify three snapshot versions exist
+            // then: three snapshot versions exist
             assertTrue(signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profileUuidRaw, 1).isPresent());
             assertTrue(signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profileUuidRaw, 2).isPresent());
             assertTrue(signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profileUuidRaw, 3).isPresent());
 
-            // Verify the latest is version 3 with TIMESTAMPING
             SigningProfileDto latest = signingProfileService.getSigningProfile(profileUuid, null);
             assertEquals(3, latest.getVersion());
             assertEquals(SigningWorkflowType.TIMESTAMPING, latest.getWorkflow().getType());
 
-            // Verify version 1 still has RAW_SIGNING
             SigningProfileDto v1 = signingProfileService.getSigningProfile(profileUuid, 1);
             assertEquals(SigningWorkflowType.RAW_SIGNING, v1.getWorkflow().getType());
 
-            // Verify version 2 has CONTENT_SIGNING
             SigningProfileDto v2 = signingProfileService.getSigningProfile(profileUuid, 2);
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, v2.getWorkflow().getType());
         }
 
-    } // end UpdateTests
+    }
 
     @Nested
     class DeleteTests {
 
         @Test
         void removesEntityFromDatabase() throws NotFoundException {
+            // given: savedProfile from setUp
+
+            // when
             signingProfileService.deleteSigningProfile(savedProfile.getSecuredUuid());
 
+            // then
             assertFalse(signingProfileRepository.findById(savedProfile.getUuid()).isPresent());
             assertThrows(NotFoundException.class,
                     () -> signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null));
@@ -1182,14 +1254,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void usedAsDefaultInTspProfile_throwsValidationExceptionWithTspName() {
+            // given: savedProfile is the default signing profile of a TSP profile
             TspProfile tspProfile = new TspProfile();
             tspProfile.setName("expected-tsp-name");
             tspProfile.setDefaultSigningProfile(savedProfile);
             tspRepository.save(tspProfile);
 
+            // when/then
             ValidationException ex = assertThrows(ValidationException.class,
                     () -> signingProfileService.deleteSigningProfile(savedProfile.getSecuredUuid()));
 
+            // then: error message names the blocking TSP profile and profile is not removed
             String message = ex.getErrors().stream()
                     .map(ValidationError::getErrorDescription)
                     .findFirst()
@@ -1200,19 +1275,22 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     "Profile must still exist after failed delete");
         }
 
-    } // end DeleteTests
+    }
 
     @Nested
     class BulkDelete {
 
         @Test
         void removesAllEntities() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: savedProfile from setUp plus a second profile
             SigningProfileDto second = signingProfileService.createSigningProfile(buildDelegatedRawRequest("second-profile"));
 
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkDeleteSigningProfiles(
                     List.of(savedProfile.getSecuredUuid(),
                             SecuredUUID.fromString(second.getUuid())));
 
+            // then
             assertNotNull(messages);
             assertTrue(messages.isEmpty(), "Expected no errors but got: " + messages);
             assertFalse(signingProfileRepository.findById(savedProfile.getUuid()).isPresent());
@@ -1221,19 +1299,26 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void emptyList_returnsEmptyMessages() {
+            // given: an empty list of UUIDs
+
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkDeleteSigningProfiles(List.of());
 
+            // then
             assertNotNull(messages);
             assertTrue(messages.isEmpty(), "Bulk delete of empty list should return no error messages");
         }
 
         @Test
         void withNonExistentUuid_silentlyIgnoresUnknown() {
+            // given: a list with one unknown UUID and one valid UUID
             SecuredUUID unknownUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000099");
 
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkDeleteSigningProfiles(
                     List.of(unknownUuid, savedProfile.getSecuredUuid()));
 
+            // then
             assertFalse(messages.isEmpty(), "An error message should be returned for the non-existent UUID");
             assertTrue(messages.stream().anyMatch(m -> "00000000-0000-0000-0000-000000000099".equals(m.getUuid())));
             assertFalse(signingProfileRepository.findById(savedProfile.getUuid()).isPresent(),
@@ -1243,6 +1328,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void withTspProfileDependency_returnsErrorAndLeavesBlockedProfileIntact()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: savedProfile is the default of a TSP profile (blocked), plus an unblocked second profile
             TspProfile tspProfile = new TspProfile();
             tspProfile.setName("blocking-tsp");
             tspProfile.setDefaultSigningProfile(savedProfile);
@@ -1250,10 +1336,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             SigningProfileDto second = signingProfileService.createSigningProfile(buildDelegatedRawRequest("unblocked-profile"));
 
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkDeleteSigningProfiles(
                     List.of(savedProfile.getSecuredUuid(),
                             SecuredUUID.fromString(second.getUuid())));
 
+            // then
             assertFalse(messages.isEmpty(), "Expected an error message for the blocked profile");
             assertTrue(messages.stream().anyMatch(m -> savedProfile.getUuid().toString().equals(m.getUuid())),
                     "Error message should reference the blocked profile UUID");
@@ -1263,17 +1351,20 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     "Unblocked profile must be deleted");
         }
 
-    } // end BulkDelete
+    }
 
     @Nested
     class EnableDisable {
 
         @Test
         void enable_setsEnabledTrue() throws NotFoundException {
+            // given: savedProfile from setUp is disabled
             assertFalse(savedProfile.isEnabled());
 
+            // when
             signingProfileService.enableSigningProfile(savedProfile.getSecuredUuid());
 
+            // then
             SigningProfileDto dto = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
             assertTrue(dto.isEnabled());
 
@@ -1284,12 +1375,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void enable_alreadyEnabled_isIdempotent() throws NotFoundException {
+            // given: savedProfile already enabled
             savedProfile.setEnabled(true);
             signingProfileRepository.save(savedProfile);
 
-            // Enable again — should be idempotent
+            // when: enable again — should be idempotent
             signingProfileService.enableSigningProfile(savedProfile.getSecuredUuid());
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             assertTrue(fromDb.get().isEnabled(), "Profile should remain enabled after enabling an already-enabled profile");
@@ -1297,13 +1390,15 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void enable_afterCreate_persistsState() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a newly created profile (disabled by default)
             SigningProfileRequestDto request = buildDelegatedRawRequest("enabled-profile");
-
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
             assertFalse(dto.isEnabled(), "Profiles must be created in a disabled state");
 
+            // when
             signingProfileService.enableSigningProfile(SecuredUUID.fromString(dto.getUuid()));
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(dto.getUuid()));
             assertTrue(fromDb.isPresent());
             assertTrue(fromDb.get().isEnabled());
@@ -1311,11 +1406,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void disable_setsEnabledFalse() throws NotFoundException {
+            // given: savedProfile forced to enabled state
             savedProfile.setEnabled(true);
             signingProfileRepository.save(savedProfile);
 
+            // when
             signingProfileService.disableSigningProfile(savedProfile.getSecuredUuid());
 
+            // then
             SigningProfileDto dto = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
             assertFalse(dto.isEnabled());
 
@@ -1326,9 +1424,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void disable_alreadyDisabled_isIdempotent() throws NotFoundException {
-            // savedProfile is already disabled (enabled = false from setUp)
+            // given: savedProfile is already disabled (enabled = false from setUp)
+
+            // when: disable again — should be idempotent
             signingProfileService.disableSigningProfile(savedProfile.getSecuredUuid());
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             assertFalse(fromDb.get().isEnabled(), "Profile should remain disabled after disabling an already-disabled profile");
@@ -1336,15 +1437,18 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void bulkEnable_multipleProfiles() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: savedProfile from setUp plus two additional profiles (all disabled)
             SigningProfileDto second = signingProfileService.createSigningProfile(buildDelegatedRawRequest("second-for-bulk-enable"));
             SigningProfileDto third = signingProfileService.createSigningProfile(buildDelegatedContentRequest("third-for-bulk-enable"));
 
+            // when
             signingProfileService.bulkEnableSigningProfiles(List.of(
                     savedProfile.getSecuredUuid(),
                     SecuredUUID.fromString(second.getUuid()),
                     SecuredUUID.fromString(third.getUuid())
             ));
 
+            // then
             assertTrue(signingProfileRepository.findById(savedProfile.getUuid()).map(SigningProfile::isEnabled).orElse(false));
             assertTrue(signingProfileRepository.findById(UUID.fromString(second.getUuid())).map(SigningProfile::isEnabled).orElse(false));
             assertTrue(signingProfileRepository.findById(UUID.fromString(third.getUuid())).map(SigningProfile::isEnabled).orElse(false));
@@ -1352,7 +1456,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void bulkDisable_multipleProfiles() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create two additional enabled profiles
+            // given: two additional enabled profiles
             SigningProfileRequestDto req2 = buildDelegatedRawRequest("second-for-bulk-disable");
             SigningProfileDto second = signingProfileService.createSigningProfile(req2);
             signingProfileService.enableSigningProfile(SecuredUUID.fromString(second.getUuid()));
@@ -1361,27 +1465,29 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto third = signingProfileService.createSigningProfile(req3);
             signingProfileService.enableSigningProfile(SecuredUUID.fromString(third.getUuid()));
 
+            // when
             signingProfileService.bulkDisableSigningProfiles(List.of(
                     SecuredUUID.fromString(second.getUuid()),
                     SecuredUUID.fromString(third.getUuid())
             ));
 
+            // then
             assertFalse(signingProfileRepository.findById(UUID.fromString(second.getUuid())).map(SigningProfile::isEnabled).orElse(true));
             assertFalse(signingProfileRepository.findById(UUID.fromString(third.getUuid())).map(SigningProfile::isEnabled).orElse(true));
         }
 
         @Test
         void bulkEnable_withNonExistentUuid_silentlyIgnores() {
-            // A UUID that does not correspond to any profile
+            // given: a list with one unknown UUID and savedProfile
             SecuredUUID unknownUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000099");
 
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkEnableSigningProfiles(
                     List.of(unknownUuid, savedProfile.getSecuredUuid()));
 
-            // The unknown UUID surfaces as an error message; no exception is thrown
+            // then: the unknown UUID surfaces as an error; the known profile is still enabled
             assertFalse(messages.isEmpty(), "An error message should be returned for the non-existent UUID");
             assertTrue(messages.stream().anyMatch(m -> "00000000-0000-0000-0000-000000000099".equals(m.getUuid())));
-            // The known profile must still have been enabled
             assertTrue(signingProfileRepository.findById(savedProfile.getUuid())
                             .map(SigningProfile::isEnabled).orElse(false),
                     "The known profile should be enabled even when the list contains an unknown UUID");
@@ -1389,14 +1495,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void bulkDisable_withNonExistentUuid_silentlyIgnores() {
+            // given: savedProfile forced to enabled state, and one unknown UUID in the list
             savedProfile.setEnabled(true);
             signingProfileRepository.save(savedProfile);
 
             SecuredUUID unknownUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000099");
 
+            // when
             List<BulkActionMessageDto> messages = signingProfileService.bulkDisableSigningProfiles(
                     List.of(unknownUuid, savedProfile.getSecuredUuid()));
 
+            // then
             assertFalse(messages.isEmpty(), "An error message should be returned for the non-existent UUID");
             assertTrue(messages.stream().anyMatch(m -> "00000000-0000-0000-0000-000000000099".equals(m.getUuid())));
             assertFalse(signingProfileRepository.findById(savedProfile.getUuid())
@@ -1404,7 +1513,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     "The known profile should be disabled even when the list contains an unknown UUID");
         }
 
-    } // end EnableDisable
+    }
 
     @Nested
     @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -1412,6 +1521,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void activate_setsLinkOnSigningProfile() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a TIMESTAMPING signing profile and a TSP profile
             SigningProfileDto profileDto = signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("timestamping-for-tsp-activate"));
             SecuredUUID profileUuid = SecuredUUID.fromString(profileDto.getUuid());
 
@@ -1419,7 +1529,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             tspProfile.setName("test-tsp-profile");
             tspProfile = tspRepository.save(tspProfile);
 
+            // when
             var activationDto = signingProfileService.activateTsp(profileUuid, tspProfile.getSecuredUuid());
+
+            // then
             assertTrue(activationDto.isAvailable());
             assertNotNull(activationDto.getSigningUrl());
 
@@ -1430,9 +1543,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void activate_tspProfileNotFound_throwsNotFoundException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a signing profile, and a TSP UUID that does not exist
             SigningProfileDto profileDto = signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("timestamping-for-tsp-not-found"));
             SecuredUUID profileUuid = SecuredUUID.fromString(profileDto.getUuid());
 
+            // when/then
             assertThrows(NotFoundException.class,
                     () -> signingProfileService.activateTsp(
                             profileUuid,
@@ -1441,6 +1556,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void activate_replacesExistingLink() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a signing profile linked to tspProfile1
             SigningProfileDto profileDto = signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("timestamping-for-tsp-replace"));
             SecuredUUID profileUuid = SecuredUUID.fromString(profileDto.getUuid());
 
@@ -1452,11 +1568,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             tspProfile2.setName("tsp-profile-2");
             tspProfile2 = tspRepository.save(tspProfile2);
 
-            // Link the first profile
             signingProfileService.activateTsp(profileUuid, tspProfile1.getSecuredUuid());
-            // Replace it with the second profile
+
+            // when: replace with tspProfile2
             signingProfileService.activateTsp(profileUuid, tspProfile2.getSecuredUuid());
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(UUID.fromString(profileDto.getUuid()));
             assertTrue(fromDb.isPresent());
             assertEquals(tspProfile2.getUuid(), fromDb.get().getTspProfileUuid(),
@@ -1468,6 +1585,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         void activate_unsupportedWorkflowType_throwsValidationException(
                 SigningWorkflowType type, String profileName)
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a signing profile with an unsupported workflow type for TSP activation
             SigningProfileRequestDto request = new SigningProfileRequestDto();
             request.setName(profileName);
             request.setSigningScheme(buildDelegatedScheme());
@@ -1487,6 +1605,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             tsp.setName("tsp-unsupported-" + type);
             TspProfile savedTsp = tspRepository.save(tsp);
 
+            // when/then
             assertThrows(ValidationException.class,
                     () -> signingProfileService.activateTsp(
                             SecuredUUID.fromString(profileDto.getUuid()), savedTsp.getSecuredUuid()));
@@ -1501,6 +1620,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void deactivate_removesFromEnabledProtocols() throws NotFoundException {
+            // given: savedProfile linked to a TSP profile
             TspProfile tspProfile = new TspProfile();
             tspProfile.setName("tsp-to-deactivate");
             tspProfile = tspRepository.save(tspProfile);
@@ -1508,19 +1628,18 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             savedProfile.setTspProfile(tspProfile);
             signingProfileRepository.save(savedProfile);
 
-            // Verify TSP is listed as an enabled protocol before deactivation
             SigningProfileDto before = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
             assertTrue(before.getEnabledProtocols().contains(SigningProtocol.TSP));
 
+            // when
             signingProfileService.deactivateTsp(savedProfile.getSecuredUuid());
 
-            // TSP profile UUID must be null in the database after deactivation
+            // then: TSP profile UUID is cleared and no longer in enabled protocols
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             assertNull(fromDb.get().getTspProfileUuid(),
                     "TSP profile UUID must be cleared after deactivation");
 
-            // After deactivation, TSP should no longer appear in enabled protocols
             SigningProfileDto after = signingProfileService.getSigningProfile(savedProfile.getSecuredUuid(), null);
             assertFalse(after.getEnabledProtocols().contains(SigningProtocol.TSP),
                     "TSP should be removed from enabledProtocols after deactivation");
@@ -1528,27 +1647,29 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void deactivate_noLinkExists_isIdempotent() {
-            // savedProfile has no TSP link from setUp — calling deactivateTsp should be a no-op
+            // given: savedProfile has no TSP link from setUp
             assertNull(savedProfile.getTspProfileUuid());
 
+            // when/then: deactivateTsp should be a no-op
             assertDoesNotThrow(() -> signingProfileService.deactivateTsp(savedProfile.getSecuredUuid()),
                     "deactivateTsp must not throw when no TSP is currently linked");
 
+            // then
             Optional<SigningProfile> fromDb = signingProfileRepository.findById(savedProfile.getUuid());
             assertTrue(fromDb.isPresent());
             assertNull(fromDb.get().getTspProfileUuid(),
                     "TSP profile UUID should still be null after a no-op deactivation");
         }
 
-    } // end TspProtocol
+    }
 
-    // Signing operation attributes
     @Nested
     class SigningOpAttrs {
 
         @Test
         void create_staticKey_attributesPersistedAndReturned()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
             scheme.setCertificateUuid(rsaCertificate.getUuid());
             scheme.setSigningOperationAttributes(List.of(
@@ -1561,9 +1682,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(scheme);
             request.setWorkflow(new RawSigningWorkflowRequestDto());
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // The returned DTO must expose the persisted signing operation attributes
+            // then: the returned DTO must expose the persisted signing operation attributes
             assertInstanceOf(StaticKeyManagedSigningDto.class, dto.getSigningScheme());
             StaticKeyManagedSigningDto schemeDto = (StaticKeyManagedSigningDto) dto.getSigningScheme();
             assertNotNull(schemeDto.getSigningOperationAttributes());
@@ -1578,6 +1700,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void get_staticKey_attributesLoadedFromEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a static-key profile created with signing operation attributes
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
             scheme.setCertificateUuid(rsaCertificate.getUuid());
             scheme.setSigningOperationAttributes(List.of(
@@ -1592,8 +1715,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(request);
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Re-fetch — attributes must be loaded from AttributeEngine
+            // when: re-fetch from service (attributes must be loaded from AttributeEngine)
             SigningProfileDto fetched = signingProfileService.getSigningProfile(profileUuid, null);
+
+            // then
             assertInstanceOf(StaticKeyManagedSigningDto.class, fetched.getSigningScheme());
             StaticKeyManagedSigningDto schemeDto = (StaticKeyManagedSigningDto) fetched.getSigningScheme();
             assertFalse(schemeDto.getSigningOperationAttributes().isEmpty(),
@@ -1603,7 +1728,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void update_staticKey_attributesReplacedOnUpdate()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create with PKCS1-v1_5 / SHA-256
+            // given: a static-key profile created with PKCS1-v1_5/SHA-256 signing attributes
             StaticKeyManagedSigningRequestDto schemeV1 = new StaticKeyManagedSigningRequestDto();
             schemeV1.setCertificateUuid(rsaCertificate.getUuid());
             schemeV1.setSigningOperationAttributes(List.of(
@@ -1618,7 +1743,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Update to PSS / SHA-384
+            // when: update to PSS/SHA-384
             StaticKeyManagedSigningRequestDto schemeV2 = new StaticKeyManagedSigningRequestDto();
             schemeV2.setCertificateUuid(rsaCertificate.getUuid());
             schemeV2.setSigningOperationAttributes(List.of(
@@ -1632,6 +1757,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             SigningProfileDto updated = signingProfileService.updateSigningProfile(profileUuid, updateRequest);
 
+            // then
             assertInstanceOf(StaticKeyManagedSigningDto.class, updated.getSigningScheme());
             StaticKeyManagedSigningDto schemeDto = (StaticKeyManagedSigningDto) updated.getSigningScheme();
             List<ResponseAttribute> signingOperationAttributes = schemeDto.getSigningOperationAttributes();
@@ -1658,7 +1784,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void update_schemeChangedToNonStaticKey_attributesCleared()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a STATIC_KEY profile with signing operation attributes
+            // given: a STATIC_KEY profile with signing operation attributes
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
             scheme.setCertificateUuid(rsaCertificate.getUuid());
             scheme.setSigningOperationAttributes(List.of(
@@ -1673,10 +1799,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Switch to DELEGATED — should clear signing-operation attributes from the engine
+            // when: switch to DELEGATED — should clear signing-operation attributes from the engine
             signingProfileService.updateSigningProfile(profileUuid, buildDelegatedRawRequest("static-key-to-delegated"));
 
-            // Verify nothing remains in AttributeEngine under SIGNING_SCHEME for this profile (version 2)
+            // then: nothing remains in AttributeEngine under SIGN for this profile (version 2)
             List<ResponseAttribute> remaining = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()))
                             .operation(AttributeOperation.SIGN).version(2).build());
@@ -1687,6 +1813,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void delete_removesAttributesFromEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a static-key profile with signing operation attributes
             StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
             scheme.setCertificateUuid(rsaCertificate.getUuid());
             scheme.setSigningOperationAttributes(List.of(
@@ -1701,9 +1828,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(request);
             UUID profileUuid = UUID.fromString(created.getUuid());
 
+            // when
             signingProfileService.deleteSigningProfile(SecuredUUID.fromUUID(profileUuid));
 
-            // AttributeEngine should have no attributes left for this profile
+            // then: AttributeEngine should have no attributes left for this profile
             List<ResponseAttribute> remaining = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .operation(AttributeOperation.SIGN).version(1).build());
@@ -1714,7 +1842,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void getSpecificVersion_returnsVersionedAttributes()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // Create a STATIC_KEY profile (version 1) with PSS signing attributes
+            // given: a STATIC_KEY profile at version 1 (PSS) then bumped to version 2 (PKCS1_v1_5)
             StaticKeyManagedSigningRequestDto schemeV1 = new StaticKeyManagedSigningRequestDto();
             schemeV1.setCertificateUuid(rsaCertificate.getUuid());
             schemeV1.setSigningOperationAttributes(List.of(
@@ -1727,7 +1855,6 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
 
-            // Trigger version bump: update to PKCS1_v1_5
             StaticKeyManagedSigningRequestDto schemeV2 = new StaticKeyManagedSigningRequestDto();
             schemeV2.setCertificateUuid(rsaCertificate.getUuid());
             schemeV2.setSigningOperationAttributes(List.of(
@@ -1739,8 +1866,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             updateRequest.setWorkflow(new RawSigningWorkflowRequestDto());
             signingProfileService.updateSigningProfile(profileUuid, updateRequest);
 
-            // getSigningProfile with version=1 must return PSS attributes
+            // when: fetch version 1
             SigningProfileDto v1Dto = signingProfileService.getSigningProfile(profileUuid, 1);
+
+            // then: version 1 DTO carries PSS attributes
             assertInstanceOf(StaticKeyManagedSigningDto.class, v1Dto.getSigningScheme());
             StaticKeyManagedSigningDto v1SchemeDto = (StaticKeyManagedSigningDto) v1Dto.getSigningScheme();
             assertFalse(v1SchemeDto.getSigningOperationAttributes().isEmpty(),
@@ -1750,8 +1879,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .anyMatch(a -> RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME.equals(a.getName())),
                     "Version 1 must contain RSA signature scheme attribute");
 
-            // getSigningProfile with version=2 (latest) must return PKCS1_v1_5 attributes
+            // when: fetch version 2
             SigningProfileDto v2Dto = signingProfileService.getSigningProfile(profileUuid, 2);
+
+            // then: version 2 DTO carries PKCS1_v1_5 attributes
             assertInstanceOf(StaticKeyManagedSigningDto.class, v2Dto.getSigningScheme());
             StaticKeyManagedSigningDto v2SchemeDto = (StaticKeyManagedSigningDto) v2Dto.getSigningScheme();
             assertFalse(v2SchemeDto.getSigningOperationAttributes().isEmpty(),
@@ -1761,7 +1892,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .anyMatch(a -> RsaSignatureAttributes.ATTRIBUTE_DATA_RSA_SIG_SCHEME.equals(a.getName())),
                     "Version 2 must contain RSA signature scheme attribute");
 
-            // The content stored for v1 (PSS) and v2 (PKCS1_v1_5) must differ in the engine
+            // then: the engine holds distinct records for v1 and v2
             List<ResponseAttribute> v1SignAttrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, UUID.fromString(created.getUuid()))
                             .operation(AttributeOperation.SIGN).version(1).build());
@@ -1772,7 +1903,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(v2SignAttrs.isEmpty(), "Engine must hold v2 sign attrs");
         }
 
-    } // end SigningOpAttrs
+    }
 
     /**
      * Builds a valid RSA {@code signingOperationAttributes} request attribute for use in tests.
@@ -1835,6 +1966,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void create_contentSigning_attributesPersistedAndReturned()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             Connector formatter = createFormatterConnector("formatter-content-create");
             FormatterAttr fa = registerFormatterAttribute(formatter, "data_testFormatterAttr");
 
@@ -1848,8 +1980,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then
             assertInstanceOf(ContentSigningWorkflowDto.class, dto.getWorkflow());
             ContentSigningWorkflowDto wfDto = (ContentSigningWorkflowDto) dto.getWorkflow();
             assertFalse(wfDto.getSignatureFormatterConnectorAttributes().isEmpty(),
@@ -1860,12 +1994,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void update_connectorChanged_oldAttributesCleared()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile created with formatterA attributes
             Connector formatterA = createFormatterConnector("formatter-old");
             Connector formatterB = createFormatterConnector("formatter-new");
             FormatterAttr faA = registerFormatterAttribute(formatterA, "data_switchTest");
             FormatterAttr faB = registerFormatterAttribute(formatterB, "data_switchTest");
 
-            // Create with formatterA
             ContentSigningWorkflowRequestDto workflowA = new ContentSigningWorkflowRequestDto();
             workflowA.setSignatureFormatterConnectorUuid(formatterA.getUuid());
             workflowA.setSignatureFormatterConnectorAttributes(
@@ -1880,7 +2014,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
             UUID profileUuidRaw = UUID.fromString(created.getUuid());
 
-            // Update with formatterB — old formatter A attributes should be cleared
+            // when: update with formatterB — old formatterA attributes should be cleared
             ContentSigningWorkflowRequestDto workflowB = new ContentSigningWorkflowRequestDto();
             workflowB.setSignatureFormatterConnectorUuid(formatterB.getUuid());
             workflowB.setSignatureFormatterConnectorAttributes(
@@ -1893,7 +2027,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             signingProfileService.updateSigningProfile(profileUuid, updateRequest);
 
-            // Attributes for old formatterA should be gone (version 2)
+            // then: attributes for old formatterA are gone (version 2)
             List<ResponseAttribute> oldAttrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
                             .connector(formatterA.getUuid())
@@ -1901,7 +2035,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertTrue(oldAttrs.isEmpty(),
                     "Attributes for the old formatter connector should be removed when the connector changes");
 
-            // Attributes for new formatterB should be present
+            // then: attributes for new formatterB are present
             List<ResponseAttribute> newAttrs = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
                             .connector(formatterB.getUuid())
@@ -1913,10 +2047,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void get_allWorkflowTypes_attributesReturned()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a formatter connector with a registered attribute
             Connector formatter = createFormatterConnector("formatter-multi-workflow");
             FormatterAttr fa = registerFormatterAttribute(formatter, "data_multiWorkflowAttr");
 
             for (SigningWorkflowType workflowLabel : List.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING)) {
+                // when/then: for each workflow type, create a profile and verify attributes are returned on get
                 WorkflowRequestDto wfRequest;
                 switch (workflowLabel) {
                     case CONTENT_SIGNING -> {
@@ -1961,6 +2097,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void delete_removesFormatterAttributesFromEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile with formatter attributes
             Connector formatter = createFormatterConnector("formatter-delete-test");
             FormatterAttr fa = registerFormatterAttribute(formatter, "data_deleteFormatterAttr");
 
@@ -1977,8 +2114,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto created = signingProfileService.createSigningProfile(request);
             UUID profileUuid = UUID.fromString(created.getUuid());
 
+            // when
             signingProfileService.deleteSigningProfile(SecuredUUID.fromUUID(profileUuid));
 
+            // then
             List<ResponseAttribute> remaining = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .connector(formatter.getUuid())
@@ -1987,7 +2126,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     "Formatter attributes should be removed by deleteObjectAttributeContent on profile deletion");
         }
 
-    } // end FormatterAttributes
+    }
 
     @Nested
     class FormatterAttributeValidation {
@@ -1995,6 +2134,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void create_validAttribute_accepted()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a formatter connector whose WireMock definition accepts the submitted attribute
             Connector formatter = createFormatterConnector("formatter-valid-content");
 
             UUID attrUuid = UUID.fromString("00000000-dead-beef-0001-000000000001");
@@ -2020,8 +2160,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then
             assertNotNull(dto);
             assertEquals(SigningWorkflowType.CONTENT_SIGNING, dto.getWorkflow().getType());
             ContentSigningWorkflowDto wfDto = (ContentSigningWorkflowDto) dto.getWorkflow();
@@ -2031,6 +2173,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void create_contentSigning_requiredAttributeMissing_throwsValidationException() {
+            // given: a formatter connector that requires an attribute, and the request omits it
             Connector formatter = createFormatterConnector("formatter-required-content");
 
             // WireMock returns a required attribute definition — the client submits nothing.
@@ -2051,6 +2194,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when/then
             assertThrows(ValidationException.class,
                     () -> signingProfileService.createSigningProfile(request),
                     "createSigningProfile must reject missing required formatter attribute in CONTENT_SIGNING workflow");
@@ -2058,6 +2202,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void create_timestamping_requiredAttributeMissing_throwsValidationException() {
+            // given: a formatter connector that requires an attribute for TIMESTAMPING, and the request omits it
             Connector formatter = createFormatterConnector("formatter-required-timestamping");
 
             mockServer.stubFor(
@@ -2077,18 +2222,20 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when/then
             assertThrows(ValidationException.class,
                     () -> signingProfileService.createSigningProfile(request),
                     "createSigningProfile must reject missing required formatter attribute in TIMESTAMPING workflow");
         }
 
-    } // end FormatterAttributeValidation
+    }
 
     @Nested
     class CustomAttributes {
 
         @Test
         void create_withCustomAttributes_returnedInDto() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             RequestAttributeV3 customAttr = new RequestAttributeV3(UUID.fromString(CUSTOM_ATTR_UUID),
                     CUSTOM_ATTR_NAME, AttributeContentType.STRING,
                     List.of(new StringAttributeContentV3("profile-value-on-create")));
@@ -2096,8 +2243,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileRequestDto request = buildDelegatedRawRequest("profile-with-custom-attr");
             request.setCustomAttributes(List.of(customAttr));
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
+            // then
             assertNotNull(dto.getCustomAttributes());
             assertFalse(dto.getCustomAttributes().isEmpty(),
                     "Custom attributes should be returned in the create DTO");
@@ -2107,6 +2256,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void update_withCustomAttributes_returnedInDto() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile created with a custom attribute set to "initial-value"
             RequestAttributeV3 createAttr = new RequestAttributeV3(UUID.fromString(CUSTOM_ATTR_UUID),
                     CUSTOM_ATTR_NAME, AttributeContentType.STRING,
                     List.of(new StringAttributeContentV3("initial-value")));
@@ -2114,6 +2264,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             createRequest.setCustomAttributes(List.of(createAttr));
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
 
+            // when: update with "updated-value"
             RequestAttributeV3 updateAttr = new RequestAttributeV3(UUID.fromString(CUSTOM_ATTR_UUID),
                     CUSTOM_ATTR_NAME, AttributeContentType.STRING,
                     List.of(new StringAttributeContentV3("updated-value")));
@@ -2122,13 +2273,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto updated = signingProfileService.updateSigningProfile(
                     SecuredUUID.fromString(created.getUuid()), updateRequest);
 
+            // then
             assertNotNull(updated.getCustomAttributes());
             assertFalse(updated.getCustomAttributes().isEmpty());
             assertEquals("updated-value",
                     ((ResponseAttributeV3) updated.getCustomAttributes().getFirst()).getContent().getFirst().getData());
         }
 
-    } // end CustomAttributes
+    }
 
     @Nested
     class NameUniqueness {
@@ -2136,8 +2288,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void create_duplicateName_throwsAlreadyExistException()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile with the name "duplicate-name" already exists
             signingProfileService.createSigningProfile(buildDelegatedRawRequest("duplicate-name"));
 
+            // when/then
             assertThrows(AlreadyExistException.class,
                     () -> signingProfileService.createSigningProfile(buildDelegatedRawRequest("duplicate-name")));
         }
@@ -2145,9 +2299,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void update_toExistingNameOfAnotherProfile_throwsAlreadyExistException()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: two profiles "profile-alpha" and "profile-beta" already exist
             signingProfileService.createSigningProfile(buildDelegatedRawRequest("profile-alpha"));
             SigningProfileDto beta = signingProfileService.createSigningProfile(buildDelegatedRawRequest("profile-beta"));
 
+            // when/then: renaming beta to alpha collides with the existing profile
             SigningProfileRequestDto updateRequest = buildDelegatedRawRequest("profile-alpha");
 
             assertThrows(AlreadyExistException.class,
@@ -2156,18 +2312,20 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void update_keepingSameName_succeeds() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a profile with name "keep-same-name"
             SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("keep-same-name"));
 
+            // when: update keeping the same name but changing description
             SigningProfileRequestDto updateRequest = buildDelegatedRawRequest("keep-same-name");
             updateRequest.setDescription("updated description");
-
             SigningProfileDto updated = signingProfileService.updateSigningProfile(SecuredUUID.fromString(created.getUuid()), updateRequest);
 
+            // then
             assertEquals("keep-same-name", updated.getName());
             assertEquals("updated description", updated.getDescription());
         }
 
-    } // end NameUniqueness
+    }
 
     @Nested
     class TimeQualityConfiguration {
@@ -2175,6 +2333,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void create_withTqcUuid_headerLinkedAndReturnedInDto()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
             TimeQualityConfigurationDto tqc = timeQualityConfigurationService
                     .createTimeQualityConfiguration(buildTimeQualityConfigurationRequestDto("tqc-for-create-link"));
 
@@ -2187,15 +2346,16 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(request);
 
-            // Header entity in DB must link to the TQC
+            // then: DB header entity links to TQC
             SigningProfile entity = signingProfileRepository.findById(UUID.fromString(dto.getUuid())).orElseThrow();
             assertNotNull(entity.getTimeQualityConfiguration(),
                     "SigningProfile header must have a linked TimeQualityConfiguration");
             assertEquals(UUID.fromString(tqc.getUuid()), entity.getTimeQualityConfiguration().getUuid());
 
-            // DTO must carry back the TQC data
+            // then: DTO carries back the TQC data
             TimestampingWorkflowDto tsDto = (TimestampingWorkflowDto) dto.getWorkflow();
             assertNotNull(tsDto.getTimeQualityConfiguration(),
                     "TimestampingWorkflowDto must expose the linked TimeQualityConfiguration");
@@ -2204,6 +2364,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
         @Test
         void create_withNonExistentTqcUuid_throwsNotFoundException() {
+            // given: a random TQC UUID that does not exist
             TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
             workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
             workflow.setTimeQualityConfigurationUuid(UUID.randomUUID());
@@ -2213,6 +2374,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setSigningScheme(buildDelegatedScheme());
             request.setWorkflow(workflow);
 
+            // when/then
             assertThrows(NotFoundException.class,
                     () -> signingProfileService.createSigningProfile(request));
         }
@@ -2220,6 +2382,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void update_workflowChangedFromTimestamping_tqcClearedFromHeader()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a TIMESTAMPING profile with a TQC linked
             TimeQualityConfigurationDto tqc = timeQualityConfigurationService
                     .createTimeQualityConfiguration(buildTimeQualityConfigurationRequestDto("tqc-for-clear-test"));
 
@@ -2234,17 +2397,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             SigningProfileDto created = signingProfileService.createSigningProfile(createRequest);
 
-            // Verify TQC is linked before the update
             SigningProfile beforeUpdate = signingProfileRepository.findById(UUID.fromString(created.getUuid())).orElseThrow();
             assertNotNull(beforeUpdate.getTimeQualityConfiguration());
 
-            // Update to RAW_SIGNING - TQC must be cleared from the workflow
+            // when: update to RAW_SIGNING — TQC must be cleared from the header
             SigningProfileRequestDto updateRequest = new SigningProfileRequestDto();
             updateRequest.setName("ts-to-raw-profile");
             updateRequest.setSigningScheme(buildDelegatedScheme());
             updateRequest.setWorkflow(new RawSigningWorkflowRequestDto());
             signingProfileService.updateSigningProfile(SecuredUUID.fromString(created.getUuid()), updateRequest);
 
+            // then
             SigningProfile afterUpdate = signingProfileRepository.findById(UUID.fromString(created.getUuid())).orElseThrow();
             assertNull(afterUpdate.getTimeQualityConfiguration(),
                     "TimeQualityConfiguration must be cleared when workflow is changed away from TIMESTAMPING");
@@ -2253,6 +2416,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void listAssociated_returnsAssociatedProfiles()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: two TIMESTAMPING profiles linked to the same TQC
             TimeQualityConfigurationDto tqc = timeQualityConfigurationService
                     .createTimeQualityConfiguration(buildTimeQualityConfigurationRequestDto("tqc-for-list-test"));
             UUID tqcUuid = UUID.fromString(tqc.getUuid());
@@ -2276,9 +2440,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             r2.setWorkflow(workflow2);
             SigningProfileDto p2 = signingProfileService.createSigningProfile(r2);
 
+            // when
             List<SimplifiedSigningProfileDto> result = signingProfileService
                     .listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromUUID(tqcUuid), SecurityFilter.create());
 
+            // then
             assertEquals(2, result.size());
             List<String> returnedUuids = result.stream().map(SimplifiedSigningProfileDto::getUuid).toList();
             assertTrue(returnedUuids.contains(p1.getUuid()));
@@ -2288,12 +2454,15 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void listAssociated_emptyWhenNoneAssociated()
                 throws AlreadyExistException, AttributeException, NotFoundException {
+            // given: a TQC with no signing profiles linked to it
             TimeQualityConfigurationDto tqc = timeQualityConfigurationService
                     .createTimeQualityConfiguration(buildTimeQualityConfigurationRequestDto("tqc-no-profiles"));
 
+            // when
             List<SimplifiedSigningProfileDto> result = signingProfileService
                     .listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromString(tqc.getUuid()), SecurityFilter.create());
 
+            // then
             assertTrue(result.isEmpty(),
                     "No signing profiles should be returned for a TQC with no associated profiles");
         }
@@ -2301,6 +2470,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void listAssociated_returnsOnlyProfilesLinkedToSpecificTqc()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: profile-A linked to tqcA, profile-B linked to tqcB
             TimeQualityConfigurationDto tqcA = timeQualityConfigurationService
                     .createTimeQualityConfiguration(buildTimeQualityConfigurationRequestDto("tqc-A"));
             TimeQualityConfigurationDto tqcB = timeQualityConfigurationService
@@ -2324,15 +2494,17 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             reqB.setWorkflow(workflowB);
             signingProfileService.createSigningProfile(reqB);
 
+            // when: query for TQC-A
             List<SimplifiedSigningProfileDto> result = signingProfileService
                     .listSigningProfilesAssociatedTimeQualityConfiguration(SecuredUUID.fromString(tqcA.getUuid()), SecurityFilter.create());
 
+            // then
             assertEquals(1, result.size());
             assertEquals(profileA.getUuid(), result.getFirst().getUuid(),
                     "Only the profile linked to TQC-A should be returned");
         }
 
-    } // end TimeQualityConfiguration
+    }
 
     /**
      * Builds a minimal valid SigningProfileRequestDto using a DELEGATED scheme and RAW_SIGNING workflow
