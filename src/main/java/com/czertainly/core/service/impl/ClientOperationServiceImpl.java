@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.interfaces.client.v1.CertificateSyncApiClient;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.ConnectorException;
@@ -14,7 +14,6 @@ import com.czertainly.api.model.client.authority.ClientCertificateSignResponseDt
 import com.czertainly.api.model.client.authority.ClientEditEndEntityRequestDto;
 import com.czertainly.api.model.client.authority.ClientEndEntityDto;
 import com.czertainly.api.model.common.NameAndIdDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.authority.AddEndEntityRequestDto;
 import com.czertainly.api.model.core.authority.CertRevocationDto;
@@ -34,6 +33,7 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.ClientOperationService;
+import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
@@ -56,6 +56,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private ConnectorApiFactory connectorApiFactory;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
+    private ConnectorService connectorService;
 
     @Autowired
     public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
@@ -77,6 +78,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         this.attributeEngine = attributeEngine;
     }
 
+    @Autowired
+    public void setConnectorService(ConnectorService connectorService) {
+        this.connectorService = connectorService;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public ClientCertificateSignResponseDto issueCertificate(String raProfileName, LegacyClientCertificateSignRequestDto request) throws AlreadyExistException, CertificateException, ConnectorException, NoSuchAlgorithmException, NotFoundException {
@@ -87,9 +93,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         caRequest.setPassword(request.getPassword());
         caRequest.setPkcs10(request.getPkcs10());
 
-        CertificateSyncApiClient certificateApiClient = connectorApiFactory.getCertificateApiClient(raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1());
-        CertificateSignResponseDto caResponse = certificateApiClient.issueCertificate(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1(),
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
+        CertificateSignResponseDto caResponse = connectorApiFactory.getCertificateApiClient(connectorDto).issueCertificate(
+                connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
                 getEndEntityProfileName(raProfile),
                 caRequest);
@@ -117,9 +123,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         caRequest.setIssuerDN(request.getIssuerDN());
         caRequest.setReason(request.getReason());
 
-        CertificateSyncApiClient certificateApiClient = connectorApiFactory.getCertificateApiClient(raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1());
-        certificateApiClient.revokeCertificate(
-                raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1(),
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
+        connectorApiFactory.getCertificateApiClient(connectorDto).revokeCertificate(
+                connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
                 getEndEntityProfileName(raProfile),
                 caRequest);
@@ -132,7 +138,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     public List<ClientEndEntityDto> listEntities(String raProfileName) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         List<EndEntityDto> endEntities = connectorApiFactory.getEndEntityApiClient(connectorDto).listEntities(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -159,7 +165,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         caRequest.setExtensionData(request.getExtensionData());
         caRequest.setRaProfile(raProfileDto);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         connectorApiFactory.getEndEntityApiClient(connectorDto).createEndEntity(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -171,7 +177,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     public ClientEndEntityDto getEndEntity(String raProfileName, String username) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         EndEntityDto endEntity = connectorApiFactory.getEndEntityApiClient(connectorDto).getEndEntity(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -197,7 +203,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         caRequest.setStatus(request.getStatus());
         caRequest.setRaProfile(raProfileDto);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         connectorApiFactory.getEndEntityApiClient(connectorDto).updateEndEntity(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -211,7 +217,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     public void revokeAndDeleteEndEntity(String raProfileName, String username) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         connectorApiFactory.getEndEntityApiClient(connectorDto).revokeAndDeleteEndEntity(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -224,7 +230,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     public void resetPassword(String raProfileName, String username) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
-        ConnectorApiClientDtoV1 connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         connectorApiFactory.getEndEntityApiClient(connectorDto).resetPassword(
                 connectorDto,
                 raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),

@@ -1,6 +1,7 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
@@ -12,7 +13,6 @@ import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.connector.entity.EntityInstanceRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.api.model.core.entity.EntityInstanceDto;
@@ -137,7 +137,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
             return entityInstanceDto;
         }
 
-        ConnectorApiClientDtoV1 connectorDto = entityInstanceReference.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstanceReference.getConnectorUuid());
         com.czertainly.api.model.connector.entity.EntityInstanceDto entityProviderInstanceDto = connectorApiFactory.getEntityInstanceApiClient(connectorDto).getEntityInstance(connectorDto,
                 entityInstanceReference.getEntityInstanceUuid());
 
@@ -224,7 +224,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
         entityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
         entityInstanceDto.setKind(entityInstanceRef.getKind());
         entityInstanceDto.setName(entityInstanceRef.getName());
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).updateEntityInstance(connectorDto, entityInstanceRef.getEntityInstanceUuid(), entityInstanceDto);
         entityInstanceReferenceRepository.save(entityInstanceRef);
 
@@ -250,7 +250,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
             throw new ValidationException("Could not delete Entity instance", errors);
         }
 
-        ConnectorApiClientDtoV1 connectorDto = entityInstanceRef.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstanceRef.getConnectorUuid());
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).removeEntityInstance(connectorDto, entityInstanceRef.getEntityInstanceUuid());
         attributeEngine.deleteObjectAttributeContent(Resource.ENTITY, entityInstanceRef.getUuid());
         entityInstanceReferenceRepository.delete(entityInstanceRef);
@@ -262,7 +262,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.ANY)
     public List<BaseAttribute> listLocationAttributes(SecuredUUID entityUuid) throws ConnectorException, NotFoundException {
         final EntityInstanceReference entityInstance = getEntityInstanceReferenceEntity(entityUuid);
-        final ConnectorApiClientDtoV1 connectorDto = entityInstance.getConnector().mapToApiClientDtoV1();
+        final ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstance.getConnectorUuid());
         return connectorApiFactory.getEntityInstanceApiClient(connectorDto).listLocationAttributes(connectorDto, entityInstance.getEntityInstanceUuid());
     }
 
@@ -271,7 +271,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     public void validateLocationAttributes(SecuredUUID entityUuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
         EntityInstanceReference entityInstance = getEntityInstanceReferenceEntity(entityUuid);
 
-        ConnectorApiClientDtoV1 connectorDto = entityInstance.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstance.getConnectorUuid());
 
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).validateLocationAttributes(connectorDto, entityInstance.getEntityInstanceUuid(),
                 attributes);

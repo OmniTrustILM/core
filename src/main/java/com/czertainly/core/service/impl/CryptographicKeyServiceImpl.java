@@ -1,6 +1,7 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -19,7 +20,6 @@ import com.czertainly.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.czertainly.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.cryptography.key.*;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.FilterFieldSource;
@@ -104,6 +104,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     // --------------------------------------------------------------------------------
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
+    private com.czertainly.core.service.v2.ConnectorService connectorService;
     private TokenInstanceService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
     private PermissionEvaluator permissionEvaluator;
@@ -149,6 +150,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setConnectorService(com.czertainly.core.service.v2.ConnectorService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -524,9 +530,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         logger.info("Key deleted: {}", uuid);
     }
 
-    private void destroyKeyFromConnector(TokenInstanceReference tokenInstanceReference, UUID keyReferenceUuid) throws ConnectorException {
+    private void destroyKeyFromConnector(TokenInstanceReference tokenInstanceReference, UUID keyReferenceUuid) throws ConnectorException, NotFoundException {
         try {
-            ConnectorApiClientDtoV1 connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
             connectorApiFactory.getKeyManagementApiClient(connectorDto).destroyKey(
                     connectorDto,
                     tokenInstanceReference.getTokenInstanceUuid(),
@@ -603,7 +609,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         logger.debug("Bulk deleted {} of {} key items.", deletedCount, totalToDelete);
     }
 
-    private int deleteKeyItemsBatch(List<SecurityFilter> filters, List<UUID> batchUuids, UUID loggedUserUuid) throws ConnectorException {
+    private int deleteKeyItemsBatch(List<SecurityFilter> filters, List<UUID> batchUuids, UUID loggedUserUuid) throws ConnectorException, NotFoundException {
         // 1. Check permissions for two parents: TokenInstance/MEMBERS and TokenProfile/MEMBERS
         List<UUID> permittedUuids = batchUuids;
         for (SecurityFilter filter : filters) {
@@ -740,7 +746,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
                 );
         logger.debug("Token profile details: {}", tokenProfile);
         List<BaseAttribute> attributes;
-        ConnectorApiClientDtoV1 connectorDto = tokenProfile.getTokenInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenProfile.getTokenInstanceReference().getConnectorUuid());
         if (type.equals(KeyRequestType.KEY_PAIR)) {
             attributes = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateKeyPairAttributes(
                     connectorDto,
@@ -765,7 +771,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         //Create a map to hold the key and its objects. The association key will be used as the name for the parent key object
         Map<String, List<KeyDataResponseDto>> associations = new HashMap<>();
         // Get the list of keys from the connector
-        ConnectorApiClientDtoV1 connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         List<KeyDataResponseDto> keys = connectorApiFactory.getKeyManagementApiClient(connectorDto).listKeys(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -1096,13 +1102,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         return cryptographicKeyRepository.findWithAssociationsByUuid(uuid).orElseThrow(() -> new NotFoundException(CryptographicKey.class, uuid));
     }
 
-    private void mergeAndValidateAttributes(KeyRequestType type, TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException {
+    private void mergeAndValidateAttributes(KeyRequestType type, TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         logger.debug("Merging and validating attributes on token instance {}. Request Attributes are: {}", tokenInstanceRef, attributes);
         if (tokenInstanceRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
         }
 
-        ConnectorApiClientDtoV1 connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceRef.getConnectorUuid());
 
         // validate first by connector and list attributes definitions
         List<BaseAttribute> definitions;
@@ -1118,9 +1124,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         attributeEngine.validateUpdateDataAttributes(tokenInstanceRef.getConnectorUuid(), null, definitions, attributes);
     }
 
-    private CryptographicKey createKeyTypeOfKeyPair(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
+    private CryptographicKey createKeyTypeOfKeyPair(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException, NotFoundException {
         boolean enabled = Boolean.TRUE.equals(request.getEnabled());
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
         KeyPairDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createKeyPair(
                 connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),
@@ -1152,8 +1158,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         return cryptographicKeyRepository.save(key);
     }
 
-    private CryptographicKey createKeyTypeOfSecret(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+    private CryptographicKey createKeyTypeOfSecret(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException, NotFoundException {
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
         KeyDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createSecretKey(
                 connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),

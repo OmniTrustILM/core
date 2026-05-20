@@ -1,5 +1,6 @@
 package com.czertainly.core.service.v2.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -54,6 +55,7 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
+import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
 import com.czertainly.core.util.*;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -108,6 +110,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private CertificateEventHistoryService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
+    private ConnectorService connectorService;
     private CryptographicOperationService cryptographicOperationService;
     private CryptographicKeyService keyService;
     private AttributeEngine attributeEngine;
@@ -175,6 +178,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setConnectorService(ConnectorService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -324,7 +332,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, certificate.getRaProfile().getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).build()));
 
         try {
-            var connectorDto = certificate.getRaProfile().getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> issueResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).issueCertificate(
                     connectorDto,
                     certificate.getRaProfile().getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -620,7 +628,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
-            var connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> renewResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
                     connectorDto,
                     raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -828,7 +836,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
-            var connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> rekeyResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
                     connectorDto,
                     raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -942,7 +950,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
             caRequest.setCertificate(certificate.getCertificateContent().getContent());
 
-            var connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<Void> revokeResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).revokeCertificate(
                     connectorDto,
                     raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
@@ -1467,9 +1475,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * retry; the certificate stays in {@code PENDING_ISSUE} for the next attempt.
      */
     private CertificateIdentificationResponseDto identifyUploadedCertificateOrReject(
-            Certificate certificate, UploadCertificateRequestDto request) throws ConnectorException {
+            Certificate certificate, UploadCertificateRequestDto request) throws ConnectorException, NotFoundException {
         RaProfile raProfile = certificate.getRaProfile();
-        var connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         CertificateIdentificationRequestDto idReq = new CertificateIdentificationRequestDto();
         idReq.setCertificate(request.getCertificate());
         idReq.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(
@@ -1663,9 +1671,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * normally on every soft-failure path so the caller can proceed with the local
      * transition.</p>
      */
-    private void invokeConnectorCancelOrThrow(Certificate cert, CancelTarget target) {
+    private void invokeConnectorCancelOrThrow(Certificate cert, CancelTarget target) throws NotFoundException {
         RaProfile raProfile = cert.getRaProfile();
-        var connectorDto = raProfile.getAuthorityInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
 
         try {

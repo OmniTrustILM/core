@@ -33,14 +33,19 @@ import com.czertainly.api.interfaces.client.v1.KeyManagementSyncApiClient;
 import com.czertainly.api.interfaces.client.v1.LocationSyncApiClient;
 import com.czertainly.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.czertainly.api.interfaces.client.v1.TokenInstanceSyncApiClient;
+import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.core.proxy.ProxyDto;
+import com.czertainly.core.service.v2.ConnectorService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Factory that returns appropriate API client (REST or MQ) based on connector configuration.
@@ -111,6 +116,13 @@ public class ConnectorApiFactory {
     private final Optional<com.czertainly.api.clients.mq.secret.VaultApiClient> mqVaultApiClient;
     private final com.czertainly.api.clients.secret.SecretApiClient restSecretApiClient;
 
+    private ConnectorService connectorService;
+
+    @Autowired
+    public void setConnectorService(@Lazy ConnectorService connectorService) {
+        this.connectorService = connectorService;
+    }
+
     @PostConstruct
     void logInitialization() {
         log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, vault={}, secret(REST-only)={}",
@@ -179,6 +191,13 @@ public class ConnectorApiFactory {
 
     public CryptographicOperationsSyncApiClient getCryptographicOperationsApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restCryptographicOperationsApiClient, mqCryptographicOperationsApiClient);
+    }
+
+    /**
+     * UUID-keyed overload for call sites that need to route an API client but never use the connector DTO themselves.
+     */
+    public CryptographicOperationsSyncApiClient getCryptographicOperationsApiClient(UUID connectorUuid) throws NotFoundException {
+        return getCryptographicOperationsApiClient(connectorService.getConnectorForApiClient(connectorUuid));
     }
 
     public CertificateSyncApiClient getCertificateApiClientV2(ApiClientConnectorInfo connector) {

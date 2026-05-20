@@ -1,5 +1,6 @@
 package com.czertainly.core.service;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.connector.ConnectDto;
@@ -18,6 +19,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface ConnectorService extends ResourceExtensionService {
 
@@ -54,4 +56,6 @@ public interface ConnectorService extends ResourceExtensionService {
     List<BulkActionMessageDto> bulkDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
 
     List<BulkActionMessageDto> forceDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
+
+    ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException;
 }

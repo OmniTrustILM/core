@@ -1,5 +1,6 @@
 package com.czertainly.core.service.v2;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
@@ -17,6 +18,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ResourceExtensionService;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface ConnectorService extends ResourceExtensionService {
 
@@ -61,4 +63,9 @@ public interface ConnectorService extends ResourceExtensionService {
     ConnectorInfo getInfo(SecuredUUID uuid) throws NotFoundException, ConnectorException;
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup();
+
+    /**
+     * Returns cached connector data shaped for API client routing.
+     */
+    ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException;
 }
