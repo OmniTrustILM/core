@@ -175,3 +175,10 @@ jobs:
         with:
           name: coverage-reports
           path: target/site/jacoco/jacoco.xml
+
+  build:
+    name: Build
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Build complete"
