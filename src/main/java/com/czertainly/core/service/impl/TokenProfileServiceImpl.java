@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -9,7 +10,6 @@ import com.czertainly.api.model.client.cryptography.tokenprofile.EditTokenProfil
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
@@ -28,6 +28,7 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.TokenProfileService;
+import com.czertainly.core.service.v2.ConnectorService;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,7 @@ public class TokenProfileServiceImpl implements TokenProfileService {
     // --------------------------------------------------------------------------------
     private PermissionEvaluator permissionEvaluator;
     private ConnectorApiFactory connectorApiFactory;
+    private ConnectorService connectorService;
     private AttributeEngine attributeEngine;
     // --------------------------------------------------------------------------------
     // Repositories
@@ -77,6 +79,11 @@ public class TokenProfileServiceImpl implements TokenProfileService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setConnectorService(ConnectorService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -290,13 +297,13 @@ public class TokenProfileServiceImpl implements TokenProfileService {
 
     }
 
-    private void mergeAndValidateAttributes(TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException {
+    private void mergeAndValidateAttributes(TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         logger.debug("Merging and validating attributes for token instance: {}. Request Attributes: {}", tokenInstanceRef, attributes);
         if (tokenInstanceRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Entity is not available / deleted"));
         }
 
-        ConnectorApiClientDtoV1 connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceRef.getConnectorUuid());
 
         // validate first by connector
         connectorApiFactory.getTokenInstanceApiClient(connectorDto).validateTokenProfileAttributes(connectorDto, tokenInstanceRef.getTokenInstanceUuid(), attributes);

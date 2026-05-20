@@ -130,7 +130,7 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(tokenInstanceReference.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -170,7 +170,7 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test

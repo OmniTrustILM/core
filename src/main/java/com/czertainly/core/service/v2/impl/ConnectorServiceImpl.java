@@ -1,5 +1,6 @@
 package com.czertainly.core.service.v2.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
@@ -21,6 +22,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
@@ -46,9 +48,14 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import reactor.core.Exceptions;
 
 import java.util.*;
@@ -77,6 +84,13 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
+
+    private CacheManager cacheManager;
+
+    @Autowired
+    public void setCacheManager(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
 
     @Autowired
     public void setVaultInstanceRepository(VaultInstanceRepository vaultInstanceRepository) {
@@ -215,6 +229,7 @@ public class ConnectorServiceImpl implements ConnectorService {
 
         ConnectorDetailDto dto = connector.mapToDetailDto();
         dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.CONNECTOR, connector.getUuid(), request.getCustomAttributes()));
+        evictConnectorCache(connector.getUuid());
         return dto;
     }
 
@@ -395,6 +410,21 @@ public class ConnectorServiceImpl implements ConnectorService {
         return searchFieldDataByGroupDtos;
     }
 
+    /**
+     * Cached lookup of the connector routing info used by API client calls.
+     *
+     * @implNote Do not invoke this from inside {@code ConnectorServiceImpl} via {@code this.} —
+     *           Spring self-invocation bypasses the proxy and skips {@code @Cacheable},
+     *           including any cache eviction registered for the current transaction.
+     */
+    @Override
+    @Cacheable(value = CacheConfig.CONNECTOR_API_CLIENT_CACHE, key = "#connectorUuid", sync = true)
+    public ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException {
+        Connector connector = connectorRepository.findByUuid(connectorUuid)
+                .orElseThrow(() -> new NotFoundException(Connector.class, connectorUuid));
+        return ImmutableConnectorInfo.of(connector);
+    }
+
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
         return connectorRepository.findResourceObject(objectUuid, Connector_.name);
@@ -474,6 +504,7 @@ public class ConnectorServiceImpl implements ConnectorService {
 
         ConnectorDetailDto dto = connector.mapToDetailDto();
         dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.CONNECTOR, connector.getUuid(), request.getCustomAttributes()));
+        evictConnectorCache(connector.getUuid());
         return dto;
     }
 
@@ -544,6 +575,7 @@ public class ConnectorServiceImpl implements ConnectorService {
             transactionHandler.runInNewTransaction(() -> {
                 connector.setStatus(ConnectorStatus.OFFLINE);
                 connectorRepository.save(connector);
+                evictConnectorCache(connector.getUuid());
             });
 
             throw new ConnectorException(message);
@@ -554,6 +586,7 @@ public class ConnectorServiceImpl implements ConnectorService {
         if (connector.getStatus() == ConnectorStatus.WAITING_FOR_APPROVAL) {
             connector.setStatus(ConnectorStatus.CONNECTED);
             connectorRepository.save(connector);
+            evictConnectorCache(connector.getUuid());
         } else {
             throw new ValidationException(ValidationError.create("Connector '{}' has unexpected status {}", connector.getName(), connector.getStatus().getLabel()));
         }
@@ -596,8 +629,10 @@ public class ConnectorServiceImpl implements ConnectorService {
         List<Connector2FunctionGroup> connector2FunctionGroups = connector2FunctionGroupRepository.findAllByConnector(connector);
         connector2FunctionGroupRepository.deleteAll(connector2FunctionGroups);
 
-        attributeEngine.deleteObjectAttributeContent(Resource.CONNECTOR, connector.getUuid());
+        UUID deletedUuid = connector.getUuid();
+        attributeEngine.deleteObjectAttributeContent(Resource.CONNECTOR, deletedUuid);
         connectorRepository.delete(connector);
+        evictConnectorCache(deletedUuid);
     }
 
     private Proxy resolveProxy(String proxyUuid, String proxyCode) throws NotFoundException {
@@ -618,6 +653,22 @@ public class ConnectorServiceImpl implements ConnectorService {
             throw new IllegalStateException("No adapter registered for connector version: " + version);
         }
         return adapter;
+    }
+
+    void evictConnectorCache(UUID uuid) {
+        Cache cache = cacheManager.getCache(CacheConfig.CONNECTOR_API_CLIENT_CACHE);
+        Objects.requireNonNull(cache);
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cache.evict(uuid);
+                }
+            });
+        } else {
+            cache.evict(uuid);
+        }
     }
 
 }
