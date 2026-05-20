@@ -4,9 +4,7 @@ import com.czertainly.api.model.messaging.timequality.LeapSecondWarning;
 import com.czertainly.api.model.messaging.timequality.NtpServerMeasurementResult;
 import com.czertainly.api.model.messaging.timequality.TimeQualityResultMessage;
 import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
-import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
-import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityRegister;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityResult;
 import org.junit.jupiter.api.Test;
@@ -18,11 +16,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,9 +32,7 @@ class TimeQualityResultListenerTest {
     @Test
     void processMessage_withKnownId_updatesRegister() {
         UUID id = UUID.randomUUID();
-        TimeQualityConfiguration entity = new TimeQualityConfiguration();
-        entity.setName("known");
-        when(repository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(entity));
+        when(repository.existsById(id)).thenReturn(true);
 
         listener.processMessage(buildMessage(id, "known", TimeQualityStatus.OK));
 
@@ -51,7 +45,7 @@ class TimeQualityResultListenerTest {
     @Test
     void processMessage_withUnknownId_dropsMessage() {
         UUID id = UUID.randomUUID();
-        when(repository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.empty());
+        when(repository.existsById(id)).thenReturn(false);
 
         listener.processMessage(buildMessage(id, "unknown", TimeQualityStatus.OK));
 
@@ -61,9 +55,7 @@ class TimeQualityResultListenerTest {
     @Test
     void processMessage_withDegradedStatus_registersCorrectStatus() {
         UUID id = UUID.randomUUID();
-        TimeQualityConfiguration entity = new TimeQualityConfiguration();
-        entity.setName("degraded");
-        when(repository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(entity));
+        when(repository.existsById(id)).thenReturn(true);
 
         listener.processMessage(buildMessage(id, "degraded", TimeQualityStatus.DEGRADED));
 
