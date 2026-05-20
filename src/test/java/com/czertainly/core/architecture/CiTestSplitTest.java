@@ -9,6 +9,7 @@ import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -91,7 +92,7 @@ class CiTestSplitTest {
             String source = Files.readString(file);
             return source.contains("@Test") || source.contains("@ParameterizedTest");
         } catch (IOException e) {
-            return false;
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -99,7 +100,7 @@ class CiTestSplitTest {
         try {
             return Files.readString(file).contains("abstract class");
         } catch (IOException e) {
-            return false;
+            throw new UncheckedIOException(e);
         }
     }
 

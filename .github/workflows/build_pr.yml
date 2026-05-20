@@ -62,7 +62,7 @@ jobs:
       - name: Run service tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -ntp test -Ptest-services -Dmaven.compiler.skip=true
+        run: mvn -B -U -ntp test -Ptest-services -Dmaven.compiler.skip=true
 
       - name: Upload coverage exec
         uses: actions/upload-artifact@v7
@@ -97,7 +97,7 @@ jobs:
       - name: Run non-service tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -ntp test -Ptest-rest -Dmaven.compiler.skip=true
+        run: mvn -B -U -ntp test -Ptest-rest -Dmaven.compiler.skip=true
 
       - name: Upload coverage exec
         uses: actions/upload-artifact@v7
