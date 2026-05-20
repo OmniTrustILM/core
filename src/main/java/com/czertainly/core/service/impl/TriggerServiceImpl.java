@@ -276,9 +276,10 @@ public class TriggerServiceImpl implements TriggerService {
     }
 
     private static boolean isCertificateUploadedEventCompatible(ConditionItem conditionItem) {
-        FilterField filterField = FilterField.valueOf(conditionItem.getFieldIdentifier());
         // Condition should be applicable to not persisted certificate - it can only check its property not tied to another object
-        return conditionItem.getFieldSource() == FilterFieldSource.PROPERTY && filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty()) ;
+        if (conditionItem.getFieldSource() != FilterFieldSource.PROPERTY) return false;
+        FilterField filterField = FilterField.valueOf(conditionItem.getFieldIdentifier());
+        return filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty()) ;
     }
 
     @Override
