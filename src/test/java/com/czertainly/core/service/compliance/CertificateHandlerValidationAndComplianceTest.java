@@ -30,7 +30,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -155,21 +154,19 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
                 "CN=Test-Subject-%s".formatted(cnSuffix), null);
         UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
         uploadDto.setCertificate(certInfo.getCaCertificateBase64Encoded());
-        certificateService.upload(uploadDto, true);
+        certificateService.uploadAsync(uploadDto);
         uploadDto.setCertificate(certInfo.getEndEntityCertificateBase64Encoded());
-        var certDto = certificateService.upload(uploadDto, true);
-
-        UUID certUuid = UUID.fromString(certDto.getUuid());
+        String fingerprint = certificateService.uploadAsync(uploadDto).getFingerprint();
 
         // Wait for the initial async X.509 validation triggered by upload to complete before associating the RA profile.
         await().atMost(10, TimeUnit.SECONDS).until(() ->
-                certificateRepository.findByUuid(certUuid)
+                certificateRepository.findByFingerprint(fingerprint)
                         .map(c -> c.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED)
                         .orElse(false)
         );
 
         // Associate certificate with the RA profile that has a compliance profile.
-        Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Certificate cert = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
         cert.setRaProfileUuid(associatedRaProfileUuid);
         certificateRepository.save(cert);
 

@@ -100,9 +100,15 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
+    public FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws AlreadyExistException, CertificateException {
+        return certificateService.uploadAsync(request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
     public ResponseEntity<UuidDto> upload(@RequestBody UploadCertificateRequestDto request)
             throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException {
-        CertificateDetailDto dto = certificateService.upload(request, false);
+        UuidDto dto = certificateService.uploadSync(request);
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{uuid}")

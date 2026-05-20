@@ -2,7 +2,7 @@ package com.czertainly.core.service;
 
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
+import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.core.authority.CertificateRevocationReason;
@@ -16,6 +16,7 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;
+import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestUtil;
@@ -100,6 +101,9 @@ public class CertificateValidationTest extends BaseSpringBootTest {
 
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+
+    @Autowired
+    private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
     private Certificate certificate;
 
@@ -353,22 +357,18 @@ public class CertificateValidationTest extends BaseSpringBootTest {
     void testOcspValidationCheck() throws Exception {
         var certificateChainInfo = CertificateGeneratorHelper.generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca", "CN=Test-EndEntity", "http://localhost:%d/ocsp".formatted(mockServer.port()));
 
-        UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
-        uploadDto.setCertificate(certificateChainInfo.getCaCertificateBase64Encoded());
-        certificateService.upload(uploadDto, true);
+        uploadCertificate(certificateChainInfo.getCaCertificateBase64Encoded());
 
         KeyPair ecdsaKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.ECDSA, null);
         X509Certificate ecdsaX509Certificate = CertificateGeneratorHelper.generateEndEntityCertificate(certificateChainInfo.getCaCertificateKeyPair(), certificateChainInfo.getCaCertificate(), ecdsaKeyPair, "CN=Test-EndEntity-ECDSA", null);
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(ecdsaX509Certificate.getEncoded()));
-        CertificateDetailDto certificateEcdsa = certificateService.upload(uploadDto, true);
+        Certificate certificateEcdsa = uploadCertificate(Base64.getEncoder().encodeToString(ecdsaX509Certificate.getEncoded()));
 
-        var validationResult = certificateService.getCertificateValidationResult(SecuredUUID.fromString(certificateEcdsa.getUuid()));
+        var validationResult = certificateService.getCertificateValidationResult(certificateEcdsa.getSecuredUuid());
         Assertions.assertEquals(CertificateValidationStatus.NOT_CHECKED, validationResult.getValidationChecks().get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus());
 
-        uploadDto.setCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded());
-        CertificateDetailDto certificateEndEntity = certificateService.upload(uploadDto, true);
+        Certificate certificateEndEntity = uploadCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded());
 
-        validationResult = certificateService.getCertificateValidationResult(SecuredUUID.fromString(certificateEndEntity.getUuid()));
+        validationResult = certificateService.getCertificateValidationResult(certificateEndEntity.getSecuredUuid());
         Assertions.assertEquals(CertificateValidationStatus.FAILED, validationResult.getValidationChecks().get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus());
 
         OCSPResp ocspResp = CertificateGeneratorHelper.generateOCSPResponse(certificateChainInfo.getCaCertificate(), certificateChainInfo.getCaCertificateKeyPair().getPrivate(), certificateChainInfo.getEndEntityCertificate(), CertificateStatus.GOOD);
@@ -380,7 +380,7 @@ public class CertificateValidationTest extends BaseSpringBootTest {
                         .withBody(ocspResp.getEncoded())));
 
 
-        validationResult = certificateService.getCertificateValidationResult(SecuredUUID.fromString(certificateEndEntity.getUuid()));
+        validationResult = certificateService.getCertificateValidationResult(certificateEndEntity.getSecuredUuid());
         Assertions.assertEquals(CertificateValidationStatus.VALID, validationResult.getValidationChecks().get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus());
 
         mockServer.resetAll();
@@ -674,16 +674,9 @@ public class CertificateValidationTest extends BaseSpringBootTest {
         KeyPair eeKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(intermediateKeyPair, intermediateX509, eeKeyPair, "CN=TestEndEntity3Level", null);
 
-        UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(rootX509.getEncoded()));
-        certificateService.upload(uploadDto, true);
-
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(intermediateX509.getEncoded()));
-        certificateService.upload(uploadDto, true);
-
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(eeX509.getEncoded()));
-        CertificateDetailDto eeDto = certificateService.upload(uploadDto, true);
-        Certificate eeCert = certificateRepository.findByUuid(UUID.fromString(eeDto.getUuid())).orElseThrow();
+        uploadCertificate(Base64.getEncoder().encodeToString(rootX509.getEncoded()));
+        uploadCertificate(Base64.getEncoder().encodeToString(intermediateX509.getEncoded()));
+        Certificate eeCert = uploadCertificate(Base64.getEncoder().encodeToString(eeX509.getEncoded()));
 
         // withEndCertificate=false → chain is [intermediate, root], complete
         CertificateChainResponseDto withoutEnd = certificateService.getCertificateChain(eeCert.getSecuredUuid(), false);
@@ -696,8 +689,8 @@ public class CertificateValidationTest extends BaseSpringBootTest {
         Assertions.assertTrue(withEnd.isCompleteChain());
 
         // Verify ordering: end entity is first, root is last
-        Assertions.assertEquals(eeDto.getSubjectDn(), withEnd.getCertificates().get(0).getSubjectDn());
-        Assertions.assertEquals(eeDto.getIssuerDn(), withEnd.getCertificates().get(1).getSubjectDn());
+        Assertions.assertEquals(eeCert.getSubjectDn(), withEnd.getCertificates().get(0).getSubjectDn());
+        Assertions.assertEquals(eeCert.getIssuerDn(), withEnd.getCertificates().get(1).getSubjectDn());
         Assertions.assertEquals(rootX509.getSubjectX500Principal().getName(), withEnd.getCertificates().get(2).getSubjectDn());
     }
 
@@ -711,16 +704,9 @@ public class CertificateValidationTest extends BaseSpringBootTest {
         KeyPair keyPairB = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate x509B = CertificateGeneratorHelper.generateCACertificate(keyPairB, "CN=CircularB");
 
-        UploadCertificateRequestDto uploadDto = new UploadCertificateRequestDto();
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(x509A.getEncoded()));
-        CertificateDetailDto dtoA = certificateService.upload(uploadDto, true);
-
-        uploadDto.setCertificate(Base64.getEncoder().encodeToString(x509B.getEncoded()));
-        CertificateDetailDto dtoB = certificateService.upload(uploadDto, true);
-
         // Introduce a circular FK relationship directly in the DB: A → B → A
-        Certificate certA = certificateRepository.findByUuid(UUID.fromString(dtoA.getUuid())).orElseThrow();
-        Certificate certB = certificateRepository.findByUuid(UUID.fromString(dtoB.getUuid())).orElseThrow();
+        Certificate certA = uploadCertificate(Base64.getEncoder().encodeToString(x509A.getEncoded()));
+        Certificate certB = uploadCertificate(Base64.getEncoder().encodeToString(x509B.getEncoded()));
         certA.setIssuerCertificateUuid(certB.getUuid());
         certB.setIssuerCertificateUuid(certA.getUuid());
         certificateRepository.save(certA);
@@ -734,6 +720,16 @@ public class CertificateValidationTest extends BaseSpringBootTest {
                 "Circular-reference chain should contain at most 1 ancestor (certB), but got: "
                         + chain.getCertificates().size());
         Assertions.assertTrue(chain.isCompleteChain());
+    }
+
+    private Certificate uploadCertificate(String base64cert) throws Exception {
+        X509Certificate x509 = CertificateUtil.parseCertificate(base64cert);
+        String fingerprint = CertificateUtil.getThumbprint(x509);
+        CertificateUploadEventMessageData eventData = CertificateUploadEventMessageData.builder()
+                .certificateContent(base64cert)
+                .build();
+        certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventData));
+        return certificateRepository.findByFingerprint(fingerprint).orElseThrow();
     }
 
     private X509Certificate generateIntermediateCACertificate(KeyPair issuerKeyPair, X509Certificate issuerCert, KeyPair subjectKeyPair, String subjectDn) throws Exception {

@@ -74,4 +74,5 @@ class JmsListenerIntegrationTest extends BaseMessagingIntTest {
 
         verify(eventListener).processMessage(any(EventMessage.class));
     }
+
 }

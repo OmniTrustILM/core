@@ -217,7 +217,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         List<NotificationRecipient> recipients = new ArrayList<>();
         switch (event) {
             case CERTIFICATE_STATUS_CHANGED, CERTIFICATE_ACTION_PERFORMED, CERTIFICATE_EXPIRING,
-                 CERTIFICATE_NOT_COMPLIANT -> {
+                 CERTIFICATE_NOT_COMPLIANT, CERTIFICATE_UPLOADED -> {
                 NameAndUuidDto ownerInfo = resourceObjectAssociationService.getOwner(resource, objectUuid);
                 if (ownerInfo != null) {
                     recipients.add(new NotificationRecipient(RecipientType.USER, UUID.fromString(ownerInfo.getUuid())));
@@ -446,6 +446,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 CertificateNotCompliantEventData data = (CertificateNotCompliantEventData) eventData;
                 yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' is not compliant"
                         .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()), null);
+            }
+            case CERTIFICATE_UPLOADED -> {
+                CertificateEventData data = (CertificateEventData) eventData;
+                yield new InternalNotificationEventData("Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded.".formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()), null);
             }
             case DISCOVERY_FINISHED -> {
                 DiscoveryFinishedEventData data = (DiscoveryFinishedEventData) eventData;

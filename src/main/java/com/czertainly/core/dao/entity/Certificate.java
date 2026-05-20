@@ -387,7 +387,7 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
 
     @Override
     public String getContentData() {
-        return this.certificateContent.getContent();
+        return this.certificateContent == null ? null : this.certificateContent.getContent();
     }
 
     @Override
