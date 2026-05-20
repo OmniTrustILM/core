@@ -183,9 +183,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
             boolean isIgnored = evaluateIgnoreTriggers(context, eventTriggers, resourceObject, eventData, eventHistory);
             // If some trigger ignored this object, processing is stopped
             if (isIgnored) {
-                eventHistory.setStatus(EventStatus.FINISHED);
-                eventHistory.setFinishedAt(OffsetDateTime.now());
-                eventHistoryRepository.save(eventHistory);
+                saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
 
@@ -193,12 +191,14 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
             evaluateTriggers(context, eventTriggers, resourceObject, eventData, eventHistory);
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
-        eventHistory.setStatus(EventStatus.FINISHED);
+        saveEventHistory(eventHistory, EventStatus.FINISHED);
+    }
+
+    protected void saveEventHistory(EventHistory eventHistory, EventStatus finished) {
+        eventHistory.setStatus(finished);
         eventHistory.setFinishedAt(OffsetDateTime.now());
         eventHistoryRepository.save(eventHistory);
     }

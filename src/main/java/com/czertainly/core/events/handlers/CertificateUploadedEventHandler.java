@@ -28,12 +28,12 @@ import com.czertainly.core.service.CertificateEventHistoryService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
-import jakarta.transaction.Transactional;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateEncodingException;
@@ -107,9 +107,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             x509Certificate = CertificateUtil.parseCertificate(eventMessageData.certificateContent());
         } catch (CertificateException e) {
             logger.error("Unable to parse certificate {} from uploaded certificate: {}", eventMessageData.certificateContent(), e.getMessage());
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
         String fingerprint;
@@ -117,16 +115,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             fingerprint = CertificateUtil.getThumbprint(x509Certificate);
         } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
             logger.error("Unable to calculate fingerprint for certificate {}: {}", eventMessageData.certificateContent(), e.getMessage());
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             logger.warn("Certificate with fingerprint {} already exists, skipping upload event", fingerprint);
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
         Certificate certificate = context.getResourceObjects().getFirst();
@@ -134,9 +128,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
         try {
             if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory)) {
-                eventHistory.setStatus(EventStatus.FINISHED);
-                eventHistory.setFinishedAt(OffsetDateTime.now());
-                eventHistoryRepository.save(eventHistory);
+                saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
             saveCertificate(certificate, fingerprint, x509Certificate);
@@ -146,15 +138,11 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory);
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), certificate.toStringShort(), e.getMessage());
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
 
-        eventHistory.setStatus(EventStatus.FINISHED);
-        eventHistory.setFinishedAt(OffsetDateTime.now());
-        eventHistoryRepository.save(eventHistory);
+        saveEventHistory(eventHistory, EventStatus.FINISHED);
 
         if (eventMessageData.customAttributes() != null && !eventMessageData.customAttributes().isEmpty()) {
             try {
