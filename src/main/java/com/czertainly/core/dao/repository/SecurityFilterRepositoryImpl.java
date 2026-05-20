@@ -183,6 +183,8 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         );
         if (nameAttribute != null) {
             query.orderBy(cb.asc(root.get(nameAttribute)));
+        } else {
+            query.orderBy(cb.asc(root.get("uuid")));
         }
 
         final List<Predicate> predicates = getPredicates(securityFilter, additionalWhereClause, root, cb, query);
