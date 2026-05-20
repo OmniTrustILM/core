@@ -121,7 +121,7 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(authorityInstance.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(authorityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(authorityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -152,7 +152,7 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(authorityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(authorityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test

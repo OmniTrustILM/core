@@ -1,5 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -12,7 +13,6 @@ import com.czertainly.api.model.connector.notification.NotificationRecipientDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.RoleDetailDto;
 import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.notification.RecipientType;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -30,6 +30,7 @@ import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.service.NotificationInternalService;
 import com.czertainly.core.service.ResourceObjectAssociationService;
 import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.v2.ConnectorService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
@@ -55,6 +56,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     private NotificationInternalService notificationService;
     private TriggerService triggerService;
     private ConnectorApiFactory connectorApiFactory;
+    private ConnectorService connectorService;
     private PendingNotificationRepository pendingNotificationRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
@@ -264,7 +266,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         }
 
         List<DataAttribute> mappingAttributes;
-        ConnectorApiClientDtoV1 connector = notificationInstanceReference.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connector = connectorService.getConnectorForApiClient(notificationInstanceReference.getConnectorUuid());
         try {
             mappingAttributes = connectorApiFactory.getNotificationInstanceApiClient(connector).listMappingAttributes(connector, notificationInstanceReference.getKind());
         } catch (ConnectorException e) {

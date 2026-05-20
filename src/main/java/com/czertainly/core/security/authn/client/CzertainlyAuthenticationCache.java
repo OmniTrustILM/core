@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.core.config.CacheConfig;
+import com.czertainly.core.config.cache.CacheConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
