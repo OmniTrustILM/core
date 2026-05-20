@@ -7,6 +7,9 @@ import com.czertainly.api.model.core.cryptography.key.KeyUsage;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Immutable snapshot of a {@code CryptographicKeyItem} used on the signing / crypto hot path.
+ */
 public record CryptographicKeyItemModel(
         UUID keyItemUuid,
         KeyState state,

@@ -141,7 +141,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyKeyActive(key);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
@@ -198,7 +198,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyKeyActive(key);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
@@ -286,7 +286,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     private SignDataResponseDto executeSignData(CryptographicKeyItemModel key, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        verifyKeyActive(key);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
@@ -331,7 +331,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyKeyActive(key);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
@@ -504,20 +504,14 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
                     )
             );
         }
-        verifyKeyActive(privateKeyItem);
-        verifyKeyActive(publicKeyItem);
+        verifyActive(privateKeyItem.getState(), privateKeyItem.isEnabled());
+        verifyActive(publicKeyItem.getState(), publicKeyItem.isEnabled());
 
         return Map.of(KeyType.PUBLIC_KEY, publicKeyItem, KeyType.PRIVATE_KEY, privateKeyItem);
     }
 
-    private void verifyKeyActive(CryptographicKeyItem keyItem) {
-        if (keyItem.getState() != KeyState.ACTIVE || !keyItem.isEnabled()) {
-            throw new ValidationException(ValidationError.create("Key needs to be " + KeyState.ACTIVE.getLabel() + " and enabled."));
-        }
-    }
-
-    private void verifyKeyActive(CryptographicKeyItemModel key) {
-        if (key.state() != KeyState.ACTIVE || !key.enabled()) {
+    private static void verifyActive(KeyState state, boolean enabled) {
+        if (state != KeyState.ACTIVE || !enabled) {
             throw new ValidationException(ValidationError.create("Key needs to be " + KeyState.ACTIVE.getLabel() + " and enabled."));
         }
     }

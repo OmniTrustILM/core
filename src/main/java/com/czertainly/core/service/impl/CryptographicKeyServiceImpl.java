@@ -940,10 +940,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         if (keyItem.getKey() == null) {
             throw new NotFoundException("Cryptographic Key associated with the Key Item is not found");
         }
-        if (keyItem.getKey().getTokenProfile() == null) {
-            throw new NotFoundException("Token Profile associated with the Key is not found");
-        }
-        TokenInstanceReference tokenInstanceReference = keyItem.getKey().getTokenProfile().getTokenInstanceReference();
+        TokenInstanceReference tokenInstanceReference = keyItem.getKey().getTokenInstanceReference();
         if (tokenInstanceReference == null) {
             throw new NotFoundException("Token Instance associated with the Key is not found");
         }
