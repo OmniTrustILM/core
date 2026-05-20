@@ -123,6 +123,12 @@ public class EventDataBuilder {
         return eventData;
     }
 
+    public static CertificateEventData getCertificateUploadedEventData(Certificate certificate) {
+        CertificateEventData eventData = new CertificateEventData();
+        setCertificateEventData(eventData, certificate);
+        return eventData;
+    }
+
     private static void setCertificateEventData(CertificateEventData eventData, Certificate certificate) {
         eventData.setCertificateUuid(certificate.getUuid());
         eventData.setFingerprint(certificate.getFingerprint());

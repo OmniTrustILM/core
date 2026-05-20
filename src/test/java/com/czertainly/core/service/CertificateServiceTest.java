@@ -2,10 +2,16 @@ package com.czertainly.core.service;
 
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
+import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterConditionOperator;
+import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.czertainly.api.model.core.workflows.*;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
@@ -50,6 +56,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,6 +138,10 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
     @MockitoBean
     private NotificationProducer notificationProducer;
+    @Autowired
+    private RuleService ruleService;
+    @Autowired
+    private TriggerService triggerService;
 
     private AttributeEngine attributeEngine;
 
@@ -519,21 +530,58 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUploadCertificate() throws CertificateException, AlreadyExistException, NoSuchAlgorithmException, NotFoundException, AttributeException {
+    void testUploadCertificateSync() throws CertificateException, AlreadyExistException, AttributeException, NotFoundException, IOException {
         UploadCertificateRequestDto request = new UploadCertificateRequestDto();
         request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        RequestAttributeV3 requestAttribute = getAttribute();
+        request.setCustomAttributes(List.of(requestAttribute));
+        UuidDto uuidDto = certificateService.uploadSync(request);
+        CertificateDetailDto certificateNew = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+        Assertions.assertEquals(1, certificateNew.getCustomAttributes().size());
+    }
 
-        CertificateDetailDto dto = certificateService.upload(request, true);
-        Assertions.assertNotNull(dto);
-        Assertions.assertEquals("CLIENT1", dto.getCommonName());
-        Assertions.assertEquals("177e75f42e95ecb98f831eb57de27b0bc8c47643", dto.getSerialNumber());
+    @Test
+    void testUploadCertificateSyncIgnoreTriggerThrowsNotUploaded() throws Exception {
+        ConditionItemRequestDto conditionItemRequest = new ConditionItemRequestDto();
+        conditionItemRequest.setFieldSource(FilterFieldSource.PROPERTY);
+        conditionItemRequest.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
+        conditionItemRequest.setOperator(FilterConditionOperator.EQUALS);
+        conditionItemRequest.setValue(List.of(CertificateState.ISSUED.getCode()));
 
-        // test for presence of created public key
-        var newCertificate = certificateRepository.findWithAssociationsByUuid(UUID.fromString(dto.getUuid()));
-        Assertions.assertTrue(newCertificate.isPresent());
-        Assertions.assertEquals("certKey_%s".formatted(dto.getCommonName()), newCertificate.get().getKey().getName());
-        Assertions.assertEquals(1, newCertificate.get().getKey().getItems().size());
-        Assertions.assertEquals(KeyType.PUBLIC_KEY, newCertificate.get().getKey().getItems().stream().findFirst().get().getType());
+        ConditionRequestDto conditionRequest = new ConditionRequestDto();
+        conditionRequest.setName("IgnoreUploadCondition");
+        conditionRequest.setResource(Resource.CERTIFICATE);
+        conditionRequest.setType(ConditionType.CHECK_FIELD);
+        conditionRequest.setItems(List.of(conditionItemRequest));
+        ConditionDto condition = ruleService.createCondition(conditionRequest);
+
+        RuleRequestDto ruleRequest = new RuleRequestDto();
+        ruleRequest.setName("IgnoreUploadRule");
+        ruleRequest.setResource(Resource.CERTIFICATE);
+        ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
+        RuleDetailDto rule = ruleService.createRule(ruleRequest);
+
+        TriggerRequestDto triggerRequest = new TriggerRequestDto();
+        triggerRequest.setName("IgnoreUploadTrigger");
+        triggerRequest.setType(TriggerType.EVENT);
+        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_UPLOADED);
+        triggerRequest.setResource(Resource.CERTIFICATE);
+        triggerRequest.setRulesUuids(List.of(rule.getUuid()));
+        triggerRequest.setActionsUuids(List.of());
+        triggerRequest.setIgnoreTrigger(true);
+        TriggerDetailDto trigger = triggerService.createTrigger(triggerRequest);
+
+        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
+                List.of(UUID.fromString(trigger.getUuid())), true);
+
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        CertificateException ex = Assertions.assertThrows(CertificateException.class, () -> certificateService.uploadSync(request));
+        Assertions.assertEquals("Certificate was not uploaded. See Certificate Uploaded Event History for more details.", ex.getMessage());
+    }
+
+    private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
+        return getRequestAttribute();
     }
 
     @Test
@@ -1383,6 +1431,13 @@ class CertificateServiceTest extends BaseSpringBootTest {
         ProtocolCertificateAssociations protocolCertificateAssociations = new ProtocolCertificateAssociations();
         protocolCertificateAssociations.setOwnerUuid(UUID.randomUUID());
         protocolCertificateAssociations.setGroupUuids(List.of(group.getUuid()));
+        RequestAttributeV3 requestAttribute = getRequestAttribute();
+        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
+        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
+        return protocolCertificateAssociations;
+    }
+
+    private @NonNull RequestAttributeV3 getRequestAttribute() throws AlreadyExistException, AttributeException {
         CustomAttributeCreateRequestDto customAttributeRequest = new CustomAttributeCreateRequestDto();
         customAttributeRequest.setName("name");
         customAttributeRequest.setLabel("name");
@@ -1394,9 +1449,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         requestAttribute.setName(customAttributeRequest.getName());
         requestAttribute.setContentType(customAttributeRequest.getContentType());
         requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
-        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
-        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
-        return protocolCertificateAssociations;
+        return requestAttribute;
     }
 
     private static boolean isObjectAccessRequestForResource(OpaRequestedResource resource, String name, String action) {

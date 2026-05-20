@@ -4,6 +4,7 @@ import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.core.certificate.*;
@@ -19,6 +20,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
@@ -74,11 +76,17 @@ public interface CertificateService extends ResourceExtensionService  {
      */
     Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException;
 
+    FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
+    UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
+
+
+    String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException;
+
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
-    CertificateContent checkAddCertificateContent(String fingerprint, String content);
+    void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded);
 
-    CertificateDetailDto upload(UploadCertificateRequestDto request, boolean ignoreCustomAttributes) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException;
+    CertificateContent checkAddCertificateContent(String fingerprint, String content);
 
     Certificate createCertificateAtomic(String certificate, boolean assignOwner) throws CertificateException, NoSuchAlgorithmException, NotFoundException;
 

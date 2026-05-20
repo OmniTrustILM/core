@@ -7,6 +7,7 @@ import com.czertainly.api.model.client.auth.UserIdentificationRequestDto;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.core.auth.*;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.api.model.core.certificate.CertificateState;
@@ -345,10 +346,8 @@ public class UserManagementServiceImpl implements UserManagementService {
 
         if (uploadCertificate) {
             try {
-                UploadCertificateRequestDto uploadRequest = new UploadCertificateRequestDto();
-                uploadRequest.setCertificate(certificateData);
-                CertificateDetailDto certificateDetailDto = certificateService.upload(uploadRequest, true);
-                certificate = certificateService.getCertificateEntityByFingerprint(certificateDetailDto.getFingerprint());
+                String fingerprint = certificateService.upload(certificateData, null, true);
+                certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
                 logger.getLogger().debug("New Certificate uploaded for the user");
             } catch (Exception e) {
                 throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());

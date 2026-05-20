@@ -9,6 +9,7 @@ import com.czertainly.api.model.common.attribute.common.AttributeContent;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
 import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
+import com.czertainly.api.model.common.events.data.CertificateEventData;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.search.FilterConditionOperator;
@@ -81,6 +82,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         if (evaluateRules(triggerHistory, trigger.getRules(), object)) {
             triggerHistory.setConditionsMatched(true);
             if (trigger.isIgnoreTrigger()) {
+                if (data instanceof CertificateEventData) triggerHistory.setMessage(data.toString());
                 triggerHistory.setActionsPerformed(true);
             } else {
                 performActions(trigger, triggerHistory, object, data);
