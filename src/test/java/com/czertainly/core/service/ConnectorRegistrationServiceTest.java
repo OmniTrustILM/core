@@ -27,7 +27,7 @@ class ConnectorRegistrationServiceTest extends BaseSpringBootTest {
     private ConnectorService connectorService;
 
     @Autowired
-    private ConnectorRegistrationService connectorRegistrationService;
+    private ConnectorRegistrationExternalService connectorRegistrationService;
 
     private WireMockServer mockServer;
 

@@ -6,7 +6,8 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.auth.AddUserRequestDto;
 import com.czertainly.api.model.core.auth.UserDetailDto;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
-import com.czertainly.core.service.LocalAdminService;
+import com.czertainly.core.security.authz.UnauthenticatedEndpoint;
+import com.czertainly.core.service.LocalAdminExternalService;
 import com.czertainly.core.service.UserManagementService;
 import com.czertainly.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,7 @@ import java.security.cert.CertificateException;
 
 @Service
 @Transactional
-public class LocalAdminServiceImpl implements LocalAdminService {
+public class LocalAdminServiceImpl implements LocalAdminExternalService {
 
     private RoleManagementApiClient roleManagementApiClient;
     private UserManagementService userManagementService;
@@ -34,6 +35,7 @@ public class LocalAdminServiceImpl implements LocalAdminService {
     }
 
     @Override
+    @UnauthenticatedEndpoint
     public UserDetailDto createUser(AddUserRequestDto request) throws NotFoundException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, AttributeException {
         UserDetailDto userDetailDto = userManagementService.createUser(request);
 

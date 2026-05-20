@@ -8,7 +8,7 @@ import com.czertainly.api.model.core.connector.AuthType;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.ConnectorAuthService;
+import com.czertainly.core.service.ConnectorAuthExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,10 +19,10 @@ import java.util.Set;
 @RestController
 public class ConnectorAuthControllerImpl implements ConnectorAuthController {
 
-    private ConnectorAuthService connectorAuthService;
+    private ConnectorAuthExternalService connectorAuthService;
 
     @Autowired
-    public void setConnectorAuthService(ConnectorAuthService connectorAuthService) {
+    public void setConnectorAuthService(ConnectorAuthExternalService connectorAuthService) {
         this.connectorAuthService = connectorAuthService;
     }
 
