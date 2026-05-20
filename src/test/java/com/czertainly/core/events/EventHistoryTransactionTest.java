@@ -16,6 +16,7 @@ import com.czertainly.core.dao.repository.workflows.TriggerRepository;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.handlers.DiscoveryFinishedEventHandler;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
+import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
@@ -48,7 +49,7 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
      * Verifies the end-to-end fix: when sendFollowUpEventsNotifications throws after successful
      * trigger processing, the EventHistory row must still be visible and carry FINISHED status —
      * not rolled back with the enclosing handleEvent invocation, because handleEvent runs with
-     * Propagation.NOT_SUPPORTED and each repository save commits its own small transaction.
+     * Propagation.NOT_SUPPORTED, and each repository save commits its own small transaction.
      */
     @Test
     void testEventHistoryVisibleAfterFollowUpNotificationFailure() {
@@ -79,13 +80,17 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
         triggerAssociationRepository.save(association);
 
         final UUID discoveryUuid = discovery.getUuid();
-        Assertions.assertThrows(RuntimeException.class, () ->
+        EventMessage eventMessage = DiscoveryFinishedEventHandler.constructEventMessage(
+                discoveryUuid, null, null,
+                new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test"));
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () ->
                 discoveryFinishedEventHandler.handleEvent(
-                        DiscoveryFinishedEventHandler.constructEventMessage(
-                                discoveryUuid, null, null,
-                                new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test"))));
+                        eventMessage));
+        Assertions.assertTrue(
+                exception.getMessage() != null && exception.getMessage().contains("JMS broker unavailable"),
+                "Expected exception to come from mocked follow-up notification failure");
 
-        // Trigger processing succeeded before the notification threw; EventHistory must be FINISHED,
+        // Trigger processing succeeded before the notification throws, EventHistory must be FINISHED,
         // not lost because handleEvent runs without an ambient transaction.
         List<EventHistory> eventHistories = eventHistoryRepository.findAll();
         Assertions.assertEquals(1, eventHistories.size());
