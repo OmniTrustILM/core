@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
@@ -106,6 +107,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         return List.of();
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void handleEvent(EventMessage eventMessage) throws EventException {
         logger.debug("Going to handle event '{}'", eventMessage.getEvent().getLabel());
         EventContext<T> eventContext;
@@ -188,9 +190,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
 
             // If some trigger ignored this object, processing is stopped
             if (isIgnored) {
-                eventHistory.setStatus(EventStatus.FINISHED);
-                eventHistory.setFinishedAt(OffsetDateTime.now());
-                eventHistoryRepository.save(eventHistory);
+                saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
 
@@ -202,13 +202,15 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
             }
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
-            eventHistory.setStatus(EventStatus.FAILED);
-            eventHistory.setFinishedAt(OffsetDateTime.now());
-            eventHistoryRepository.save(eventHistory);
+            saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
 
-        eventHistory.setStatus(EventStatus.FINISHED);
+        saveEventHistory(eventHistory, EventStatus.FINISHED);
+    }
+
+    protected void saveEventHistory(EventHistory eventHistory, EventStatus eventStatus) {
+        eventHistory.setStatus(eventStatus);
         eventHistory.setFinishedAt(OffsetDateTime.now());
         eventHistoryRepository.save(eventHistory);
     }
