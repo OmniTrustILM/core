@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.cryptography.key.KeyRequestType;
@@ -13,7 +14,6 @@ import com.czertainly.api.model.common.attribute.common.content.AttributeContent
 import com.czertainly.api.model.core.auth.AttributeResource;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeVersionHelper;
@@ -215,7 +215,7 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = authorityInstance.getConnector();
-                ConnectorApiClientDtoV1 raProfileConnectorDto = connector.mapToApiClientDtoV1();
+                ApiClientConnectorInfo raProfileConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
                         raProfileConnectorDto,
                         authorityInstance.getAuthorityInstanceUuid()
@@ -247,7 +247,7 @@ public class CallbackServiceImpl implements CallbackService {
                                 )
                         );
                 connector = entityInstance.getConnector();
-                ConnectorApiClientDtoV1 locationConnectorDto = connector.mapToApiClientDtoV1();
+                ApiClientConnectorInfo locationConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
 

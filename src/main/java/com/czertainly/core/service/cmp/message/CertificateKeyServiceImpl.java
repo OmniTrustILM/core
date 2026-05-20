@@ -1,5 +1,6 @@
 package com.czertainly.core.service.cmp.message;
 
+import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.model.common.enums.cryptography.KeyType;
 import com.czertainly.core.client.ConnectorApiFactory;
@@ -9,6 +10,8 @@ import com.czertainly.core.provider.key.CzertainlyPrivateKey;
 import com.czertainly.core.service.CryptographicKeyService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 @Component
 public class CertificateKeyServiceImpl implements CertificateKeyService {
@@ -28,7 +31,7 @@ public class CertificateKeyServiceImpl implements CertificateKeyService {
     }
 
     @Override
-    public CzertainlyProvider getProvider(String cmpProfileName, Certificate signingCertificate) {
+    public CzertainlyProvider getProvider(String cmpProfileName, Certificate signingCertificate) throws NotFoundException {
         CryptographicKey key = signingCertificate.getKey();
         if (key == null) {
             throw new IllegalStateException("Signing certificate has no associated cryptographic key");
@@ -37,13 +40,12 @@ public class CertificateKeyServiceImpl implements CertificateKeyService {
         if (tokenRef == null) {
             throw new IllegalStateException("Cryptographic key has no token instance reference");
         }
-        Connector connector = tokenRef.getConnector();
-        if (connector == null) {
+        UUID connectorUuid = tokenRef.getConnectorUuid();
+        if (connectorUuid == null) {
             throw new IllegalStateException("Token instance has no associated connector");
         }
 
-        var connectorDto = connector.mapToApiClientDtoV1();
-        CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+        CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorUuid);
         return CzertainlyProvider.getInstance(cmpProfileName, true, apiClient);
     }
 

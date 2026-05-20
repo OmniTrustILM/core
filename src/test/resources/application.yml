@@ -1,6 +1,14 @@
 app:
   version: '@project.version@'
 
+caching:
+  authentication:
+    ttl-minutes: 5
+    max-size: 500
+  connectors:
+    ttl-minutes: 5
+    max-size: 100
+
 auth-service:
   base-url: http://authservice.dev
 opa:
