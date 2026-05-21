@@ -517,7 +517,8 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         signingProfileRepository.save(profile);
 
         SecuredUUID uuid = savedConfiguration.getSecuredUuid();
-        timeQualityConfigurationService.deleteTimeQualityConfiguration(uuid);
+        Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(uuid));
         Assertions.assertTrue(timeQualityConfigurationRepository.findById(uuid.getValue()).isPresent(),
                 "Configuration must remain in the database when referenced by a signing profile");
     }
