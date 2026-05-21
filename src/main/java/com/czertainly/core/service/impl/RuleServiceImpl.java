@@ -95,14 +95,18 @@ public class RuleServiceImpl implements RuleService {
 
     @Override
     @ExternalAuthorization(resource = Resource.RULE, action = ResourceAction.UPDATE)
-    public ConditionDto updateCondition(String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException {
+    public ConditionDto updateCondition(String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getItems().isEmpty()) {
             throw new ValidationException("Cannot update a condition without any condition items.");
+        }
+        if (conditionRepository.existsByName(request.getName())) {
+            throw new AlreadyExistException("Condition with same name already exists.");
         }
 
         Condition condition = conditionRepository.findByUuid(SecuredUUID.fromString(conditionUuid)).orElseThrow(() -> new NotFoundException(Condition.class, conditionUuid));
         conditionItemRepository.deleteAll(condition.getItems());
 
+        condition.setName(request.getName());
         condition.setDescription(request.getDescription());
         condition.setItems(createConditionItems(request.getItems(), condition));
         conditionRepository.save(condition);
@@ -203,9 +207,13 @@ public class RuleServiceImpl implements RuleService {
 
     @Override
     @ExternalAuthorization(resource = Resource.RULE, action = ResourceAction.UPDATE)
-    public RuleDetailDto updateRule(String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException {
+    public RuleDetailDto updateRule(String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getConditionsUuids().isEmpty()) {
             throw new ValidationException("Rule has to contain at least one condition.");
+        }
+
+        if (ruleRepository.existsByName(request.getName())) {
+            throw new AlreadyExistException("Rule with same name already exists.");
         }
 
         Set<Condition> conditions = new HashSet<>();
@@ -223,6 +231,7 @@ public class RuleServiceImpl implements RuleService {
             conditions.add(condition);
         }
 
+        rule.setName(request.getName());
         rule.setDescription(request.getDescription());
         rule.setConditions(conditions);
 

@@ -12,13 +12,13 @@ public interface ActionService {
     List<ExecutionDto> listExecutions(Resource resource);
     ExecutionDto getExecution(String executionUuid) throws NotFoundException;
     ExecutionDto createExecution(ExecutionRequestDto request) throws AlreadyExistException, NotFoundException;
-    ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException;
+    ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException;
     void deleteExecution(String executionUuid) throws NotFoundException;
 
     List<ActionDto> listActions(Resource resource);
     ActionDetailDto getAction(String actionUuid) throws NotFoundException;
     ActionDetailDto createAction(ActionRequestDto request) throws AlreadyExistException, NotFoundException;
-    ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException;
+    ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException;
     void deleteAction(String actionUuid) throws NotFoundException;
 
 }

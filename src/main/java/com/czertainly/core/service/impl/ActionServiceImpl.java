@@ -102,14 +102,19 @@ public class ActionServiceImpl implements ActionService {
 
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
-    public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException {
+    public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getItems().isEmpty()) {
             throw new ValidationException("Cannot create an execution without any execution items.");
+        }
+
+        if (executionRepository.existsByName(request.getName())) {
+            throw new AlreadyExistException("Execution with same name already exists.");
         }
 
         Execution execution = executionRepository.findByUuid(SecuredUUID.fromString(executionUuid)).orElseThrow(() -> new NotFoundException(Execution.class, executionUuid));
         executionItemRepository.deleteByExecution(execution);
 
+        execution.setName(request.getName());
         execution.setDescription(request.getDescription());
         execution.setItems(createExecutionItems(request.getItems(), execution));
 
@@ -252,9 +257,12 @@ public class ActionServiceImpl implements ActionService {
 
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
-    public ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException {
+    public ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getExecutionsUuids().isEmpty()) {
             throw new ValidationException("Action has to contain at least one execution.");
+        }
+        if (actionRepository.existsByName(request.getName())) {
+            throw new AlreadyExistException("Action with same name already exists.");
         }
 
         Set<Execution> executions = new HashSet<>();
