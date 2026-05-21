@@ -6,6 +6,7 @@ import com.czertainly.api.exception.EventException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
+import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
@@ -113,7 +114,7 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Autowired
     private ApprovalRepository approvalRepository;
     @Autowired
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
     @Autowired
     private ApprovalClosedEventHandler approvalClosedEventHandler;
     @Autowired
@@ -127,11 +128,11 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Autowired
     private AttributeEngine attributeEngine;
     @Autowired
-    private RuleService ruleService;
+    private RuleExternalService ruleService;
     @Autowired
-    private ActionService actionService;
+    private ActionExternalService actionService;
     @Autowired
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
     @Autowired
     private TriggerAssociationRepository triggerAssociationRepository;
     @Autowired

@@ -29,7 +29,7 @@ import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.service.NotificationInternalService;
 import com.czertainly.core.service.ResourceObjectAssociationService;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
@@ -54,7 +54,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     private AttributeEngine attributeEngine;
 
     private NotificationInternalService notificationService;
-    private TriggerService triggerService;
+    private TriggerInternalService triggerService;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
     private PendingNotificationRepository pendingNotificationRepository;

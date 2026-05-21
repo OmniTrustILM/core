@@ -18,7 +18,7 @@ import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalExternalService;
 import com.czertainly.core.service.CertificateEventHistoryService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.v2.ClientOperationService;
@@ -50,7 +50,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     private ClientOperationService clientOperationService;
 
-    private ApprovalService approvalService;
+    private ApprovalExternalService approvalService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -259,7 +259,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
     }
 }
