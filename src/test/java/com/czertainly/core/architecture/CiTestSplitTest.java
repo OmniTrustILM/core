@@ -21,13 +21,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Guards the two-group CI test split defined in pom.xml.
  * <p>
- * The test-services Maven profile (<includes>) and the test-rest profile (<excludes>)
+ * The test-services Maven profile (<includes>) and the test-non-services profile (<excludes>)
  * must carry identical pattern sets. A pattern present in one but absent from the other
  * causes affected tests to run twice (double coverage noise) or not at all (silent gap).
  * <p>
  * Additionally, every concrete test class in the service package must follow the naming
  * convention those patterns match (*Test, *Tests, *ITest). Classes that don't match are
- * not picked up by test-services and run in test-rest instead, silently misclassifying
+ * not picked up by test-services and run in test-non-services instead, silently misclassifying
  * service tests as non-service tests.
  */
 class CiTestSplitTest {
@@ -43,17 +43,17 @@ class CiTestSplitTest {
                 "//profile[id='test-services']//plugin[artifactId='maven-surefire-plugin']//include");
 
         List<String> restExcludes = extractNodes(xpath, pom,
-                "//profile[id='test-rest']//plugin[artifactId='maven-surefire-plugin']//exclude");
+                "//profile[id='test-non-services']//plugin[artifactId='maven-surefire-plugin']//exclude");
 
         assertThat(serviceIncludes)
                 .describedAs("test-services profile must define at least one <include> pattern in pom.xml")
                 .isNotEmpty();
 
         assertThat(restExcludes)
-                .describedAs("test-rest profile must define at least one <exclude> pattern in pom.xml")
+                .describedAs("test-non-services profile must define at least one <exclude> pattern in pom.xml")
                 .isNotEmpty()
                 .describedAs("""
-                        test-rest <excludes> and test-services <includes> in pom.xml must be identical sets.
+                        test-non-services <excludes> and test-services <includes> in pom.xml must be identical sets.
                         A pattern in one but not the other causes tests to run twice or not at all.
                         Update both profiles together whenever the split pattern changes.""")
                 .containsExactlyInAnyOrderElementsOf(serviceIncludes);
@@ -79,16 +79,16 @@ class CiTestSplitTest {
         assertThat(violations)
                 .describedAs("""
                         Test classes in service/ whose names don't end with Test, Tests, or ITest.
-                        They are not picked up by the test-services Maven profile and run in test-rest instead.
+                        They are not picked up by the test-services Maven profile and run in test-non-services instead.
                         Either rename them to match the pattern, or update both <includes> in test-services
-                        and <excludes> in test-rest in pom.xml to cover the new suffix.""")
+                        and <excludes> in test-non-services in pom.xml to cover the new suffix.""")
                 .isEmpty();
     }
 
     private static boolean containsTestAnnotation(Path file) {
         try {
             String source = Files.readString(file);
-            return source.contains("@Test") || source.contains("@ParameterizedTest");
+            return source.contains("@Test") || source.contains("@ParameterizedTest") || source.contains("@RepeatedTest");
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

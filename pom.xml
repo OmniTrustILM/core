@@ -489,9 +489,9 @@
             </build>
         </profile>
 
-        <!-- Run all tests except service/** (used by CI test-rest job) -->
+        <!-- Run all tests except service/** (used by CI test-non-services job) -->
         <profile>
-            <id>test-rest</id>
+            <id>test-non-services</id>
             <build>
                 <plugins>
                     <plugin>
