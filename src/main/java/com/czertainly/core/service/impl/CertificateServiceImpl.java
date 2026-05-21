@@ -875,7 +875,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         for (int i = startIdx; i < contents.size(); i++) {
             chain.add(CertificateUtil.parseCertificate(contents.get(i)));
         }
-        return chain;
+        return Collections.unmodifiableList(chain);
     }
 
     private boolean completeCertificateChain(Certificate lastCertificate, List<Certificate> certificateChain) {

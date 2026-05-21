@@ -20,13 +20,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * is acceptable because the cache is small and cheap to repopulate.
  *
  * <p>When a transaction is active, eviction is deferred to {@code afterCommit}, so a rollback leaves
- * the cache intact.
+ * the cache intact. At most one {@link CacheEvictionSync} is registered per transaction, so bulk
+ * operations that trigger multiple mutations still result in a single {@code cache.clear()} call.
  */
 @Component
 public class CertificateChainCacheEvictor {
 
-    @Autowired
     private CacheManager cacheManager;
+
+    @Autowired
+    public void setCacheManager(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
 
     /**
      * Invalidates the certificate-chain cache. Safe to call inside or outside a transaction.
@@ -35,13 +40,25 @@ public class CertificateChainCacheEvictor {
         Cache cache = cacheManager.getCache(CacheConfig.CERTIFICATE_CHAIN_CACHE);
         if (cache == null) return;
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.clear();
-                }
-            });
+            boolean alreadyPending = TransactionSynchronizationManager.getSynchronizations()
+                    .stream().anyMatch(s -> s instanceof CacheEvictionSync);
+            if (!alreadyPending) {
+                TransactionSynchronizationManager.registerSynchronization(new CacheEvictionSync(cache));
+            }
         } else {
+            cache.clear();
+        }
+    }
+
+    private static final class CacheEvictionSync implements TransactionSynchronization {
+        private final Cache cache;
+
+        CacheEvictionSync(Cache cache) {
+            this.cache = cache;
+        }
+
+        @Override
+        public void afterCommit() {
             cache.clear();
         }
     }

@@ -19,8 +19,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class CertificateRepositoryCacheEvictionAspect {
 
-    @Autowired
     private CertificateChainCacheEvictor certChainCacheEvictor;
+
+    @Autowired
+    public void setCertChainCacheEvictor(CertificateChainCacheEvictor certChainCacheEvictor) {
+        this.certChainCacheEvictor = certChainCacheEvictor;
+    }
 
     @Pointcut("bean(certificateRepository) && (execution(* save*(..)) || execution(* delete*(..)) || execution(* insert*(..)))")
     private void certificateMutation() {}

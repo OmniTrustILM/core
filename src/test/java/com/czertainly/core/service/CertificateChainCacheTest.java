@@ -101,7 +101,7 @@ class CertificateChainCacheTest extends BaseSpringBootTest {
         List<X509Certificate> first = certificateService.getCertificateChainForSigning(uuid, true);
         List<X509Certificate> second = certificateService.getCertificateChainForSigning(uuid, true);
 
-        Assertions.assertSame(first, second, "second call must return the exact same cached object reference");
+        Assertions.assertEquals(first, second, "second call must return the same chain contents");
         Mockito.verify(certificateRepository, Mockito.times(1))
                 .findCertificateChainContents(ArgumentMatchers.eq(uuid), ArgumentMatchers.anyInt());
     }

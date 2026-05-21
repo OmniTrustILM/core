@@ -164,7 +164,7 @@ public class CertificateChainParityTest extends BaseSpringBootTest {
      * Uses createCertificateEntity to build the entity (bypasses AIA fetch and FK-update triggers),
      * then sets issuerCertificateUuid manually before saving.
      */
-    private Certificate persistCert(X509Certificate x509, Certificate issuer) throws Exception {
+    private Certificate persistCert(X509Certificate x509, Certificate issuer) {
         Certificate cert = certificateService.createCertificateEntity(x509);
         if (issuer != null) {
             cert.setIssuerCertificateUuid(issuer.getUuid());
