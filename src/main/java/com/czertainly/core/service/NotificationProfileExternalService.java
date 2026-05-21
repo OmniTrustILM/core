@@ -9,9 +9,9 @@ import com.czertainly.api.model.client.notification.NotificationProfileUpdateReq
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 
-public interface NotificationProfileService {
+public interface NotificationProfileExternalService {
 
-    NotificationProfileResponseDto listNotificationProfiles(final PaginationRequestDto paginationRequestDto);
+    NotificationProfileResponseDto listNotificationProfiles(PaginationRequestDto paginationRequestDto);
 
     NotificationProfileDetailDto getNotificationProfile(SecuredUUID uuid, Integer version) throws NotFoundException;
 
@@ -20,5 +20,4 @@ public interface NotificationProfileService {
     NotificationProfileDetailDto createNotificationProfile(NotificationProfileRequestDto requestDto) throws AlreadyExistException, NotFoundException;
 
     NotificationProfileDetailDto editNotificationProfile(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto) throws NotFoundException;
-
 }

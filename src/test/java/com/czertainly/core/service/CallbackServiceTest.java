@@ -45,7 +45,7 @@ class CallbackServiceTest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
 
     @Autowired
-    private CallbackService callbackService;
+    private CallbackExternalService callbackService;
 
     @Autowired
     private CertificateRepository certificateRepository;
