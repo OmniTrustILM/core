@@ -11,11 +11,9 @@ import com.czertainly.api.model.core.workflows.ObjectEventHistoryDto;
 
 import java.util.UUID;
 
-
-public interface EventService {
+public interface EventExternalService {
 
     PaginationResponseDto<ObjectEventHistoryDto> getEventHistory(Resource resource, UUID uuid, PaginationRequestDto pagination) throws NotFoundException;
 
     PaginationResponseDto<EventHistoryDto> getEventHistory(ResourceEvent event, Resource resource, UUID uuid, EventHistoryRequestDto request) throws NotFoundException;
-
 }

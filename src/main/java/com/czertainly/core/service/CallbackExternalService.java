@@ -10,7 +10,7 @@ import com.czertainly.api.model.core.connector.FunctionGroupCode;
 
 import java.util.UUID;
 
-public interface CallbackService {
+public interface CallbackExternalService {
 
     /**
      * Function to execute the callback on the connector. This method executes the callback only for the attributes

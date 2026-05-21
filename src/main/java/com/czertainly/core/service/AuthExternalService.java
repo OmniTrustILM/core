@@ -9,7 +9,8 @@ import com.czertainly.api.model.core.auth.UserProfileDetailDto;
 import java.security.cert.CertificateException;
 import java.util.List;
 
-public interface AuthService {
+public interface AuthExternalService {
+
     UserProfileDetailDto getAuthProfile();
 
     List<AuthResourceDto> getAuthResources();

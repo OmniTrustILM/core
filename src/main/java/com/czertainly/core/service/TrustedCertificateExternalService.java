@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * Service for managing trusted certificates via the external provisioning API.
  */
-public interface TrustedCertificateService {
+public interface TrustedCertificateExternalService {
 
     /**
      * Lists all trusted certificates.
@@ -43,5 +43,4 @@ public interface TrustedCertificateService {
      * @throws NotFoundException if certificate not found
      */
     void deleteTrustedCertificate(SecuredUUID uuid) throws NotFoundException;
-
 }

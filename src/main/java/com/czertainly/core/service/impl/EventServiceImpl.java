@@ -16,7 +16,7 @@ import com.czertainly.core.mapper.workflows.EventHistoryMapper;
 import com.czertainly.core.mapper.workflows.PaginationResponseMapper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.service.EventService;
+import com.czertainly.core.service.EventExternalService;
 import com.czertainly.core.service.ResourceService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +28,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-public class EventServiceImpl implements EventService {
+public class EventServiceImpl implements EventExternalService {
 
     private ResourceService resourceService;
 
@@ -53,6 +53,7 @@ public class EventServiceImpl implements EventService {
 
     @Override
     @Transactional
+    @ExternalAuthorization(resource = Resource.RESOURCE_EVENT, action = ResourceAction.DETAIL)
     public PaginationResponseDto<ObjectEventHistoryDto> getEventHistory(Resource resource, UUID uuid, PaginationRequestDto pagination) throws NotFoundException {
         // Check if object is present for the given resource and uuid and if user has permissions for details of the object
         resourceService.getResourceObject(resource, uuid);

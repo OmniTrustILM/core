@@ -12,7 +12,8 @@ import com.czertainly.api.model.core.notification.NotificationInstanceUpdateRequ
 import java.util.List;
 import java.util.UUID;
 
-public interface NotificationInstanceService {
+public interface NotificationInstanceExternalService {
+
     List<NotificationInstanceDto> listNotificationInstances();
 
     NotificationInstanceDto getNotificationInstance(UUID uuid) throws ConnectorException, NotFoundException;
