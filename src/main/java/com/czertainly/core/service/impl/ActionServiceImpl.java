@@ -107,7 +107,7 @@ public class ActionServiceImpl implements ActionService {
             throw new ValidationException("Cannot create an execution without any execution items.");
         }
 
-        if (executionRepository.existsByName(request.getName())) {
+        if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
             throw new AlreadyExistException("Execution with same name already exists.");
         }
 
@@ -261,7 +261,7 @@ public class ActionServiceImpl implements ActionService {
         if (request.getExecutionsUuids().isEmpty()) {
             throw new ValidationException("Action has to contain at least one execution.");
         }
-        if (actionRepository.existsByName(request.getName())) {
+        if (actionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(actionUuid))) {
             throw new AlreadyExistException("Action with same name already exists.");
         }
 
@@ -280,6 +280,7 @@ public class ActionServiceImpl implements ActionService {
             executions.add(execution);
         }
 
+        action.setName(request.getName());
         action.setDescription(request.getDescription());
         action.setExecutions(executions);
 

@@ -103,8 +103,14 @@ public class TriggerServiceImpl implements TriggerService {
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.CREATE)
     public TriggerDetailDto createTrigger(TriggerRequestDto request) throws AlreadyExistException, NotFoundException {
+        if (request.getName() == null) {
+            throw new ValidationException("Property name cannot be empty.");
+        }
+        validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
 
-        validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids(), request.getName());
+        if (triggerRepository.existsByName(request.getName())) {
+            throw new AlreadyExistException("Trigger with same name already exists.");
+        }
 
         Trigger trigger = new Trigger();
 
@@ -124,7 +130,11 @@ public class TriggerServiceImpl implements TriggerService {
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.UPDATE)
     public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
-        validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids(), request.getName());
+        validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
+
+        if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
+            throw new AlreadyExistException("Trigger with same name already exists.");
+        }
 
         Trigger trigger = triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
 
@@ -402,7 +412,7 @@ public class TriggerServiceImpl implements TriggerService {
 
     //endregion
 
-    private void validateTriggerRequest(TriggerType type, ResourceEvent event, boolean ignoreTrigger, Resource resource, List<String> actionsUuids, String name) throws AlreadyExistException {
+    private void validateTriggerRequest(TriggerType type, ResourceEvent event, boolean ignoreTrigger, Resource resource, List<String> actionsUuids) {
         if (resource == null || resource == Resource.ANY || resource == Resource.NONE) {
             throw new ValidationException("Property resource cannot be empty or None/Any");
         }
@@ -424,10 +434,6 @@ public class TriggerServiceImpl implements TriggerService {
             if (!actionsUuids.isEmpty()) {
                 throw new ValidationException("Trigger that is ignore trigger cannot have actions.");
             }
-        }
-
-        if (triggerRepository.existsByName(name)) {
-            throw new AlreadyExistException("Trigger with same name already exists.");
         }
     }
 }

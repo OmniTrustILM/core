@@ -99,7 +99,7 @@ public class RuleServiceImpl implements RuleService {
         if (request.getItems().isEmpty()) {
             throw new ValidationException("Cannot update a condition without any condition items.");
         }
-        if (conditionRepository.existsByName(request.getName())) {
+        if (conditionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(conditionUuid))) {
             throw new AlreadyExistException("Condition with same name already exists.");
         }
 
@@ -212,7 +212,7 @@ public class RuleServiceImpl implements RuleService {
             throw new ValidationException("Rule has to contain at least one condition.");
         }
 
-        if (ruleRepository.existsByName(request.getName())) {
+        if (ruleRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(ruleUuid))) {
             throw new AlreadyExistException("Rule with same name already exists.");
         }
 
