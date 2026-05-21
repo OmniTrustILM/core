@@ -62,6 +62,33 @@
       "arguments": {
         "x-queue-type": "classic"
       }
+    },
+    {
+      "name": "time-quality.config",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "time-quality.config-request",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "time-quality.results",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
     }
   ],
   "exchanges": [
@@ -139,6 +166,30 @@
       "destination": "core",
       "destination_type": "queue",
       "routing_key": "#",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "time-quality.config",
+      "destination_type": "queue",
+      "routing_key": "time-quality.config",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "time-quality.config-request",
+      "destination_type": "queue",
+      "routing_key": "time-quality.config-request",
+      "arguments": {}
+    },
+    {
+      "source": "czertainly",
+      "vhost": "/",
+      "destination": "time-quality.results",
+      "destination_type": "queue",
+      "routing_key": "time-quality.results",
       "arguments": {}
     }
   ]

@@ -25,13 +25,7 @@ import static org.awaitility.Awaitility.await;
  *
  * <p>Kept separate from {@link JmsListenerIntegrationTest} because that class mocks
  * {@code EventListener} at the bean level, which prevents the real handler chain from running.</p>
- *
- * <p>{@code @DirtiesContext(BEFORE_CLASS)} ensures a fresh Spring context is created for this class
- * even when running in a full test suite. Without it, if {@link JmsListenerIntegrationTest} runs
- * first, the shared RabbitMQ container is stopped after that class and restarted on a new port,
- * but a stale cached context still points to the old port.</p>
  */
-@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_CLASS)
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
 class CertificateUploadMessagingIntTest extends BaseMessagingIntTest {
 
