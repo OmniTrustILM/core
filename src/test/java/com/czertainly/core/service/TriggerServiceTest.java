@@ -41,7 +41,7 @@ class TriggerServiceTest extends BaseSpringBootTest {
     private TriggerService triggerService;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     private CustomAttributeV3 domainAttr;
     private NotificationProfileDetailDto notificationProfile;

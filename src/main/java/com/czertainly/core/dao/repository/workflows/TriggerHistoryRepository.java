@@ -49,8 +49,8 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
                        + CASE WHEN bool_or(t.conditions_matched AND t.object_uuid IS NULL) THEN 1 ELSE 0 END,
                    COUNT(DISTINCT CASE WHEN t.conditions_matched AND tr.ignore_trigger THEN t.object_uuid END)
                        + CASE WHEN bool_or(t.conditions_matched AND tr.ignore_trigger AND t.object_uuid IS NULL) THEN 1 ELSE 0 END
-            FROM trigger_history t
-            LEFT JOIN trigger tr ON t.trigger_uuid = tr.uuid
+            FROM {h-schema}trigger_history t
+            LEFT JOIN {h-schema}trigger tr ON t.trigger_uuid = tr.uuid
             WHERE t.event_history_uuid IN :uuids
             GROUP BY t.event_history_uuid
             """, nativeQuery = true)
@@ -69,7 +69,7 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
                     ROW_NUMBER() OVER (PARTITION BY event_history_uuid ORDER BY object_uuid) AS rn
                 FROM (
                     SELECT DISTINCT event_history_uuid, object_uuid
-                    FROM trigger_history
+                    FROM {h-schema}trigger_history
                     WHERE event_history_uuid IN :uuids
                 ) distinct_pairs
             ) ranked

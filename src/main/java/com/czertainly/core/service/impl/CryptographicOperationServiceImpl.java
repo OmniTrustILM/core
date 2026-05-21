@@ -2,6 +2,7 @@ package com.czertainly.core.service.impl;
 
 import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
+import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.cryptography.operations.*;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
@@ -22,10 +23,12 @@ import com.czertainly.core.dao.entity.TokenInstanceReference;
 import com.czertainly.core.dao.repository.CryptographicKeyItemRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyRepository;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.CryptographicKeyEventHistoryService;
+import com.czertainly.core.service.CryptographicKeyService;
 import com.czertainly.core.service.CryptographicOperationService;
 import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.TokenInstanceService;
@@ -54,7 +57,6 @@ import java.security.spec.InvalidKeySpecException;
 import java.util.*;
 
 @Service
-@Transactional
 public class CryptographicOperationServiceImpl implements CryptographicOperationService {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicOperationServiceImpl.class);
@@ -67,6 +69,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
     private PermissionEvaluator permissionEvaluator;
+    private CryptographicKeyService cryptographicKeyService;
 
     // --------------------------------------------------------------------------------
     // Repositories
@@ -111,12 +114,18 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
     }
 
+    @Autowired
+    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+        this.cryptographicKeyService = cryptographicKeyService;
+    }
+
     // ----------------------------------------------------------------------------------------------
     // Service Implementations
     // ----------------------------------------------------------------------------------------------
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Requesting to list cipher attributes for Key: {} and Algorithm {}", keyItemUuid, keyAlgorithm);
@@ -127,16 +136,17 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENCRYPT, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
-        CryptographicKeyItem key = getKeyItemEntityWithConnector(keyItemUuid);
-        verifyKeyActive(key);
+        CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
-        if (!key.getUsage().contains(KeyUsage.ENCRYPT)) {
+        if (!key.usage().contains(KeyUsage.ENCRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support encryption"
@@ -154,15 +164,16 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         requestDto.setCipherAttributes(request.getCipherAttributes());
         logger.debug("Request to the connector: {}", requestDto);
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.getKey().getTokenProfile().getTokenInstanceReference().getConnectorUuid());
-            com.czertainly.api.model.connector.cryptography.operations.EncryptDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).encryptData(
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
+            CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+            com.czertainly.api.model.connector.cryptography.operations.EncryptDataResponseDto response = apiClient.encryptData(
                     connectorDto,
-                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
-                    key.getKeyReferenceUuid().toString(),
+                    key.tokenInstanceUuid().toString(),
+                    key.keyReferenceUuid().toString(),
                     requestDto
             );
             eventHistoryService.addEventHistory(KeyEvent.ENCRYPT, KeyEventStatus.SUCCESS,
-                    "Encryption of data success ", null, key);
+                    "Encryption of data success ", null, key.keyItemUuid());
             EncryptDataResponseDto responseDto = new EncryptDataResponseDto();
             if (response.getEncryptedData() != null)
                 responseDto.setEncryptedData(response.getEncryptedData().stream().map(e -> {
@@ -175,23 +186,24 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
             return responseDto;
         } catch (Exception e) {
             eventHistoryService.addEventHistory(KeyEvent.ENCRYPT, KeyEventStatus.FAILED,
-                    "Encryption of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key);
+                    "Encryption of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key.keyItemUuid());
             throw e;
         }
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DECRYPT, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
-        CryptographicKeyItem key = getKeyItemEntityWithConnector(keyItemUuid);
-        verifyKeyActive(key);
+        CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
-        if (!key.getUsage().contains(KeyUsage.DECRYPT)) {
+        if (!key.usage().contains(KeyUsage.DECRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support decryption"
@@ -209,14 +221,15 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         requestDto.setCipherAttributes(request.getCipherAttributes());
         logger.debug("Request to the connector: {}", requestDto);
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.getKey().getTokenProfile().getTokenInstanceReference().getConnectorUuid());
-            com.czertainly.api.model.connector.cryptography.operations.DecryptDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).decryptData(
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
+            CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+            com.czertainly.api.model.connector.cryptography.operations.DecryptDataResponseDto response = apiClient.decryptData(
                     connectorDto,
-                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
-                    key.getKeyReferenceUuid().toString(),
+                    key.tokenInstanceUuid().toString(),
+                    key.keyReferenceUuid().toString(),
                     requestDto);
             eventHistoryService.addEventHistory(KeyEvent.DECRYPT, KeyEventStatus.SUCCESS,
-                    "Decryption of data success ", null, key);
+                    "Decryption of data success ", null, key.keyItemUuid());
             DecryptDataResponseDto responseDto = new DecryptDataResponseDto();
             if (response.getDecryptedData() != null)
                 responseDto.setDecryptedData(response.getDecryptedData().stream().map(e -> {
@@ -229,13 +242,14 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
             return responseDto;
         } catch (Exception e) {
             eventHistoryService.addEventHistory(KeyEvent.DECRYPT, KeyEventStatus.FAILED,
-                    "Decryption of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key);
+                    "Decryption of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key.keyItemUuid());
             throw e;
         }
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Requesting to list the Signature Attributes for key: {} and Algorithm: {}", keyItemUuid, keyAlgorithm);
@@ -246,23 +260,41 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Signing the data: {} using the key: {}", request, keyItemUuid);
-        CryptographicKeyItem key = getKeyItemEntityWithConnector(keyItemUuid);
-        verifyKeyActive(key);
+        CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
+        try {
+            SignDataResponseDto response = executeSignData(key, request);
+            eventHistoryService.addEventHistory(KeyEvent.SIGN, KeyEventStatus.SUCCESS, "Signing data success ", null, key.keyItemUuid());
+            return response;
+        } catch (Exception e) {
+            eventHistoryService.addEventHistory(KeyEvent.SIGN, KeyEventStatus.FAILED,
+                    "Signing of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key.keyItemUuid());
+            throw e;
+        }
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
+        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        logger.info("Signing the data (no event history): {} using the key: {}", request, keyItemUuid);
+        CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
+        return executeSignData(key, request);
+    }
+
+    private SignDataResponseDto executeSignData(CryptographicKeyItemModel key, SignDataRequestDto request) throws ConnectorException, NotFoundException {
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
-        if (!key.getUsage().contains(KeyUsage.SIGN)) {
-            throw new ValidationException(
-                    ValidationError.create(
-                            "Key Usage of the certificate does not support signing"
-                    )
-            );
+        if (!key.usage().contains(KeyUsage.SIGN)) {
+            throw new ValidationException(ValidationError.create("Key Usage of the certificate does not support signing"));
         }
-        validateSignatureAttributes(key.getKeyAlgorithm(), request.getSignatureAttributes());
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
         com.czertainly.api.model.connector.cryptography.operations.SignDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.SignDataRequestDto();
         requestDto.setSignatureAttributes(request.getSignatureAttributes());
         requestDto.setData(request.getData().stream().map(e -> {
@@ -273,45 +305,39 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
                 }).toList()
         );
         logger.debug("Request to the connector: {}", requestDto);
-        try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.getKey().getTokenProfile().getTokenInstanceReference().getConnectorUuid());
-            com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).signData(
-                    connectorDto,
-                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
-                    key.getKeyReferenceUuid().toString(),
-                    requestDto
-            );
-            eventHistoryService.addEventHistory(KeyEvent.SIGN, KeyEventStatus.SUCCESS,
-                    "Signing data success ", null, key);
-            SignDataResponseDto responseDto = new SignDataResponseDto();
-            if (response.getSignatures() != null) responseDto.setSignatures(response.getSignatures().stream().map(e -> {
-                SignatureResponseData signatureResponseData = new SignatureResponseData();
-                signatureResponseData.setData(byteArrayToBase64Encoded(e.getData()));
-                signatureResponseData.setIdentifier(e.getIdentifier());
-                signatureResponseData.setDetails(e.getDetails());
-                return signatureResponseData;
-            }).toList());
-            return responseDto;
-        } catch (Exception e) {
-            eventHistoryService.addEventHistory(KeyEvent.SIGN, KeyEventStatus.FAILED,
-                    "Signing of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key);
-            throw e;
-        }
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
+        CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+        com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto response = apiClient.signData(
+                connectorDto,
+                key.tokenInstanceUuid().toString(),
+                key.keyReferenceUuid().toString(),
+                requestDto
+        );
+        SignDataResponseDto responseDto = new SignDataResponseDto();
+        if (response.getSignatures() != null) responseDto.setSignatures(response.getSignatures().stream().map(e -> {
+            SignatureResponseData signatureResponseData = new SignatureResponseData();
+            signatureResponseData.setData(byteArrayToBase64Encoded(e.getData()));
+            signatureResponseData.setIdentifier(e.getIdentifier());
+            signatureResponseData.setDetails(e.getDetails());
+            return signatureResponseData;
+        }).toList());
+        return responseDto;
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.VERIFY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional
     public VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, VerifyDataRequestDto request) throws ConnectorException, NotFoundException {
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
-        CryptographicKeyItem key = getKeyItemEntityWithConnector(keyItemUuid);
-        verifyKeyActive(key);
+        CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
+        verifyActive(key.state(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
-        validateSignatureAttributes(key.getKeyAlgorithm(), request.getSignatureAttributes());
-        if (!key.getUsage().contains(KeyUsage.VERIFY)) {
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
+        if (!key.usage().contains(KeyUsage.VERIFY)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support verification"
@@ -336,15 +362,16 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         );
         logger.debug("Request to the connector: {}", requestDto);
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.getKey().getTokenProfile().getTokenInstanceReference().getConnectorUuid());
-            com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).verifyData(
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
+            CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
+            com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto response = apiClient.verifyData(
                     connectorDto,
-                    key.getKey().getTokenProfile().getTokenInstanceReference().getTokenInstanceUuid(),
-                    key.getKeyReferenceUuid().toString(),
+                    key.tokenInstanceUuid().toString(),
+                    key.keyReferenceUuid().toString(),
                     requestDto
             );
             eventHistoryService.addEventHistory(KeyEvent.VERIFY, KeyEventStatus.SUCCESS,
-                    "Verification of data completed ", null, key);
+                    "Verification of data completed ", null, key.keyItemUuid());
             VerifyDataResponseDto responseDto = new VerifyDataResponseDto();
             if (response.getVerifications() != null)
                 responseDto.setVerifications(response.getVerifications().stream().map(e -> {
@@ -357,13 +384,14 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
             return responseDto;
         } catch (Exception e) {
             eventHistoryService.addEventHistory(KeyEvent.VERIFY, KeyEventStatus.FAILED,
-                    "Verification of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key);
+                    "Verification of data failed ", Collections.singletonMap("exception", e.getLocalizedMessage()), key.keyItemUuid());
             throw e;
         }
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.TOKEN, action = ResourceAction.ANY)
+    @Transactional
     public List<BaseAttribute> listRandomAttributes(SecuredUUID tokenInstanceUuid) throws ConnectorException, NotFoundException {
         logger.info("Requesting attributes for random generation for token Instance: {}", tokenInstanceUuid);
         TokenInstanceReference tokenInstanceReference = tokenInstanceService.getTokenInstanceEntity(tokenInstanceUuid);
@@ -377,6 +405,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
 
     @Override
     @ExternalAuthorization(resource = Resource.TOKEN, action = ResourceAction.DETAIL)
+    @Transactional
     public RandomDataResponseDto randomData(SecuredUUID tokenInstanceUuid, RandomDataRequestDto request) throws ConnectorException, NotFoundException {
         logger.info("Requesting attributes for random generation for token Instance: {}", tokenInstanceUuid);
         TokenInstanceReference tokenInstanceReference = tokenInstanceService.getTokenInstanceEntity(tokenInstanceUuid);
@@ -397,6 +426,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Override
+    @Transactional
     public String generateCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
                               UUID altTokenProfileUuid,
                               List<RequestAttribute> altSignatureAttributes) throws NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException, IOException, AttributeException {
@@ -474,14 +504,14 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
                     )
             );
         }
-        verifyKeyActive(privateKeyItem);
-        verifyKeyActive(publicKeyItem);
+        verifyActive(privateKeyItem.getState(), privateKeyItem.isEnabled());
+        verifyActive(publicKeyItem.getState(), publicKeyItem.isEnabled());
 
         return Map.of(KeyType.PUBLIC_KEY, publicKeyItem, KeyType.PRIVATE_KEY, privateKeyItem);
     }
 
-    private void verifyKeyActive(CryptographicKeyItem keyItem) {
-        if (keyItem.getState() != KeyState.ACTIVE || !keyItem.isEnabled()) {
+    private static void verifyActive(KeyState state, boolean enabled) {
+        if (state != KeyState.ACTIVE || !enabled) {
             throw new ValidationException(ValidationError.create("Key needs to be " + KeyState.ACTIVE.getLabel() + " and enabled."));
         }
     }
@@ -491,28 +521,6 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         CryptographicKeyItem key = cryptographicKeyItemRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, uuid));
-        logger.debug("Key Instance: {}", key);
-        return key;
-    }
-
-    private CryptographicKeyItem getKeyItemEntityWithConnector(UUID uuid) throws NotFoundException {
-        logger.debug("UUID of the key to get the entity with connector: {}", uuid);
-        CryptographicKeyItem key = cryptographicKeyItemRepository
-                .findWithConnectorByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, uuid));
-
-        if (key.getKey() == null) {
-            throw new NotFoundException("Cryptographic Key associated with the Key Item is not found");
-        }
-        if (key.getKey().getTokenProfile() == null) {
-            throw new NotFoundException("Token Profile associated with the Key is not found");
-        }
-        if (key.getKey().getTokenProfile().getTokenInstanceReference() == null) {
-            throw new NotFoundException("Token Instance associated with the Key is not found");
-        }
-        if (key.getKey().getTokenProfile().getTokenInstanceReference().getConnector() == null) {
-            throw new NotFoundException("Connector associated to the Key is not found");
-        }
         logger.debug("Key Instance: {}", key);
         return key;
     }
@@ -568,7 +576,8 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         return CertificateRequestUtils.byteArrayCsrToString(csr.getEncoded());
     }
 
-    private List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) {
+    @Override
+    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) {
         // we need to list based on the key algorithm
         switch (keyAlgorithm) {
             case RSA -> {

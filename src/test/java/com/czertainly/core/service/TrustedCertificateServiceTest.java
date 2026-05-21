@@ -55,7 +55,7 @@ class TrustedCertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private TrustedCertificateService trustedCertificateService;
+    private TrustedCertificateExternalService trustedCertificateService;
 
     @Test
     void testListTrustedCertificates_success() {

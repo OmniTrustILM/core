@@ -25,6 +25,7 @@ import com.czertainly.core.dao.repository.EntityInstanceReferenceRepository;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
@@ -42,7 +43,7 @@ import java.util.*;
 
 @Service
 @Transactional
-public class CallbackServiceImpl implements CallbackService {
+public class CallbackServiceImpl implements CallbackExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CallbackServiceImpl.class);
 
@@ -201,6 +202,7 @@ public class CallbackServiceImpl implements CallbackService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public Object resourceCallback(Resource resource, String resourceUuid, RequestAttributeCallback callback) throws ConnectorException, ValidationException, NotFoundException, AttributeException {
         List<BaseAttribute> definitions = null;
         Connector connector = null;
