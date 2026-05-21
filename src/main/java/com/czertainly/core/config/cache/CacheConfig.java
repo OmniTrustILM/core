@@ -15,28 +15,31 @@ import java.util.concurrent.TimeUnit;
 
 @Configuration
 @EnableCaching(order = Ordered.HIGHEST_PRECEDENCE)
-@EnableConfigurationProperties({AuthCacheProperties.class, ConnectorApiClientCacheProperties.class})
+@EnableConfigurationProperties({
+        AuthCacheProperties.class,
+        ConnectorApiClientCacheProperties.class,
+        CryptographicKeyItemCacheProperties.class,
+})
 public class CacheConfig {
 
+    public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
+    public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
     public static final String USER_UUID_AUTH_CACHE = "userUuidAuth";
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String TOKEN_AUTH_CACHE = "tokenAuth";
-    public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
 
     @Bean
-    public CacheManager cacheManager(
-            AuthCacheProperties authCacheProperties,
-            ConnectorApiClientCacheProperties connectorCacheProperties,
-            TokenJtiIndex tokenJtiIndex,
-            UserCertificateIndex userCertificateIndex) {
-
+    public CacheManager cacheManager(AuthCacheProperties authCacheProperties,
+                                     ConnectorApiClientCacheProperties connectorCacheProperties,
+                                     CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
+                                     TokenJtiIndex tokenJtiIndex,
+                                     UserCertificateIndex userCertificateIndex) {
         CaffeineCacheManager mgr = new CaffeineCacheManager(SYSTEM_USER_AUTH_CACHE, USER_UUID_AUTH_CACHE);
         mgr.setCaffeine(Caffeine.newBuilder()
                 .expireAfterWrite(authCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(authCacheProperties.maxSize())
                 .recordStats());
-
         mgr.registerCustomCache(CERTIFICATE_AUTH_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(authCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(authCacheProperties.maxSize())
@@ -53,6 +56,12 @@ public class CacheConfig {
         mgr.registerCustomCache(CONNECTOR_API_CLIENT_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(connectorCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(connectorCacheProperties.maxSize())
+                .recordStats()
+                .build());
+
+        mgr.registerCustomCache(CRYPTOGRAPHIC_KEY_ITEM_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(cryptographicKeyItemCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(cryptographicKeyItemCacheProperties.maxSize())
                 .recordStats()
                 .build());
 

@@ -65,9 +65,8 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
 
     @EntityGraph(attributePaths = {
             "key",
-            "key.tokenProfile",
-            "key.tokenProfile.tokenInstanceReference",
-            "key.tokenProfile.tokenInstanceReference.connector"
+            "key.tokenInstanceReference",
+            "key.tokenInstanceReference.connector"
     })
     Optional<CryptographicKeyItem> findWithConnectorByUuid(UUID uuid);
 }
