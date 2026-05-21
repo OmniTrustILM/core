@@ -149,7 +149,7 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Autowired
     private NotificationListener notificationListener;
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
     @Autowired
     private PendingNotificationRepository pendingNotificationRepository;
     @Autowired

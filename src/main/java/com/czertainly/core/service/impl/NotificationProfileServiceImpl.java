@@ -17,7 +17,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.NotificationProfileService;
+import com.czertainly.core.service.NotificationProfileExternalService;
 import com.czertainly.core.service.ResourceObjectAssociationService;
 import com.czertainly.core.util.RequestValidatorHelper;
 import org.slf4j.Logger;
@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class NotificationProfileServiceImpl implements NotificationProfileService {
+public class NotificationProfileServiceImpl implements NotificationProfileExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationProfileServiceImpl.class);
 
