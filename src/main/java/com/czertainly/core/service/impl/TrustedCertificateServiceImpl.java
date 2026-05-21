@@ -11,7 +11,7 @@ import com.czertainly.core.provisioning.TrustedCertificateProvisioningDTO;
 import com.czertainly.core.provisioning.TrustedCertificateProvisioningRequestDTO;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.TrustedCertificateService;
+import com.czertainly.core.service.TrustedCertificateExternalService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -22,13 +22,13 @@ import org.springframework.web.client.HttpClientErrorException;
 import java.util.List;
 
 /**
- * Implementation of {@link TrustedCertificateService} for managing trusted certificates
+ * Implementation of {@link TrustedCertificateExternalService} for managing trusted certificates
  * via the external provisioning API.
  */
 @Service(Resource.Codes.TRUSTED_CERTIFICATE)
 @Transactional
 @RequiredArgsConstructor
-public class TrustedCertificateServiceImpl implements TrustedCertificateService {
+public class TrustedCertificateServiceImpl implements TrustedCertificateExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TrustedCertificateServiceImpl.class);
 

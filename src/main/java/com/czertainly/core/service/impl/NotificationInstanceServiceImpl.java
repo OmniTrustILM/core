@@ -24,10 +24,11 @@ import com.czertainly.core.dao.repository.notifications.NotificationInstanceRefe
 import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.NotificationInstanceService;
+import com.czertainly.core.service.NotificationInstanceExternalService;
 import com.czertainly.core.service.ResourceService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
@@ -42,7 +43,7 @@ import java.util.UUID;
 
 @Service
 @Transactional
-public class NotificationInstanceServiceImpl implements NotificationInstanceService {
+public class NotificationInstanceServiceImpl implements NotificationInstanceExternalService {
     private static final Logger logger = LoggerFactory.getLogger(NotificationInstanceServiceImpl.class);
 
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
@@ -211,6 +212,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceServ
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<DataAttribute> listMappingAttributes(String connectorUuid, String kind) throws ConnectorException, NotFoundException {
         ConnectorDto connector = connectorService.getConnector(SecuredUUID.fromString(connectorUuid));
         return connectorApiFactory.getNotificationInstanceApiClient(connector).listMappingAttributes(connector, kind);

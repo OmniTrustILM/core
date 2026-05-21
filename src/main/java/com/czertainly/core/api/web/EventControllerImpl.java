@@ -13,7 +13,7 @@ import com.czertainly.api.model.core.workflows.EventHistoryRequestDto;
 import com.czertainly.api.model.core.workflows.ObjectEventHistoryDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.EventService;
+import com.czertainly.core.service.EventExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import com.czertainly.core.util.converter.ResourceEventCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,10 +32,10 @@ public class EventControllerImpl implements EventController {
         webdataBinder.registerCustomEditor(ResourceEvent.class, new ResourceEventCodeConverter());
     }
 
-    private EventService eventService;
+    private EventExternalService eventService;
 
     @Autowired
-    public void setEventService(EventService eventService) {
+    public void setEventService(EventExternalService eventService) {
         this.eventService = eventService;
     }
 
