@@ -15,7 +15,7 @@ import com.czertainly.core.dao.repository.SettingRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.service.SettingService;
-import com.czertainly.core.service.TriggerInternalService;
+import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.util.SecretEncodingVersion;
 import com.czertainly.core.util.SecretsUtil;
 import com.czertainly.core.settings.SettingsCache;
@@ -59,7 +59,7 @@ public class SettingServiceImpl implements SettingService {
     private final SettingsCache settingsCache;
     private final SettingRepository settingRepository;
 
-    private TriggerInternalService triggerService;
+    private TriggerExternalService triggerService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -71,7 +71,7 @@ public class SettingServiceImpl implements SettingService {
     }
 
     @Autowired
-    public void setTriggerService(TriggerInternalService triggerService) {
+    public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
     }
 

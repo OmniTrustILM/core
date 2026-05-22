@@ -1,21 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.entity.workflows.TriggerAssociation;
 import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.entity.workflows.TriggerHistoryRecord;
 
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 public interface TriggerInternalService {
-
-    Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid);
-    void createTriggerAssociations(ResourceEvent event, Resource resource, UUID associationObjectUuid, List<UUID> triggerUuids, boolean replace) throws NotFoundException;
 
     void deleteTriggerAssociations(Resource resource, UUID associationObjectUuid);
 
