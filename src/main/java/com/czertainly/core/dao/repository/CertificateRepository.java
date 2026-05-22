@@ -190,6 +190,41 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @Query("UPDATE Certificate c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
 
+    /**
+     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
+     * refreshing {@code i_upd} explicitly because targeted UPDATE bypasses JPA dirty checking
+     * (and therefore the {@code @UpdateTimestamp} listener).
+     *
+     * <p>AUDIT-BYPASS: i_upd refreshed in SQL; i_author intentionally not changed (system transition).</p>
+     *
+     * <p>Carries no {@code @Transactional} — call sites must invoke this through a {@code *Writer} bean
+     * whose method carries the transactional boundary. See
+     * {@code com.czertainly.core.service.writer.CertificateChainWriter}.</p>
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateIssuerReference(@Param("uuid") UUID uuid,
+                               @Param("serial") String serial,
+                               @Param("issuerUuid") UUID issuerUuid);
+
+    /**
+     * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.
+     * Used by the chain orchestrator when a dangling FK is detected.
+     *
+     * <p>AUDIT-BYPASS: i_upd refreshed in SQL; i_author intentionally not changed (system transition).</p>
+     *
+     * <p>Carries no {@code @Transactional} — see {@link #updateIssuerReference}.</p>
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = NULL, c.issuerCertificateUuid = NULL, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void clearIssuerReference(@Param("uuid") UUID uuid);
+
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}certificate (
