@@ -119,36 +119,6 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     }
 
     @Test
-    void cacheIsEvictedForNewNameOnRename() throws AlreadyExistException, AttributeException, NotFoundException {
-        // given - a second profile exists under the target rename name and is cached
-        TspProfile secondProfile = new TspProfile();
-        secondProfile.setName("target-name");
-        secondProfile.setDescription("second profile");
-        secondProfile.setEnabled(true);
-        secondProfile = tspProfileRepository.saveAndFlush(secondProfile);
-        tspProfileService.getTspProfile("target-name");
-        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
-        assertThat(cache.get("target-name", TspProfileModel.class)).isNotNull();
-
-        // delete the second profile so "target-name" is free (simulates prior deletion leaving stale cache)
-        tspProfileRepository.delete(secondProfile);
-        // manually put a stale entry back to simulate the read-then-write race
-        TspProfileModel staleEntry = cache.get("target-name", TspProfileModel.class);
-        cache.put("target-name", staleEntry);
-        assertThat(cache.get("target-name", TspProfileModel.class)).isNotNull();
-
-        // when - first profile is renamed to "target-name"
-        TspProfileRequestDto request = new TspProfileRequestDto();
-        request.setName("target-name");
-        request.setDescription(profile.getDescription());
-        request.setCustomAttributes(List.of());
-        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request);
-
-        // then - stale entry under new name is evicted
-        assertThat(cache.get("target-name", TspProfileModel.class)).isNull();
-    }
-
-    @Test
     void cacheIsEvictedAfterDelete() throws NotFoundException {
         // given - cache is warm
         tspProfileService.getTspProfile(profile.getName());

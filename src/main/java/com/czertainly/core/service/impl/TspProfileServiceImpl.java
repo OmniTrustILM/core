@@ -112,7 +112,6 @@ public class TspProfileServiceImpl implements TspProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
-    @Transactional(readOnly = true)
     public TspProfileModel getTspProfile(String name) throws NotFoundException {
         return self.loadTspProfileModel(name);
     }
@@ -150,12 +149,11 @@ public class TspProfileServiceImpl implements TspProfileService {
         }
 
         validateCreateUpdateRequest(request);
-        TspProfileDto result = updateAndMapToDto(profile, request);
         evictTspProfileCache(oldName);
         if (!oldName.equals(request.getName())) {
             evictTspProfileCache(request.getName());
         }
-        return result;
+        return updateAndMapToDto(profile, request);
     }
 
     @Override
