@@ -20,6 +20,8 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
+import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
@@ -69,6 +71,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private SigningProfileService signingProfileService;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
+    private ApplicationEventPublisher applicationEventPublisher;
 
     @Override
     @ExternalAuthorization(resource = Resource.TIME_QUALITY_CONFIGURATION, action = ResourceAction.LIST)
@@ -246,7 +249,10 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
                     signingProfiles.getAllowed().stream().map(SigningProfile::getName).collect(Collectors.joining(", "))
             )));
         }
+        UUID uuid = configuration.getUuid();
         attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
+        applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
+        applicationEventPublisher.publishEvent(new TimeQualityConfigDeletedEvent(this, uuid));
         signingProfileService.notifyTimeQualityConfigurationChange(configuration.getUuid());
         timeQualityConfigurationRepository.delete(configuration);
     }
@@ -254,6 +260,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private TimeQualityConfiguration saveOrTranslateUniqueViolation(TimeQualityConfiguration configuration, String name) throws AlreadyExistException {
         try {
             TimeQualityConfiguration saved = timeQualityConfigurationRepository.saveAndFlush(configuration);
+            applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
             signingProfileService.notifyTimeQualityConfigurationChange(saved.getUuid());
             return saved;
         } catch (DataIntegrityViolationException e) {
@@ -280,5 +287,10 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     @Autowired
     public void setSigningProfileService(SigningProfileService signingProfileService) {
         this.signingProfileService = signingProfileService;
+    }
+
+    @Autowired
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 }

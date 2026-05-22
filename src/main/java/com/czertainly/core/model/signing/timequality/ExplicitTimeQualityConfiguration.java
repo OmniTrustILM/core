@@ -29,7 +29,7 @@ public record ExplicitTimeQualityConfiguration(
         Duration ntpCheckTimeout,
         Integer ntpServersMinReachable,
         Duration maxClockDrift,
-        Boolean leapSecondGuard
+        boolean leapSecondGuard
 ) implements TimeQualityConfigurationModel {
 
     @Override

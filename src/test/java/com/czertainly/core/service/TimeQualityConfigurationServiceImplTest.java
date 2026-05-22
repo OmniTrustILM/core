@@ -285,7 +285,7 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Assertions.assertEquals(Duration.ofSeconds(5), entity.getNtpCheckTimeout());
         Assertions.assertEquals(1, entity.getNtpServersMinReachable());
         Assertions.assertEquals(Duration.ofSeconds(1), entity.getMaxClockDrift());
-        Assertions.assertTrue(entity.getLeapSecondGuard());
+        Assertions.assertTrue(entity.isLeapSecondGuard());
     }
 
     @Test
@@ -301,7 +301,7 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Optional<TimeQualityConfiguration> fromDb =
                 timeQualityConfigurationRepository.findById(UUID.fromString(dto.getUuid()));
         Assertions.assertTrue(fromDb.isPresent());
-        Assertions.assertFalse(fromDb.get().getLeapSecondGuard());
+        Assertions.assertFalse(fromDb.get().isLeapSecondGuard());
     }
 
     @Test
@@ -409,7 +409,7 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Assertions.assertEquals(Duration.ofSeconds(10), entity.getNtpCheckTimeout());
         Assertions.assertEquals(2, entity.getNtpServersMinReachable());
         Assertions.assertEquals(Duration.ofMillis(500), entity.getMaxClockDrift());
-        Assertions.assertFalse(entity.getLeapSecondGuard());
+        Assertions.assertFalse(entity.isLeapSecondGuard());
     }
 
     @Test
