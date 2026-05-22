@@ -823,7 +823,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                     assert nextInChain != null;
                     previousCertificate.setIssuerCertificateUuid(nextInChain.getUuid());
                     previousCertificate.setIssuerSerialNumber(nextInChain.getSerialNumber());
-                    certificateRepository.save(previousCertificate);
                     previousCertificate = nextInChain;
                     ++downloadedCertificates;
                 } catch (NoSuchAlgorithmException | CertificateException | NotFoundException e) {
