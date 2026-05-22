@@ -10,7 +10,6 @@ import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;

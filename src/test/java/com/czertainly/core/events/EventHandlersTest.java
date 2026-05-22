@@ -6,7 +6,6 @@ import com.czertainly.api.exception.EventException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
-import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
