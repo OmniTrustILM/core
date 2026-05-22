@@ -11,6 +11,9 @@ caching:
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000
+  tsp-profiles:
+    ttl-minutes: 5
+    max-size: 100
 
 auth-service:
   base-url: http://authservice.dev

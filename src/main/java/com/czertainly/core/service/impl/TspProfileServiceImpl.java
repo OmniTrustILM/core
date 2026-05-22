@@ -19,6 +19,7 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -41,6 +42,9 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
@@ -48,6 +52,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +64,7 @@ import java.util.UUID;
 @Slf4j
 public class TspProfileServiceImpl implements TspProfileService {
     private AttributeEngine attributeEngine;
+    private CacheManager cacheManager;
     private TspProfileServiceImpl self;
     private TspProfileRepository tspProfileRepository;
 
@@ -104,14 +111,18 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
     public TspProfileModel getTspProfile(String name) throws NotFoundException {
-        TspProfile tspConfiguration = tspProfileRepository.findWithAssociationsByName(name)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + name));
+        return self.loadTspProfileModel(name);
+    }
 
-        List<ResponseAttribute> customAttributes = attributeEngine.getObjectCustomAttributesContent(Resource.TSP_PROFILE, tspConfiguration.getUuid());
-        return TspProfileMapper.toModel(tspConfiguration, customAttributes);
+    @Cacheable(value = CacheConfig.TSP_PROFILE_CACHE, key = "#name", sync = true)
+    @Transactional(readOnly = true)
+    TspProfileModel loadTspProfileModel(String name) throws NotFoundException {
+        TspProfile tspConfiguration = tspProfileRepository.findByName(name)
+                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + name));
+        return TspProfileMapper.toModel(tspConfiguration);
     }
 
     @Override
@@ -131,6 +142,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional
     public TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
         TspProfile profile = getTspProfileEntity(uuid);
+        String oldName = profile.getName();
 
         Optional<TspProfile> existingWithSameName = tspProfileRepository.findByName(request.getName());
         if (existingWithSameName.isPresent() && !existingWithSameName.get().getUuid().equals(profile.getUuid())) {
@@ -138,7 +150,12 @@ public class TspProfileServiceImpl implements TspProfileService {
         }
 
         validateCreateUpdateRequest(request);
-        return updateAndMapToDto(profile, request);
+        TspProfileDto result = updateAndMapToDto(profile, request);
+        evictTspProfileCache(oldName);
+        if (!oldName.equals(request.getName())) {
+            evictTspProfileCache(request.getName());
+        }
+        return result;
     }
 
     @Override
@@ -285,22 +302,40 @@ public class TspProfileServiceImpl implements TspProfileService {
 
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.TSP_PROFILE, saved.getUuid(), request.getCustomAttributes());
         return TspProfileMapper.toDto(saved, customAttributes);
-
     }
 
     private void deleteTspProfile(TspProfile profile) {
+        String name = profile.getName();
         attributeEngine.deleteObjectAttributeContent(Resource.TSP_PROFILE, profile.getUuid());
         tspProfileRepository.delete(profile);
+        evictTspProfileCache(name);
     }
 
     private void enableTspProfile(TspProfile profile) {
         profile.setEnabled(true);
         tspProfileRepository.save(profile);
+        evictTspProfileCache(profile.getName());
     }
 
     private void disableTspProfile(TspProfile profile) {
         profile.setEnabled(false);
         tspProfileRepository.save(profile);
+        evictTspProfileCache(profile.getName());
+    }
+
+    private void evictTspProfileCache(String name) {
+        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
+        if (cache == null) return;
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cache.evict(name);
+                }
+            });
+        } else {
+            cache.evict(name);
+        }
     }
 
     private TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
@@ -311,6 +346,11 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setCacheManager(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
     }
 
     @Autowired
