@@ -41,7 +41,6 @@ import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.api.model.core.signing.SigningProtocol;
-import com.czertainly.core.config.CacheConfig;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -309,7 +308,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             throw new AlreadyExistException("Signing Profile with name '" + request.getName() + "' already exists.");
         }
 
-        String oldName = profile.getName();
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
 
@@ -323,8 +321,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         applyScheme(profile, version, request.getSigningScheme());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
-
-        evictSigningProfileCache(oldName);
 
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.SIGNING_PROFILE, profile.getUuid(), request.getCustomAttributes());
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, version, request.getSigningScheme());
@@ -341,7 +337,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Transactional
     public void deleteSigningProfile(SecuredUUID uuid) throws NotFoundException, ValidationException {
         SigningProfile profile = findByUuid(uuid);
-        evictSigningProfileCache(profile.getName());
         deleteSigningProfile(profile);
     }
 
@@ -787,19 +782,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Override
     public void notifyTimeQualityConfigurationChange(UUID timeQualityConfigurationUuid) {
         signingProfileRepository.findAllByTimeQualityConfigurationUuid(timeQualityConfigurationUuid)
-                .forEach(p -> evictSigningProfileCache(p.getName()));
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Helpers
-    // ──────────────────────────────────────────────────────────────────────────
-
-    private void evictSigningProfileCache(String name) {
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILES_CACHE);
-        if (cache != null) {
-            log.debug("Evicting signing profile cache entry for name '{}'", name);
-            cache.evict(name);
-        }
+                // TODO: evict signing profile cache when introduced
+                .forEach(p -> log.error("Signig Profile Cache Not implemented."));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
