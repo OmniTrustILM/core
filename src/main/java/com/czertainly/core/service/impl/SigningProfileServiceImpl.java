@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
@@ -742,8 +743,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
      * However, this is a temporary solution; a better solution for this should be implemented in general.</p>
      */
     private List<BaseAttribute> fetchAndUpdateFormatterAttributeDefinitions(UUID connectorUuid) throws AttributeException, ConnectorException, NotFoundException {
-        Connector connector = connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid));
-        List<BaseAttribute> definitions = connectorApiFactory.getSignatureFormatterApiClient(connector.mapToApiClientDtoV2()).listFormatterAttributes(connector.mapToApiClientDtoV2());
+        ApiClientConnectorInfo apiClientInfo = connectorService.getConnectorForApiClient(connectorUuid);
+        List<BaseAttribute> definitions = connectorApiFactory.getSignatureFormatterApiClient(apiClientInfo).listFormatterAttributes(apiClientInfo);
         attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.WORKFLOW_FORMATTER, definitions);
         return definitions;
     }
