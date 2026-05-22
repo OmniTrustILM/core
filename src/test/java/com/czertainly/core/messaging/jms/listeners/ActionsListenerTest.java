@@ -73,7 +73,8 @@ class ActionsListenerTest {
         // Only the failure-path tests read this; lenient() avoids strict-stubbing complaints
         // from happy-path tests that never invoke it.
         lenient().when(messagingProperties.routingKey()).thenReturn(new MessagingProperties.RoutingKey(
-                "actions", "audit-logs", "event", "notification", "scheduler", "validation"));
+                "actions", "audit-logs", "event", "notification", "scheduler", "validation",
+                "time-quality.config-request", "time-quality.config", "time-quality.results"));
     }
 
     // ==================== No approval needed — direct action ====================

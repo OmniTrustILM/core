@@ -204,6 +204,9 @@ spring:
       notification: ${BROKER_QUEUE_NOTIFICATION:core.notifications}
       scheduler: ${BROKER_QUEUE_SCHEDULER:core.scheduler}
       validation: ${BROKER_QUEUE_VALIDATION:core.validation}
+      time-quality-config: ${BROKER_QUEUE_TIME_QUALITY_CONFIG:time-quality.config}
+      time-quality-config-request: ${BROKER_QUEUE_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
+      time-quality-results: ${BROKER_QUEUE_TIME_QUALITY_RESULTS:time-quality.results}
     routing-key:
       actions: ${BROKER_ROUTINGKEY_ACTIONS:action}
       audit-logs: ${BROKER_ROUTINGKEY_AUDIT_LOGS:audit-logs}
@@ -211,6 +214,9 @@ spring:
       notification: ${BROKER_ROUTINGKEY_NOTIFICATION:notification}
       scheduler: ${BROKER_ROUTINGKEY_SCHEDULER:scheduler}
       validation: ${BROKER_ROUTINGKEY_VALIDATION:validation}
+      time-quality-config: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG:time-quality.config}
+      time-quality-config-request: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
+      time-quality-results: ${BROKER_ROUTINGKEY_TIME_QUALITY_RESULTS:time-quality.results}
   threads:
     virtual:
       enabled: true
@@ -225,6 +231,8 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+    time-quality-config-request: 5
+    time-quality-results: 5
 
 # Proxy configuration for connector communication via message queue
 proxy:
