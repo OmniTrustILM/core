@@ -41,7 +41,7 @@ public class CertificateChainCacheEvictor {
         if (cache == null) return;
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             boolean alreadyPending = TransactionSynchronizationManager.getSynchronizations()
-                    .stream().anyMatch(s -> s instanceof CacheEvictionSync);
+                    .stream().anyMatch(CacheEvictionSync.class::isInstance);
             if (!alreadyPending) {
                 TransactionSynchronizationManager.registerSynchronization(new CacheEvictionSync(cache));
             }
