@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Model layer representation of a TSP Profile.
+ * Model layer representation of a TSP Profile used on the TSP timestamping hot path.
  *
  * @param uuid                       UUID of the TSP Profile.
  * @param name                       Name of the TSP Profile.

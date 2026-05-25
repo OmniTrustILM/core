@@ -63,10 +63,13 @@ class ApprovalFlowITest extends BaseMessagingIntTest {
     private static final UUID APPROVER_UUID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
     @Autowired
-    private ApprovalService approvalService;
+    private ApprovalExternalService approvalService;
 
     @Autowired
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalInternalService approvalInternalService;
+
+    @Autowired
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Autowired
     private CertificateEventHistoryService certHistoryService;
@@ -145,7 +148,7 @@ class ApprovalFlowITest extends BaseMessagingIntTest {
         UUID creatorUuid = UUID.randomUUID();
 
         // --- 3. Create approval — fires APPROVAL_REQUESTED event via JMS ---
-        Approval approval = approvalService.createApproval(
+        Approval approval = approvalInternalService.createApproval(
                 approvalProfile.getTheLatestApprovalProfileVersion(),
                 Resource.CERTIFICATE,
                 ResourceAction.ISSUE,
