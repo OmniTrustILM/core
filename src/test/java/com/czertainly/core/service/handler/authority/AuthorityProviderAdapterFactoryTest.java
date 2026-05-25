@@ -1,0 +1,61 @@
+package com.czertainly.core.service.handler.authority;
+
+import com.czertainly.core.dao.entity.AuthorityInstanceReference;
+import com.czertainly.core.dao.entity.ConnectorInterfaceEntity;
+import com.czertainly.core.exception.UnsupportedAuthorityVersionException;
+import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class AuthorityProviderAdapterFactoryTest {
+
+    private final AuthorityProviderV2Adapter v2 = mock(AuthorityProviderV2Adapter.class);
+    private final AuthorityProviderV3Adapter v3 = mock(AuthorityProviderV3Adapter.class);
+    private final AuthorityProviderAdapterFactory factory = new AuthorityProviderAdapterFactory(v2, v3);
+
+    @Test
+    void dispatchesV2() {
+        assertSame(v2, factory.forAuthority(authorityWithVersion("v2")));
+    }
+
+    @Test
+    void dispatchesV3() {
+        assertSame(v3, factory.forAuthority(authorityWithVersion("v3")));
+    }
+
+    @Test
+    void rejectsV1() {
+        AuthorityInstanceReference auth = authorityWithVersion("v1");
+        UnsupportedAuthorityVersionException ex = assertThrows(
+                UnsupportedAuthorityVersionException.class,
+                () -> factory.forAuthority(auth));
+        assertTrue(ex.getMessage().contains("v1"));
+    }
+
+    @Test
+    void rejectsMissingInterface() {
+        AuthorityInstanceReference auth = new AuthorityInstanceReference();
+        auth.setUuid(UUID.randomUUID());
+        // connector interface left null
+        assertThrows(UnsupportedAuthorityVersionException.class,
+                () -> factory.forAuthority(auth));
+    }
+
+    /**
+     * @param version connector-format version string, e.g. {@code "v2"}, {@code "v3"}, {@code "v1"}.
+     *                Must include the {@code v} prefix — that is the format stored by
+     *                {@link com.czertainly.core.service.handler.ConnectorV2Adapter} from the
+     *                connector's info endpoint.
+     */
+    private AuthorityInstanceReference authorityWithVersion(String version) {
+        AuthorityInstanceReference auth = new AuthorityInstanceReference();
+        auth.setUuid(UUID.randomUUID());
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setVersion(version);
+        auth.setConnectorInterface(iface);
+        return auth;
+    }
+}
