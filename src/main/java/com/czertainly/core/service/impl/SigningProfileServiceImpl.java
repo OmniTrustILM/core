@@ -752,9 +752,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     public void notifyTimeQualityConfigurationChange(UUID timeQualityConfigurationUuid) {
-        signingProfileRepository.findAllByTimeQualityConfigurationUuid(timeQualityConfigurationUuid)
-                // TODO: evict signing profile cache when introduced
-                .forEach(p -> log.error("Signig Profile Cache Not implemented."));
+        // Cache eviction will be added when signing profile cache is introduced.
     }
 
     // ──────────────────────────────────────────────────────────────────────────

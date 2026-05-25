@@ -1609,11 +1609,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             TspProfile savedTsp = tspRepository.save(tsp);
 
             // when/then
-            String profileUuid = profileDto.getUuid();
+            SecuredUUID signingProfileUuid = SecuredUUID.fromString(profileDto.getUuid());
             SecuredUUID tspUuid = savedTsp.getSecuredUuid();
             assertThrows(ValidationException.class,
-                    () -> signingProfileService.activateTsp(
-                            SecuredUUID.fromString(profileUuid), tspUuid));
+                    () -> signingProfileService.activateTsp(signingProfileUuid, tspUuid));
         }
 
         Stream<Arguments> unsupportedWorkflowTypes() {
