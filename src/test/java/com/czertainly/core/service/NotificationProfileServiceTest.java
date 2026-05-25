@@ -63,7 +63,7 @@ class NotificationProfileServiceTest extends BaseSpringBootTest {
     private NotificationListener notificationListener;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     @Autowired
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;

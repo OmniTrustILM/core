@@ -13,6 +13,7 @@ import com.czertainly.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.CryptographicKey;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
+import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -294,6 +295,12 @@ public interface CryptographicKeyService extends ResourceExtensionService {
      * @return Key Item
      */
     CryptographicKeyItem getKeyItemFromKey(CryptographicKey key, KeyType keyType);
+
+    /**
+     * Returns the cached model for a key item including its full connector chain.
+     * The result is cached by key item UUID; cache is invalidated whenever the key item is mutated.
+     */
+    CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
 
     /**
      * Upload public key of existing certificate

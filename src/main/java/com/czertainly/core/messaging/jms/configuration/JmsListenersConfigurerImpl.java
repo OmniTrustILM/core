@@ -5,6 +5,8 @@ import com.czertainly.core.messaging.jms.listeners.auditlogs.AuditLogsJmsEndpoin
 import com.czertainly.core.messaging.jms.listeners.event.EventJmsEndpointConfig;
 import com.czertainly.core.messaging.jms.listeners.notification.NotificationJmsEndpointConfig;
 import com.czertainly.core.messaging.jms.listeners.scheduler.SchedulerJmsEndpointConfig;
+import com.czertainly.core.messaging.jms.listeners.timequality.TimeQualityConfigurationJmsEndpointConfig;
+import com.czertainly.core.messaging.jms.listeners.timequality.TimeQualityResultsJmsEndpointConfig;
 import com.czertainly.core.messaging.jms.listeners.validation.ValidationJmsEndpointConfig;
 import com.czertainly.core.messaging.proxy.InstanceProxyMessageJmsEndpointConfig;
 import com.czertainly.core.messaging.proxy.SharedProxyMessageJmsEndpointConfig;
@@ -27,6 +29,8 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
     private final NotificationJmsEndpointConfig notificationJmsEndpointConfig;
     private final SchedulerJmsEndpointConfig schedulerJmsEndpointConfig;
     private final ValidationJmsEndpointConfig validationJmsEndpointConfig;
+    private final TimeQualityConfigurationJmsEndpointConfig timeQualityConfigurationJmsEndpointConfig;
+    private final TimeQualityResultsJmsEndpointConfig timeQualityResultsJmsEndpointConfig;
     private final Optional<InstanceProxyMessageJmsEndpointConfig> instanceProxyMessageJmsEndpointConfig;
     private final Optional<SharedProxyMessageJmsEndpointConfig> sharedProxyMessageJmsEndpointConfig;
 
@@ -38,6 +42,8 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
         registrar.registerEndpoint(notificationJmsEndpointConfig.listenerEndpoint());
         registrar.registerEndpoint(schedulerJmsEndpointConfig.listenerEndpoint());
         registrar.registerEndpoint(validationJmsEndpointConfig.listenerEndpoint());
+        registrar.registerEndpoint(timeQualityConfigurationJmsEndpointConfig.listenerEndpoint());
+        registrar.registerEndpoint(timeQualityResultsJmsEndpointConfig.listenerEndpoint());
         instanceProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
         sharedProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
     }

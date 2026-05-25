@@ -116,7 +116,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     private CertificateTriggerEvaluator certificateTriggerEvaluator;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     @Autowired
     private ResourceObjectAssociationService associationService;

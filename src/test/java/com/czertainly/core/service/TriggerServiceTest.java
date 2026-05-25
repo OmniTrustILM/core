@@ -8,12 +8,14 @@ import com.czertainly.api.model.common.attribute.common.content.AttributeContent
 import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
 import com.czertainly.api.model.core.auth.Resource;
+import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.notification.RecipientType;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.search.FilterConditionOperator;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +41,7 @@ class TriggerServiceTest extends BaseSpringBootTest {
     private TriggerService triggerService;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     private CustomAttributeV3 domainAttr;
     private NotificationProfileDetailDto notificationProfile;
@@ -225,6 +227,60 @@ class TriggerServiceTest extends BaseSpringBootTest {
         actionRequest.setExecutionsUuids(executionsUuids);
 
         return actionService.createAction(actionRequest);
+    }
+
+    @Test
+    void testCertificateUploadedEventTriggerCompatibility() throws AlreadyExistException, NotFoundException {
+        // property field with no fieldResource/joinAttributes — should be accepted
+        TriggerDetailDto compatibleTrigger = createIgnoreTriggerForUploadedEvent(
+                "CompatibleUploadTrigger", FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), CertificateState.ISSUED.getCode());
+        Assertions.assertDoesNotThrow(
+                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(compatibleTrigger.getUuid())), false),
+                "Trigger with PROPERTY field and no fieldResource should be accepted for CERTIFICATE_UPLOADED event");
+
+        // PROPERTY field that references another resource (RA_PROFILE_NAME has fieldResource) — should be rejected
+        TriggerDetailDto incompatiblePropertyTrigger = createIgnoreTriggerForUploadedEvent(
+                "IncompatiblePropertyUploadTrigger", FilterFieldSource.PROPERTY, FilterField.RA_PROFILE_NAME.name(), "some-profile");
+        Assertions.assertThrows(ValidationException.class,
+                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(incompatiblePropertyTrigger.getUuid())), false),
+                "Trigger with PROPERTY field that has fieldResource should be rejected for CERTIFICATE_UPLOADED event");
+
+        // non-PROPERTY field source (CUSTOM) — should be rejected
+        TriggerDetailDto incompatibleSourceTrigger = createIgnoreTriggerForUploadedEvent(
+                "IncompatibleSourceUploadTrigger", FilterFieldSource.CUSTOM, "%s|%s".formatted(domainAttr.getName(), domainAttr.getContentType().name()), "CZ");
+        Assertions.assertThrows(ValidationException.class,
+                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(incompatibleSourceTrigger.getUuid())), false),
+                "Trigger with CUSTOM field source should be rejected for CERTIFICATE_UPLOADED event");
+    }
+
+    private TriggerDetailDto createIgnoreTriggerForUploadedEvent(String name, FilterFieldSource fieldSource, String fieldIdentifier, String value) throws AlreadyExistException, NotFoundException {
+        ConditionItemRequestDto item = new ConditionItemRequestDto();
+        item.setFieldSource(fieldSource);
+        item.setFieldIdentifier(fieldIdentifier);
+        item.setOperator(FilterConditionOperator.EQUALS);
+        item.setValue(value);
+
+        ConditionRequestDto conditionRequest = new ConditionRequestDto();
+        conditionRequest.setName(name + "-condition");
+        conditionRequest.setResource(Resource.CERTIFICATE);
+        conditionRequest.setType(ConditionType.CHECK_FIELD);
+        conditionRequest.setItems(List.of(item));
+        ConditionDto condition = ruleService.createCondition(conditionRequest);
+
+        RuleRequestDto ruleRequest = new RuleRequestDto();
+        ruleRequest.setName(name + "-rule");
+        ruleRequest.setResource(Resource.CERTIFICATE);
+        ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
+        RuleDto rule = ruleService.createRule(ruleRequest);
+
+        TriggerRequestDto triggerRequest = new TriggerRequestDto();
+        triggerRequest.setName(name);
+        triggerRequest.setResource(Resource.CERTIFICATE);
+        triggerRequest.setType(TriggerType.EVENT);
+        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_UPLOADED);
+        triggerRequest.setIgnoreTrigger(true);
+        triggerRequest.setRulesUuids(List.of(rule.getUuid()));
+        return triggerService.createTrigger(triggerRequest);
     }
 
     private TriggerDto createTrigger(Resource resource, ResourceEvent event, List<String> rulesUuids, List<String> actionsUuids) throws NotFoundException, AlreadyExistException {

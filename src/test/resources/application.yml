@@ -1,6 +1,20 @@
 app:
   version: '@project.version@'
 
+caching:
+  authentication:
+    ttl-minutes: 5
+    max-size: 500
+  connectors:
+    ttl-minutes: 5
+    max-size: 100
+  cert-chain:
+    ttl-minutes: 5
+    max-size: 1000
+  crypto-keys:
+    ttl-minutes: 5
+    max-size: 10000
+
 auth-service:
   base-url: http://authservice.dev
 opa:
@@ -100,6 +114,9 @@ spring:
       notification: core.notifications
       scheduler: core.scheduler
       validation: core.validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     listener:
       initial-interval: 1000
       multiplier: 1.5
@@ -112,6 +129,9 @@ spring:
       notification: notification
       scheduler: scheduler
       validation: validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     producer:
       retry:
         enabled: true
@@ -127,6 +147,8 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+    time-quality-config-request: 1
+    time-quality-results: 1
 
 otel:
   instrumentation:

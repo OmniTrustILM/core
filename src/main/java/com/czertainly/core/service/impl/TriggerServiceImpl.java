@@ -5,9 +5,11 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.dao.repository.workflows.*;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -230,6 +232,9 @@ public class TriggerServiceImpl implements TriggerService {
         List<TriggerAssociation> ignoreTriggers = new ArrayList<>();
         for (UUID triggerUuid : triggerUuids) {
             Trigger trigger = getTriggerEntity(triggerUuid.toString());
+            if (!isCertificateUploadedEventCompatible(event, trigger)) {
+                throw new ValidationException("Trigger '%s' cannot be associated with event '%s' as it contains rule with invalid field source, which is not allowed for this event.".formatted(trigger.getName(), event.getLabel()));
+            }
             if (trigger.getResource() != event.getResource()) {
                 throw new ValidationException("Trigger '%s' is for different resource (%s) than event '%s' (%s)".formatted(trigger.getName(), trigger.getResource().getLabel(), event.getLabel(), event.getResource().getLabel()));
             }
@@ -261,6 +266,20 @@ public class TriggerServiceImpl implements TriggerService {
             trigger.setTriggerOrder(triggerOrder++);
             triggerAssociationRepository.save(trigger);
         }
+    }
+
+    private static boolean isCertificateUploadedEventCompatible(ResourceEvent event, Trigger trigger) {
+        return event != ResourceEvent.CERTIFICATE_UPLOADED || trigger.getRules().stream()
+                .flatMap(rule -> rule.getConditions().stream())
+                .flatMap(condition -> condition.getItems().stream())
+                .allMatch(TriggerServiceImpl::isCertificateUploadedEventCompatible);
+    }
+
+    private static boolean isCertificateUploadedEventCompatible(ConditionItem conditionItem) {
+        // Condition should be applicable to not persisted certificate - it can only check its property not tied to another object
+        if (conditionItem.getFieldSource() != FilterFieldSource.PROPERTY) return false;
+        FilterField filterField = FilterField.valueOf(conditionItem.getFieldIdentifier());
+        return filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty()) ;
     }
 
     @Override

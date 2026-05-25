@@ -34,7 +34,7 @@ import java.util.UUID;
 class EventServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private EventService eventService;
+    private EventExternalService eventService;
 
     @Autowired
     private TriggerService triggerService;
@@ -43,7 +43,7 @@ class EventServiceTest extends BaseSpringBootTest {
     private ActionService actionService;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     @Autowired
     private CertificateRepository certificateRepository;

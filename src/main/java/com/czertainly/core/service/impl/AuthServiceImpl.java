@@ -7,7 +7,9 @@ import com.czertainly.core.auth.ContextRefreshListener;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
-import com.czertainly.core.service.AuthService;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
+import com.czertainly.core.security.authz.SelfPrincipalEndpoint;
+import com.czertainly.core.service.AuthExternalService;
 import com.czertainly.core.service.UserManagementService;
 import com.czertainly.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +25,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class AuthServiceImpl implements AuthService {
+public class AuthServiceImpl implements AuthExternalService {
 
     private UserManagementApiClient userManagementApiClient;
     private ResourceApiClient resourceApiClient;
@@ -52,6 +54,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @SelfPrincipalEndpoint
     public UserProfileDetailDto getAuthProfile() {
         UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         UserDetailDto userDetailDto = userManagementApiClient.getUserDetail(userProfileDto.getUser().getUuid());
@@ -61,11 +64,13 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<AuthResourceDto> getAuthResources() {
         return resourceApiClient.getAuthResources();
     }
 
     @Override
+    @SelfPrincipalEndpoint
     public UserDetailDto updateUserProfile(UpdateUserRequestDto request) throws NotFoundException, CertificateException {
         UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         UserDetailDto detail = userManagementApiClient.getUserDetail(userProfileDto.getUser().getUuid());

@@ -8,6 +8,9 @@ import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalStepRequestDto;
+import com.czertainly.api.model.client.attribute.RequestAttributeV3;
+import com.czertainly.api.model.client.attribute.ResponseAttribute;
+import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.notification.NotificationProfileDetailDto;
 import com.czertainly.api.model.client.notification.NotificationProfileRequestDto;
@@ -16,6 +19,7 @@ import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
 import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.czertainly.api.model.common.events.data.EventData;
 import com.czertainly.api.model.common.events.data.ScheduledJobFinishedEventData;
 import com.czertainly.api.model.core.auth.Resource;
@@ -34,18 +38,22 @@ import com.czertainly.core.dao.entity.notifications.NotificationInstanceReferenc
 import com.czertainly.core.dao.entity.notifications.PendingNotification;
 import com.czertainly.core.dao.entity.workflows.Trigger;
 import com.czertainly.core.dao.entity.workflows.TriggerAssociation;
+import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.czertainly.core.dao.repository.notifications.PendingNotificationRepository;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.repository.workflows.EventHistoryRepository;
 import com.czertainly.core.dao.repository.workflows.TriggerAssociationRepository;
+import com.czertainly.core.dao.repository.workflows.TriggerHistoryRepository;
 import com.czertainly.core.dao.repository.workflows.TriggerRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.events.handlers.*;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.messaging.jms.listeners.NotificationListener;
+import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.model.ScheduledTaskResult;
@@ -54,6 +62,7 @@ import com.czertainly.core.service.*;
 import com.czertainly.core.tasks.DiscoveryCertificateTask;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.BaseSpringBootTest;
+import com.czertainly.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Assertions;
@@ -62,12 +71,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 class EventHandlersTest extends BaseSpringBootTest {
 
+    public static final String CERTIFICATE_CUSTOM_ATTRIBUTE_UUID = UUID.randomUUID().toString();
+    public static final String CERTIFICATE_CUSTOM_ATTRIBUTE_NAME = "category";
     @Autowired
     private TriggerRepository triggerRepository;
 
@@ -90,6 +102,8 @@ class EventHandlersTest extends BaseSpringBootTest {
     private CertificateStatusChangedEventHandler certificateStatusChangedEventHandler;
     @Autowired
     private CertificateActionPerformedEventHandler certificateActionPerformedEventHandler;
+    @Autowired
+    private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
     @Autowired
     private GroupRepository groupRepository;
@@ -122,6 +136,8 @@ class EventHandlersTest extends BaseSpringBootTest {
     private TriggerAssociationRepository triggerAssociationRepository;
     @Autowired
     private EventHistoryRepository eventHistoryRepository;
+    @Autowired
+    private TriggerHistoryRepository triggerHistoryRepository;
 
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
@@ -133,7 +149,7 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Autowired
     private NotificationListener notificationListener;
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
     @Autowired
     private PendingNotificationRepository pendingNotificationRepository;
     @Autowired
@@ -172,7 +188,7 @@ class EventHandlersTest extends BaseSpringBootTest {
 
         associationService.setGroups(Resource.CERTIFICATE, certificate.getUuid(), Set.of(group.getUuid()));
 
-        addTriggerToRaProfile(raProfile);
+        createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.RA_PROFILE, raProfile.getUuid(), false);
 
         certificateService.validate(certificate);
         certificateStatusChangedEventHandler.handleEvent(CertificateStatusChangedEventHandler.constructEventMessage(certificate.getUuid(), CertificateValidationStatus.INACTIVE, certificate.getValidationStatus()));
@@ -222,11 +238,11 @@ class EventHandlersTest extends BaseSpringBootTest {
         mockServer.stop();
     }
 
-    private void addTriggerToRaProfile(RaProfile raProfile) throws AttributeException, AlreadyExistException, NotFoundException {
+    private void createCertificateTriggerAssociation(ResourceEvent event, Resource eventResource, UUID eventObjectUuid, boolean ignoreTrigger) throws AttributeException, AlreadyExistException, NotFoundException {
         // register custom attribute for SET_FIELD execution
         CustomAttributeV3 certAttr = new CustomAttributeV3();
-        certAttr.setUuid(UUID.randomUUID().toString());
-        certAttr.setName("category");
+        certAttr.setUuid(CERTIFICATE_CUSTOM_ATTRIBUTE_UUID);
+        certAttr.setName(CERTIFICATE_CUSTOM_ATTRIBUTE_NAME);
         certAttr.setType(AttributeType.CUSTOM);
         certAttr.setContentType(AttributeContentType.STRING);
         CustomAttributeProperties customProps = new CustomAttributeProperties();
@@ -239,7 +255,7 @@ class EventHandlersTest extends BaseSpringBootTest {
         conditionItemRequest.setFieldSource(FilterFieldSource.PROPERTY);
         conditionItemRequest.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
         conditionItemRequest.setOperator(FilterConditionOperator.EQUALS);
-        conditionItemRequest.setValue(CertificateState.ISSUED.name());
+        conditionItemRequest.setValue(List.of(CertificateState.ISSUED.getCode()));
 
         ConditionRequestDto conditionRequest = new ConditionRequestDto();
         conditionRequest.setName("IssuedCertificateCondition");
@@ -255,34 +271,39 @@ class EventHandlersTest extends BaseSpringBootTest {
         ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
         RuleDetailDto rule = ruleService.createRule(ruleRequest);
 
-        // create execution
-        ExecutionItemRequestDto executionItemRequest = new ExecutionItemRequestDto();
-        executionItemRequest.setFieldSource(FilterFieldSource.CUSTOM);
-        executionItemRequest.setFieldIdentifier("%s|%s".formatted(certAttr.getName(), certAttr.getContentType().name()));
-        executionItemRequest.setData("important");
+        List<String> actionUuids = new ArrayList<>();
+        if (!ignoreTrigger) {
+            // create execution
+            ExecutionItemRequestDto executionItemRequest = new ExecutionItemRequestDto();
+            executionItemRequest.setFieldSource(FilterFieldSource.CUSTOM);
+            executionItemRequest.setFieldIdentifier("%s|%s".formatted(certAttr.getName(), certAttr.getContentType().name()));
+            executionItemRequest.setData("important");
 
-        ExecutionRequestDto executionRequest = new ExecutionRequestDto();
-        executionRequest.setName("CategorizeIssuedCertExecution");
-        executionRequest.setResource(Resource.CERTIFICATE);
-        executionRequest.setType(ExecutionType.SET_FIELD);
-        executionRequest.setItems(List.of(executionItemRequest));
-        ExecutionDto execution = actionService.createExecution(executionRequest);
+            ExecutionRequestDto executionRequest = new ExecutionRequestDto();
+            executionRequest.setName("CategorizeIssuedCertExecution");
+            executionRequest.setResource(Resource.CERTIFICATE);
+            executionRequest.setType(ExecutionType.SET_FIELD);
+            executionRequest.setItems(List.of(executionItemRequest));
+            ExecutionDto execution = actionService.createExecution(executionRequest);
 
-        // create action
-        ActionRequestDto actionRequest = new ActionRequestDto();
-        actionRequest.setName("CategorizeIssuedCertAction");
-        actionRequest.setResource(Resource.CERTIFICATE);
-        actionRequest.setExecutionsUuids(List.of(execution.getUuid()));
-        ActionDetailDto action = actionService.createAction(actionRequest);
+            // create action
+            ActionRequestDto actionRequest = new ActionRequestDto();
+            actionRequest.setName("CategorizeIssuedCertAction");
+            actionRequest.setResource(Resource.CERTIFICATE);
+            actionRequest.setExecutionsUuids(List.of(execution.getUuid()));
+            ActionDetailDto action = actionService.createAction(actionRequest);
+            actionUuids.add(action.getUuid());
+        }
 
         // create trigger for CERTIFICATE_STATUS_CHANGED
         TriggerRequestDto triggerRequest = new TriggerRequestDto();
         triggerRequest.setName("CertificateStatusChangedTrigger");
         triggerRequest.setType(TriggerType.EVENT);
-        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_STATUS_CHANGED);
+        triggerRequest.setEvent(event);
         triggerRequest.setResource(Resource.CERTIFICATE);
         triggerRequest.setRulesUuids(List.of(rule.getUuid()));
-        triggerRequest.setActionsUuids(List.of(action.getUuid()));
+        triggerRequest.setActionsUuids(actionUuids);
+        triggerRequest.setIgnoreTrigger(ignoreTrigger);
         TriggerDetailDto trigger = triggerService.createTrigger(triggerRequest);
 
         // set up WireMock as auth service (required by createTriggerAssociations)
@@ -294,7 +315,7 @@ class EventHandlersTest extends BaseSpringBootTest {
         mockAuthResponse(userInfo);
 
         // associate trigger with RA profile for CERTIFICATE_STATUS_CHANGED
-        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.RA_PROFILE, raProfile.getUuid(), List.of(UUID.fromString(trigger.getUuid())), true);
+        triggerService.createTriggerAssociations(event, eventResource, eventObjectUuid, List.of(UUID.fromString(trigger.getUuid())), true);
     }
 
     @Test
@@ -348,7 +369,7 @@ class EventHandlersTest extends BaseSpringBootTest {
 
         // register custom attribute
         CustomAttributeV3 certificateDomainAttr = new CustomAttributeV3();
-        certificateDomainAttr.setUuid(UUID.randomUUID().toString());
+        certificateDomainAttr.setUuid(CERTIFICATE_CUSTOM_ATTRIBUTE_UUID);
         certificateDomainAttr.setName("domain");
         certificateDomainAttr.setType(AttributeType.CUSTOM);
         certificateDomainAttr.setContentType(AttributeContentType.STRING);
@@ -515,6 +536,105 @@ class EventHandlersTest extends BaseSpringBootTest {
         eventData.setStatus(SchedulerJobExecutionStatus.SUCCESS.getLabel());
         NotificationMessage notificationMessage = new NotificationMessage(ResourceEvent.SCHEDULED_JOB_FINISHED, Resource.SCHEDULED_JOB, scheduledJob.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(UUID.randomUUID()), eventData);
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(notificationMessage));
+    }
+
+    @Test
+    void testCertificateUploadedEventCertificateIgnored() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
+        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
+                .build();
+
+        createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_UPLOADED, null, null, true);
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        Assertions.assertFalse(certificateRepository.findByFingerprint(fingerprint).isPresent());
+
+        List<TriggerHistory> histories = triggerHistoryRepository.findAll();
+        Assertions.assertEquals(1, histories.size());
+        TriggerHistory th = histories.getFirst();
+        Assertions.assertTrue(th.isConditionsMatched());
+        Assertions.assertTrue(th.isActionsPerformed());
+
+        Assertions.assertNotNull(th.getMessage());
+        Assertions.assertTrue(th.getMessage().contains(fingerprint), "ignore TriggerHistory.message includes the fingerprint");
+        mockServer.stop();
+    }
+
+    @Test
+    void testCertificateUploadedEventCertificateMalformedContent() {
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent("invalid")
+                .build();
+
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        EventHistory eventHistory = eventHistoryRepository.findAll().stream().findFirst().orElseThrow();
+        Assertions.assertEquals(EventStatus.FAILED, eventHistory.getStatus());
+    }
+
+    @Test
+    void testCertificateUploadedEventCertificateDuplicateFingerprint() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
+                .build();
+
+        UploadCertificateRequestDto uploadCertificateRequestDto = new UploadCertificateRequestDto();
+        uploadCertificateRequestDto.setCertificate(Base64.getEncoder().encodeToString(certificate.getEncoded()));
+        certificateService.uploadSync(uploadCertificateRequestDto);
+
+        // Test duplicate fingerprint
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        // The first history is for the created certificate, so we need to check the second one
+        EventHistory eventHistory = eventHistoryRepository.findAll().getLast();
+        Assertions.assertEquals(EventStatus.FAILED, eventHistory.getStatus());
+    }
+
+    @Test
+    void testCertificateUploadedEvent() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=test");
+        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        final CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
+                .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
+                .build();
+
+        // Test without any triggers in settings
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+
+        Certificate uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        Assertions.assertEquals(certificate.getSubjectX500Principal().getName(), uploadedCertificate.getSubjectDn());
+        Assertions.assertNotNull(uploadedCertificate.getCertificateContent());
+        Assertions.assertNotNull(uploadedCertificate.getKey());
+
+        // Test setting actions
+        certificateService.deleteCertificate(uploadedCertificate.getSecuredUuid());
+
+        createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_UPLOADED, null, null, false);
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
+        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        CertificateDetailDto certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
+        Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
+
+        // Test setting actions with custom attributes in the request and user UUID
+        RequestAttributeV3 requestAttributeV3 = new RequestAttributeV3();
+        requestAttributeV3.setUuid(UUID.fromString(CERTIFICATE_CUSTOM_ATTRIBUTE_UUID));
+        requestAttributeV3.setName(CERTIFICATE_CUSTOM_ATTRIBUTE_NAME);
+        requestAttributeV3.setContentType(AttributeContentType.STRING);
+        requestAttributeV3.setContent(List.of(new StringAttributeContentV3("fromRequest")));
+        CertificateUploadEventMessageData eventMessageData2 = CertificateUploadEventMessageData.builder()
+                .certificateContent(Base64.getEncoder().encodeToString(certificate.getEncoded()))
+                .customAttributes(List.of(requestAttributeV3))
+                .build();
+
+        certificateService.deleteCertificate(uploadedCertificate.getSecuredUuid());
+        Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData2)));
+        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
+        Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
+        Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto.getCustomAttributes().stream().filter(attr -> CERTIFICATE_CUSTOM_ATTRIBUTE_NAME.equals(attr.getName())).findFirst();
+        Assertions.assertTrue(customAttributeDtoOptional.isPresent());
+        Assertions.assertEquals("fromRequest", ((List<StringAttributeContentV3>) customAttributeDtoOptional.get().getContent()).getFirst().getData());
+        mockServer.stop();
     }
 
     @Test

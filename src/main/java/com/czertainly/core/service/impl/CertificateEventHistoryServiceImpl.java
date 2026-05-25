@@ -69,7 +69,7 @@ public class CertificateEventHistoryServiceImpl implements CertificateEventHisto
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleUpdateCertificateHistoryEvent(UpdateCertificateHistoryEvent event) {
-        logger.debug("UpdateCertificateHistoryEvent event handler. Certificate UUID: {}", event.certificateUuid());
+        logger.debug("UpdateCertificateHistoryEvent event handled. Certificate UUID: {}", event.certificateUuid());
         addEventHistory(event.certificateUuid(), event.certificateEvent(), event.eventStatus(), event.message(), event.detail());
     }
 

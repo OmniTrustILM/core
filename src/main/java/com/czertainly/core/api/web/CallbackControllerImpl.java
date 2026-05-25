@@ -12,7 +12,7 @@ import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.CallbackService;
+import com.czertainly.core.service.CallbackExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -24,10 +24,10 @@ import java.util.UUID;
 @RestController
 public class CallbackControllerImpl implements CallbackController {
 
-    private CallbackService callbackService;
+    private CallbackExternalService callbackService;
 
     @Autowired
-    public void setCallbackService(CallbackService callbackService) {
+    public void setCallbackService(CallbackExternalService callbackService) {
         this.callbackService = callbackService;
     }
 

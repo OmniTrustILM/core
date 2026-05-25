@@ -3,6 +3,7 @@ package com.czertainly.core.service;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.cryptography.operations.*;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
@@ -89,6 +90,17 @@ public interface CryptographicOperationService {
     ) throws ConnectorException, NotFoundException;
 
     /**
+     * Returns the Core-internal signature attribute definitions for the given key algorithm.
+     * Unlike the connector-backed overload, this method operates purely in-memory and requires
+     * no token instance or connector interaction.
+     *
+     * @param keyAlgorithm the key algorithm
+     * @return list of Core-internal attribute definitions for signing operations
+     * @throws ValidationException when the key algorithm is not supported
+     */
+    List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm);
+
+    /**
      * @param tokenInstanceUuid UUID of the token instance
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
@@ -98,6 +110,25 @@ public interface CryptographicOperationService {
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     SignDataResponseDto signData(
+            SecuredParentUUID tokenInstanceUuid,
+            SecuredUUID tokenProfileUUID,
+            UUID uuid, UUID keyItemUuid,
+            SignDataRequestDto request
+    ) throws ConnectorException, NotFoundException;
+
+    /**
+     * Same as {@link #signData} but does not record any key event history.
+     * Intended for internal callers (e.g. TSA) that manage their own audit trail.
+     *
+     * @param tokenInstanceUuid UUID of the token instance
+     * @param tokenProfileUUID  UUID of the token profile
+     * @param uuid              UUID of the cryptographic key
+     * @param keyItemUuid       UUID of the Item inside the key Object
+     * @param request           DTO containing the data to sign a request {@Link SignDataRequestDto}
+     * @return Signed Data {@Link SignDataResponseDto}
+     * @throws NotFoundException when the token instance with the specified UUID is not found
+     */
+    SignDataResponseDto signDataWithoutEventHistory(
             SecuredParentUUID tokenInstanceUuid,
             SecuredUUID tokenProfileUUID,
             UUID uuid, UUID keyItemUuid,
