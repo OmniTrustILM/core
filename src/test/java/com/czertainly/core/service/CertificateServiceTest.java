@@ -47,11 +47,14 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
+import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestData;
 import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.MetaDefinitions;
+import com.czertainly.core.util.X509ObjectToString;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
@@ -65,6 +68,8 @@ import org.mockito.Mockito;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
@@ -142,6 +147,9 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private RuleService ruleService;
     @Autowired
     private TriggerService triggerService;
+
+    @Autowired
+    private CacheManager cacheManager;
 
     private AttributeEngine attributeEngine;
 
@@ -1304,6 +1312,37 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         relationsDto = certificateService.getCertificateRelations(notIssued.getUuid());
         Assertions.assertEquals(CertificateRelationType.REPLACEMENT, relationsDto.getPredecessorCertificates().getFirst().getRelationType());
+    }
+
+    @Test
+    void cacheIsEvictedAfterIssueRequestedCertificate() throws Exception {
+        Cache cache = cacheManager.getCache(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        Assertions.assertNotNull(cache, "cert-chain cache must be registered");
+        cache.clear();
+
+        // Create a Certificate entity with no content but with RA profile (required by issueRequestedCertificate)
+        Certificate notIssued = new Certificate();
+        notIssued.setRaProfile(raProfile);
+        notIssued = certificateRepository.save(notIssued);
+        UUID uuid = notIssued.getUuid();
+        String certKey = uuid + "_true";
+
+        // Warm the cache — before issuance the chain is empty (no content), but the entry exists
+        certificateService.getCertificateChainForSigning(uuid, true);
+        Assertions.assertNotNull(cache.get(certKey), "cache should be warm before issuance");
+
+        // Generate a fresh cert so its fingerprint is not already in DB
+        KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=IssueCache-Root");
+        KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=IssueCache-EE", null);
+        String pemCert = X509ObjectToString.toPem(eeX509);
+
+        // Issue the certificate — adds content to the entity and must evict the cache
+        certificateService.issueRequestedCertificate(uuid, pemCert, null);
+
+        Assertions.assertNull(cache.get(certKey),
+                "issueRequestedCertificate must evict the cert-chain cache");
     }
 
     @ParameterizedTest

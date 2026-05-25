@@ -11,6 +11,10 @@ caching:
   connectors:
     ttl-minutes: ${CONNECTOR_CACHE_TTL_MINUTES:5}
     max-size: ${CONNECTOR_CACHE_MAX_SIZE:100}
+  # Certificate-chain cache avoids repeated recursive-CTE lookups on the TSP hot path.
+  cert-chain:
+    ttl-minutes: ${CERT_CHAIN_CACHE_TTL_MINUTES:5}
+    max-size: ${CERT_CHAIN_CACHE_MAX_SIZE:1000}
   # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
