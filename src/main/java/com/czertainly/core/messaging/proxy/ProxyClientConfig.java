@@ -181,4 +181,22 @@ public class ProxyClientConfig {
     public NotificationInstanceApiClient mqNotificationInstanceApiClient(ProxyClient proxyClient) {
         return new NotificationInstanceApiClient(proxyClient);
     }
+
+    /**
+     * Create MQ-based v3 CertificateApiClient bean.
+     * This bean is used when connector has proxyId set for v3 certificate operations.
+     */
+    @Bean
+    public com.czertainly.api.clients.mq.v3.CertificateApiClient mqCertificateApiClientV3(ProxyClient proxyClient) {
+        return new com.czertainly.api.clients.mq.v3.CertificateApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v3 AuthorityApiClient bean.
+     * This bean is used when connector has proxyId set for v3 authority operations.
+     */
+    @Bean
+    public com.czertainly.api.clients.mq.v3.AuthorityApiClient mqAuthorityApiClientV3(ProxyClient proxyClient) {
+        return new com.czertainly.api.clients.mq.v3.AuthorityApiClient(proxyClient);
+    }
 }

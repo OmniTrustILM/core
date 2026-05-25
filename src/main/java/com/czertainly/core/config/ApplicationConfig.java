@@ -199,4 +199,16 @@ public class ApplicationConfig {
     public SchedulerApiClient schedulerApiClient() {
         return new SchedulerApiClient();
     }
+
+    // Connectors v3 API Clients
+
+    @Bean
+    public com.czertainly.api.clients.v3.CertificateApiClient certificateApiClientV3(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.czertainly.api.clients.v3.CertificateApiClient(webClient, defaultTrustManagers);
+    }
+
+    @Bean
+    public com.czertainly.api.clients.v3.AuthorityApiClient authorityApiClientV3(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.czertainly.api.clients.v3.AuthorityApiClient(webClient, defaultTrustManagers);
+    }
 }
