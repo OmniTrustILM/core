@@ -12,7 +12,6 @@ import com.czertainly.core.dao.repository.workflows.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.service.TriggerInternalService;
@@ -198,7 +197,7 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
     //region Trigger Associations
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.LIST)
     public Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid) {
         List<TriggerAssociation> triggerAssociations = triggerAssociationRepository.findAllByResourceAndObjectUuidOrderByTriggerOrderAsc(resource, associationObjectUuid);
 
