@@ -36,9 +36,9 @@ import java.util.List;
  * {@link AuthorityProviderAdapter} interface shape.
  *
  * <p>Does not alter any v2 wire behavior — it is a pure call-site shape adaptation.
- * v2 always responds synchronously, so every operation returns {@link AdapterOperationResult#syncOk}
- * or {@link AdapterOperationResult#syncNoContent}. The {@code asyncAccepted} factory is exclusively
- * a v3 affordance and is never used here.</p>
+ * v2 connectors MAY return HTTP 202 (async accepted) from issue, renew, or revoke.
+ * {@link #mapV2Response(ResponseEntity)} surfaces 202 from issue/renew as
+ * {@link AdapterOperationResult#asyncAccepted}; revoke applies equivalent logic inline.</p>
  */
 @Component
 public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
@@ -72,25 +72,21 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
                 connectorApiFactory.getCertificateApiClientV2(connectorDto)
                         .issueCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
 
-        CertificateDataResponseDto body = response.getBody();
-        return AdapterOperationResult.syncOk(
-                body != null ? body.getCertificateData() : null,
-                body != null ? body.getMeta() : null,
-                null);
+        return mapV2Response(response);
     }
 
     @Override
-    public AdapterOperationResult renew(Certificate cert, ClientCertificateRenewRequestDto req) throws ConnectorException {
-        RaProfile raProfile = cert.getRaProfile();
+    public AdapterOperationResult renew(Certificate oldCert, Certificate newCert, ClientCertificateRenewRequestDto req) throws ConnectorException {
+        RaProfile raProfile = newCert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
 
         CertificateRenewRequestDto wire = new CertificateRenewRequestDto();
-        wire.setRequest(cert.getCertificateRequest().getContent());
-        wire.setFormat(cert.getCertificateRequest().getCertificateRequestFormat());
+        wire.setRequest(newCert.getCertificateRequest().getContent());
+        wire.setFormat(newCert.getCertificateRequest().getCertificateRequestFormat());
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
-        wire.setCertificate(cert.getCertificateContent().getContent());
+        wire.setCertificate(oldCert.getCertificateContent().getContent());
         wire.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(
-                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCert.getUuid())
                         .connector(authority.getConnectorUuid())
                         .build()));
 
@@ -99,11 +95,7 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
                 connectorApiFactory.getCertificateApiClientV2(connectorDto)
                         .renewCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
 
-        CertificateDataResponseDto body = response.getBody();
-        return AdapterOperationResult.syncOk(
-                body != null ? body.getCertificateData() : null,
-                body != null ? body.getMeta() : null,
-                null);
+        return mapV2Response(response);
     }
 
     @Override
@@ -118,9 +110,12 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
         wire.setCertificate(cert.getCertificateContent().getContent());
 
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        connectorApiFactory.getCertificateApiClientV2(connectorDto)
+        ResponseEntity<Void> response = connectorApiFactory.getCertificateApiClientV2(connectorDto)
                 .revokeCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
 
+        if (response.getStatusCode().value() == 202) {
+            return AdapterOperationResult.asyncAccepted(null);
+        }
         return AdapterOperationResult.syncNoContent();
     }
 
@@ -174,5 +169,21 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
                 ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid())
                         .connector(authority.getConnectorUuid())
                         .build());
+    }
+
+    /**
+     * Maps a v2 connector response to an {@link AdapterOperationResult}.
+     * HTTP 202 is surfaced as {@link AdapterOperationOutcome#ASYNC_ACCEPTED}; all other 2xx
+     * responses (including 200) are treated as synchronous success ({@link AdapterOperationOutcome#SYNC_OK}).
+     */
+    private AdapterOperationResult mapV2Response(ResponseEntity<CertificateDataResponseDto> response) {
+        CertificateDataResponseDto body = response.getBody();
+        if (response.getStatusCode().value() == 202) {
+            return AdapterOperationResult.asyncAccepted(body != null ? body.getMeta() : null);
+        }
+        return AdapterOperationResult.syncOk(
+                body != null ? body.getCertificateData() : null,
+                body != null ? body.getMeta() : null,
+                null);
     }
 }

@@ -17,7 +17,6 @@ import com.czertainly.api.exception.ConnectorServerException;
 import com.czertainly.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.czertainly.api.model.connector.v2.CertificateOperationCancelRequestDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.connector.v2.CertificateRenewRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.authority.CertificateRevocationReason;
 import com.czertainly.api.model.core.certificate.*;
@@ -429,6 +428,20 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 certificate.getUuid(), originatingAction.getCode());
     }
 
+    /**
+     * Variant of {@link #transitionToPendingIssue(Certificate, CertificateDataResponseDto, ResourceAction)}
+     * used by adapter-based call sites, which carry metadata as {@code List<MetadataAttribute>} directly
+     * (no intermediate {@code CertificateDataResponseDto} required).
+     */
+    private void transitionToPendingIssue(Certificate certificate, List<MetadataAttribute> meta, ResourceAction originatingAction) {
+        CertificateDataResponseDto syntheticBody = null;
+        if (meta != null && !meta.isEmpty()) {
+            syntheticBody = new CertificateDataResponseDto();
+            syntheticBody.setMeta(meta);
+        }
+        transitionToPendingIssue(certificate, syntheticBody, originatingAction);
+    }
+
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
                                                             SecuredParentUUID authorityUuid,
                                                             SecuredUUID raProfileUuid,
@@ -604,45 +617,33 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         logger.debug("Renewing Certificate: {}", oldCertificate);
 
-        CertificateRenewRequestDto caRequest = new CertificateRenewRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-        caRequest.setCertificate(oldCertificate.getCertificateContent().getContent());
-        // TODO: check if retrieved correctly, just metadata with null source object
-        caRequest.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCertificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-
-        CertificateDataResponseDto renewCaResponse;
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<CertificateDataResponseDto> renewResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
-
-            if (renewResponse.getStatusCode().value() == 202) {
-                // The connector accepted the renewal but completion is asynchronous; the new
-                // certificate moves to PENDING_ISSUE while the predecessor remains ISSUED.
-                transitionToPendingIssue(certificate, renewResponse.getBody(), ResourceAction.RENEW);
-                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
-                        CertificateEventStatus.SUCCESS, "Renewal accepted; awaiting asynchronous completion.",
-                        MetaDefinitions.serialize(additionalInformation));
-                return;
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
+            switch (renewResult.outcome()) {
+                case ASYNC_ACCEPTED -> {
+                    transitionToPendingIssue(certificate, renewResult.meta(), ResourceAction.RENEW);
+                    certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
+                            CertificateEventStatus.SUCCESS, "Renewal accepted; awaiting asynchronous completion.",
+                            MetaDefinitions.serialize(additionalInformation));
+                    return;
+                }
+                case SYNC_OK -> {
+                    if (renewResult.certificateData() == null || renewResult.certificateData().isEmpty()) {
+                        throw new CertificateOperationException("Response from authority did not contain certificate data");
+                    }
+                    logger.info("Certificate {} was renewed by authority", certificateUuid);
+                    CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(
+                            certificateUuid, renewResult.certificateData(), renewResult.meta());
+                    additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
+                    certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
+                            CertificateEventStatus.SUCCESS, "Renewed using RA Profile " + raProfile.getName(),
+                            MetaDefinitions.serialize(additionalInformation));
+                }
+                case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on renew");
             }
-
-            renewCaResponse = renewResponse.getBody();
-            if (renewCaResponse == null || renewCaResponse.getCertificateData() == null || renewCaResponse.getCertificateData().isEmpty()) {
-                throw new CertificateOperationException("Response from authority did not contain certificate data");
-            }
-
-            logger.info("Certificate {} was renewed by authority", certificateUuid);
-
-            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, renewCaResponse.getCertificateData(), renewCaResponse.getMeta());
-
-            additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
-            certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.SUCCESS, "Renewed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
         } catch (Exception e) {
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
@@ -812,45 +813,34 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         RaProfile raProfile = certificate.getRaProfile();
 
         logger.debug("Rekeying Certificate: {}", oldCertificate);
-        CertificateRenewRequestDto caRequest = new CertificateRenewRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-        caRequest.setCertificate(oldCertificate.getCertificateContent().getContent());
-        // TODO: check if retrieved correctly, just metadata with null source object
-        caRequest.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCertificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
 
-        CertificateDataResponseDto renewCaResponse = null;
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<CertificateDataResponseDto> rekeyResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
-
-            if (rekeyResponse.getStatusCode().value() == 202) {
-                // The connector accepted the rekey but completion is asynchronous; the new
-                // certificate moves to PENDING_ISSUE while the predecessor remains ISSUED.
-                transitionToPendingIssue(certificate, rekeyResponse.getBody(), ResourceAction.REKEY);
-                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
-                        CertificateEventStatus.SUCCESS, "Rekey accepted; awaiting asynchronous completion.",
-                        MetaDefinitions.serialize(additionalInformation));
-                return;
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
+            switch (rekeyResult.outcome()) {
+                case ASYNC_ACCEPTED -> {
+                    transitionToPendingIssue(certificate, rekeyResult.meta(), ResourceAction.REKEY);
+                    certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
+                            CertificateEventStatus.SUCCESS, "Rekey accepted; awaiting asynchronous completion.",
+                            MetaDefinitions.serialize(additionalInformation));
+                    return;
+                }
+                case SYNC_OK -> {
+                    if (rekeyResult.certificateData() == null || rekeyResult.certificateData().isEmpty()) {
+                        throw new CertificateOperationException("Response from authority did not contain certificate data");
+                    }
+                    logger.info("Certificate {} was rekeyed by authority", certificateUuid);
+                    CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(
+                            certificateUuid, rekeyResult.certificateData(), rekeyResult.meta());
+                    additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
+                    certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
+                            CertificateEventStatus.SUCCESS, "Rekeyed using RA Profile " + raProfile.getName(),
+                            MetaDefinitions.serialize(additionalInformation));
+                }
+                case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on rekey");
             }
-
-            renewCaResponse = rekeyResponse.getBody();
-            if (renewCaResponse == null || renewCaResponse.getCertificateData() == null || renewCaResponse.getCertificateData().isEmpty()) {
-                throw new CertificateOperationException("Response from authority did not contain certificate data");
-            }
-
-            logger.info("Certificate {} was rekeyed by authority", certificateUuid);
-
-            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, renewCaResponse.getCertificateData(), renewCaResponse.getMeta());
-
-            additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
-            certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.SUCCESS, "Rekeyed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
         } catch (Exception e) {
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());

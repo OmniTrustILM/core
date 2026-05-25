@@ -20,7 +20,18 @@ public interface AuthorityProviderAdapter {
 
     AdapterOperationResult issue(Certificate cert, ClientCertificateSignRequestDto req) throws ConnectorException;
 
-    AdapterOperationResult renew(Certificate cert, ClientCertificateRenewRequestDto req) throws ConnectorException;
+    /**
+     * Renews (or rekeys) a certificate through the authority provider.
+     *
+     * @param oldCert the predecessor certificate — provides the old cert content
+     *                ({@code getCertificateContent().getContent()}) and its connector-issued metadata.
+     * @param newCert the successor certificate — provides the new CSR
+     *                ({@code getCertificateRequest().getContent()} / {@code .getCertificateRequestFormat()})
+     *                and the RA profile association used to look up connector attributes.
+     * @param req     the operator-level renew request DTO (carries client-visible fields such as
+     *                {@code replaceInLocations}; wire-level fields are derived from oldCert/newCert).
+     */
+    AdapterOperationResult renew(Certificate oldCert, Certificate newCert, ClientCertificateRenewRequestDto req) throws ConnectorException;
 
     AdapterOperationResult revoke(Certificate cert, ClientCertificateRevocationDto req) throws ConnectorException;
 

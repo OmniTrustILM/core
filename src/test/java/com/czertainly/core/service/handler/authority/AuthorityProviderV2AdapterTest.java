@@ -61,7 +61,10 @@ class AuthorityProviderV2AdapterTest {
     private ApiClientConnectorInfo connectorInfo;
     private AuthorityInstanceReference authority;
     private RaProfile raProfile;
+    /** Certificate used for issue tests and as the successor (new) cert in renew tests. */
     private Certificate cert;
+    /** Predecessor (old) certificate used in renew tests — carries the old cert content and UUID. */
+    private Certificate oldCert;
 
     @BeforeEach
     void setUp() throws NotFoundException, java.security.NoSuchAlgorithmException {
@@ -88,6 +91,16 @@ class AuthorityProviderV2AdapterTest {
         cert.setRaProfile(raProfile);
         cert.setCertificateRequest(certRequest);
         cert.setCertificateContent(certContent);
+
+        // oldCert carries the predecessor cert content (wire field "certificate") and the UUID
+        // used for metadata lookup. Its CSR is irrelevant for renew — the adapter reads CSR from newCert.
+        CertificateContent oldCertContent = new CertificateContent();
+        oldCertContent.setContent("dGVzdGNlcnQ="); // same value for assertions; distinct object
+
+        oldCert = new Certificate();
+        oldCert.setUuid(UUID.randomUUID());
+        oldCert.setRaProfile(raProfile);
+        oldCert.setCertificateContent(oldCertContent);
 
         // Lenient: not every test goes through the cert-client or authority-client path.
         lenient().when(connectorService.getConnectorForApiClient(connectorUuid)).thenReturn(connectorInfo);
@@ -136,7 +149,7 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.renewCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateRenewRequestDto.class)))
                 .thenReturn(ResponseEntity.ok(responseBody));
 
-        AdapterOperationResult result = adapter.renew(cert, new ClientCertificateRenewRequestDto());
+        AdapterOperationResult result = adapter.renew(oldCert, cert, new ClientCertificateRenewRequestDto());
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         assertEquals("renewedCertData==", result.certificateData());
@@ -150,12 +163,39 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.renewCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateRenewRequestDto.class)))
                 .thenReturn(ResponseEntity.ok(responseBody));
 
-        adapter.renew(cert, new ClientCertificateRenewRequestDto());
+        // newCert (cert) provides the CSR; oldCert provides the predecessor cert content.
+        adapter.renew(oldCert, cert, new ClientCertificateRenewRequestDto());
 
         ArgumentCaptor<CertificateRenewRequestDto> captor = ArgumentCaptor.forClass(CertificateRenewRequestDto.class);
         verify(certClient).renewCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
-        assertEquals("dGVzdGNzcg==", captor.getValue().getRequest());
-        assertEquals("dGVzdGNlcnQ=", captor.getValue().getCertificate());
+        assertEquals("dGVzdGNzcg==", captor.getValue().getRequest());   // from newCert (cert)
+        assertEquals("dGVzdGNlcnQ=", captor.getValue().getCertificate()); // from oldCert
+    }
+
+    @Test
+    void issue_status202ReturnsAsyncAccepted() throws ConnectorException {
+        CertificateDataResponseDto responseBody = new CertificateDataResponseDto();
+        responseBody.setCertificateData(null); // 202 body may omit cert data
+        when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
+                .thenReturn(ResponseEntity.status(202).body(responseBody));
+
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
+
+        assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
+        assertTrue(result.isAsync());
+        assertNull(result.certificateData());
+    }
+
+    @Test
+    void renew_status202ReturnsAsyncAccepted() throws ConnectorException {
+        when(attributeEngine.getMetadataAttributesDefinitionContent(any())).thenReturn(List.of());
+        when(certClient.renewCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateRenewRequestDto.class)))
+                .thenReturn(ResponseEntity.status(202).build());
+
+        AdapterOperationResult result = adapter.renew(oldCert, cert, new ClientCertificateRenewRequestDto());
+
+        assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
+        assertTrue(result.isAsync());
     }
 
     // --- revoke ---
@@ -172,6 +212,20 @@ class AuthorityProviderV2AdapterTest {
 
         assertEquals(AdapterOperationOutcome.SYNC_NO_CONTENT, result.outcome());
         assertNull(result.certificateData());
+    }
+
+    @Test
+    void revoke_status202ReturnsAsyncAccepted() throws ConnectorException {
+        when(certClient.revokeCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertRevocationDto.class)))
+                .thenReturn(ResponseEntity.status(202).build());
+
+        ClientCertificateRevocationDto req = new ClientCertificateRevocationDto();
+        req.setReason(CertificateRevocationReason.UNSPECIFIED);
+
+        AdapterOperationResult result = adapter.revoke(cert, req);
+
+        assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
+        assertTrue(result.isAsync());
     }
 
     @Test

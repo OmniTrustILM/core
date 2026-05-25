@@ -32,7 +32,7 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
-    public AdapterOperationResult renew(Certificate cert, ClientCertificateRenewRequestDto req) throws ConnectorException {
+    public AdapterOperationResult renew(Certificate oldCert, Certificate newCert, ClientCertificateRenewRequestDto req) throws ConnectorException {
         throw new UnsupportedOperationException(NOT_YET);
     }
 
