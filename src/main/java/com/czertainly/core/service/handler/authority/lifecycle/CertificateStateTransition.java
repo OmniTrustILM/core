@@ -46,6 +46,14 @@ public enum CertificateStateTransition {
 
     // Compliance rejection (v2 line 481)
     REQUESTED_TO_REJECTED            (REQUESTED,            REJECTED,             CertificateEvent.UPDATE_STATE),
+
+    // Issue / renew / rekey failure (v2 handleFailedOrRejectedEvent)
+    REQUESTED_TO_FAILED              (REQUESTED,            FAILED,               CertificateEvent.ISSUE),
+    PENDING_APPROVAL_TO_FAILED       (PENDING_APPROVAL,     FAILED,               CertificateEvent.ISSUE),
+
+    // Approval-rejected transition for certs that were ISSUED before the approval was raised
+    // (v2 issueCertificateRejectedAction; covers the ISSUED→REJECTED path in tests)
+    ISSUED_TO_REJECTED               (ISSUED,               REJECTED,             CertificateEvent.UPDATE_STATE),
     ;
 
     public final CertificateState from;

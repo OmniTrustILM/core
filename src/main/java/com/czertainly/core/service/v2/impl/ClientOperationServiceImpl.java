@@ -55,6 +55,7 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
+import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
 import com.czertainly.core.util.*;
@@ -102,6 +103,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private PlatformTransactionManager transactionManager;
 
+    private CertificateStateMachine stateMachine;
+
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
     private LocationService locationService;
@@ -127,6 +130,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Autowired
     public void setTransactionManager(PlatformTransactionManager transactionManager) {
         this.transactionManager = transactionManager;
+    }
+
+    @Autowired
+    public void setStateMachine(CertificateStateMachine stateMachine) {
+        this.stateMachine = stateMachine;
     }
 
     @Autowired
@@ -301,8 +309,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.PENDING_APPROVAL);
     }
 
     @Override
@@ -410,15 +417,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         }
 
-        certificate.setState(CertificateState.PENDING_ISSUE);
-        certificateRepository.save(certificate);
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.ISSUE,
-                CertificateEventStatus.SUCCESS,
-                "Issuance accepted; awaiting asynchronous completion.",
-                "");
+        stateMachine.transition(certificate, CertificateState.PENDING_ISSUE,
+                CertificateEvent.ISSUE, "Issuance accepted; awaiting asynchronous completion.");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -493,9 +493,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), message);
             }
         }
-        CertificateState oldState = certificate.getState();
-        certificate.setState(state);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, state);
 
         certificateRelationRepository.deleteAll(certificate.getPredecessorRelations());
 
@@ -507,12 +505,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 certificateEventHistoryService.addEventHistory(oldCertificateUuid, CertificateEvent.REKEY, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
         }
 
-        if (state == CertificateState.REJECTED) {
-            if (message == null) {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE, CertificateEventStatus.SUCCESS, "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel()), "");
-            } else {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
-            }
+        if (state == CertificateState.REJECTED && message != null) {
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
         }
     }
 
@@ -962,11 +956,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 return;
             }
 
-            certificate.setState(CertificateState.REVOKED);
-            certificateRepository.save(certificate);
+            stateMachine.transition(certificate, CertificateState.REVOKED,
+                    CertificateEvent.REVOKE, "Certificate revoked. Reason: " + caRequest.getReason().getLabel());
 
             attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
-            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + caRequest.getReason().getLabel(), "");
         } catch (Exception e) {
             if (connectorAccepted) {
                 // Connector accepted the operation (200/202) but a subsequent local step failed.
@@ -1014,15 +1007,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
         certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
         certificate.setPendingRevokeAttributes(request.getAttributes());
-        certificate.setState(CertificateState.PENDING_REVOKE);
-        certificateRepository.save(certificate);
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.REVOKE,
-                CertificateEventStatus.SUCCESS,
-                "Revocation accepted; awaiting asynchronous completion.",
-                "");
+        stateMachine.transition(certificate, CertificateState.PENDING_REVOKE,
+                CertificateEvent.REVOKE, "Revocation accepted; awaiting asynchronous completion.");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -1543,11 +1529,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
             cert.setPendingRevokeDestroyKey(null);
             cert.setPendingRevokeAttributes(null);
-            cert.setState(CertificateState.REVOKED);
-            certificateRepository.save(cert);
-
-            certificateEventHistoryService.addEventHistory(cert.getUuid(), CertificateEvent.REVOKE,
-                    CertificateEventStatus.SUCCESS, "Revocation confirmed manually", "");
+            stateMachine.transition(cert, CertificateState.REVOKED,
+                    CertificateEvent.REVOKE, "Revocation confirmed manually");
             transactionManager.commit(tx);
         } catch (NotFoundException | RuntimeException e) {
             transactionManager.rollback(tx);
@@ -1610,12 +1593,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        commitLocalCancel(cert, target);
 
         String label = target.isCancelIssue ? "Pending issue cancelled" : "Pending revocation cancelled";
         String msg = reason.isEmpty() ? label : (label + ". Reason: " + reason);
-        certificateEventHistoryService.addEventHistory(cert.getUuid(), target.eventKind(),
-                CertificateEventStatus.SUCCESS, msg, "");
+        commitLocalCancel(cert, target, msg);
+
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(cert.getUuid(), ResourceAction.UPDATE));
         logger.info("Pending {} for certificate {} cancelled (target state: {})",
@@ -1771,7 +1753,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * renew/rekey predecessor would otherwise still link to a now-{@code FAILED}
      * successor.</p>
      */
-    private void commitLocalCancel(Certificate cert, CancelTarget target) {
+    private void commitLocalCancel(Certificate cert, CancelTarget target, String cancelMsg) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -1806,12 +1788,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 certificateRelationRepository.deleteAll(fresh.getPredecessorRelations());
                 fresh.getPredecessorRelations().clear();
             }
-            fresh.setState(target.targetState());
             if (!target.isCancelIssue()) {
                 fresh.setPendingRevokeDestroyKey(null);
                 fresh.setPendingRevokeAttributes(null);
             }
-            certificateRepository.save(fresh);
+            stateMachine.transition(fresh, target.targetState(), target.eventKind(), cancelMsg);
             transactionManager.commit(cleanupTx);
         } catch (RuntimeException e) {
             transactionManager.rollback(cleanupTx);
