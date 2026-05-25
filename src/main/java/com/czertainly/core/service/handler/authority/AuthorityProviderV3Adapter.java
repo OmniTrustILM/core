@@ -19,6 +19,7 @@ import com.czertainly.api.model.connector.v3.certificate.CertificateRenewRequest
 import com.czertainly.api.model.connector.v3.certificate.CertificateRevocationRequestDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateSignRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
+import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
@@ -190,17 +191,14 @@ public class AuthorityProviderV3Adapter
                 .listRegisterAttributes(connectorDto, authorityAttributesFor(authority));
     }
 
-    /**
-     * Pre-registers a certificate identity at the upstream CA. Wired to the interface via
-     * RegisterCapability extension in M3 Task 22 once the operator DTO is created.
-     */
-    public AdapterOperationResult register(Certificate cert, List<RequestAttribute> registerAttributes) throws ConnectorException {
+    @Override
+    public AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
         CertificateRegistrationRequestDto wire = new CertificateRegistrationRequestDto();
-        wire.setAttributes(registerAttributes);
+        wire.setAttributes(req != null ? req.getAttributes() : null);
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
 

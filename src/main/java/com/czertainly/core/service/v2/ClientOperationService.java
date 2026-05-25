@@ -125,4 +125,27 @@ public interface ClientOperationService {
             String certificateUuid,
             CancelPendingCertificateRequestDto request
     ) throws NotFoundException;
+
+    /**
+     * Pre-registers a certificate identity at a v3 authority. Creates a placeholder
+     * certificate in state REQUESTED, transitions it through PENDING_REGISTRATION, and
+     * either REGISTERED (sync) or keeps it PENDING_REGISTRATION (async, polling scheduled).
+     *
+     * <p>Requires the authority to advertise CERTIFICATE_REGISTRATION and to implement
+     * {@link com.czertainly.core.service.handler.authority.RegisterCapability}.</p>
+     */
+    ClientCertificateDataResponseDto registerCertificate(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            ClientCertificateRegistrationDto request
+    ) throws ConnectorException, NotFoundException;
+
+    /**
+     * Returns per-operation support flags (issue/renew/revoke/register) for the
+     * given authority and RA profile, based on the adapter type and enabled feature flags.
+     */
+    AvailableOperationsDto listAvailableOperations(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid
+    ) throws NotFoundException;
 }

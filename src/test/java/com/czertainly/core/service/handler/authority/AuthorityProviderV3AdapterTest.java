@@ -15,6 +15,7 @@ import com.czertainly.api.model.connector.v3.certificate.CertificateOperationSta
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusRequestDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateSignRequestDto;
+import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
@@ -231,7 +232,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.register(eq(connectorInfo), any()))
                 .thenReturn(ResponseEntity.ok(body));
 
-        AdapterOperationResult result = adapter.register(cert, List.of());
+        AdapterOperationResult result = adapter.register(cert, new ClientCertificateRegistrationDto());
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         verify(certClientV3).register(eq(connectorInfo), any());

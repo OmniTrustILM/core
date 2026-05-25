@@ -52,9 +52,22 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
+import com.czertainly.api.model.client.connector.v2.FeatureFlag;
+import com.czertainly.api.model.core.v2.AvailableOperationsDto;
+import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.czertainly.api.model.core.v2.OperationSupport;
+import com.czertainly.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.czertainly.core.messaging.jms.producers.CertificateStatusPollProducer;
+import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
+import com.czertainly.core.service.handler.ConnectorCapabilityService;
 import com.czertainly.core.service.handler.authority.AdapterOperationResult;
+import com.czertainly.core.service.handler.authority.AsyncOperationCapability;
 import com.czertainly.core.service.handler.authority.AuthorityProviderAdapter;
 import com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.czertainly.core.service.handler.authority.CertificateOperation;
+import com.czertainly.core.service.handler.authority.CancelResult;
+import com.czertainly.core.service.handler.authority.CancelOutcome;
+import com.czertainly.core.service.handler.authority.RegisterCapability;
 import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
@@ -122,6 +135,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
+    private ConnectorCapabilityService capabilityService;
+    private CertificateStatusPollProducer pollProducer;
 
     @Autowired
     public void setCertificateRelationRepository(CertificateRelationRepository certificateRelationRepository) {
@@ -146,6 +161,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Autowired
     public void setEventProducer(EventProducer eventProducer) {
         this.eventProducer = eventProducer;
+    }
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
+    }
+
+    @Autowired
+    public void setPollProducer(CertificateStatusPollProducer pollProducer) {
+        this.pollProducer = pollProducer;
     }
 
     @Autowired
@@ -1554,6 +1579,113 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public ClientCertificateDataResponseDto registerCertificate(
+            SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            ClientCertificateRegistrationDto request) throws ConnectorException, NotFoundException {
+
+        RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+
+        if (!capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
+            throw new ValidationException("Authority does not support certificate pre-registration");
+        }
+
+        Certificate cert = createRegistrationPlaceholder(raProfile);
+
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+        if (!(adapter instanceof RegisterCapability reg)) {
+            throw new ValidationException("Authority adapter does not implement pre-registration capability");
+        }
+
+        stateMachine.transition(cert, CertificateState.PENDING_REGISTRATION);
+        certificateRepository.save(cert);
+
+        AdapterOperationResult result = reg.register(cert, request);
+
+        switch (result.outcome()) {
+            case SYNC_OK -> completeRegistrationSync(cert, authority, result);
+            case ASYNC_ACCEPTED -> scheduleRegistrationPoll(cert, authority, result);
+            default -> throw new IllegalStateException("Unexpected adapter outcome for register: " + result.outcome());
+        }
+
+        ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
+        response.setUuid(cert.getUuid().toString());
+        return response;
+    }
+
+    private Certificate createRegistrationPlaceholder(RaProfile raProfile) {
+        Certificate cert = new Certificate();
+        cert.setState(CertificateState.REQUESTED);
+        cert.setComplianceStatus(com.czertainly.api.model.core.compliance.ComplianceStatus.NOT_CHECKED);
+        cert.setValidationStatus(com.czertainly.api.model.core.certificate.CertificateValidationStatus.NOT_CHECKED);
+        cert.setCertificateType(com.czertainly.api.model.core.certificate.CertificateType.X509);
+        cert.setRaProfileUuid(raProfile.getUuid());
+        return certificateRepository.save(cert);
+    }
+
+    private void completeRegistrationSync(Certificate cert, AuthorityInstanceReference authority,
+                                          AdapterOperationResult result) throws ConnectorAcceptedButLocalFailureException {
+        if (result.certificateData() != null && !result.certificateData().isEmpty()) {
+            logger.warn("Connector returned certificateData on register sync 200 for cert {} — unexpected; ignoring cert data",
+                    cert.getUuid());
+        }
+        persistRegistrationMeta(cert, authority, result);
+        stateMachine.transition(cert, CertificateState.REGISTERED);
+        certificateRepository.save(cert);
+        logger.info("Certificate {} registered synchronously", cert.getUuid());
+    }
+
+    private void scheduleRegistrationPoll(Certificate cert, AuthorityInstanceReference authority,
+                                          AdapterOperationResult result) throws ConnectorAcceptedButLocalFailureException {
+        persistRegistrationMeta(cert, authority, result);
+        pollProducer.produceMessage(
+                new CertificateStatusPollMessage(Resource.CERTIFICATE, cert.getUuid(), CertificateOperation.REGISTER, 1));
+        logger.info("Certificate {} accepted for async registration; poll scheduled", cert.getUuid());
+    }
+
+    private void persistRegistrationMeta(Certificate cert, AuthorityInstanceReference authority,
+                                         AdapterOperationResult result) throws ConnectorAcceptedButLocalFailureException {
+        if (result.meta() == null || result.meta().isEmpty()) {
+            return;
+        }
+        try {
+            attributeEngine.updateMetadataAttributes(result.meta(),
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
+                            .connector(authority.getConnectorUuid())
+                            .build());
+        } catch (Exception metaEx) {
+            throw new ConnectorAcceptedButLocalFailureException(
+                    "Connector accepted registration but metadata persistence failed", metaEx);
+        }
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public AvailableOperationsDto listAvailableOperations(
+            SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws NotFoundException {
+
+        RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+
+        boolean isAsync = adapter instanceof AsyncOperationCapability;
+        boolean canRegister = adapter instanceof RegisterCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION);
+
+        List<OperationSupport> ops = List.of(
+                new OperationSupport("ISSUE",    true,            isAsync,              isAsync),
+                new OperationSupport("RENEW",    true,            isAsync,              isAsync),
+                new OperationSupport("REVOKE",   true,            isAsync,              isAsync),
+                new OperationSupport("REGISTER", canRegister,     isAsync && canRegister, isAsync && canRegister)
+        );
+        return new AvailableOperationsDto(ops);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public CertificateDetailDto cancelPendingCertificateOperation(
             SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, String certificateUuid,
             CancelPendingCertificateRequestDto request) throws NotFoundException {
@@ -1566,7 +1698,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         invokeConnectorCancelOrThrow(cert, target);
 
-        String label = target.isCancelIssue ? "Pending issue cancelled" : "Pending revocation cancelled";
+        String label = "Pending " + target.pendingOpLabel() + " cancelled";
         String msg = reason.isEmpty() ? label : (label + ". Reason: " + reason);
         commitLocalCancel(cert, target, msg);
 
@@ -1579,59 +1711,95 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     /**
-     * Carries the per-state choices for {@link #cancelPendingCertificateOperation}: which
-     * connector cancel endpoint to call, what local target state to transition the
-     * certificate to, which {@link CertificateEvent} kind to record, and the human-readable
-     * label for log/event messages. {@code pendingOpLabel} is the single source of truth
-     * for "issuance" / "revocation" — kept consistent across all log lines and event-log
-     * descriptions.
+     * Carries the per-state choices for {@link #cancelPendingCertificateOperation}.
+     *
+     * <p>{@code cleanupKind} controls which predecessor/attribute cleanup runs in
+     * {@link #commitLocalCancel}: ISSUE deletes predecessor relations (to prevent dangling
+     * links on a now-FAILED cert), REVOKE clears the stored revoke attributes, REGISTER
+     * requires no extra cleanup.</p>
      */
-    private record CancelTarget(boolean isCancelIssue, CertificateState targetState,
-                                CertificateEvent eventKind, String pendingOpLabel) {}
+    private enum CancelCleanupKind { ISSUE, REVOKE, REGISTER }
+
+    private record CancelTarget(CertificateState expectedPendingState, CertificateState targetState,
+                                CertificateEvent eventKind, CertificateOperation operation,
+                                CancelCleanupKind cleanupKind, String pendingOpLabel) {}
 
     private CancelTarget determineCancelTarget(Certificate cert) {
-        if (cert.getState() == CertificateState.PENDING_ISSUE) {
-            certificateService.checkIssuePermissions();
-            return new CancelTarget(true, CertificateState.FAILED, CertificateEvent.ISSUE, "issuance");
-        }
-        if (cert.getState() == CertificateState.PENDING_REVOKE) {
-            certificateService.checkRevokePermissions();
-            return new CancelTarget(false, CertificateState.ISSUED, CertificateEvent.REVOKE, "revocation");
-        }
-        throw new ValidationException("Cannot cancel: certificate is not in a pending state. Current state: %s. Certificate: %s"
-                .formatted(cert.getState().getLabel(), cert.toStringShort()));
+        return switch (cert.getState()) {
+            case PENDING_ISSUE -> {
+                certificateService.checkIssuePermissions();
+                yield new CancelTarget(CertificateState.PENDING_ISSUE, CertificateState.FAILED,
+                        CertificateEvent.ISSUE, CertificateOperation.ISSUE, CancelCleanupKind.ISSUE, "issuance");
+            }
+            case PENDING_REVOKE -> {
+                certificateService.checkRevokePermissions();
+                yield new CancelTarget(CertificateState.PENDING_REVOKE, CertificateState.ISSUED,
+                        CertificateEvent.REVOKE, CertificateOperation.REVOKE, CancelCleanupKind.REVOKE, "revocation");
+            }
+            case PENDING_REGISTRATION -> {
+                certificateService.checkIssuePermissions();
+                yield new CancelTarget(CertificateState.PENDING_REGISTRATION, CertificateState.FAILED,
+                        CertificateEvent.UPDATE_STATE, CertificateOperation.REGISTER, CancelCleanupKind.REGISTER, "registration");
+            }
+            default -> throw new ValidationException(
+                    "Cannot cancel: certificate is not in a pending state. Current state: %s. Certificate: %s"
+                            .formatted(cert.getState().getLabel(), cert.toStringShort()));
+        };
     }
 
     /**
-     * Connector cancel contract:
-     * <ul>
-     *   <li>{@code 204 No Content} — aborted upstream; proceed with local transition.</li>
-     *   <li>{@code 404 Not Found} — connector does not track this operation; soft failure,
-     *       proceed locally.</li>
-     *   <li>{@code 422 Unprocessable Entity} → {@link ValidationException} — connector
-     *       refuses to abort; HARD refusal, surface the upstream reason and abort the local
-     *       cancel (cert stays in PENDING_*).</li>
-     *   <li>{@code 5xx} / network / timeout — infrastructure error, soft failure, proceed
-     *       locally (the connector may recover and we can reconcile via status).</li>
-     *   <li>Other {@code 4xx} (400, 401, 403) → {@link ConnectorClientException} — request
-     *       was wrong or unauthorised. NOT a soft failure: silently transitioning the cert
-     *       state would be incorrect because the connector never cancelled the upstream
-     *       operation.</li>
-     *   <li>Any other {@link ConnectorException} subtype — defensive soft failure path so
-     *       a future {@code ConnectorXxxException} doesn't crash the cancel flow.</li>
-     * </ul>
+     * Invokes the adapter cancel method. For v3 adapters ({@link AsyncOperationCapability}),
+     * routes through {@code adapter.cancel(...)}. For v2 adapters (no async capability), falls
+     * back to the direct v2 connector client using the pre-M3 call sites (PENDING_REGISTRATION
+     * is not reachable on v2 adapters so only ISSUE/REVOKE paths land here).
      *
-     * <p>Throws {@link ValidationException} on hard refusal (422 or other 4xx). Returns
-     * normally on every soft-failure path so the caller can proceed with the local
-     * transition.</p>
+     * <p>Returns normally when the cancel should proceed locally (CANCELLED or NOT_TRACKED).
+     * Throws {@link ValidationException} on hard connector refusal (REFUSED_PAST_POINT_OF_NO_RETURN
+     * or any 4xx that is not "not found"). The cert stays in its pending state on a hard refusal.</p>
      */
     private void invokeConnectorCancelOrThrow(Certificate cert, CancelTarget target) throws NotFoundException {
         RaProfile raProfile = cert.getRaProfile();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+
+        if (adapter instanceof AsyncOperationCapability async) {
+            invokeAdapterCancel(cert, target, async);
+        } else {
+            invokeLegacyV2Cancel(cert, target, raProfile);
+        }
+    }
+
+    private void invokeAdapterCancel(Certificate cert, CancelTarget target, AsyncOperationCapability async) {
+        try {
+            CancelResult result = async.cancel(cert, target.operation());
+            switch (result.outcome()) {
+                case CANCELLED, NOT_TRACKED -> {
+                    // proceed with local cancel — fall through
+                }
+                case REFUSED_PAST_POINT_OF_NO_RETURN -> {
+                    recordCancelFailure(cert, target,
+                            "Authority refused to cancel: operation past point of no return",
+                            "Authority refused to cancel pending " + target.pendingOpLabel() + ": past point of no return",
+                            new RuntimeException("REFUSED_PAST_POINT_OF_NO_RETURN"));
+                    throw new ValidationException("Authority refused to cancel: operation past point of no return");
+                }
+            }
+        } catch (ValidationException e) {
+            throw e;
+        } catch (ConnectorException e) {
+            recordCancelSoftFailure(cert, target,
+                    "Connector cancel call failed (proceeding with local cancel): " + e.getMessage(),
+                    "Connector cancel call failed; proceeded with local cancel",
+                    "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
+                    e.getClass().getSimpleName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    private void invokeLegacyV2Cancel(Certificate cert, CancelTarget target, RaProfile raProfile) throws NotFoundException {
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
         CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
 
         try {
-            if (target.isCancelIssue()) {
+            if (target.cleanupKind() == CancelCleanupKind.ISSUE) {
                 connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelIssueCertificate(connectorDto,
                         raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
             } else {
@@ -1643,7 +1811,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     "Cancel rejected by authority: " + upstreamRefused.getMessage(),
                     "Authority refused to cancel pending " + target.pendingOpLabel() + ": " + upstreamRefused.getMessage(),
                     upstreamRefused);
-            throw new ValidationException("Authority refused to cancel the operation: " + upstreamRefused.getMessage());
+            throw new ValidationException("Authority refused to cancel the operation");
         } catch (ConnectorEntityNotFoundException notTracked) {
             recordCancelSoftFailure(cert, target,
                     "Connector did not track this operation (404); proceeding with local cancel: " + notTracked.getMessage(),
@@ -1652,10 +1820,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         } catch (ConnectorClientException badRequest) {
             int status = badRequest.getHttpStatus().value();
             recordCancelFailure(cert, target,
-                    "Connector cancel rejected by " + status + ": " + badRequest.getMessage(),
+                    "Connector cancel rejected by " + status,
                     "Connector cancel rejected with HTTP " + status + "; certificate stays in " + cert.getState(),
                     badRequest);
-            throw new ValidationException("Connector cancel rejected (" + status + "): " + badRequest.getMessage());
+            throw new ValidationException("Connector cancel rejected (" + status + ")");
         } catch (ConnectorServerException | ConnectorCommunicationException infra) {
             recordCancelSoftFailure(cert, target,
                     "Connector cancel call failed with infrastructure error (proceeding with local cancel): " + infra.getMessage(),
@@ -1663,13 +1831,6 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
         } catch (Exception unexpected) {
-            // Defensive catch-all. Covers any ConnectorException subtype not handled above
-            // (e.g. ConnectorProblemException or future additions) plus any unchecked
-            // exception leaking from the connector client / API layer. We intentionally widen
-            // to Exception rather than ConnectorException so a NPE / IllegalState from the
-            // client stack does not silently propagate as an HTTP 500 to the caller —
-            // cancel is a local-state operation and a connector hiccup should not strand
-            // the cert in PENDING_*.
             recordCancelSoftFailure(cert, target,
                     "Connector cancel call failed (proceeding with local cancel): " + unexpected.getMessage(),
                     "Connector cancel call failed (" + unexpected.getClass().getSimpleName() + "); proceeded with local cancel",
@@ -1728,41 +1889,29 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void commitLocalCancel(Certificate cert, CancelTarget target, String cancelMsg) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
-            // Re-read the cert under the new transaction. The method runs as
-            // @Transactional(NOT_SUPPORTED) and the connector cancel call between the initial
-            // read at the top of cancelPendingCertificateOperation and this point holds no
-            // database lock — a concurrent operator action (e.g. manuallyConfirmRevoke
-            // committing REVOKED, manuallyIssueCertificate committing ISSUED) could have
-            // transitioned the cert in the meantime. Without this re-read + state assertion
-            // we would blindly overwrite a valid concurrent transition with the cancel's
-            // target state, producing a state divergence between the platform and the
-            // operator's intent. The expected pre-cancel state is recorded on the
-            // CancelTarget (PENDING_ISSUE for cancel-issue, PENDING_REVOKE for cancel-revoke).
-            CertificateState expectedPendingState = target.isCancelIssue()
-                    ? CertificateState.PENDING_ISSUE
-                    : CertificateState.PENDING_REVOKE;
-            // findAndLockWithAssociationsByUuid issues SELECT ... FOR UPDATE inside this
-            // transaction. A concurrent manuallyConfirmRevoke / manuallyIssueCertificate
-            // attempting to update the same row blocks until this transaction commits or
-            // rolls back, so the state assertion below cannot be defeated by an interleaving
-            // commit between our reload and our save.
+            // Re-read under a pessimistic write lock so a concurrent operator action
+            // (manuallyConfirmRevoke, manuallyIssueCertificate) cannot commit between our
+            // reload and our save. State is re-verified after acquiring the lock.
             Certificate fresh = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                     .orElseThrow(() -> new ValidationException(
                             "Certificate disappeared during cancel: " + cert.getUuid()));
-            if (fresh.getState() != expectedPendingState) {
+            if (fresh.getState() != target.expectedPendingState()) {
                 throw new ValidationException(
                         "Cancel raced with another operation: certificate " + cert.getUuid()
-                                + " is in state " + fresh.getState() + " (expected " + expectedPendingState
+                                + " is in state " + fresh.getState() + " (expected " + target.expectedPendingState()
                                 + "); refusing to overwrite. The connector cancel call may have completed"
                                 + " upstream — verify and reconcile manually if needed.");
             }
-            if (target.isCancelIssue()) {
-                certificateRelationRepository.deleteAll(fresh.getPredecessorRelations());
-                fresh.getPredecessorRelations().clear();
-            }
-            if (!target.isCancelIssue()) {
-                fresh.setPendingRevokeDestroyKey(null);
-                fresh.setPendingRevokeAttributes(null);
+            switch (target.cleanupKind()) {
+                case ISSUE -> {
+                    certificateRelationRepository.deleteAll(fresh.getPredecessorRelations());
+                    fresh.getPredecessorRelations().clear();
+                }
+                case REVOKE -> {
+                    fresh.setPendingRevokeDestroyKey(null);
+                    fresh.setPendingRevokeAttributes(null);
+                }
+                case REGISTER -> { /* no additional cleanup for registration cancellation */ }
             }
             stateMachine.transition(fresh, target.targetState(), target.eventKind(), cancelMsg);
             transactionManager.commit(cleanupTx);

@@ -157,4 +157,26 @@ public class ClientOperationControllerImpl implements ClientOperationController 
                 SecuredUUID.fromString(raProfileUuid),
                 certificateUuid, request);
     }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.ISSUE)
+    public ClientCertificateDataResponseDto registerCertificate(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid,
+            ClientCertificateRegistrationDto request) throws NotFoundException, ValidationException, ConnectorException {
+        return clientOperationService.registerCertificate(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid),
+                request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public AvailableOperationsDto listAvailableOperations(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid) throws NotFoundException {
+        return clientOperationService.listAvailableOperations(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid));
+    }
 }
