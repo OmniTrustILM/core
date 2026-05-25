@@ -90,7 +90,8 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     private AttributeEngine attributeEngine;
     private CertificateHandler certificateHandler;
 
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
+    private TriggerInternalService triggerInternalService;
     private DiscoveryRepository discoveryRepository;
     private CertificateRepository certificateRepository;
     private ConnectorApiFactory connectorApiFactory;
@@ -117,8 +118,13 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     }
 
     @Autowired
-    public void setTriggerService(TriggerService triggerService) {
+    public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
+    }
+
+    @Autowired
+    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
+        this.triggerInternalService = triggerInternalService;
     }
 
     @Autowired
@@ -259,7 +265,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
 
         attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discovery.getUuid());
         discoveryRepository.delete(discovery);
-        triggerService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
+        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
 
         try {
             String referenceUuid = discovery.getDiscoveryConnectorReference();
