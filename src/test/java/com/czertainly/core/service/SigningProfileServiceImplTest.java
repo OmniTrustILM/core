@@ -549,9 +549,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             ).thenReturn(denied);
 
             // when/then
+            UUID rsaCertificateUuid = rsaCertificate.getUuid();
             assertThrows(
                     AccessDeniedException.class,
-                    () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificate.getUuid())
+                    () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificateUuid)
             );
         }
 
@@ -1143,8 +1144,9 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             request.setWorkflow(new RawSigningWorkflowRequestDto());
 
             // when/then
+            SecuredUUID savedProfileUuid = savedProfile.getSecuredUuid();
             assertThrows(ValidationException.class,
-                    () -> signingProfileService.updateSigningProfile(savedProfile.getSecuredUuid(), request),
+                    () -> signingProfileService.updateSigningProfile(savedProfileUuid, request),
                     "updateSigningProfile must reject a certificate whose chain is incomplete");
         }
 
@@ -1261,8 +1263,9 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             tspRepository.save(tspProfile);
 
             // when/then
+            SecuredUUID savedProfileUuid = savedProfile.getSecuredUuid();
             ValidationException ex = assertThrows(ValidationException.class,
-                    () -> signingProfileService.deleteSigningProfile(savedProfile.getSecuredUuid()));
+                    () -> signingProfileService.deleteSigningProfile(savedProfileUuid));
 
             // then: error message names the blocking TSP profile and profile is not removed
             String message = ex.getErrors().stream()
@@ -1606,9 +1609,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             TspProfile savedTsp = tspRepository.save(tsp);
 
             // when/then
+            String profileUuid = profileDto.getUuid();
+            SecuredUUID tspUuid = savedTsp.getSecuredUuid();
             assertThrows(ValidationException.class,
                     () -> signingProfileService.activateTsp(
-                            SecuredUUID.fromString(profileDto.getUuid()), savedTsp.getSecuredUuid()));
+                            SecuredUUID.fromString(profileUuid), tspUuid));
         }
 
         Stream<Arguments> unsupportedWorkflowTypes() {
@@ -2583,50 +2588,6 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
         workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
         request.setWorkflow(workflow);
-        return request;
-    }
-
-    /**
-     * Builds a request using a MANAGED/STATIC_KEY scheme and TIMESTAMPING workflow,
-     * with no additional validation properties set.
-     */
-    private SigningProfileRequestDto buildManagedStaticKeyTimestampingRequest(String name) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
-        scheme.setCertificateUuid(tsaCertificate.getUuid());
-        scheme.setSigningOperationAttributes(List.of(
-                buildRsaSchemeAttribute(RsaSignatureScheme.PKCS1_v1_5),
-                buildDigestAttribute(DigestAlgorithm.SHA_256)));
-        request.setSigningScheme(scheme);
-        TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
-        request.setWorkflow(workflow);
-        return request;
-    }
-
-    /**
-     * Builds a request using a MANAGED/STATIC_KEY scheme and TIMESTAMPING workflow
-     * with a default policy ID, two allowed policy IDs, and SHA-256 as an allowed digest algorithm.
-     */
-    private SigningProfileRequestDto buildManagedStaticKeyTimestampingRequestWithValidationProps(String name) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
-        scheme.setCertificateUuid(tsaCertificate.getUuid());
-        scheme.setSigningOperationAttributes(List.of(
-                buildRsaSchemeAttribute(RsaSignatureScheme.PKCS1_v1_5),
-                buildDigestAttribute(DigestAlgorithm.SHA_256)));
-        request.setSigningScheme(scheme);
-        TimestampingWorkflowRequestDto wf = new TimestampingWorkflowRequestDto();
-        wf.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
-        wf.setDefaultPolicyId("1.2.3.4.5");
-        wf.setAllowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.6"));
-        wf.setAllowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256));
-        wf.setValidateTokenSignature(true);
-        request.setWorkflow(wf);
         return request;
     }
 
