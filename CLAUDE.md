@@ -90,28 +90,7 @@ Capture entry state before the external call (`final State entryState = entity.g
 
 ## Transactional boundaries live on services, not repositories
 
-The transactional boundary is a service-layer concern (when to start/commit/rollback a unit of work), not a persistence-layer concern (how to read or write a row). Repository interfaces in `com.czertainly.core.dao.repository.*` must not carry `@Transactional` — neither at the type level nor on individual methods, including `@Modifying @Query` writes.
-
-Every domain that needs a guarded write uses a **bean-pair**:
-
-- A **service / orchestrator** bean. Typically no class-level `@Transactional` — methods inherit the caller's ambient transaction (REQUIRED) or run without one (NOT_SUPPORTED) depending on the caller. The writer bean below is always invoked across the bean boundary, but its `@Transactional` advice runs *inside* whatever tx context the caller established: it opens an independent short tx only if the caller has no ambient tx (or is `NOT_SUPPORTED`); otherwise it joins the caller's tx and commits with it. **HTTP safety therefore depends on the caller** — making the chain orchestrator un-annotated does *not* by itself prevent row-lock-during-HTTP on callers that hold a REQUIRED tx. The caller (e.g. `CertificateServiceImpl.validate`) must itself be `@Transactional(NOT_SUPPORTED)`. Apply method-level `@Transactional(NOT_SUPPORTED)` on individual HTTP-bearing methods of the orchestrator only when caller-side isolation isn't enough — e.g. when the orchestrator method holds row locks via reads-before-HTTP that the writer pattern can't help with (`CrlServiceImpl.getCurrentCrl` is the worked example).
-- A **writer** bean (suffix `Writer`, e.g. `CertificateChainWriter`) — short, side-effect-only methods, each annotated `@Transactional` with default propagation (REQUIRED). Each method calls one `@Modifying @Query` on a repository and returns.
-
-The orchestrator injects the writer and calls it across the bean boundary. Two beans is mandatory, not stylistic: `this.write()` from `this.orchestrate()` is a Spring proxy self-invocation and silently skips the `@Transactional` advice. Cross-bean calls always go through the proxy and always honour the annotation.
-
-Why default REQUIRED on writers, not REQUIRES_NEW: writers must compose. If a caller already has an ambient REQUIRED tx (e.g. from a REST entry on a class-level-`@Transactional` service), the writer joins it. If the caller is `NOT_SUPPORTED`, REQUIRED starts a new tx. `REQUIRES_NEW` would always start a new tx and silently break atomicity for callers that wanted to bundle writes.
-
-Why no class-level `NOT_SUPPORTED` on the orchestrator by default: the initial pattern called for it, but the PR 1 chain-bean refactor discovered it breaks the test surface (test classes with `@Transactional` hold uncommitted fixtures in their ambient transaction; class-level `NOT_SUPPORTED` on a bean reached from those tests suspends the transaction and hides the fixtures from the bean's reads). Document the orchestrator's transactional contract in class-level Javadoc and rely on ArchUnit Rule A (below) to catch the foot-gun of re-introducing `save(detachedEntity)` in a NOT_SUPPORTED context.
-
-`@Modifying @Query` UPDATE statements bypass JPA dirty checking, which means `@UpdateTimestamp`, `@LastModifiedBy`, `@PreUpdate`, and any other `EntityListener` callbacks **do not fire**. If the target entity extends `Audited`, set `c.updated = CURRENT_TIMESTAMP` inside the UPDATE query explicitly; document in the writer Javadoc whether `i_author` is deliberately not refreshed (acceptable for system-driven transitions). The tag `// AUDIT-BYPASS: i_upd refreshed in SQL; i_author intentionally not changed (system transition).` is unique and `grep`-able — enumerate every site where audit-column semantics deviate from JPA dirty-checking defaults by searching for that exact string.
-
-Three ArchUnit rules enforce the pattern (in `src/test/java/com/czertainly/core/architecture/TransactionalBoundaryArchTest.java`):
-
-- **Rule A** — no `@Transactional(NOT_SUPPORTED)` method (method-level or class-level) may call `save/saveAll/saveAndFlush/delete/deleteAll/deleteAllInBatch/deleteInBatch/flush` on a `Repository`.
-- **Rule B** — no `@Transactional` on any class or method in `com.czertainly.core.dao.repository..`.
-- **Rule C** — only beans in `..service.writer..` may invoke a `@Modifying`-annotated repository method. Frozen via `FreezingArchRule` so pre-existing call sites can be resolved incrementally; new violations fail the build.
-
-Run them in CI; the rules are the source of truth, this section is the explanation.
+Repositories in `com.czertainly.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
 
 ## Race conditions on multi-actor endpoints
 
