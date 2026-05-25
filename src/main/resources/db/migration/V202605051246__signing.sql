@@ -61,3 +61,23 @@ ALTER TABLE "tsp_profile"
     ADD CONSTRAINT fk_tsp_default_signing_profile
         FOREIGN KEY ("default_signing_profile_uuid")
             REFERENCES "signing_profile" ("uuid") ON DELETE RESTRICT;
+
+-- ── 4. Indexes on FK columns (deletion/lookup hot paths)
+CREATE INDEX idx_signing_profile_tsp_profile_uuid
+    ON "signing_profile" ("tsp_profile_uuid");
+CREATE INDEX idx_signing_profile_tqc_uuid
+    ON "signing_profile" ("time_quality_config_uuid");
+
+CREATE INDEX idx_spv_token_profile_uuid
+    ON "signing_profile_version" ("token_profile_uuid");
+CREATE INDEX idx_spv_certificate_uuid
+    ON "signing_profile_version" ("certificate_uuid");
+CREATE INDEX idx_spv_ra_profile_uuid
+    ON "signing_profile_version" ("ra_profile_uuid");
+CREATE INDEX idx_spv_delegated_signer_connector_uuid
+    ON "signing_profile_version" ("delegated_signer_connector_uuid");
+CREATE INDEX idx_spv_signature_formatter_connector_uuid
+    ON "signing_profile_version" ("signature_formatter_connector_uuid");
+
+CREATE INDEX idx_tsp_default_signing_profile_uuid
+    ON "tsp_profile" ("default_signing_profile_uuid");
