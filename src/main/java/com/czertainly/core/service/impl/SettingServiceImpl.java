@@ -201,6 +201,7 @@ public class SettingServiceImpl implements SettingService {
         return loadEventsSettings();
     }
 
+    // Called directly by internal/scheduled callers to bypass the @ExternalAuthorization proxy on getEventsSettings().
     private EventsSettingsDto loadEventsSettings() {
         return new EventsSettingsDto(triggerService.getTriggersAssociations(null, null));
     }
