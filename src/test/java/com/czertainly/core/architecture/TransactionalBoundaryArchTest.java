@@ -25,28 +25,21 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 /**
- * Enforces the transactional-boundary refactor invariants from
- * {@code docs/superpowers/specs/2026-05-22-tx-boundary-refactor-design.md}
- * §"ArchUnit guards".
+ * Enforces the transactional-boundary refactor invariants.
  *
- * <p><b>Rule A</b> — a method effectively annotated
- * {@code @Transactional(propagation = NOT_SUPPORTED)} (either at method level
- * or inherited from its declaring class) must not call
- * {@code save/saveAll/saveAndFlush/delete/deleteAll/deleteAllInBatch/
- * deleteInBatch/flush} on any {@code Repository}. Such a call from a
- * no-tx context either fails outright ({@code TransactionRequiredException}
- * for {@code @Modifying}) or silently loses the write (detached-entity
- * save with no dirty checking). Use a {@code *Writer} bean instead.</p>
+ * <p><b>Rule A</b> — a method effectively annotated {@code @Transactional(propagation = NOT_SUPPORTED)}
+ * (either at method level or inherited from its declaring class) must not call
+ * {@code save/saveAll/saveAndFlush/delete/deleteAll/deleteAllInBatch/deleteInBatch/flush} on any {@code Repository}.
+ * Such a call from a no-tx context either fails outright ({@code TransactionRequiredException}
+ * for {@code @Modifying}) or silently loses the write (detached-entity save with no dirty checking).
+ * Use a {@code *Writer} bean instead.</p>
  *
- * <p><b>Rule B</b> — no {@code @Transactional} on any class or method in
- * {@code com.czertainly.core.dao.repository..}. The transactional boundary
- * lives on services, not repositories.</p>
+ * <p><b>Rule B</b> — no {@code @Transactional} on any class or method in {@code com.czertainly.core.dao.repository..}.
+ * The transactional boundary lives on services, not repositories.</p>
  *
- * <p><b>Rule C</b> — only {@code *Writer} beans (production code residing
- * in {@code ..service.writer..}) may invoke a {@code @Modifying}-annotated
- * repository method. Frozen via {@link FreezingArchRule} so pre-PR1 violations
- * can be resolved incrementally as PR2/PR3/PR4 land; new violations fail the
- * build immediately.</p>
+ * <p><b>Rule C</b> — only {@code *Writer} beans (production code residing in {@code ..service.writer..}) may invoke
+ * a {@code @Modifying}-annotated repository method. Frozen via {@link FreezingArchRule} so pre-existing violations
+ * can be resolved incrementally.</p>
  */
 @AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class TransactionalBoundaryArchTest {
@@ -106,13 +99,7 @@ public class TransactionalBoundaryArchTest {
     // ---- Rule C: @Modifying repo methods only called from *Writer beans ----
 
     /**
-     * Inverted form: iterate {@code @Modifying} methods directly and check that
-     * every caller resides in {@code ..service.writer..}. The forward-direction
-     * variant ({@code clazz.getMethodCallsFromSelf()} + filter by target annotation)
-     * silently produced zero violations in this codebase — likely because Spring Data
-     * abstract methods are not always resolved as ArchUnit {@code JavaMember}s in the
-     * call-target sense. {@code getCallsOfSelf()} on the {@code JavaMethod}
-     * walks reliably regardless.
+     * Inverted form: iterate {@code @Modifying} methods directly and check that every caller resides in {@code ..service.writer..}.
      */
     @ArchTest
     static final ArchRule modifying_repo_methods_only_called_from_writer_beans =

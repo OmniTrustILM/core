@@ -36,43 +36,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Implementation of {@link CertificateChainService}.
- *
- * <p><b>Transactional contract:</b> the bean carries no class-level
- * {@code @Transactional}. Methods inherit the caller's ambient transaction
- * (REQUIRED) or run without one (NOT_SUPPORTED) depending on where they are
- * invoked from. {@link CertificateChainWriter} is always invoked as a
- * cross-bean call so its {@code @Transactional} advice is applied; whether
- * the writer starts a new short transaction or joins the caller's depends on
- * the caller.</p>
- *
- * <p><b>Bug-fix scope — this bean alone does NOT yet close the row-lock-during-HTTP
- * race on the validate path.</b> {@code CertificateServiceImpl.validate(...)}
- * still runs under class-level {@code @Transactional} (REQUIRED) on this
- * branch, so when the chain bean is reached from there the writer JOINS that
- * ambient tx and the row lock is held across the AIA HTTP download. The fix
- * for that race lands in PR 5 when {@code validate} becomes
- * {@code @Transactional(NOT_SUPPORTED)} and the catch-block {@code save()} is
- * replaced with a {@link com.czertainly.core.service.writer CertificateValidationWriter}
- * call (introduced in PR 2). PR 1 is the architectural preparation: it puts
- * the bean-pair pattern in place and proves the writer-isolation property in
- * isolation (see {@code ChainWriteVsRevokeTest} which invokes chain
- * reconstruction with no ambient tx — the validate-path-after-PR5 scenario).</p>
- *
- * <p><b>Spec deviation:</b> the design doc (spec L52, L116) proposed
- * class-level {@code @Transactional(propagation = NOT_SUPPORTED)} on this bean.
- * That setting was implemented and tested but had to be reverted because it
- * suspends the caller's transaction unconditionally — including in tests,
- * where the test-class {@code @Transactional} provides the ambient tx that
- * holds uncommitted fixtures. With NOT_SUPPORTED, the chain bean's reads
- * could not see those fixtures and exercising chain reconstruction in tests
- * became impossible without rewriting every chain-using test. Reconciled in
- * the spec at PR 1 close.</p>
- *
- * <p><b>Why no internal {@code certificateRepository.save(...)}:</b> writes on
- * the chain path use targeted UPDATEs through {@link CertificateChainWriter}
- * rather than {@code save()} so that audit timestamps refresh in SQL
- * (AUDIT-BYPASS) and row locks released independently of the caller's tx.</p>
+ * <p><b>Transactional contract:</b> the bean carries no class-level {@code @Transactional}. Methods inherit the caller's
+ * ambient transaction (REQUIRED) or run without one (NOT_SUPPORTED) depending on where they are invoked from.
  */
 @Service
 public class CertificateChainServiceImpl implements CertificateChainService {
@@ -225,8 +190,6 @@ public class CertificateChainServiceImpl implements CertificateChainService {
         return lastCertificate;
     }
 
-    // ---- private helpers (moved from CertificateServiceImpl) ----
-
     private boolean isSelfSigned(Certificate certificate) throws CertificateException {
         return isSelfSigned(getX509(certificate.getCertificateContent().getContent()), certificate.getUuid());
     }
@@ -304,23 +267,18 @@ public class CertificateChainServiceImpl implements CertificateChainService {
                 URLConnection urlConnection = url.openConnection();
                 urlConnection.setConnectTimeout(1000);
                 urlConnection.setReadTimeout(1000);
-                try (InputStream in = url.openStream()) {
+                try (InputStream in = urlConnection.getInputStream()) {
                     cert = (X509Certificate) fac.generateCertificate(in);
-                } catch (Exception e) {
-                    logger.error(e.getMessage());
-                    return "";
                 }
             }
-            final StringWriter writer = new StringWriter();
-            final JcaPEMWriter pemWriter = new JcaPEMWriter(writer);
-            pemWriter.writeObject(cert);
-            pemWriter.flush();
-            pemWriter.close();
-            writer.close();
-
-            return writer.toString();
+            try (StringWriter writer = new StringWriter();
+                 JcaPEMWriter pemWriter = new JcaPEMWriter(writer)) {
+                pemWriter.writeObject(cert);
+                pemWriter.flush();
+                return writer.toString();
+            }
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            logger.error("Failed to download certificate chain from {}", chainUrl, e);
         }
         return "";
     }

@@ -192,14 +192,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
 
     /**
      * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
-     * refreshing {@code i_upd} explicitly because targeted UPDATE bypasses JPA dirty checking
-     * (and therefore the {@code @UpdateTimestamp} listener).
-     *
-     * <p>AUDIT-BYPASS: i_upd refreshed in SQL; i_author intentionally not changed (system transition).</p>
-     *
-     * <p>Carries no {@code @Transactional} — call sites must invoke this through a {@code *Writer} bean
-     * whose method carries the transactional boundary. See
-     * {@code com.czertainly.core.service.writer.CertificateChainWriter}.</p>
+     * refreshing {@code i_upd} explicitly.
      */
     @Modifying
     @Query("UPDATE Certificate c " +
@@ -212,11 +205,6 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
 
     /**
      * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.
-     * Used by the chain orchestrator when a dangling FK is detected.
-     *
-     * <p>AUDIT-BYPASS: i_upd refreshed in SQL; i_author intentionally not changed (system transition).</p>
-     *
-     * <p>Carries no {@code @Transactional} — see {@link #updateIssuerReference}.</p>
      */
     @Modifying
     @Query("UPDATE Certificate c " +

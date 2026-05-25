@@ -16,23 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Verifies the {@link CertificateChainWriter} bean-pair contract.
- *
- * <p>Each writer method delegates to a {@code @Modifying} UPDATE on
- * {@link CertificateRepository}. Spring Data JPA throws
- * {@code TransactionRequiredException} if no transaction is active when an
- * {@code @Modifying} query runs. The successful side effect therefore proves
- * the writer's {@code @Transactional} advice was applied through the Spring
- * proxy — which is exactly the regression we want to guard against (a future
- * contributor moving a writer method into a sibling bean and self-invoking it
- * would bypass the proxy and surface here as a test failure).</p>
- *
- * <p>This test is also the reusable shape for the writer-tx assertions in
- * PR2 ({@code CertificateValidationWriter}) and PR3 ({@code CrlWriter}). See
- * {@code docs/superpowers/specs/2026-05-22-tx-boundary-refactor-design.md}
- * §"Writer-tx unit-test scaffolding".</p>
- */
 class CertificateChainWriterTxTest extends BaseSpringBootTest {
 
     @Autowired
@@ -43,8 +26,6 @@ class CertificateChainWriterTxTest extends BaseSpringBootTest {
 
     @Test
     void writer_bean_is_a_spring_proxy() {
-        // Sanity check: if this fails, no @Transactional advice can be applied —
-        // the bean was injected as a raw class, not through the Spring proxy.
         assertTrue(AopUtils.isAopProxy(chainWriter),
                 "CertificateChainWriter must be a Spring AOP proxy so that @Transactional advice is applied");
     }
@@ -52,6 +33,8 @@ class CertificateChainWriterTxTest extends BaseSpringBootTest {
     @Test
     void applyIssuerReference_persists_fields_and_refreshes_updated() {
         Certificate cert = persistMinimalCertificate();
+        // Reload from DB so initialUpdated reflects the DB-stored value.
+        cert = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
         OffsetDateTime initialUpdated = cert.getUpdated();
         assertNotNull(initialUpdated, "fixture row must have a non-null updated timestamp after insert");
 
@@ -61,8 +44,6 @@ class CertificateChainWriterTxTest extends BaseSpringBootTest {
         Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
         assertEquals("ABCDEF", reloaded.getIssuerSerialNumber());
         assertEquals(issuerUuid, reloaded.getIssuerCertificateUuid());
-        // AUDIT-BYPASS contract: targeted UPDATE refreshes i_upd in SQL because it bypasses
-        // the @UpdateTimestamp listener. Assert at least non-null and not regressed.
         assertNotNull(reloaded.getUpdated(), "updated must remain non-null after targeted UPDATE");
         assertFalse(reloaded.getUpdated().isBefore(initialUpdated),
                 "AUDIT-BYPASS: updated must be refreshed (or equal) by the targeted UPDATE");
