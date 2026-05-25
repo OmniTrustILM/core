@@ -13,8 +13,6 @@ import java.util.UUID;
 public interface TspProfileRepository extends SecurityFilterRepository<TspProfile, UUID> {
     Optional<TspProfile> findByName(String name);
 
-    Optional<TspProfile> findWithAssociationsByName(String name);
-
     @Query("SELECT t.name FROM TspProfile t ORDER BY t.name")
     List<String> findAllNames();
 }
