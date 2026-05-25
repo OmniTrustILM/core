@@ -468,4 +468,82 @@
         </repository>
     </repositories>
 
+    <profiles>
+        <!-- Run only service/** tests (used by CI test-services job) -->
+        <profile>
+            <id>test-services</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/service/**/*Test.java</include>
+                                <include>**/service/**/*Tests.java</include>
+                                <include>**/service/**/*ITest.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Run all tests except service/** (used by CI test-non-services job) -->
+        <profile>
+            <id>test-non-services</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/service/**/*Test.java</exclude>
+                                <exclude>**/service/**/*Tests.java</exclude>
+                                <exclude>**/service/**/*ITest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Merge partial jacoco .exec files produced by the two test jobs, then report.
+             Place partial files in jacoco-partial/ before invoking this profile.
+             The parent BOM's jacoco:report execution (bound to package phase) picks up
+             the merged target/jacoco.exec automatically. -->
+        <profile>
+            <id>merge-coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>merge-results</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>merge</goal>
+                                </goals>
+                                <configuration>
+                                    <fileSets>
+                                        <fileSet>
+                                            <directory>${project.basedir}/jacoco-partial</directory>
+                                            <includes>
+                                                <include>*.exec</include>
+                                            </includes>
+                                        </fileSet>
+                                    </fileSets>
+                                    <destFile>${project.build.directory}/jacoco.exec</destFile>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>
