@@ -107,7 +107,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     );
 
     private SigningProfileServiceImpl self;
-    private CacheManager cacheManager;
     private CryptographicOperationService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
@@ -795,11 +794,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setSelf(SigningProfileServiceImpl self) {
         this.self = self;
-    }
-
-    @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
     }
 
     @Autowired
