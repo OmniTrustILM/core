@@ -104,7 +104,7 @@ public class ActionServiceImpl implements ActionService {
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
     public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getItems().isEmpty()) {
-            throw new ValidationException("Cannot create an execution without any execution items.");
+            throw new ValidationException("Cannot update an execution without any execution items.");
         }
 
         if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
