@@ -29,7 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-public interface CertificateService extends ResourceExtensionService  {
+public interface CertificateService extends ResourceExtensionService {
 
     CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request);
 
@@ -52,6 +52,15 @@ public interface CertificateService extends ResourceExtensionService  {
     Certificate createCertificateEntity(X509Certificate certificate);
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate) throws NotFoundException;
+
+    /**
+     * Hot-path variant for digital signing. Best-effort (no AIA fetch, no DB writes), no authorization — must not be called from REST controllers.
+     * Returns an empty list if UUID is unknown or cert has no stored content; the empty list is cached under the key
+     * so a repeated miss does not hit the DB.
+     *
+     * @throws CertificateException if any chain entry cannot be parsed
+     */
+    List<X509Certificate> getCertificateChainForSigning(UUID certificateUuid, boolean withEndCertificate) throws CertificateException;
 
     CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException;
 
@@ -78,6 +87,7 @@ public interface CertificateService extends ResourceExtensionService  {
     Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException;
 
     FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
+
     UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
 
 
@@ -394,7 +404,7 @@ public interface CertificateService extends ResourceExtensionService  {
     /**
      * Removes the association between the given certificates
      *
-     * @param uuid                 UUID of the subject certificate.
+     * @param uuid            UUID of the subject certificate.
      * @param certificateUuid UUID of the certificate
      */
     void removeCertificateAssociation(UUID uuid, UUID certificateUuid) throws NotFoundException;
