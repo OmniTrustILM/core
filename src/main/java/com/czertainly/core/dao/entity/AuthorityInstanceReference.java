@@ -50,6 +50,14 @@ public class AuthorityInstanceReference extends UniquelyIdentifiedAndAudited imp
     @Column(name="connector_name")
     private String connectorName;
 
+    @Column(name = "connector_interface_uuid")
+    private UUID connectorInterfaceUuid;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "connector_interface_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private ConnectorInterfaceEntity connectorInterface;
+
     @OneToMany(mappedBy = "authorityInstanceReference", fetch = FetchType.LAZY)
     @JsonIgnore
     @ToString.Exclude
@@ -59,6 +67,11 @@ public class AuthorityInstanceReference extends UniquelyIdentifiedAndAudited imp
         this.connector = connector;
         if(connector != null) this.connectorUuid = connector.getUuid();
         else this.connectorUuid = null;
+    }
+
+    public void setConnectorInterface(ConnectorInterfaceEntity connectorInterface) {
+        this.connectorInterface = connectorInterface;
+        this.connectorInterfaceUuid = connectorInterface == null ? null : connectorInterface.getUuid();
     }
 
     @Override
