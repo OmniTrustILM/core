@@ -8,6 +8,9 @@ caching:
   connectors:
     ttl-minutes: 5
     max-size: 100
+  cert-chain:
+    ttl-minutes: 5
+    max-size: 1000
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000

@@ -20,6 +20,25 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Spring Data repository for {@link Certificate} entities.
+ *
+ * <p><strong>Cache eviction:</strong>
+ * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts every
+ * {@code save*}, {@code delete*} and {@code insert*} call on this bean and evicts the
+ * certificate-chain cache automatically — callers do not need to evict manually after those
+ * operations. This covers {@link #insertWithFingerprintConflictResolve}, which writes the
+ * chain-defining {@code issuer_certificate_uuid} and {@code certificate_content_id} columns
+ * via a native upsert.
+ *
+ * <p>The remaining {@code @Modifying} bulk-update methods in this interface are <em>not</em>
+ * matched by that aspect (the pointcut targets only the {@code save*}/{@code delete*}/{@code insert*}
+ * naming convention), but they do not need manual cache eviction either: they only modify columns
+ * that are not part of chain traversal ({@code keyUuid}/{@code altKeyUuid},
+ * {@code hybridCertificate}, {@code archived}, {@code subjectDn}/{@code issuerDn} display strings).
+ * The chain cache is built from {@code issuer_certificate_uuid} and {@code certificate_content_id}
+ * — none of those columns are touched by these queries.
+ */
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
 
@@ -249,24 +268,54 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * @param maxDepth  maximum number of hops to follow (safety cap against circular references)
      * @return ordered list of UUID strings (depth 0 = start cert, depth N = root)
      */
-    // NOTE: PostgreSQL 14+ supports a cleaner native cycle-detection syntax via the CYCLE clause.
     @Query(value = """
             WITH RECURSIVE chain AS (
-                SELECT uuid, issuer_certificate_uuid, 0 AS depth, ARRAY[uuid] AS path
+                SELECT uuid, issuer_certificate_uuid, 0 AS depth
                 FROM {h-schema}certificate
                 WHERE uuid = :startUuid
 
                 UNION ALL
 
-                SELECT c.uuid, c.issuer_certificate_uuid, chain.depth + 1, chain.path || c.uuid
+                SELECT c.uuid, c.issuer_certificate_uuid, chain.depth + 1
                 FROM {h-schema}certificate c
                 INNER JOIN chain ON chain.issuer_certificate_uuid = c.uuid
                 WHERE chain.depth < :maxDepth
-                  AND NOT (c.uuid = ANY(chain.path))
             )
-            SELECT uuid::text FROM chain ORDER BY depth ASC
+            CYCLE uuid SET is_cycle USING cycle_path
+            SELECT uuid::text FROM chain WHERE NOT is_cycle ORDER BY depth ASC
             """, nativeQuery = true)
     List<String> findCertificateChainUuids(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
+
+    /**
+     * Fetches the base64-encoded DER contents of an entire certificate ancestor chain in a single recursive CTE query.
+     * The returned list is ordered by traversal depth ascending (index 0 = start certificate). Certificates whose
+     * {@code certificate_content_id} is {@code null} are excluded by the inner join.
+     *
+     * @param startUuid the UUID of the certificate whose chain is requested
+     * @param maxDepth  maximum number of hops to follow (safety cap against circular references)
+     * @return ordered list of base64-encoded DER contents (depth 0 = start cert, depth N = root)
+     */
+    @Query(value = """
+            WITH RECURSIVE chain AS (
+                SELECT uuid, issuer_certificate_uuid, certificate_content_id, 0 AS depth
+                FROM {h-schema}certificate
+                WHERE uuid = :startUuid
+
+                UNION ALL
+
+                SELECT c.uuid, c.issuer_certificate_uuid, c.certificate_content_id, chain.depth + 1
+                FROM {h-schema}certificate c
+                INNER JOIN chain ON chain.issuer_certificate_uuid = c.uuid
+                WHERE chain.depth < :maxDepth
+            )
+            CYCLE uuid SET is_cycle USING cycle_path
+            SELECT cc.content
+            FROM chain
+            JOIN {h-schema}certificate_content cc ON cc.id = chain.certificate_content_id
+            WHERE NOT chain.is_cycle
+            ORDER BY chain.depth ASC
+            """, nativeQuery = true)
+    List<String> findCertificateChainContents(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
 
     @Query(
             value = """
