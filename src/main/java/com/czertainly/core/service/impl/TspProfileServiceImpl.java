@@ -162,12 +162,12 @@ public class TspProfileServiceImpl implements TspProfileService {
             throw new AlreadyExistException("TSP Profile with name '" + request.getName() + "' already exists.");
         }
 
-        validateCreateUpdateRequest(request);
+        SigningProfile defaultSigningProfile = validateCreateUpdateRequest(request);
         evictTspProfileCache(oldName);
         if (!oldName.equals(request.getName())) {
             evictTspProfileCache(request.getName());
         }
-        return updateAndMapToDto(profile, request);
+        return updateAndMapToDto(profile, request, defaultSigningProfile);
     }
 
     @Override
@@ -329,7 +329,7 @@ public class TspProfileServiceImpl implements TspProfileService {
         return defaultSigningProfile;
     }
 
-    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
+    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request, SigningProfile defaultSigningProfile) throws AlreadyExistException, AttributeException, NotFoundException {
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
         profile.setDefaultSigningProfile(defaultSigningProfile);

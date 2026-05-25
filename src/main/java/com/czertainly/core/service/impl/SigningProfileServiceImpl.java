@@ -453,35 +453,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Approval profile association (stubs)
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
-    @Transactional
-    public List<ApprovalProfileDto> getAssociatedApprovalProfiles(SecuredUUID uuid) throws NotFoundException {
-        findByUuid(uuid);
-        // :TODO:
-        return new ArrayList<>();
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
-    @Transactional
-    public void associateWithApprovalProfile(SecuredUUID signingProfileUuid, SecuredUUID approvalProfileUuid) throws NotFoundException {
-        // :TODO:
-        throw new UnsupportedOperationException("Approval profile association not yet implemented");
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
-    @Transactional
-    public void disassociateFromApprovalProfile(SecuredUUID signingProfileUuid, SecuredUUID approvalProfileUuid) throws NotFoundException {
-        // :TODO:
-        throw new UnsupportedOperationException("Approval profile disassociation not yet implemented");
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
     // Protocol activation — TSP
     // ──────────────────────────────────────────────────────────────────────────
 
