@@ -14,7 +14,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.UUID;
 
-public interface ApprovalProfileService {
+public interface ApprovalProfileExternalService {
 
     ApprovalProfileResponseDto listApprovalProfiles(final SecurityFilter securityFilter, final PaginationRequestDto paginationRequestDto);
 
