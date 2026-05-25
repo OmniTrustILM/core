@@ -82,11 +82,11 @@ class SchedulerServiceTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    private RuleService ruleService;
+    private RuleExternalService ruleService;
     @Autowired
-    private ActionService actionService;
+    private ActionExternalService actionService;
     @Autowired
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
     @Autowired
     private TriggerAssociationRepository triggerAssociationRepository;
 

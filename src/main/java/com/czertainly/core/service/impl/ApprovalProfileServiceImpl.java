@@ -17,7 +17,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalProfileService;
+import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.core.service.ResourceService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
 import com.czertainly.core.util.RequestValidatorHelper;
@@ -35,7 +35,7 @@ import java.util.*;
 @Service
 @Transactional
 
-public class ApprovalProfileServiceImpl implements ApprovalProfileService {
+public class ApprovalProfileServiceImpl implements ApprovalProfileExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApprovalProfileServiceImpl.class);
     public static final String RESOURCE_DOES_NOT_SUPPORT_APPROVAL_PROFILES = "Resource %s does not support approval profiles";

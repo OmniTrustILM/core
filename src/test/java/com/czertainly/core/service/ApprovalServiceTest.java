@@ -28,9 +28,11 @@ import java.util.UUID;
 
 class ApprovalServiceTest extends ApprovalProfileData {
 
-    private ApprovalService approvalService;
+    private ApprovalExternalService approvalService;
 
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalInternalService approvalInternalService;
+
+    private ApprovalProfileExternalService approvalProfileService;
 
     private ApprovalRepository approvalRepository;
 
@@ -40,15 +42,15 @@ class ApprovalServiceTest extends ApprovalProfileData {
     @BeforeEach
     void setUp() throws NotFoundException, AlreadyExistException {
         approvalProfile = approvalProfileService.createApprovalProfile(approvalProfileRequestDto);
-        approval = approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+        approval = approvalInternalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
     }
 
     @Test
     void testListOfApprovals() throws NotFoundException {
         UUID randomUserUuid = UUID.randomUUID();
-        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
-        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
-        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
+        approvalInternalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
+        approvalInternalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
+        approvalInternalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), randomUserUuid, null);
 
         ApprovalResponseDto responseDto = approvalService.listApprovals(SecurityFilter.create(), new PaginationRequestDto());
         Assertions.assertEquals(4, responseDto.getApprovals().size());
@@ -65,7 +67,7 @@ class ApprovalServiceTest extends ApprovalProfileData {
         approvalProfileUpdateRequestDto.getApprovalSteps().add(approvalStepDto);
         ApprovalProfile approvalProfile1 = approvalProfileService.createApprovalProfile(approvalProfileUpdateRequestDto);
 
-        approvalService.createApproval(approvalProfile1.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.fromString(userProfileDto.getUser().getUuid()), null);
+        approvalInternalService.createApproval(approvalProfile1.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.fromString(userProfileDto.getUser().getUuid()), null);
         ApprovalResponseDto responseDto = approvalService.listUserApprovals(SecurityFilter.create(), true, new PaginationRequestDto());
         Assertions.assertEquals(1, responseDto.getApprovals().size());
 
@@ -117,12 +119,17 @@ class ApprovalServiceTest extends ApprovalProfileData {
     }
 
     @Autowired
-    void setApprovalService(ApprovalService approvalService) {
+    void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
     }
 
     @Autowired
-    void setApprovalProfileService(ApprovalProfileService approvalProfileService) {
+    void setApprovalInternalService(ApprovalInternalService approvalInternalService) {
+        this.approvalInternalService = approvalInternalService;
+    }
+
+    @Autowired
+    void setApprovalProfileService(ApprovalProfileExternalService approvalProfileService) {
         this.approvalProfileService = approvalProfileService;
     }
 }

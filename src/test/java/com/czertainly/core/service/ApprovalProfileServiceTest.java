@@ -25,10 +25,10 @@ import java.util.UUID;
 class ApprovalProfileServiceTest extends ApprovalProfileData {
 
     @Autowired
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalInternalService;
 
     @Autowired
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Autowired
     private ApprovalProfileRepository approvalProfileRepository;
@@ -69,7 +69,7 @@ class ApprovalProfileServiceTest extends ApprovalProfileData {
 
         approvalProfileUpdateRequestDto.setExpiry(24);
 
-        approvalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+        approvalInternalService.createApproval(approvalProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
         approvalProfile = approvalProfileService.editApprovalProfile(approvalProfile.getSecuredUuid(), approvalProfileUpdateRequestDto);
 
         final Optional<ApprovalProfile> approvalProfileOptional = approvalProfileRepository.findWithVersionsByUuid(approvalProfile.getUuid());

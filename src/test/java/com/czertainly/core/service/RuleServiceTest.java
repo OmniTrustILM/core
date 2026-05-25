@@ -19,13 +19,13 @@ import java.util.List;
 public class RuleServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    RuleService ruleService;
+    RuleExternalService ruleService;
 
     @Autowired
-    ActionService actionService;
+    ActionExternalService actionService;
 
     @Autowired
-    TriggerService triggerService;
+    TriggerExternalService triggerService;
 
     ConditionDto conditionDto;
     ConditionItemRequestDto conditionItemRequestDto;

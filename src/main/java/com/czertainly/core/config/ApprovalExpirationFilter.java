@@ -1,6 +1,6 @@
 package com.czertainly.core.config;
 
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import jakarta.servlet.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,10 +13,10 @@ public class ApprovalExpirationFilter implements Filter {
 
     private static final Logger logger = LoggerFactory.getLogger(ApprovalExpirationFilter.class);
 
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalService;
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalInternalService approvalService) {
         this.approvalService = approvalService;
     }
 

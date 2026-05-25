@@ -12,7 +12,7 @@ import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.SecretService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.AuthHelper;
@@ -45,7 +45,7 @@ class ActionsListenerTest {
     @Mock
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     @Mock
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalInternalService;
     @Mock
     private ClientOperationService clientOperationService;
     @Mock
@@ -63,7 +63,7 @@ class ActionsListenerTest {
     void setUp() {
         listener = new ActionsListener();
         listener.setApprovalProfileRelationRepository(approvalProfileRelationRepository);
-        listener.setApprovalService(approvalService);
+        listener.setApprovalService(approvalInternalService);
         listener.setClientOperationService(clientOperationService);
         listener.setSecretService(secretService);
         listener.setNotificationProducer(notificationProducer);
@@ -93,7 +93,7 @@ class ActionsListenerTest {
 
         verify(authHelper).authenticateAsUser(userUuid);
         verify(clientOperationService).issueCertificateAction(resourceUuid, false);
-        verifyNoInteractions(approvalService);
+        verifyNoInteractions(approvalInternalService);
         verifyNoInteractions(notificationProducer);
     }
 
@@ -111,7 +111,7 @@ class ActionsListenerTest {
         verify(authHelper).authenticateAsUser(userUuid);
         verify(secretService).processSecretAction(msg, true, true);
         verifyNoInteractions(clientOperationService);
-        verifyNoInteractions(approvalService);
+        verifyNoInteractions(approvalInternalService);
     }
 
     @Test
@@ -140,11 +140,11 @@ class ActionsListenerTest {
         stubApprovalProfileRelation();
         Approval createdApproval = new Approval();
         createdApproval.setUuid(UUID.randomUUID());
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
 
         listener.processMessage(msg);
 
-        verify(approvalService).createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE),
+        verify(approvalInternalService).createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE),
                 eq(resourceUuid), eq(userUuid), any());
         verify(clientOperationService).approvalCreatedAction(resourceUuid);
         // The "create approval" branch returns early — direct action must NOT run.
@@ -161,7 +161,7 @@ class ActionsListenerTest {
         stubApprovalProfileRelation();
         Approval createdApproval = new Approval();
         createdApproval.setUuid(UUID.randomUUID());
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
 
         listener.processMessage(msg);
 
@@ -176,7 +176,7 @@ class ActionsListenerTest {
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null, null);
 
         stubApprovalProfileRelation();
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any()))
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("approval creation exploded"));
 
         assertThatThrownBy(() -> listener.processMessage(msg))
