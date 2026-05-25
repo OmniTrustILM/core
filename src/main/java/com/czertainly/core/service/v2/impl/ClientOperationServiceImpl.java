@@ -8,7 +8,6 @@ import com.czertainly.api.model.client.certificate.CancelPendingCertificateReque
 import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.client.location.PushToLocationRequestDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.connector.v2.CertRevocationDto;
 import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
 import com.czertainly.api.model.connector.v2.CertificateIdentificationRequestDto;
 import com.czertainly.api.exception.ConnectorClientException;
@@ -19,7 +18,6 @@ import com.czertainly.api.model.connector.v2.CertificateIdentificationResponseDt
 import com.czertainly.api.model.connector.v2.CertificateOperationCancelRequestDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.connector.v2.CertificateRenewRequestDto;
-import com.czertainly.api.model.connector.v2.CertificateSignRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.authority.CertificateRevocationReason;
 import com.czertainly.api.model.core.certificate.*;
@@ -55,6 +53,9 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
+import com.czertainly.core.service.handler.authority.AdapterOperationResult;
+import com.czertainly.core.service.handler.authority.AuthorityProviderAdapter;
+import com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
@@ -113,6 +114,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private CertificateEventHistoryService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
+    private AuthorityProviderAdapterFactory adapterFactory;
     private ConnectorService connectorService;
     private CryptographicOperationService cryptographicOperationService;
     private CryptographicKeyService keyService;
@@ -186,6 +188,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
     }
 
     @Autowired
@@ -332,34 +339,21 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no certificate request. Certificate: %s", certificate)));
         }
 
-        CertificateSignRequestDto caRequest = new CertificateSignRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build()));
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, certificate.getRaProfile().getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).build()));
-
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<CertificateDataResponseDto> issueResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).issueCertificate(
-                    connectorDto,
-                    certificate.getRaProfile().getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
-
-            if (issueResponse.getStatusCode().value() == 202) {
-                // The connector accepted the request but completion is asynchronous; the
-                // certificate moves to PENDING_ISSUE rather than FAILED.
-                transitionToPendingIssue(certificate, issueResponse.getBody(), ResourceAction.ISSUE);
-                return;
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(
+                    certificate.getRaProfile().getAuthorityInstanceReference());
+            AdapterOperationResult issueResult = adapter.issue(certificate, null);
+            switch (issueResult.outcome()) {
+                case SYNC_OK -> {
+                    if (issueResult.certificateData() == null || issueResult.certificateData().isEmpty()) {
+                        throw new CertificateOperationException("Response from authority did not contain certificate data");
+                    }
+                    logger.info("Certificate {} was issued by authority", certificateUuid);
+                    certificateService.issueRequestedCertificate(certificateUuid, issueResult.certificateData(), issueResult.meta());
+                }
+                case ASYNC_ACCEPTED -> throw new IllegalStateException("Async accepted not yet handled — v3 path lands in M3");
+                case SYNC_NO_CONTENT -> throw new CertificateOperationException("Unexpected SYNC_NO_CONTENT from authority on issue");
             }
-
-            CertificateDataResponseDto issueCaResponse = issueResponse.getBody();
-            if (issueCaResponse == null || issueCaResponse.getCertificateData() == null || issueCaResponse.getCertificateData().isEmpty()) {
-                throw new CertificateOperationException("Response from authority did not contain certificate data");
-            }
-
-            logger.info("Certificate {} was issued by authority", certificateUuid);
-
-            certificateService.issueRequestedCertificate(certificateUuid, issueCaResponse.getCertificateData(), issueCaResponse.getMeta());
         } catch (Exception e) {
             handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
             throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
@@ -928,38 +922,26 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         logger.debug("Revoking Certificate: {}", certificate);
 
-        // Once the connector returns a non-error status, the upstream operation is in flight
-        // (200 = revoked, 202 = will revoke asynchronously). A failure in any subsequent local
-        // step (entity save, attribute persistence, event history) MUST NOT roll back the cert
-        // to its entry state — doing so would leave the platform DB out of sync with an authority
-        // that has already accepted (or completed) the revocation.
+        // Once the connector returns a non-error status, the upstream operation is in flight.
+        // A failure in any subsequent local step MUST NOT roll back the cert to its entry state
+        // — doing so would leave the platform DB out of sync with an authority that has already
+        // accepted (or completed) the revocation.
         boolean connectorAccepted = false;
         try {
-            CertRevocationDto caRequest = new CertRevocationDto();
-            caRequest.setReason(request.getReason());
-            if (request.getReason() == null) {
-                caRequest.setReason(CertificateRevocationReason.UNSPECIFIED);
-            }
-            caRequest.setAttributes(request.getAttributes());
-            caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-            caRequest.setCertificate(certificate.getCertificateContent().getContent());
-
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<Void> revokeResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).revokeCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult revokeResult = adapter.revoke(certificate, request);
             connectorAccepted = true;
 
-            if (revokeResponse.getStatusCode().value() == 202) {
-                transitionToPendingRevoke(certificate, request);
-                return;
+            switch (revokeResult.outcome()) {
+                case SYNC_NO_CONTENT -> {
+                    stateMachine.transition(certificate, CertificateState.REVOKED,
+                            CertificateEvent.REVOKE, "Certificate revoked. Reason: "
+                                    + (request.getReason() != null ? request.getReason().getLabel() : CertificateRevocationReason.UNSPECIFIED.getLabel()));
+                    attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
+                }
+                case ASYNC_ACCEPTED -> throw new IllegalStateException("Async accepted not yet handled — v3 path lands in M3");
+                case SYNC_OK -> throw new CertificateOperationException("Unexpected SYNC_OK from authority on revoke");
             }
-
-            stateMachine.transition(certificate, CertificateState.REVOKED,
-                    CertificateEvent.REVOKE, "Certificate revoked. Reason: " + caRequest.getReason().getLabel());
-
-            attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
         } catch (Exception e) {
             if (connectorAccepted) {
                 // Connector accepted the operation (200/202) but a subsequent local step failed.
