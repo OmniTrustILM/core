@@ -325,6 +325,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.SIGNING_PROFILE, profile.getUuid(), request.getCustomAttributes());
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, version, request.getSigningScheme());
         List<ResponseAttribute> signatureFormatterConnectorAttributes = persistSignatureFormatterConnectorAttributes(profile, version, request.getWorkflow());
+        tspProfileService.evictAllCachedModels();
         return SigningProfileMapper.toDto(profile, version, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
     }
 
@@ -378,6 +379,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileVersionRepository.deleteAllBySigningProfileUuid(signingProfile.getUuid());
         signingProfileRepository.delete(signingProfile);
         attributeEngine.deleteObjectAttributeContent(Resource.SIGNING_PROFILE, signingProfile.getUuid());
+        tspProfileService.evictAllCachedModels();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -416,6 +418,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private void enableSigningProfile(SigningProfile p) {
         p.setEnabled(true);
         signingProfileRepository.save(p);
+        tspProfileService.evictAllCachedModels();
     }
 
     @Override
@@ -450,6 +453,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private void disableSigningProfile(SigningProfile p) {
         p.setEnabled(false);
         signingProfileRepository.save(p);
+        tspProfileService.evictAllCachedModels();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -473,6 +477,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         TspProfile tspProfile = tspProfileService.getTspProfileEntity(tspProfileUuid);
         signingProfile.setTspProfile(tspProfile);
         signingProfileRepository.save(signingProfile);
+        tspProfileService.evictAllCachedModels();
         return SigningProfileMapper.toTspActivationDto(signingProfile);
     }
 
@@ -483,6 +488,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         SigningProfile profile = findByUuid(uuid);
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
+        tspProfileService.evictAllCachedModels();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

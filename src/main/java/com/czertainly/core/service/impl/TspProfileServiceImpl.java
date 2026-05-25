@@ -390,6 +390,22 @@ public class TspProfileServiceImpl implements TspProfileService {
         }
     }
 
+    @Override
+    public void evictAllCachedModels() {
+        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
+        if (cache == null) return;
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cache.clear();
+                }
+            });
+        } else {
+            cache.clear();
+        }
+    }
+
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;

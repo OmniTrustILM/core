@@ -49,4 +49,9 @@ public interface TspProfileService extends ResourceExtensionService {
     void disableTspProfile(SecuredUUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDisableTspProfiles(List<SecuredUUID> uuids);
+
+    /**
+     * Clears every entry in the TSP profile cache.
+     */
+    void evictAllCachedModels();
 }
