@@ -87,6 +87,6 @@ public class TriggerControllerImpl implements TriggerController {
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.TRIGGER, operation = Operation.LIST_ASSOCIATIONS)
     public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
-        return triggerService.getTriggersAssociations(resource, associationObjectUuid);
+        return triggerService.getEventTriggersAssociations(resource, associationObjectUuid);
     }
 }

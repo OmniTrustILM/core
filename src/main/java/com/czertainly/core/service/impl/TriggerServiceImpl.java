@@ -198,6 +198,11 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.LIST)
+    public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
+        return getTriggersAssociations(resource, associationObjectUuid);
+    }
+
+    @Override
     public Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid) {
         List<TriggerAssociation> triggerAssociations = triggerAssociationRepository.findAllByResourceAndObjectUuidOrderByTriggerOrderAsc(resource, associationObjectUuid);
 
