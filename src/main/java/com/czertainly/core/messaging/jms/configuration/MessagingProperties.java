@@ -117,6 +117,10 @@ public record MessagingProperties(
         return producerDestination(routingKey().timeQualityConfig());
     }
 
+    public String produceDestinationProviderStatusPoll() {
+        return producerDestination(routingKey().providerStatusPoll());
+    }
+
     public record Queue (
             @NotBlank String actions,
             @NotBlank String auditLogs,
@@ -126,7 +130,8 @@ public record MessagingProperties(
             @NotBlank String validation,
             @NotBlank String timeQualityConfigRequest,
             @NotBlank String timeQualityConfig,
-            @NotBlank String timeQualityResults
+            @NotBlank String timeQualityResults,
+            @NotBlank String providerStatusPoll
     ) {}
 
     public record RoutingKey(
@@ -138,7 +143,8 @@ public record MessagingProperties(
             @NotBlank String validation,
             @NotBlank String timeQualityConfigRequest,
             @NotBlank String timeQualityConfig,
-            @NotBlank String timeQualityResults
+            @NotBlank String timeQualityResults,
+            @NotBlank String providerStatusPoll
     ) {}
 
     public record Listener(

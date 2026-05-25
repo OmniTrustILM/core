@@ -54,14 +54,16 @@ class JmsEndpointConfigTest {
         queue = new MessagingProperties.Queue(
                 "core.actions", "core.audit-logs", "core.events",
                 "core.notifications", "core.scheduler", "core.validation",
-                "time-quality.config-request", "time-quality.config", "time-quality.results"
+                "time-quality.config-request", "time-quality.config", "time-quality.results",
+                "provider-status-poll"
         );
         routingKey = new MessagingProperties.RoutingKey(
                 "action", "audit-logs", "event",
                 "notification", "scheduler", "validation",
-                "time-quality.config-request", "time-quality.config", "time-quality.results"
+                "time-quality.config-request", "time-quality.config", "time-quality.results",
+                "providerStatusPoll"
         );
-        concurrencyProperties = new MessagingConcurrencyProperties("10", "5", "5", "3", "10", "5", "1", "1");
+        concurrencyProperties = new MessagingConcurrencyProperties("10", "5", "5", "3", "10", "5", "1", "1", "1-5");
 
         when(messagingProperties.queue()).thenReturn(queue);
         when(messagingProperties.routingKey()).thenReturn(routingKey);
