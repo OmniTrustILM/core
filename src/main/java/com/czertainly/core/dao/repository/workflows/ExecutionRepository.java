@@ -16,6 +16,8 @@ public interface ExecutionRepository extends SecurityFilterRepository<Execution,
 
     boolean existsByName(String name);
 
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
     @EntityGraph(attributePaths = {"actions"})
     Optional<Execution> findWithActionsByUuid(UUID uuid);
 
