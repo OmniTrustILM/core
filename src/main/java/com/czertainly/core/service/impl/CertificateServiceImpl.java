@@ -52,14 +52,11 @@ import com.czertainly.core.dao.repository.scep.ScepProfileRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
-import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
-import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
-import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
@@ -109,9 +106,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import java.io.*;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.*;
@@ -181,8 +175,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private ApplicationEventPublisher applicationEventPublisher;
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
-    private CertificateUploadedEventHandler certificateUploadedEventHandler;
-    private CertificateService self;
+    private CertificateUploadService certificateUploadService;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -192,15 +185,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Autowired
     @Lazy
-    public void setSelf(CertificateService self) {
-        this.self = self;
-    }
-
-
-    @Autowired
-    @Lazy
-    public void setCertificateUploadedEventHandler(CertificateUploadedEventHandler certificateUploadedEventHandler) {
-        this.certificateUploadedEventHandler = certificateUploadedEventHandler;
+    public void setCertificateUploadService(CertificateUploadService certificateUploadService) {
+        this.certificateUploadService = certificateUploadService;
     }
 
     @Autowired
@@ -1075,7 +1061,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException {
-        String fingerprint = self.upload(request.getCertificate(), request.getCustomAttributes(), false);
+        String fingerprint = certificateUploadService.upload(request.getCertificate(), request.getCustomAttributes(), false);
         return new FingerprintDto(fingerprint);
     }
 
@@ -1083,46 +1069,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException {
-        String fingerprint = self.upload(request.getCertificate(), request.getCustomAttributes(), true);
+        String fingerprint = certificateUploadService.upload(request.getCertificate(), request.getCustomAttributes(), true);
         return new UuidDto(certificateRepository.findByFingerprint(fingerprint).orElseThrow().getUuid().toString());
-    }
-
-    @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException {
-        X509Certificate certificate = CertificateUtil.parseUploadedCertificateContent(certificateData);
-        String fingerprint;
-        try {
-            fingerprint = CertificateUtil.getThumbprint(certificate);
-        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
-            throw new CertificateException("Failed to calculate certificate fingerprint: " + e.getMessage());
-        }
-        if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
-            throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
-        }
-
-        if (customAttributes != null && !customAttributes.isEmpty()) {
-            attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, customAttributes);
-        }
-
-        CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
-                .customAttributes(customAttributes)
-                .certificateContent(certificateData)
-                .build();
-        EventMessage eventMessage = CertificateUploadedEventHandler.constructEventMessage(eventMessageData);
-        if (sync) {
-            try {
-                certificateUploadedEventHandler.handleEvent(eventMessage);
-            } catch (EventException e) {
-                throw new CertificateException("Failed to produce certificate upload event: " + e.getMessage());
-            }
-            if (certificateRepository.findByFingerprint(fingerprint).isEmpty()) {
-                throw new CertificateException("Certificate was not uploaded. See Certificate Uploaded Event History for more details.");
-            }
-        } else {
-            eventProducer.produceMessage(eventMessage);
-        }
-        return fingerprint;
     }
 
 
