@@ -14,6 +14,9 @@ caching:
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000
+  tsp-profiles:
+    ttl-minutes: 5
+    max-size: 100
 
 auth-service:
   base-url: http://authservice.dev
@@ -101,10 +104,11 @@ spring:
     username: guest
     password: guest
     amqp-idle-timeout: 120000
+    close-timeout: 5000
     pool:
       max-connections: 1
       connection-idle-timeout: 30000
-      connection-check-interval: 60000
+      connection-check-interval: -1
       max-sessions-per-connection: 5
       use-anonymous-producers: true
     queue:

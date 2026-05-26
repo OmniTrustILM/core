@@ -16,7 +16,7 @@ import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalProfileService;
+import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +37,7 @@ public class ApprovalProfileControllerImpl implements ApprovalProfileController 
         webdataBinder.registerCustomEditor(Resource.class, new ResourceCodeConverter());
     }
 
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Override
     @AuditLogged(module = Module.APPROVALS, resource = Resource.APPROVAL_PROFILE, operation = Operation.LIST)
@@ -112,7 +112,7 @@ public class ApprovalProfileControllerImpl implements ApprovalProfileController 
     // SETTERs
 
     @Autowired
-    public void setApprovalProfileService(ApprovalProfileService approvalProfileService) {
+    public void setApprovalProfileService(ApprovalProfileExternalService approvalProfileService) {
         this.approvalProfileService = approvalProfileService;
     }
 }

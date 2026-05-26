@@ -23,14 +23,13 @@ public class TspProfileMapper {
         return dto;
     }
 
-    public static TspProfileModel toModel(TspProfile profile, List<ResponseAttribute> customAttributes) {
+    public static TspProfileModel toModel(TspProfile profile) {
         return new TspProfileModel(
                 profile.getUuid(),
                 profile.getName(),
                 profile.getDescription(),
                 profile.isEnabled(),
-                null,
-                customAttributes
+                null
         );
     }
 

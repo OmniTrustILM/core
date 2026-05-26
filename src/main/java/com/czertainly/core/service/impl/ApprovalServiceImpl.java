@@ -21,9 +21,11 @@ import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalExternalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.FilterPredicatesBuilder;
@@ -45,7 +47,7 @@ import java.util.*;
 
 @Service(Resource.Codes.APPROVAL)
 @Transactional
-public class ApprovalServiceImpl implements ApprovalService {
+public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApprovalServiceImpl.class);
 
@@ -68,6 +70,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public ApprovalResponseDto listApprovalsByObject(final SecurityFilter securityFilter, final Resource resource, final UUID objectUuid, final PaginationRequestDto paginationRequestDto) {
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
             final Predicate resourcePredicate = cb.equal(root.get("resource"), resource);
@@ -78,6 +81,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public ApprovalResponseDto listUserApprovals(final SecurityFilter securityFilter, final boolean withHistory, final PaginationRequestDto paginationRequestDto) {
         final UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
@@ -102,6 +106,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.DETAIL)
     public ApprovalDetailDto getApprovalDetail(final String uuid) throws NotFoundException {
         ApprovalDetailDto approvalDetailDto = findApprovalByUuid(uuid).mapToDetailDto();
 
@@ -134,12 +139,14 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void approveApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final ApprovalRecipient approvalRecipient = validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.APPROVED);
         processApprovalToTheNextStep(approvalUuid, approvalRecipient);
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void rejectApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final Approval approval = findApprovalByUuid(approvalUuid);
         validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.REJECTED);
