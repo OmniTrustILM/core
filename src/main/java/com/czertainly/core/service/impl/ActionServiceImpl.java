@@ -107,14 +107,16 @@ public class ActionServiceImpl implements ActionExternalService {
             throw new ValidationException("Cannot update an execution without any execution items.");
         }
 
-        if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
-            throw new AlreadyExistException("Execution with same name already exists.");
+        Execution execution = executionRepository.findByUuid(SecuredUUID.fromString(executionUuid)).orElseThrow(() -> new NotFoundException(Execution.class, executionUuid));
+        if (request.getName() != null) {
+            if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
+                throw new AlreadyExistException("Execution with same name already exists.");
+            }
+            execution.setName(request.getName());
         }
 
-        Execution execution = executionRepository.findByUuid(SecuredUUID.fromString(executionUuid)).orElseThrow(() -> new NotFoundException(Execution.class, executionUuid));
         executionItemRepository.deleteByExecution(execution);
 
-        execution.setName(request.getName());
         execution.setDescription(request.getDescription());
         execution.setItems(createExecutionItems(request.getItems(), execution));
 
@@ -261,12 +263,15 @@ public class ActionServiceImpl implements ActionExternalService {
         if (request.getExecutionsUuids().isEmpty()) {
             throw new ValidationException("Action has to contain at least one execution.");
         }
-        if (actionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(actionUuid))) {
-            throw new AlreadyExistException("Action with same name already exists.");
-        }
 
         Set<Execution> executions = new HashSet<>();
         Action action = actionRepository.findWithTriggersByUuid(UUID.fromString(actionUuid)).orElseThrow(() -> new NotFoundException(Action.class, actionUuid));
+        if (request.getName() != null) {
+            if (actionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(actionUuid))) {
+                throw new AlreadyExistException("Action with same name already exists.");
+            }
+            action.setName(request.getName());
+        }
         Set<Resource> associatedTriggersResources = action.getTriggers().stream().map(Trigger::getResource).collect(Collectors.toSet());
 
         for (String executionUuid : request.getExecutionsUuids()) {
@@ -280,7 +285,6 @@ public class ActionServiceImpl implements ActionExternalService {
             executions.add(execution);
         }
 
-        action.setName(request.getName());
         action.setDescription(request.getDescription());
         action.setExecutions(executions);
 

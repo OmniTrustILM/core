@@ -132,13 +132,15 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
     public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
 
-        if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
-            throw new AlreadyExistException("Trigger with same name already exists.");
-        }
-
         Trigger trigger = triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
 
-        trigger.setName(request.getName());
+        if (request.getName() != null) {
+            if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
+                throw new AlreadyExistException("Trigger with same name already exists.");
+            }
+            trigger.setName(request.getName());
+        }
+
         trigger.setDescription(request.getDescription());
         trigger.setType(request.getType());
         trigger.setResource(request.getResource());
