@@ -28,9 +28,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import java.util.List;
 import java.util.Optional;
@@ -58,8 +55,7 @@ class CertificateStatusPollListenerTest {
     @Mock private CertificateStatusPollProducer pollProducer;
     @Mock private StatusPollProperties statusPollProperties;
     @Mock private AttributeEngine attributeEngine;
-    @Mock private PlatformTransactionManager transactionManager;
-    @Mock private TransactionStatus txStatus;
+    @Mock private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
     @Mock private com.czertainly.core.service.CertificateService certificateService;
     @Mock private com.czertainly.core.service.CryptographicKeyService keyService;
 
@@ -88,7 +84,7 @@ class CertificateStatusPollListenerTest {
         listener.setPollProducer(pollProducer);
         listener.setStatusPollProperties(statusPollProperties);
         listener.setAttributeEngine(attributeEngine);
-        listener.setTransactionManager(transactionManager);
+        listener.setTransactionHandler(transactionHandler);
         listener.setCertificateService(certificateService);
         listener.setKeyService(keyService);
 
@@ -96,8 +92,9 @@ class CertificateStatusPollListenerTest {
         lenient().when(schedule.maxAttempts()).thenReturn(3);
         lenient().when(statusPollProperties.scheduleFor(any())).thenReturn(schedule);
 
-        lenient().when(transactionManager.getTransaction(any(DefaultTransactionDefinition.class)))
-                .thenReturn(txStatus);
+        // Execute the runnable synchronously so the locked-transaction body runs in-test.
+        lenient().doAnswer(inv -> { ((Runnable) inv.getArgument(0)).run(); return null; })
+                .when(transactionHandler).runInNewTransaction(any(Runnable.class));
         lenient().when(adapterFactory.forAuthority(any())).thenReturn(adapter);
     }
 
@@ -111,7 +108,7 @@ class CertificateStatusPollListenerTest {
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        verifyNoInteractions(adapterFactory, stateMachine, pollProducer, transactionManager);
+        verifyNoInteractions(adapterFactory, stateMachine, pollProducer, transactionHandler);
     }
 
     // -----------------------------------------------------------------------
@@ -125,7 +122,7 @@ class CertificateStatusPollListenerTest {
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        verifyNoInteractions(adapterFactory, stateMachine, pollProducer, transactionManager);
+        verifyNoInteractions(adapterFactory, stateMachine, pollProducer, transactionHandler);
     }
 
     // -----------------------------------------------------------------------
@@ -145,7 +142,7 @@ class CertificateStatusPollListenerTest {
                 ArgumentCaptor.forClass(CertificateStatusPollMessage.class);
         verify(pollProducer).produceMessage(captor.capture());
         assertThat(captor.getValue().attempt()).isEqualTo(1);
-        verifyNoInteractions(stateMachine, transactionManager);
+        verifyNoInteractions(stateMachine, transactionHandler);
     }
 
     // -----------------------------------------------------------------------
@@ -165,7 +162,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 3));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
         verify(pollProducer, never()).produceMessage(any());
     }
 
@@ -185,7 +182,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
         verify(pollProducer, never()).produceMessage(any());
     }
 
@@ -205,7 +202,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // -----------------------------------------------------------------------
@@ -224,7 +221,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // -----------------------------------------------------------------------
@@ -243,7 +240,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // -----------------------------------------------------------------------
@@ -267,7 +264,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
         verify(attributeEngine).updateMetadataAttributes(eq(meta), any(ObjectAttributeContentInfo.class));
     }
 
@@ -290,7 +287,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine, never()).transition(any(), any(), any(), any());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // -----------------------------------------------------------------------
@@ -310,7 +307,7 @@ class CertificateStatusPollListenerTest {
                 ArgumentCaptor.forClass(CertificateStatusPollMessage.class);
         verify(pollProducer).produceMessage(captor.capture());
         assertThat(captor.getValue().attempt()).isEqualTo(1);
-        verifyNoInteractions(stateMachine, transactionManager);
+        verifyNoInteractions(stateMachine, transactionHandler);
     }
 
     // -----------------------------------------------------------------------

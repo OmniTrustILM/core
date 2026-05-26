@@ -140,6 +140,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private EventProducer eventProducer;
     private ConnectorCapabilityService capabilityService;
     private CertificateStatusPollProducer pollProducer;
+    private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
+
+    @Autowired
+    public void setTransactionHandler(com.czertainly.core.events.transaction.TransactionHandler transactionHandler) {
+        this.transactionHandler = transactionHandler;
+    }
 
     @Autowired
     public void setCertificateRelationRepository(CertificateRelationRepository certificateRelationRepository) {
@@ -2010,8 +2016,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * successor.</p>
      */
     private void commitLocalCancel(Certificate cert, CancelTarget target, String cancelMsg) {
-        TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        try {
+        // Rollback-on-RuntimeException semantics match TransactionHandler's declarative default
+        // (the only checked exception here, NotFoundException, isn't thrown). The race-guard
+        // throws ValidationException (a RuntimeException) which rolls the tx back as before.
+        transactionHandler.runInNewTransaction(() -> {
             // Re-read under a pessimistic write lock so a concurrent operator action
             // (manuallyConfirmRevoke, manuallyIssueCertificate) cannot commit between our
             // reload and our save. State is re-verified after acquiring the lock.
@@ -2041,10 +2049,6 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case REGISTER -> { /* no additional cleanup for registration cancellation */ }
             }
             stateMachine.transition(fresh, target.targetState(), target.eventKind(), cancelMsg);
-            transactionManager.commit(cleanupTx);
-        } catch (RuntimeException e) {
-            transactionManager.rollback(cleanupTx);
-            throw e;
-        }
+        });
     }
 }

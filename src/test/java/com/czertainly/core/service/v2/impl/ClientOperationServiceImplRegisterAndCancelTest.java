@@ -71,6 +71,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
     @Mock EventProducer eventProducer;
     @Mock PlatformTransactionManager transactionManager;
     @Mock jakarta.persistence.EntityManager entityManager;
+    @Mock com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
 
     @InjectMocks
     ClientOperationServiceImpl service;
@@ -115,6 +116,8 @@ class ClientOperationServiceImplRegisterAndCancelTest {
             return c;
         });
         lenient().when(transactionManager.getTransaction(any(DefaultTransactionDefinition.class))).thenReturn(txStatus);
+        lenient().doAnswer(inv -> { ((Runnable) inv.getArgument(0)).run(); return null; })
+                .when(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // ---- registerCertificate: feature flag off ----
@@ -287,7 +290,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
         service.cancelPendingCertificateOperation(authorityUuid, raProfileUuid, cert.getUuid().toString(), cancelReq);
 
         verify(stateMachine).transition(eq(freshCert), eq(CertificateState.FAILED), any(), any());
-        verify(transactionManager).commit(txStatus);
+        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
     }
 
     // ---- cancelPendingCertificateOperation: v3 adapter, REFUSED_PAST_POINT_OF_NO_RETURN ----

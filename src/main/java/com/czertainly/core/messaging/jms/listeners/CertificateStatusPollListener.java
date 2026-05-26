@@ -28,9 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 /**
  * Consumes {@link CertificateStatusPollMessage}s and drives the async-operation polling loop.
@@ -58,7 +55,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateStatusPollProducer pollProducer;
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
-    private PlatformTransactionManager transactionManager;
+    private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
     private CertificateService certificateService;
     private CryptographicKeyService keyService;
 
@@ -130,19 +127,21 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         String reason = status.reason() != null ? status.reason()
                 : "Async " + op + " " + status.status().getLabel().toLowerCase();
 
-        // Holders for post-commit revoke side effects: best-effort key destruction runs
-        // OUTSIDE the lock so a slow connector doesn't extend the row lock duration.
+        // Holders for post-commit side effects (best-effort key destruction + meta write) run
+        // OUTSIDE the lock so a slow connector doesn't extend the row lock duration. applied
+        // distinguishes the no-op drop (state no longer pending) from a real transition so the
+        // post-commit blocks are skipped on a drop.
         boolean[] destroyKeyHolder = {false};
         java.util.UUID[] keyUuidHolder = {null};
+        boolean[] applied = {false};
 
-        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        try {
+        transactionHandler.runInNewTransaction(() -> {
             Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                     .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
             if (!isPendingFor(locked.getState(), op)) {
-                transactionManager.commit(tx);
                 return;
             }
+            applied[0] = true;
             if (issueWithData) {
                 // Sync-path equivalence: parse + persist cert content + ISSUE event.
                 // issueRequestedCertificate sets state=ISSUED via prepareIssuedCertificate (bypasses SM by design,
@@ -171,10 +170,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             } else {
                 stateMachine.transition(locked, targetState, null, reason);
             }
-            transactionManager.commit(tx);
-        } catch (RuntimeException e) {
-            transactionManager.rollback(tx);
-            throw e;
+        });
+
+        if (!applied[0]) {
+            return;
         }
 
         // Post-commit, best-effort: destroy the cert key when the operator requested it on
@@ -213,21 +212,15 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private void applyTimeout(Certificate cert, CertificateOperation op) {
-        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        try {
+        transactionHandler.runInNewTransaction(() -> {
             Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                     .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
             if (!isPendingFor(locked.getState(), op)) {
-                transactionManager.commit(tx);
                 return;
             }
             stateMachine.transition(locked, terminalFailureState(op), null,
                     "Operation " + op + " timed out after max poll attempts");
-            transactionManager.commit(tx);
-        } catch (RuntimeException e) {
-            transactionManager.rollback(tx);
-            throw e;
-        }
+        });
     }
 
     /**
@@ -324,8 +317,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
-    public void setTransactionManager(PlatformTransactionManager transactionManager) {
-        this.transactionManager = transactionManager;
+    public void setTransactionHandler(com.czertainly.core.events.transaction.TransactionHandler transactionHandler) {
+        this.transactionHandler = transactionHandler;
     }
 
     @Autowired
