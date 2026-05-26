@@ -44,12 +44,19 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Duration;
 import java.util.*;
+import java.util.function.BiFunction;
 
 @Service(Resource.Codes.APPROVAL)
 @Transactional
 public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApprovalServiceImpl.class);
+
+    private static final BiFunction<Root<Approval>, CriteriaBuilder, Expression<String>> APPROVAL_NAME_EXPRESSION =
+            (root, cb) -> cb.concat(cb.concat(cb.concat(cb.concat(
+                    root.<ResourceAction>get("action").as(String.class), "/"),
+                    root.<Resource>get("resource").as(String.class)), "/"),
+                    root.<UUID>get("objectUuid").as(String.class));
 
     private ApprovalRepository approvalRepository;
 
@@ -384,20 +391,20 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
 
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
-        return approvalRepository.findResourceObject(objectUuid, null);
+        return approvalRepository.findResourceObject(objectUuid, APPROVAL_NAME_EXPRESSION);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
-        return approvalRepository.findResourceObject(objectUuid.getValue(), null);
+        return approvalRepository.findResourceObject(objectUuid.getValue(), APPROVAL_NAME_EXPRESSION);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
         TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters);
-        return approvalRepository.listResourceObjects(filter, null, additionalWhereClause, pagination);
+        return approvalRepository.listResourceObjects(filter, APPROVAL_NAME_EXPRESSION, additionalWhereClause, pagination);
     }
 
     @Override

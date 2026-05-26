@@ -50,5 +50,9 @@ public interface SecurityFilterRepository<T, ID> extends JpaRepository<T, ID> {
 
     List<NameAndUuidDto> listResourceObjects(SecurityFilter securityFilter, SingularAttribute<T, String> nameAttribute, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause, PaginationRequestDto page);
 
+    List<NameAndUuidDto> listResourceObjects(SecurityFilter securityFilter, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause, PaginationRequestDto page);
+
     NameAndUuidDto findResourceObject(UUID uuid, SingularAttribute<T, String> nameAttribute) throws NotFoundException;
+
+    NameAndUuidDto findResourceObject(UUID uuid, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory) throws NotFoundException;
 }

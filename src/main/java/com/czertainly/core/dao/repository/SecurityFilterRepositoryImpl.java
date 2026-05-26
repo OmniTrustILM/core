@@ -165,24 +165,24 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     private CriteriaQuery<NameAndUuidDto> createResourceObjectsQuery(SecurityFilter securityFilter, SingularAttribute<T, String> nameAttribute, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
+        BiFunction<Root<T>, CriteriaBuilder, Expression<String>> factory = nameAttribute == null ? null : (root, cb) -> root.get(nameAttribute);
+        return createResourceObjectsQuery(securityFilter, factory, additionalWhereClause);
+    }
+
+    private CriteriaQuery<NameAndUuidDto> createResourceObjectsQuery(SecurityFilter securityFilter, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause) {
         final Class<T> entity = this.entityInformation.getJavaType();
         final CriteriaBuilder cb = entityManager.getCriteriaBuilder();
         CriteriaQuery<NameAndUuidDto> query = cb.createQuery(NameAndUuidDto.class);
         final Root<T> root = query.from(entity);
 
-        Expression<String> nameExpression = nameAttribute == null
+        Expression<String> nameExpression = nameExpressionFactory == null
                 ? cb.nullLiteral(String.class)
-                : root.get(nameAttribute);
+                : nameExpressionFactory.apply(root, cb);
 
-        query.select(
-                cb.construct(
-                        NameAndUuidDto.class,
-                        root.get("uuid"),
-                        nameExpression
-                )
-        );
-        if (nameAttribute != null) {
-            query.orderBy(cb.asc(root.get(nameAttribute)));
+        query.select(cb.construct(NameAndUuidDto.class, root.get("uuid"), nameExpression));
+
+        if (nameExpressionFactory != null) {
+            query.orderBy(cb.asc(nameExpression));
         } else {
             query.orderBy(cb.asc(root.get("uuid")));
         }
@@ -204,6 +204,36 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
             query.setMaxResults(page.getItemsPerPage());
         }
         return query.getResultList();
+    }
+
+    @Override
+    public List<NameAndUuidDto> listResourceObjects(SecurityFilter securityFilter, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause, PaginationRequestDto page) {
+        CriteriaQuery<NameAndUuidDto> criteriaQuery = createResourceObjectsQuery(securityFilter, nameExpressionFactory, additionalWhereClause);
+
+        TypedQuery<NameAndUuidDto> query = entityManager.createQuery(criteriaQuery);
+        if (page != null) {
+            query.setFirstResult((page.getPageNumber() - 1) * page.getItemsPerPage());
+            query.setMaxResults(page.getItemsPerPage());
+        }
+        return query.getResultList();
+    }
+
+    @Override
+    public NameAndUuidDto findResourceObject(UUID uuid, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory) throws NotFoundException {
+        final Class<T> entity = this.entityInformation.getJavaType();
+        final CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<NameAndUuidDto> query = cb.createQuery(NameAndUuidDto.class);
+        final Root<T> root = query.from(entity);
+
+        Expression<String> nameExpression = nameExpressionFactory == null
+                ? cb.nullLiteral(String.class)
+                : nameExpressionFactory.apply(root, cb);
+
+        query.select(cb.construct(NameAndUuidDto.class, root.get("uuid"), nameExpression))
+                .where(cb.equal(root.get("uuid"), uuid));
+
+        return entityManager.createQuery(query).getResultList().stream().findFirst()
+                .orElseThrow(() -> new NotFoundException(this.entityInformation.getJavaType(), uuid));
     }
 
     @Override

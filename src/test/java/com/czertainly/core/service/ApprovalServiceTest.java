@@ -117,6 +117,7 @@ class ApprovalServiceTest extends ApprovalProfileData {
     void testGetResourceObjectInternal() throws NotFoundException {
         NameAndUuidDto result = approvalService.getResourceObjectInternal(approval.getUuid());
         Assertions.assertEquals(approval.getUuid().toString(), result.getUuid());
+        Assertions.assertEquals(ResourceAction.CREATE.name() + "/" + Resource.CERTIFICATE.name() + "/" + approval.getObjectUuid(), result.getName());
     }
 
     @Test
@@ -131,6 +132,7 @@ class ApprovalServiceTest extends ApprovalProfileData {
     void testGetResourceObjectExternal() throws NotFoundException {
         NameAndUuidDto result = approvalService.getResourceObjectExternal(SecuredUUID.fromUUID(approval.getUuid()));
         Assertions.assertEquals(approval.getUuid().toString(), result.getUuid());
+        Assertions.assertEquals(ResourceAction.CREATE.name() + "/" + Resource.CERTIFICATE.name() + "/" + approval.getObjectUuid(), result.getName());
     }
 
     @Test
@@ -148,6 +150,8 @@ class ApprovalServiceTest extends ApprovalProfileData {
 
         List<NameAndUuidDto> result = approvalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(3, result.size());
+        String expectedPrefix = ResourceAction.CREATE.name() + "/" + Resource.CERTIFICATE.name() + "/";
+        result.forEach(dto -> Assertions.assertTrue(dto.getName().startsWith(expectedPrefix)));
     }
 
     @Test
@@ -160,6 +164,8 @@ class ApprovalServiceTest extends ApprovalProfileData {
         pagination.setItemsPerPage(2);
         List<NameAndUuidDto> result = approvalService.listResourceObjects(SecurityFilter.create(), null, pagination);
         Assertions.assertEquals(2, result.size());
+        String expectedPrefix = ResourceAction.CREATE.name() + "/" + Resource.CERTIFICATE.name() + "/";
+        result.forEach(dto -> Assertions.assertTrue(dto.getName().startsWith(expectedPrefix)));
     }
 
     @Test
