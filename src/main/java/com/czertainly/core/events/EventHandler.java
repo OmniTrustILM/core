@@ -117,22 +117,12 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void handleEvent(EventMessage eventMessage) throws EventException {
         logger.debug("Going to handle event '{}'", eventMessage.getEvent().getLabel());
-        EventContext<T> eventContext;
-        try {
-            eventContext = transactionHandler.runInTransaction(() -> {
-                try {
-                    EventContext<T> ctx = prepareContext(eventMessage);
-                    processAllTriggers(ctx);
-                    prefetchForFollowUp(ctx);
-                    return ctx;
-                } catch (EventException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        } catch (RuntimeException e) {
-            if (e.getCause() instanceof EventException ee) throw ee;
-            throw e;
-        }
+        EventContext<T> eventContext = transactionHandler.runInTransaction(() -> {
+            EventContext<T> ctx = prepareContext(eventMessage);
+            processAllTriggers(ctx);
+            prefetchForFollowUp(ctx);
+            return ctx;
+        });
         sendFollowUpEventsNotifications(eventContext);
         logger.debug("Event '{}' successfully handled", eventMessage.getEvent().getLabel());
     }
