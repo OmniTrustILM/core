@@ -17,6 +17,9 @@ caching:
   tsp-profiles:
     ttl-minutes: 5
     max-size: 100
+  time-quality-configs:
+    ttl-minutes: 5
+    max-size: 100
 
 auth-service:
   base-url: http://authservice.dev
