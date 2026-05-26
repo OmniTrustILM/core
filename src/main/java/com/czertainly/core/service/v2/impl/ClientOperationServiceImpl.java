@@ -1426,6 +1426,19 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         Certificate refreshed = certificateRepository.findByUuid(certificate.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
+
+        // Best-effort: tell v3 connector to release any in-flight async tracking for this cert.
+        // Failure here does NOT roll back the local issue — connector cleanup is advisory.
+        AuthorityInstanceReference authority = refreshed.getRaProfile().getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+        if (adapter instanceof AsyncOperationCapability async) {
+            try {
+                async.cancel(refreshed, CertificateOperation.ISSUE);
+            } catch (ConnectorException e) {
+                logger.warn("Cancel-after-manual-issue failed (cert {}): {}", refreshed.getUuid(), e.getMessage());
+            }
+        }
+
         return refreshed.mapToDto();
     }
 
