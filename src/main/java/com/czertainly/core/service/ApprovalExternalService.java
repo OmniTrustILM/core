@@ -10,7 +10,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.UUID;
 
-public interface ApprovalExternalService extends ResourceExtensionService {
+public interface ApprovalExternalService {
 
     ApprovalResponseDto listApprovals(final SecurityFilter securityFilter, final PaginationRequestDto paginationRequestDto);
 

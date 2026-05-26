@@ -8,7 +8,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 
 import java.util.UUID;
 
-public interface ApprovalInternalService {
+public interface ApprovalInternalService extends ResourceExtensionService {
 
     Approval createApproval(final ApprovalProfileVersion approvalProfileVersion, final Resource resource, final ResourceAction resourceAction, final UUID objectUuid, final UUID userUuid, final Object objectData) throws NotFoundException;
 
