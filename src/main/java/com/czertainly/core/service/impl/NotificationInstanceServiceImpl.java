@@ -24,7 +24,6 @@ import com.czertainly.core.dao.repository.notifications.NotificationInstanceRefe
 import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
@@ -212,7 +211,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public List<DataAttribute> listMappingAttributes(String connectorUuid, String kind) throws ConnectorException, NotFoundException {
         ConnectorDto connector = connectorService.getConnector(SecuredUUID.fromString(connectorUuid));
         return connectorApiFactory.getNotificationInstanceApiClient(connector).listMappingAttributes(connector, kind);
