@@ -122,6 +122,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private ConnectorRepository connectorRepository;
     @Autowired
+    private com.czertainly.core.dao.repository.ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
     private FunctionGroupRepository functionGroupRepository;
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
@@ -324,6 +326,15 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector.setVersion(ConnectorVersion.V2);
         connector = connectorRepository.save(connector);
+
+        com.czertainly.core.dao.entity.ConnectorInterfaceEntity v2Iface =
+                new com.czertainly.core.dao.entity.ConnectorInterfaceEntity();
+        v2Iface.setConnectorUuid(connector.getUuid());
+        v2Iface.setInterfaceCode(com.czertainly.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
+        v2Iface.setVersion("v2");
+        v2Iface.setFeatures(List.of());
+        v2Iface = connectorInterfaceRepository.save(v2Iface);
+        connector.getInterfaces().add(v2Iface);
 
         FunctionGroup functionGroup = new FunctionGroup();
         functionGroup.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);

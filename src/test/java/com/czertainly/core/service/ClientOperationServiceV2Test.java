@@ -116,6 +116,8 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     @Autowired
     private ConnectorRepository connectorRepository;
     @Autowired
+    private com.czertainly.core.dao.repository.ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
@@ -162,9 +164,21 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
+        com.czertainly.core.dao.entity.ConnectorInterfaceEntity v2Interface =
+                new com.czertainly.core.dao.entity.ConnectorInterfaceEntity();
+        v2Interface.setConnectorUuid(connector.getUuid());
+        v2Interface.setInterfaceCode(com.czertainly.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
+        v2Interface.setVersion("v2");
+        v2Interface.setFeatures(java.util.List.of());
+        v2Interface = connectorInterfaceRepository.save(v2Interface);
+        connector.getInterfaces().add(v2Interface);
+        connector = connectorRepository.save(connector);
+
         authorityInstanceReference = new AuthorityInstanceReference();
         authorityInstanceReference.setAuthorityInstanceUuid("1l");
         authorityInstanceReference.setConnector(connector);
+        authorityInstanceReference.setConnectorInterface(v2Interface);
+        authorityInstanceReference.setConnectorInterfaceUuid(v2Interface.getUuid());
         authorityInstanceReference = authorityInstanceReferenceRepository.save(authorityInstanceReference);
 
         // prepare attribute
@@ -1680,8 +1694,9 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                         SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                         raProfile.getSecuredUuid(),
                         certificate.getUuid().toString(), req));
-        Assertions.assertTrue(ex.getMessage().contains("past the point of no return"),
-                "expected upstream reason in error message, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("refused")
+                        || ex.getMessage().toLowerCase().contains("rejected"),
+                "expected refusal in error message (raw upstream reason intentionally not forwarded), got: " + ex.getMessage());
 
         Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, after.getState(),
@@ -1977,8 +1992,9 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                         SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                         raProfile.getSecuredUuid(),
                         certificate.getUuid().toString(), cancelReq));
-        Assertions.assertTrue(ex.getMessage().contains("past the point of no return"),
-                "expected upstream reason in error message, got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("refused")
+                        || ex.getMessage().toLowerCase().contains("rejected"),
+                "expected refusal in error message (raw upstream reason intentionally not forwarded), got: " + ex.getMessage());
 
         Certificate afterCancel = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, afterCancel.getState(),
