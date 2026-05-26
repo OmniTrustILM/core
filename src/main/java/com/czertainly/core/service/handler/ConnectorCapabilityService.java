@@ -4,6 +4,7 @@ import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
 import com.czertainly.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Connector;
+import com.czertainly.core.dao.entity.ConnectorInterfaceEntity;
 import org.springframework.stereotype.Service;
 
 /**
@@ -29,9 +30,10 @@ public class ConnectorCapabilityService {
     }
 
     public boolean supports(AuthorityInstanceReference authority, FeatureFlag flag) {
-        return supports(
-            authority.getConnectorInterface().getConnector(),
-            ConnectorInterface.AUTHORITY,
-            flag);
+        if (flag.getBehavior() == FeatureFlag.FeatureFlagBehavior.INFORMATIONAL) {
+            return true;
+        }
+        ConnectorInterfaceEntity iface = authority.getConnectorInterface();
+        return iface != null && iface.getFeatures() != null && iface.getFeatures().contains(flag);
     }
 }

@@ -198,6 +198,10 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         authorityInstanceRef.setConnectorUuid(connectorUuid.getValue());
         authorityInstanceRef.setKind(request.getKind());
         authorityInstanceRef.setConnectorName(connector.getName());
+        if (iface != null) {
+            authorityInstanceRef.setConnectorInterface(iface);
+            authorityInstanceRef.setConnectorInterfaceUuid(iface.getUuid());
+        }
         authorityInstanceReferenceRepository.save(authorityInstanceRef);
 
         AuthorityInstanceDto dto = authorityInstanceRef.mapToDto();
