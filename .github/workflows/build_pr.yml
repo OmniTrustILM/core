@@ -8,14 +8,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    if: github.event_name != 'push'
-    name: Build
+  compile:
+    name: Compile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -24,10 +21,132 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build
+      - name: Compile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -f pom.xml -U -B -ntp -T 1C clean package
+        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full
+
+      - name: Package compiled output
+        run: tar -czf compiled.tar.gz target/classes target/test-classes
+
+      - name: Upload compiled output
+        uses: actions/upload-artifact@v7
+        with:
+          name: compiled
+          path: compiled.tar.gz
+          retention-days: 7
+
+  test-services:
+    name: Test (services)
+    needs: compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled
+
+      - name: Extract compiled output
+        run: tar -xzf compiled.tar.gz
+
+      - name: Run service tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+        run: mvn -B -U -ntp test -Ptest-services -Dmaven.compiler.skip=true
+
+      - name: Upload coverage exec
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-exec-services
+          path: target/jacoco.exec
+          retention-days: 7
+
+  test-non-services:
+    name: Test (non-services)
+    needs: compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled
+
+      - name: Extract compiled output
+        run: tar -xzf compiled.tar.gz
+
+      - name: Run non-service tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+        run: mvn -B -U -ntp test -Ptest-non-services -Dmaven.compiler.skip=true
+
+      - name: Upload coverage exec
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-exec-non-services
+          path: target/jacoco.exec
+          retention-days: 7
+
+  package:
+    name: Package
+    needs: [test-services, test-non-services]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download compiled output
+        uses: actions/download-artifact@v8
+        with:
+          name: compiled
+
+      - name: Extract compiled output
+        run: tar -xzf compiled.tar.gz
+
+      - name: Download service coverage exec
+        uses: actions/download-artifact@v8
+        with:
+          name: jacoco-exec-services
+          path: jacoco-partial/group1
+
+      - name: Download non-service coverage exec
+        uses: actions/download-artifact@v8
+        with:
+          name: jacoco-exec-non-services
+          path: jacoco-partial/group2
+
+      - name: Rename partial exec files for merge
+        run: |
+          mv jacoco-partial/group1/jacoco.exec jacoco-partial/jacoco-services.exec
+          mv jacoco-partial/group2/jacoco.exec jacoco-partial/jacoco-non-services.exec
+
+      - name: Merge coverage, generate report, and package
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true
 
       # Write PR number to file
       - name: Write PR number to file
@@ -35,21 +154,28 @@ jobs:
 
       # Upload PR number artifact
       - name: Upload PR number artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: pr-number
           path: pr-number.txt
 
       # Upload compiled classes
       - name: Upload Compiled Classes
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: compiled-classes
           path: target/classes
 
       # Upload Jacoco XML report(s)
       - name: Upload Coverage Reports
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-reports
           path: target/site/jacoco/jacoco.xml
+
+  build:
+    name: Build
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Build complete"

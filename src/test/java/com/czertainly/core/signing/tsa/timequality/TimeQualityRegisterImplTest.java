@@ -12,10 +12,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfigurationBuilder.anExplicitTimeQualityConfiguration;
 import static com.czertainly.core.signing.tsa.timequality.builders.TimeQualityResultBuilder.aTimeQualityResult;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TimeQualityRegisterImplTest {
     private static final Instant FIXED_NOW = Instant.parse("2026-03-04T10:05:00Z");
@@ -258,7 +260,7 @@ class TimeQualityRegisterImplTest {
                         latch.countDown();
                     });
                 }
-                latch.await();
+                assertTrue(latch.await(30, TimeUnit.SECONDS), "All virtual threads should complete within 30 s");
             }
 
             // then — entry exists and has a valid status
