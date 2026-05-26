@@ -7,6 +7,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
+import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
 import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.NameAndIdDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
@@ -25,11 +26,14 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
+import com.czertainly.core.service.handler.authority.AuthorityProviderAdapter;
+import com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +58,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     private RaProfileService raProfileService;
     private AttributeEngine attributeEngine;
     private ResourceService resourceService;
+    private ConnectorRepository connectorRepository;
+    private AuthorityProviderAdapterFactory adapterFactory;
 
     @Autowired
     public void setResourceService(ResourceService resourceService) {
@@ -88,6 +94,16 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setConnectorRepository(ConnectorRepository connectorRepository) {
+        this.connectorRepository = connectorRepository;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
     }
 
     @Override
@@ -158,6 +174,15 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         var dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid.getValue(), request.getAttributes());
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
+
+        ConnectorInterfaceEntity iface = connectorRepository.findByUuid(connectorUuid.getValue())
+                .flatMap(c -> c.getInterfaces().stream()
+                        .filter(i -> i.getInterfaceCode() == ConnectorInterface.AUTHORITY)
+                        .findFirst())
+                .orElse(null);
+        if (iface != null && "v3".equals(iface.getVersion())) {
+            return createV3Authority(request, connectorUuid, connector, iface, dataAttributes);
+        }
 
         AuthorityProviderInstanceRequestDto authorityInstanceDto = new AuthorityProviderInstanceRequestDto();
         authorityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
@@ -343,6 +368,32 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         getAuthorityInstanceReferenceEntity(uuid);
         // Since there are is no parent to the Authority, exclusive parent permission evaluation need not be done
+    }
+
+    private AuthorityInstanceDto createV3Authority(
+            com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto request,
+            SecuredUUID connectorUuid,
+            ConnectorDto connector,
+            ConnectorInterfaceEntity iface,
+            List<?> dataAttributes)
+            throws ConnectorException, AttributeException, ValidationException, NotFoundException {
+        AuthorityInstanceReference authorityInstanceRef = new AuthorityInstanceReference();
+        authorityInstanceRef.setName(request.getName());
+        authorityInstanceRef.setStatus("connected");
+        authorityInstanceRef.setConnectorUuid(connectorUuid.getValue());
+        authorityInstanceRef.setKind(request.getKind());
+        authorityInstanceRef.setConnectorName(connector.getName());
+        authorityInstanceRef.setConnectorInterface(iface);
+
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authorityInstanceRef);
+        adapter.checkAuthorityConnection(authorityInstanceRef, AttributeDefinitionUtils.getClientAttributes(dataAttributes));
+
+        authorityInstanceReferenceRepository.save(authorityInstanceRef);
+
+        AuthorityInstanceDto dto = authorityInstanceRef.mapToDto();
+        dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.AUTHORITY, authorityInstanceRef.getUuid(), request.getCustomAttributes()));
+        dto.setAttributes(attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authorityInstanceRef.getUuid()).connector(authorityInstanceRef.getConnectorUuid()).build(), request.getAttributes()));
+        return dto;
     }
 
     private AuthorityInstanceReference getAuthorityInstanceReferenceEntity(SecuredUUID uuid) throws NotFoundException {
