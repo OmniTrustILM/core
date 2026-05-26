@@ -1,6 +1,7 @@
 package com.czertainly.core.dao.repository;
 
 import com.czertainly.api.model.core.certificate.CertificateDto;
+import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
@@ -212,6 +213,43 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             "    c.updated = CURRENT_TIMESTAMP " +
             "WHERE c.uuid = :uuid")
     void clearIssuerReference(@Param("uuid") UUID uuid);
+
+    /**
+     * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.validationStatus = :status, " +
+            "    c.statusValidationTimestamp = :timestamp, " +
+            "    c.certificateValidationResult = :result, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateValidationResult(@Param("uuid") UUID uuid,
+                                @Param("status") CertificateValidationStatus status,
+                                @Param("timestamp") OffsetDateTime timestamp,
+                                @Param("result") String result);
+
+    /**
+     * Conditionally transitions a single certificate row from {@code ISSUED} to {@code REVOKED}.
+     * Returns the number of affected rows:
+     * <ul>
+     *     <li>1 if the transition was successful</li>
+     *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
+     * </ul>
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).REVOKED}, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid " +
+            "  AND c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}")
+    int transitionIssuedToRevoked(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the current {@code state} of a certificate row by UUID.
+     */
+    @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
 
     @Modifying
     @Query(value = """

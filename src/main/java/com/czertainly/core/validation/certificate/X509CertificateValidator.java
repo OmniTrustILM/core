@@ -10,6 +10,7 @@ import com.czertainly.core.dao.entity.CrlEntry;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.service.CrlService;
+import com.czertainly.core.service.writer.CertificateValidationWriter;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.OcspUtil;
@@ -40,6 +41,8 @@ public class X509CertificateValidator implements ICertificateValidator {
 
     private CrlService crlService;
 
+    private CertificateValidationWriter validationWriter;
+
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
@@ -48,6 +51,11 @@ public class X509CertificateValidator implements ICertificateValidator {
     @Autowired
     public void setCrlService(CrlService crlService) {
         this.crlService = crlService;
+    }
+
+    @Autowired
+    public void setValidationWriter(CertificateValidationWriter validationWriter) {
+        this.validationWriter = validationWriter;
     }
 
 
@@ -368,23 +376,56 @@ public class X509CertificateValidator implements ICertificateValidator {
     }
 
     private void finalizeValidation(Certificate certificate, CertificateValidationStatus resultStatus, Map<CertificateValidationCheck, CertificateValidationCheckDto> validationOutput) throws CertificateException {
-        certificate.setValidationStatus(resultStatus);
-        certificate.setStatusValidationTimestamp(OffsetDateTime.now());
-
-        // change certificate state to revoked if applicable
-        if (certificate.getState() == CertificateState.ISSUED
-                && (validationOutput.get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED)
-                || validationOutput.get(CertificateValidationCheck.CRL_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED))) {
-            certificate.setState(CertificateState.REVOKED);
-        }
-
+        OffsetDateTime now = OffsetDateTime.now();
+        String resultJson;
         try {
-            certificate.setCertificateValidationResult(OBJECT_MAPPER.writeValueAsString(validationOutput));
-            certificateRepository.save(certificate);
+            resultJson = OBJECT_MAPPER.writeValueAsString(validationOutput);
         } catch (Exception e) {
             throw new CertificateException("Error in serialization of validation output for " + certificate);
         }
+
+        validationWriter.applyValidationResult(certificate.getUuid(), resultStatus, now, resultJson);
+        // Keep the in-memory entity coherent with what was just persisted.
+        certificate.setValidationStatus(resultStatus);
+        certificate.setStatusValidationTimestamp(now);
+        certificate.setCertificateValidationResult(resultJson);
+
+        boolean ocspOrCrlSaysRevoked =
+                validationOutput.get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED)
+                || validationOutput.get(CertificateValidationCheck.CRL_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED);
+        if (certificate.getState() == CertificateState.ISSUED && ocspOrCrlSaysRevoked) {
+            int rows = validationWriter.markRevokedIfStillIssued(certificate.getUuid());
+            if (rows == 1) {
+                // Transition happened successfully.
+                certificate.setState(CertificateState.REVOKED);
+            } else {
+                // Transition did not happen - most likely some concurrent update has already set the state.
+                // Read back the state outside the writer's tx and classify the outcome.
+                CertificateState observed = certificateRepository.findStateByUuid(certificate.getUuid()).orElse(null);
+                switch (classifyZeroRowOutcome(observed)) {
+                    case INTENT_ALREADY_SATISFIED ->
+                            logger.info("OCSP/CRL-driven revoke for {} skipped; state already {}", certificate.getUuid(), observed);
+                    case STATE_DIVERGENCE ->
+                            logger.warn("OCSP/CRL wanted to mark {} REVOKED but row is now in {} — manual reconciliation may be needed",
+                                    certificate.getUuid(), observed);
+                }
+            }
+        }
     }
+
+    /**
+     * Read-back classification: given the observed state after a 0-row return from {@code transitionIssuedToRevoked},
+     * decide whether OCSP/CRL's revoke intent has already been fulfilled by a concurrent path (a peer revoke transaction
+     * reached the row first) or whether the state has diverged from the external truth and requires manual reconciliation.
+     */
+    static ZeroRowOutcome classifyZeroRowOutcome(CertificateState observed) {
+        if (observed == CertificateState.REVOKED || observed == CertificateState.PENDING_REVOKE) {
+            return ZeroRowOutcome.INTENT_ALREADY_SATISFIED;
+        }
+        return ZeroRowOutcome.STATE_DIVERGENCE;
+    }
+
+    enum ZeroRowOutcome { INTENT_ALREADY_SATISFIED, STATE_DIVERGENCE }
 
     private boolean verifySignature(X509Certificate subjectCertificate, X509Certificate issuerCertificate) {
         try {
