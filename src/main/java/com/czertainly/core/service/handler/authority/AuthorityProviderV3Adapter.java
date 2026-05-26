@@ -81,6 +81,9 @@ public class AuthorityProviderV3Adapter
         wire.setAttributes(issueAttributesFor(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+        // Replay any meta the connector emitted on a prior register/renew/issue for this cert.
+        // Unified meta semantic — connector owns the bag; we forward verbatim. Empty when fresh issuance.
+        wire.setMeta(loadMeta(cert, authority));
 
         boolean connectorAccepted = false;
         try {

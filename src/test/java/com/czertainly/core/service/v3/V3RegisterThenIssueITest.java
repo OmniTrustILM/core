@@ -112,8 +112,11 @@ class V3RegisterThenIssueITest extends BaseV3ITest {
         assertEquals(CertificateState.ISSUED, certFinal.getState(),
                 "After sync issue, cert should be ISSUED");
 
-        // Issue endpoint received a POST (meta was carried; we verify endpoint was hit)
-        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_ISSUE_PATH)));
+        // Verify the /issue request body carried the meta from the register response —
+        // proves V3Adapter.issue replays stored meta via the unified meta bag.
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_ISSUE_PATH))
+                .withRequestBody(WireMock.matchingJsonPath("$.meta[?(@.name == 'ejbcaUsername')]"))
+                .withRequestBody(WireMock.matchingJsonPath("$.meta[?(@.content[0].data == 'joe')]")));
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REGISTER_PATH)));
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REGISTER_STATUS_PATH)));
     }
