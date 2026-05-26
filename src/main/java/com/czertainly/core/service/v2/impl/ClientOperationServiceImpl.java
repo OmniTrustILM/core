@@ -133,6 +133,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private AttributeEngine attributeEngine;
     private CertificateRelationRepository certificateRelationRepository;
 
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private ConnectorCapabilityService capabilityService;
@@ -1492,6 +1495,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         try {
             Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(UUID.fromString(certificateUuid))
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+            entityManager.refresh(locked);
             assertCertificateInPendingIssueWithCsr(locked);
             try {
                 certificateService.issueRequestedCertificate(locked.getUuid(), request.getCertificate(), identifyMeta);
@@ -1616,6 +1620,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         try {
             Certificate cert = certificateRepository.findAndLockWithAssociationsByUuid(certUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+            entityManager.refresh(cert);
             assertCertificateBelongsToRaProfile(cert, authorityUuid, raProfileUuid, "confirm revocation");
             if (cert.getState() != CertificateState.PENDING_REVOKE) {
                 throw new ValidationException("Cannot confirm revocation: certificate is not in PENDING_REVOKE. Current state: %s. Certificate: %s"
@@ -1700,10 +1705,25 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException("Authority adapter does not implement pre-registration capability");
         }
 
+        // Capture entry state so a hard-fail from the connector restores the cert to its
+        // pre-attempt state. Without this, a connector rejection would leave the cert
+        // orphaned in PENDING_REGISTRATION with no poll message scheduled.
+        final CertificateState entryState = cert.getState();
         stateMachine.transition(cert, CertificateState.PENDING_REGISTRATION);
         certificateRepository.save(cert);
 
-        AdapterOperationResult result = reg.register(cert, request);
+        AdapterOperationResult result;
+        try {
+            result = reg.register(cert, request);
+        } catch (ConnectorException | RuntimeException e) {
+            // Connector rejected the registration. Restore entry state so the cert isn't
+            // stranded in PENDING_REGISTRATION. SM accepts arbitrary state assignment on
+            // failure paths (see CertificateStateTransition.REQUESTED_TO_FAILED etc.); using
+            // direct setState here mirrors the pattern in revokeCertificateAction's catch.
+            cert.setState(entryState);
+            certificateRepository.save(cert);
+            throw e;
+        }
 
         switch (result.outcome()) {
             case SYNC_OK -> completeRegistrationSync(cert, authority, result);
@@ -1892,7 +1912,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             recordCancelSoftFailure(cert, target,
                     "Connector cancel call failed (proceeding with local cancel): " + e.getMessage(),
                     "Connector cancel call failed; proceeded with local cancel",
-                    "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
+                    "Connector cancel call failed for cert {} ({}) — proceeding with local cancel",
                     e.getClass().getSimpleName() + ": " + e.getMessage(), e);
         }
     }
@@ -1931,13 +1951,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             recordCancelSoftFailure(cert, target,
                     "Connector cancel call failed with infrastructure error (proceeding with local cancel): " + infra.getMessage(),
                     "Connector cancel call failed (" + infra.getClass().getSimpleName() + "); proceeded with local cancel",
-                    "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
+                    "Connector cancel call failed for cert {} ({}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
         } catch (Exception unexpected) {
             recordCancelSoftFailure(cert, target,
                     "Connector cancel call failed (proceeding with local cancel): " + unexpected.getMessage(),
                     "Connector cancel call failed (" + unexpected.getClass().getSimpleName() + "); proceeded with local cancel",
-                    "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
+                    "Connector cancel call failed for cert {} ({}) — proceeding with local cancel",
                     unexpected.getClass().getSimpleName() + ": " + unexpected.getMessage(), unexpected);
         }
     }
@@ -1998,6 +2018,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             Certificate fresh = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                     .orElseThrow(() -> new ValidationException(
                             "Certificate disappeared during cancel: " + cert.getUuid()));
+            // Belt-and-suspenders against Hibernate L1 cache returning a stale entity even
+            // after lock acquisition (observed flake in V3RaceConditionITest before this).
+            // Refresh forces a re-read from the DB after the FOR UPDATE has been granted.
+            entityManager.refresh(fresh);
             if (fresh.getState() != target.expectedPendingState()) {
                 throw new ValidationException(
                         "Cancel raced with another operation: certificate " + cert.getUuid()

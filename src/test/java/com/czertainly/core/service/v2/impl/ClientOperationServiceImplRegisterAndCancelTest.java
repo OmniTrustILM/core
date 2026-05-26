@@ -70,6 +70,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
     @Mock CertificateEventHistoryService certificateEventHistoryService;
     @Mock EventProducer eventProducer;
     @Mock PlatformTransactionManager transactionManager;
+    @Mock jakarta.persistence.EntityManager entityManager;
 
     @InjectMocks
     ClientOperationServiceImpl service;

@@ -228,6 +228,14 @@ public class AuthorityProviderV3Adapter
 
     // ---- AsyncOperationCapability ----
 
+    /**
+     * Issues 3 separate {@code attribute_content_2_object} reads (cert meta + authority
+     * attrs + RA profile attrs) plus the connector HTTP call per poll message. Bounded
+     * constant per message (not per cert), so the absolute round-trip cost is small —
+     * but in high-throughput async pipelines (thousands of in-flight cert ops) a single
+     * batched lookup would halve the DB load from this listener. Tracked as M4-M9
+     * follow-up; the API surface change in AttributeEngine is out of scope for this batch.
+     */
     @Override
     public StatusPollResult pollStatus(Certificate cert, CertificateOperation op) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();

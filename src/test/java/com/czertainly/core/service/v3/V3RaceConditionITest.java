@@ -10,7 +10,6 @@ import com.czertainly.core.dao.repository.CertificateRequestRepository;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -51,16 +50,6 @@ class V3RaceConditionITest extends BaseV3ITest {
     private CertificateRequestRepository certRequestRepo;
 
     @Test
-    @Disabled("""
-            Pessimistic locking in commitLocalCancel is sound by code inspection
-            (findAndLockWithAssociationsByUuid emits SELECT ... FOR UPDATE under a fresh tx
-            opened via transactionManager.getTransaction). However, reliably reproducing the
-            serialization in-process with the @Transactional(NOT_SUPPORTED) outer method and
-            two threads has proven flaky — both threads see PENDING_ISSUE inside the lock.
-            Suspected cause: Hibernate's persistence-context interaction with @Lock+@EntityGraph,
-            or virtual-thread-pinned JDBC resources. Tracked as follow-up: verify the lock with
-            hibernate SQL logging, then either refresh the entity post-lock (entityManager.refresh)
-            or restructure the query to bypass session cache.""")
     void concurrentManualIssueAndCancel_exactlyOneWins() throws Exception {
         InputStream ks = getClass().getClassLoader().getResourceAsStream("client1.p12");
         KeyStore keyStore = KeyStore.getInstance("PKCS12");

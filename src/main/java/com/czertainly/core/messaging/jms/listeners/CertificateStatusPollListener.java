@@ -1,7 +1,9 @@
 package com.czertainly.core.messaging.jms.listeners;
 
 import com.czertainly.api.exception.ConnectorException;
+import com.czertainly.api.exception.ConnectorProblemException;
 import com.czertainly.api.exception.MessageHandlingException;
+import com.czertainly.api.model.common.error.ErrorCode;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
@@ -92,7 +94,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             status = async.pollStatus(cert, msg.op());
         } catch (ConnectorException e) {
             logger.warn("Poll status call failed for cert {} op {}: {}", msg.resourceUuid(), msg.op(), e.getMessage());
-            if (msg.attempt() < statusPollProperties.scheduleFor(msg.op()).maxAttempts()) {
+            if (isTerminalPollError(e)) {
+                // Connector says the operation doesn't exist anymore or never did — no point retrying.
+                // Move the cert to its failure state immediately rather than burning maxAttempts cycles.
+                applyTimeout(cert, msg.op());
+            } else if (msg.attempt() < statusPollProperties.scheduleFor(msg.op()).maxAttempts()) {
                 pollProducer.produceMessage(new CertificateStatusPollMessage(
                         Resource.CERTIFICATE, msg.resourceUuid(), msg.op(), msg.attempt() + 1));
             } else {
@@ -244,6 +250,22 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             logger.warn("Failed to apply preserved revoke attributes on async revoke completion for cert {}: {}",
                     cert.getUuid(), e.getMessage(), e);
         }
+    }
+
+    /**
+     * Connector-side error codes that mean retrying the status poll is pointless: the
+     * operation either never existed at the upstream CA or has been forgotten. Treat as
+     * terminal and move the cert to its failure state immediately. Other ConnectorExceptions
+     * (network, 5xx, transient) remain retryable up to maxAttempts.
+     */
+    private static boolean isTerminalPollError(ConnectorException e) {
+        if (!(e instanceof ConnectorProblemException problem) || problem.getProblemDetail() == null) {
+            return false;
+        }
+        ErrorCode code = problem.getProblemDetail().getErrorCode();
+        return code == ErrorCode.OPERATION_NOT_TRACKED
+                || code == ErrorCode.REGISTRATION_NOT_FOUND
+                || code == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
     private boolean isPendingFor(CertificateState state, CertificateOperation op) {
