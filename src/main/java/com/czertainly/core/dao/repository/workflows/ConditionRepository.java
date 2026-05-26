@@ -16,6 +16,8 @@ public interface ConditionRepository extends SecurityFilterRepository<Condition,
 
     boolean existsByName(String name);
 
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
     @EntityGraph(attributePaths = {"rules"})
     Optional<Condition> findWithRulesByUuid(UUID uuid);
 

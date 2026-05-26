@@ -95,12 +95,19 @@ public class RuleServiceImpl implements RuleExternalService {
 
     @Override
     @ExternalAuthorization(resource = Resource.RULE, action = ResourceAction.UPDATE)
-    public ConditionDto updateCondition(String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException {
+    public ConditionDto updateCondition(String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getItems().isEmpty()) {
             throw new ValidationException("Cannot update a condition without any condition items.");
         }
 
         Condition condition = conditionRepository.findByUuid(SecuredUUID.fromString(conditionUuid)).orElseThrow(() -> new NotFoundException(Condition.class, conditionUuid));
+
+        if (request.getName() != null) {
+            if (conditionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(conditionUuid))) {
+                throw new AlreadyExistException("Condition with same name already exists.");
+            }
+            condition.setName(request.getName());
+        }
         conditionItemRepository.deleteAll(condition.getItems());
 
         condition.setDescription(request.getDescription());
@@ -203,13 +210,20 @@ public class RuleServiceImpl implements RuleExternalService {
 
     @Override
     @ExternalAuthorization(resource = Resource.RULE, action = ResourceAction.UPDATE)
-    public RuleDetailDto updateRule(String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException {
+    public RuleDetailDto updateRule(String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getConditionsUuids().isEmpty()) {
             throw new ValidationException("Rule has to contain at least one condition.");
         }
 
         Set<Condition> conditions = new HashSet<>();
         Rule rule = ruleRepository.findWithTriggersByUuid(UUID.fromString(ruleUuid)).orElseThrow(() -> new NotFoundException(Rule.class, ruleUuid));
+
+        if (request.getName() != null) {
+            if (ruleRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(ruleUuid))) {
+                throw new AlreadyExistException("Rule with same name already exists.");
+            }
+            rule.setName(request.getName());
+        }
         Set<Resource> associatedTriggersResources = rule.getTriggers().stream().map(Trigger::getResource).collect(Collectors.toSet());
 
         for (String conditionUuid : request.getConditionsUuids()) {
