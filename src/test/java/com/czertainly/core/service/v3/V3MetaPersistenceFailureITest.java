@@ -21,6 +21,7 @@ import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 
 /**
  * Defensive path: attributeEngine.updateMetadataAttributes throws during poll listener
@@ -57,10 +58,13 @@ class V3MetaPersistenceFailureITest extends BaseV3ITest {
                         .withHeader("Content-Type", "application/json")
                         .withBody(completedWithMeta)));
 
-        // Make updateMetadataAttributes throw an AttributeException to simulate DB or mapping failure.
+        // Make updateMetadataAttributes throw on non-empty lists only — the listener passes an
+        // empty list through issueRequestedCertificate as a deliberate no-op (state-divergence:
+        // cert content + state must commit before the meta write is attempted separately),
+        // and matching the empty-list call would spuriously block that path.
         Mockito.doThrow(new com.czertainly.api.exception.AttributeException("Simulated meta persistence failure"))
                 .when(attributeEngine)
-                .updateMetadataAttributes(any(), any(ObjectAttributeContentInfo.class));
+                .updateMetadataAttributes(argThat(list -> list != null && !list.isEmpty()), any(ObjectAttributeContentInfo.class));
 
         Certificate cert = buildCertificateInState(CertificateState.PENDING_ISSUE);
 

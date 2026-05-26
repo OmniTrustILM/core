@@ -129,11 +129,15 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 return;
             }
             if (issueWithData) {
-                // Sync-path equivalence: parse + persist cert content + meta + ISSUE event.
+                // Sync-path equivalence: parse + persist cert content + ISSUE event.
                 // issueRequestedCertificate sets state=ISSUED via prepareIssuedCertificate (bypasses SM by design,
                 // matching the sync v2 path at ClientOperationServiceImpl.issueCertificateAction:376).
+                //
+                // Meta is passed as empty here and written separately AFTER commit so that a meta
+                // persistence failure does not roll back the state transition. The connector has
+                // accepted COMPLETED — state must reflect that even if our meta write fails.
                 try {
-                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), status.meta());
+                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), java.util.List.of());
                 } catch (Exception e) {
                     throw new IllegalStateException(
                             "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
@@ -147,8 +151,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             throw e;
         }
 
-        // Post-commit meta update — skipped when issueRequestedCertificate already wrote it.
-        if (!issueWithData && status.meta() != null && !status.meta().isEmpty()) {
+        // Post-commit meta update — outside the tx so a meta failure does not roll back the
+        // state transition (state-divergence rule: once connector accepted COMPLETED, local
+        // state reflects that even if downstream local writes fail).
+        if (status.meta() != null && !status.meta().isEmpty()) {
             AuthorityInstanceReference metaAuthority = cert.getRaProfile() != null
                     ? cert.getRaProfile().getAuthorityInstanceReference()
                     : null;

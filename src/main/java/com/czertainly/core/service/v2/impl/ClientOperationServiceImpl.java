@@ -1458,15 +1458,30 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         List<MetadataAttribute> identifyMeta = identifyResponse != null && identifyResponse.getMeta() != null
                 ? identifyResponse.getMeta()
                 : List.of();
-        try {
-            certificateService.issueRequestedCertificate(certificate.getUuid(), request.getCertificate(), identifyMeta);
-        } catch (NoSuchAlgorithmException e) {
-            throw new CertificateException(e);
-        }
 
-        if (request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
-            attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE,
-                    certificate.getUuid(), request.getCustomAttributes());
+        // Lock + state re-check + issuance + custom attrs in one transaction so a concurrent
+        // poll-listener terminal transition OR a concurrent cancelPendingCertificateOperation
+        // can't race past our state check. The identify HTTP call above already ran outside
+        // any tx; downstream side effects (location push, event firing, connector cancel)
+        // also stay outside the lock.
+        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        try {
+            Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(UUID.fromString(certificateUuid))
+                    .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+            assertCertificateInPendingIssueWithCsr(locked);
+            try {
+                certificateService.issueRequestedCertificate(locked.getUuid(), request.getCertificate(), identifyMeta);
+            } catch (NoSuchAlgorithmException e) {
+                throw new CertificateException(e);
+            }
+            if (request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
+                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE,
+                        locked.getUuid(), request.getCustomAttributes());
+            }
+            transactionManager.commit(tx);
+        } catch (RuntimeException | CertificateException | AttributeException | NotFoundException e) {
+            transactionManager.rollback(tx);
+            throw e;
         }
 
         pushFinalizedCertificateToAllLocations(certificate);
