@@ -61,6 +61,7 @@ class CertificateStatusPollListenerTest {
     @Mock private PlatformTransactionManager transactionManager;
     @Mock private TransactionStatus txStatus;
     @Mock private com.czertainly.core.service.CertificateService certificateService;
+    @Mock private com.czertainly.core.service.CryptographicKeyService keyService;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -89,6 +90,7 @@ class CertificateStatusPollListenerTest {
         listener.setAttributeEngine(attributeEngine);
         listener.setTransactionManager(transactionManager);
         listener.setCertificateService(certificateService);
+        listener.setKeyService(keyService);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
