@@ -128,7 +128,11 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     public void deleteNotification(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
-        notification.getNotificationRecipients().removeIf(r -> r.getUserUuid().equals(loggedUserUuid));
+        boolean removed = notification.getNotificationRecipients().removeIf(r -> r.getUserUuid().equals(loggedUserUuid));
+        if (!removed) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
+        }
         if (notification.getNotificationRecipients().isEmpty()) {
             notificationRepository.delete(notification);
         } else {
@@ -141,14 +145,20 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     public void markNotificationAsRead(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
+        boolean found = false;
         for (NotificationRecipient recipient : notification.getNotificationRecipients()) {
             if (recipient.getUserUuid().equals(loggedUserUuid)) {
+                found = true;
                 if (recipient.getReadAt() == null) {
                     recipient.setReadAt(new Date());
                     notificationRepository.save(notification);
                 }
                 break;
             }
+        }
+        if (!found) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
         }
     }
 
