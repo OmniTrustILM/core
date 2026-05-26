@@ -35,8 +35,14 @@ public class AuthorityProviderAdapterFactory {
     public AuthorityProviderAdapter forAuthority(AuthorityInstanceReference authority) {
         ConnectorInterfaceEntity iface = authority.getConnectorInterface();
         if (iface == null) {
-            throw new UnsupportedAuthorityVersionException(
-                    "Authority " + authority.getUuid() + " has no connector interface assigned");
+            // Connector declared no AUTHORITY interface row in connector_interface. This is
+            // expected for framework-v1 connectors that implement the v2 authority wire
+            // protocol (e.g. ejbca-ng) — their /v1/info endpoint predates the v2 interface
+            // descriptor and the M0 backfill cannot create a row for them. Route to v2
+            // since that is the wire protocol they speak. Legacy v1-authority connectors
+            // (FunctionGroupCode.LEGACY_AUTHORITY_PROVIDER) never reach this factory; they
+            // route through the separate legacy service path by design.
+            return v2Adapter;
         }
         String version = iface.getVersion();
         return switch (version) {
