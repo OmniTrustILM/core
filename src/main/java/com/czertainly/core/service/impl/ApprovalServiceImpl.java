@@ -388,6 +388,7 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         return approvalRepository.findResourceObject(objectUuid.getValue(), null);
     }
@@ -401,6 +402,6 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
 
     @Override
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
-        // there is no permission chain for approvals
+        // there is no method for updating approval
     }
 }
