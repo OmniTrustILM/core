@@ -82,13 +82,8 @@ public class CertificateChainServiceImpl implements CertificateChainService {
         }
         boolean issuerInInventory = false;
         for (Certificate issuer : certificateRepository.findBySubjectDnNormalized(certificate.getIssuerDnNormalized())) {
-            X509Certificate issCert;
-            try {
-                issCert = CertificateUtil.parseCertificate(issuer.getCertificateContent().getContent());
-            } catch (Exception e) {
-                continue;
-            }
-            if (verifySignature(subCert, issCert)) {
+            X509Certificate issCert = parseOrNull(issuer.getCertificateContent().getContent());
+            if (issCert != null && verifySignature(subCert, issCert)) {
                 certificate.setIssuerSerialNumber(issuer.getSerialNumber());
                 certificate.setIssuerCertificateUuid(issuer.getUuid());
                 chainWriter.applyIssuerReference(certificate.getUuid(), issuer.getSerialNumber(), issuer.getUuid());
@@ -206,6 +201,14 @@ public class CertificateChainServiceImpl implements CertificateChainService {
         }
     }
 
+    private X509Certificate parseOrNull(String content) {
+        try {
+            return CertificateUtil.parseCertificate(content);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private boolean verifySignature(X509Certificate subjectCertificate, X509Certificate issuerCertificate) {
         try {
             subjectCertificate.verify(issuerCertificate.getPublicKey());
@@ -225,25 +228,18 @@ public class CertificateChainServiceImpl implements CertificateChainService {
 
     private List<String> downloadChainFromAia(Certificate certificate, X509Certificate certX509) {
         List<String> chainCertificates = new ArrayList<>();
-        String chainUrl;
         try {
-            while (true) {
-                chainUrl = OcspUtil.getChainFromAia(certX509);
-                if (chainUrl == null || chainUrl.isEmpty()) {
-                    break;
-                }
+            String chainUrl = OcspUtil.getChainFromAia(certX509);
+            while (chainUrl != null && !chainUrl.isEmpty()) {
                 String chainContent = downloadChain(chainUrl);
                 if (chainContent.isEmpty()) {
-                    break;
-                }
-                logger.info("Certificate {} downloaded from Authority Information Access extension URL {}",
-                        certX509.getSubjectX500Principal().getName(), chainUrl);
-
-                chainCertificates.add(chainContent);
-                certX509 = getX509(chainContent);
-
-                if (verifySignature(certX509, certX509)) {
-                    break;
+                    chainUrl = null;
+                } else {
+                    logger.info("Certificate {} downloaded from Authority Information Access extension URL {}",
+                            certX509.getSubjectX500Principal().getName(), chainUrl);
+                    chainCertificates.add(chainContent);
+                    certX509 = getX509(chainContent);
+                    chainUrl = verifySignature(certX509, certX509) ? null : OcspUtil.getChainFromAia(certX509);
                 }
             }
         } catch (Exception e) {
