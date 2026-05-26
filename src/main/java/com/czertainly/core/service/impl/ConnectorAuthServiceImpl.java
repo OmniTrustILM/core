@@ -17,7 +17,6 @@ import com.czertainly.api.model.core.connector.AuthType;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
-import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.service.ConnectorAuthExternalService;
 import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
@@ -42,7 +41,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
 
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Set<AuthType> getAuthenticationTypes() {
         return EnumSet.allOf(AuthType.class);
     }
