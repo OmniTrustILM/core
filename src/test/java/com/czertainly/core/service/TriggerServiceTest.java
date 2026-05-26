@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @SuppressWarnings("java:S5778")
@@ -228,6 +229,13 @@ class TriggerServiceTest extends BaseSpringBootTest {
         actionRequest.setExecutionsUuids(executionsUuids);
 
         return actionService.createAction(actionRequest);
+    }
+
+    @Test
+    void testGetEventTriggersAssociations() {
+        Map<ResourceEvent, List<UUID>> result = triggerService.getEventTriggersAssociations(null, null);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
     }
 
     @Test
