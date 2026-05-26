@@ -13,6 +13,8 @@ public interface TriggerRepository extends SecurityFilterRepository<Trigger, UUI
 
     boolean existsByName(String name);
 
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
     List<Trigger> findAllByResource(Resource resource);
 
 }

@@ -17,7 +17,6 @@ import com.czertainly.api.model.core.connector.AuthType;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.service.ConnectorAuthExternalService;
 import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
@@ -115,7 +114,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public Boolean validateBasicAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getBasicAuthAttributes(), attributes);
         return true;
@@ -221,7 +220,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public Boolean validateCertificateAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getCertificateAttributes(), attributes);
 
@@ -304,7 +303,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public Boolean validateApiKeyAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getApiKeyAuthAttributes(), attributes);
         return true;
@@ -317,7 +316,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public Boolean validateJWTAuthAttributes(List<RequestAttribute> attributes) {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }
