@@ -127,6 +127,7 @@ class TriggerServiceTest extends BaseSpringBootTest {
         execution = actionService.createExecution(executionRequest);
 
         UpdateActionRequestDto updateActionRequestDto = new UpdateActionRequestDto();
+        updateActionRequestDto.setName("CategorizeCertificatesAction");
         updateActionRequestDto.setExecutionsUuids(List.of(execution.getUuid()));
         actionService.updateAction(action.getUuid(), updateActionRequestDto);
     }

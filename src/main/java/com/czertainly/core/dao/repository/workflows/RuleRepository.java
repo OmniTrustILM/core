@@ -16,6 +16,8 @@ public interface RuleRepository extends SecurityFilterRepository<Rule, UUID> {
 
     boolean existsByName(String name);
 
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
     @EntityGraph(attributePaths = {"triggers"})
     Optional<Rule> findWithTriggersByUuid(UUID uuid);
 

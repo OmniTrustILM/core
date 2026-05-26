@@ -15,7 +15,7 @@ public interface TriggerExternalService {
     List<TriggerDto> listTriggers(Resource resource);
     TriggerDetailDto getTrigger(String triggerUuid) throws NotFoundException;
     TriggerDetailDto createTrigger(TriggerRequestDto request) throws AlreadyExistException, NotFoundException;
-    TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException;
+    TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException;
     void deleteTrigger(String triggerUuid) throws NotFoundException;
 
     Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid);
