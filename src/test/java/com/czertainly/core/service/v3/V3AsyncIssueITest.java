@@ -18,6 +18,8 @@ import java.security.cert.X509Certificate;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Async issue flow: connector returns 202, poll listener drives IN_PROGRESS → COMPLETED → ISSUED.
@@ -105,6 +107,14 @@ class V3AsyncIssueITest extends BaseV3ITest {
         Certificate final_ = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
         assertEquals(CertificateState.ISSUED, final_.getState(),
                 "After COMPLETED poll response, cert must be ISSUED");
+        assertNotNull(final_.getCertificateContent(),
+                "After async COMPLETED, certificateContent must be set (was null — data-loss bug)");
+        assertNotNull(final_.getCertificateContent().getContent(),
+                "After async COMPLETED, certificate bytes must be persisted");
+        assertTrue(final_.getCertificateContent().getContent().length() > 0,
+                "After async COMPLETED, certificate bytes must be non-empty");
+        assertNotNull(final_.getSerialNumber(),
+                "After async COMPLETED, serial number must be parsed from cert bytes");
 
         // Verify issue endpoint was called once, status endpoint called 3 times
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_ISSUE_PATH)));

@@ -1,6 +1,5 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.MessageHandlingException;
 import com.czertainly.api.model.core.auth.Resource;
@@ -14,7 +13,9 @@ import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.messaging.jms.configuration.StatusPollProperties;
 import com.czertainly.core.messaging.jms.producers.CertificateStatusPollProducer;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
+import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.handler.authority.AsyncOperationCapability;
+import com.czertainly.core.service.handler.authority.AuthorityProviderAdapter;
 import com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.czertainly.core.service.handler.authority.CertificateOperation;
 import com.czertainly.core.service.handler.authority.StatusPollResult;
@@ -54,6 +55,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
     private PlatformTransactionManager transactionManager;
+    private CertificateService certificateService;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -73,7 +75,14 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         AuthorityInstanceReference authority = cert.getRaProfile().getAuthorityInstanceReference();
-        AsyncOperationCapability async = (AsyncOperationCapability) adapterFactory.forAuthority(authority);
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+        if (!(adapter instanceof AsyncOperationCapability async)) {
+            logger.warn("Adapter for cert {} (version {}) does not implement AsyncOperationCapability — dropping poll message for op={}",
+                    msg.resourceUuid(),
+                    authority.getConnectorInterface() != null ? authority.getConnectorInterface().getVersion() : "unknown",
+                    msg.op());
+            return;
+        }
 
         StatusPollResult status;
         try {
@@ -103,9 +112,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
-        CertificateState targetState = status.status() == CertificateOperationStatus.COMPLETED
-                ? terminalSuccessState(op)
-                : terminalFailureState(op);
+        boolean completed = status.status() == CertificateOperationStatus.COMPLETED;
+        boolean issueWithData = completed
+                && (op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW)
+                && status.certificateData() != null && !status.certificateData().isEmpty();
+        CertificateState targetState = completed ? terminalSuccessState(op) : terminalFailureState(op);
         String reason = status.reason() != null ? status.reason()
                 : "Async " + op + " " + status.status().getLabel().toLowerCase();
 
@@ -117,14 +128,27 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 transactionManager.commit(tx);
                 return;
             }
-            stateMachine.transition(locked, targetState, null, reason);
+            if (issueWithData) {
+                // Sync-path equivalence: parse + persist cert content + meta + ISSUE event.
+                // issueRequestedCertificate sets state=ISSUED via prepareIssuedCertificate (bypasses SM by design,
+                // matching the sync v2 path at ClientOperationServiceImpl.issueCertificateAction:376).
+                try {
+                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), status.meta());
+                } catch (Exception e) {
+                    throw new IllegalStateException(
+                            "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
+                }
+            } else {
+                stateMachine.transition(locked, targetState, null, reason);
+            }
             transactionManager.commit(tx);
         } catch (RuntimeException e) {
             transactionManager.rollback(tx);
             throw e;
         }
 
-        if (status.meta() != null && !status.meta().isEmpty()) {
+        // Post-commit meta update — skipped when issueRequestedCertificate already wrote it.
+        if (!issueWithData && status.meta() != null && !status.meta().isEmpty()) {
             AuthorityInstanceReference metaAuthority = cert.getRaProfile() != null
                     ? cert.getRaProfile().getAuthorityInstanceReference()
                     : null;
@@ -138,7 +162,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                         ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
                                 .connector(metaAuthority.getConnectorUuid())
                                 .build());
-            } catch (AttributeException e) {
+            } catch (Exception e) {
                 logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",
                         cert.getUuid(), op, status.status(), e);
             }
@@ -221,5 +245,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setTransactionManager(PlatformTransactionManager transactionManager) {
         this.transactionManager = transactionManager;
+    }
+
+    @Autowired
+    public void setCertificateService(CertificateService certificateService) {
+        this.certificateService = certificateService;
     }
 }

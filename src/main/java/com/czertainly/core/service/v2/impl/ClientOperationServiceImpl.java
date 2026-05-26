@@ -655,6 +655,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             switch (renewResult.outcome()) {
                 case ASYNC_ACCEPTED -> {
                     transitionToPendingIssue(certificate, renewResult.meta(), ResourceAction.RENEW);
+                    pollProducer.produceMessage(new CertificateStatusPollMessage(
+                            Resource.CERTIFICATE, certificate.getUuid(), CertificateOperation.RENEW, 1));
                     certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                             CertificateEventStatus.SUCCESS, "Renewal accepted; awaiting asynchronous completion.",
                             MetaDefinitions.serialize(additionalInformation));
@@ -852,6 +854,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             switch (rekeyResult.outcome()) {
                 case ASYNC_ACCEPTED -> {
                     transitionToPendingIssue(certificate, rekeyResult.meta(), ResourceAction.REKEY);
+                    pollProducer.produceMessage(new CertificateStatusPollMessage(
+                            Resource.CERTIFICATE, certificate.getUuid(), CertificateOperation.RENEW, 1));
                     certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                             CertificateEventStatus.SUCCESS, "Rekey accepted; awaiting asynchronous completion.",
                             MetaDefinitions.serialize(additionalInformation));
