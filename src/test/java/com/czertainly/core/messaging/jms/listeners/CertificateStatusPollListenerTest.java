@@ -103,7 +103,7 @@ class CertificateStatusPollListenerTest {
 
     @Test
     void certNotFoundDropsSilently() throws MessageHandlingException {
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.empty());
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.empty());
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
@@ -117,7 +117,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void dropOnNonPendingState() throws MessageHandlingException {
         Certificate cert = certInState(CertificateState.ISSUED);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
@@ -131,7 +131,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void inProgressReEnqueues() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.IN_PROGRESS, null, null, null));
 
@@ -151,7 +151,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void inProgressMaxAttemptsTimesOut() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.IN_PROGRESS, null, null, null));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
@@ -172,7 +172,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void completedTransitionsToTerminalSuccess() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, "OK"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
@@ -192,7 +192,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void completedRegisterTransitionsToRegistered() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
@@ -211,7 +211,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void failedTransitionsToTerminalFailure() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "CA error"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
@@ -230,7 +230,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void failedRevokeTransitionsBackToIssued() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_REVOKE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "revoke failed"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
@@ -249,7 +249,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void metaUpdateExceptionDoesNotBlockTransition() throws MessageHandlingException, ConnectorException, AttributeException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
 
         var meta = List.of(mock(com.czertainly.api.model.common.attribute.common.MetadataAttribute.class));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
@@ -274,7 +274,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void lostRaceDoesNotTransition() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
 
@@ -296,7 +296,7 @@ class CertificateStatusPollListenerTest {
     @Test
     void connectorExceptionReEnqueues() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findById(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenThrow(new ConnectorException("network error"));
 

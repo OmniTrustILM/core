@@ -57,7 +57,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
-        Certificate cert = certificateRepository.findById(msg.resourceUuid()).orElse(null);
+        Certificate cert = certificateRepository.findForPollingByUuid(msg.resourceUuid()).orElse(null);
         if (cert == null) {
             logger.debug("Certificate {} not found; dropping poll message for op={}", msg.resourceUuid(), msg.op());
             return;
@@ -65,6 +65,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         if (!isPendingFor(cert.getState(), msg.op())) {
             logger.debug("Certificate {} is in state {}; not pending for {}; dropping poll message",
                     msg.resourceUuid(), cert.getState(), msg.op());
+            return;
+        }
+        if (cert.getRaProfile() == null || cert.getRaProfile().getAuthorityInstanceReference() == null) {
+            logger.warn("Certificate {} has no RA profile or authority reference; dropping poll message", msg.resourceUuid());
             return;
         }
 
@@ -121,12 +125,18 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         if (status.meta() != null && !status.meta().isEmpty()) {
-            AuthorityInstanceReference authority = cert.getRaProfile().getAuthorityInstanceReference();
+            AuthorityInstanceReference metaAuthority = cert.getRaProfile() != null
+                    ? cert.getRaProfile().getAuthorityInstanceReference()
+                    : null;
+            if (metaAuthority == null) {
+                logger.warn("Cannot update meta for cert {} — authority not resolvable", cert.getUuid());
+                return;
+            }
             try {
                 attributeEngine.updateMetadataAttributes(
                         status.meta(),
                         ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
-                                .connector(authority.getConnectorUuid())
+                                .connector(metaAuthority.getConnectorUuid())
                                 .build());
             } catch (AttributeException e) {
                 logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",

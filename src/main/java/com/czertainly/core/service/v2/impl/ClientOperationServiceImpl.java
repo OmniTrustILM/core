@@ -375,7 +375,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     logger.info("Certificate {} was issued by authority", certificateUuid);
                     certificateService.issueRequestedCertificate(certificateUuid, issueResult.certificateData(), issueResult.meta());
                 }
-                case ASYNC_ACCEPTED -> throw new IllegalStateException("Async accepted not yet handled — v3 path lands in M3");
+                case ASYNC_ACCEPTED -> {
+                    transitionToPendingIssue(certificate, issueResult.meta(), ResourceAction.ISSUE);
+                    pollProducer.produceMessage(new CertificateStatusPollMessage(
+                            Resource.CERTIFICATE, certificate.getUuid(), CertificateOperation.ISSUE, 1));
+                    return;
+                }
                 case SYNC_NO_CONTENT -> throw new CertificateOperationException("Unexpected SYNC_NO_CONTENT from authority on issue");
             }
         } catch (Exception e) {
@@ -954,7 +959,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                                     + (request.getReason() != null ? request.getReason().getLabel() : CertificateRevocationReason.UNSPECIFIED.getLabel()));
                     attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
                 }
-                case ASYNC_ACCEPTED -> throw new IllegalStateException("Async accepted not yet handled — v3 path lands in M3");
+                case ASYNC_ACCEPTED -> {
+                    transitionToPendingRevoke(certificate, request);
+                    pollProducer.produceMessage(new CertificateStatusPollMessage(
+                            Resource.CERTIFICATE, certificate.getUuid(), CertificateOperation.REVOKE, 1));
+                    return;
+                }
                 case SYNC_OK -> throw new CertificateOperationException("Unexpected SYNC_OK from authority on revoke");
             }
         } catch (Exception e) {
@@ -1634,6 +1644,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         cert.setValidationStatus(com.czertainly.api.model.core.certificate.CertificateValidationStatus.NOT_CHECKED);
         cert.setCertificateType(com.czertainly.api.model.core.certificate.CertificateType.X509);
         cert.setRaProfileUuid(raProfile.getUuid());
+        cert.setRaProfile(raProfile);
         return certificateRepository.save(cert);
     }
 
