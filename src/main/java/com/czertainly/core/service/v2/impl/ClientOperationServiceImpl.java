@@ -312,7 +312,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             transactionManager.commit(status);
         } catch (Exception e) {
             transactionManager.rollback(status);
-            throw new CertificateOperationException("Failed to submit certificate request: " + e.getMessage());
+            throw new CertificateOperationException("Failed to submit certificate request: " + safeMessage(e));
         }
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -391,7 +391,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         } catch (Exception e) {
             if (connectorAccepted) {
-                String msg = "Connector accepted issue but local state update failed: " + e.getMessage();
+                String msg = "Connector accepted issue but local state update failed: " + safeMessage(e);
                 certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
                         CertificateEventStatus.FAILED, msg, "");
                 logger.error("Local state update failed after connector accepted issue for cert {}: {}",
@@ -399,7 +399,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 throw new CertificateOperationException(msg);
             }
             handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
-            throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
+            throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
         }
 
         // push certificate to locations
@@ -484,6 +484,30 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             syntheticBody.setMeta(meta);
         }
         transitionToPendingIssue(certificate, syntheticBody, originatingAction);
+    }
+
+    /**
+     * Return the exception's message only if the exception is one we shape ourselves
+     * (domain exceptions whose messages are reviewed for safe wire exposure). For any other
+     * exception type — Hibernate, JPA, JMS, JDK — return a generic placeholder so SQL
+     * fragments, table/column names, or upstream framework internals don't reach the
+     * operator HTTP response body. The original exception is still logged for debugging.
+     * Mirrors the CLAUDE.md "Don't leak runtime details to the wire" rule.
+     */
+    private static String safeMessage(Throwable e) {
+        if (e == null) {
+            return "unknown error";
+        }
+        if (e instanceof com.czertainly.api.exception.ConnectorException
+                || e instanceof com.czertainly.api.exception.ValidationException
+                || e instanceof com.czertainly.api.exception.NotFoundException
+                || e instanceof com.czertainly.api.exception.AttributeException
+                || e instanceof com.czertainly.api.exception.CertificateOperationException
+                || e instanceof com.czertainly.api.exception.AlreadyExistException) {
+            String msg = e.getMessage();
+            return msg != null ? msg : e.getClass().getSimpleName();
+        }
+        return "internal error (see server logs)";
     }
 
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
@@ -622,7 +646,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             transactionManager.commit(status);
         } catch (Exception e) {
             transactionManager.rollback(status);
-            throw new CertificateOperationException("Failed to submit certificate request for certificate renewal: " + e.getMessage());
+            throw new CertificateOperationException("Failed to submit certificate request for certificate renewal: " + safeMessage(e));
         }
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -695,7 +719,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         } catch (Exception e) {
             if (connectorAccepted) {
-                String msg = "Connector accepted renew but local state update failed: " + e.getMessage();
+                String msg = "Connector accepted renew but local state update failed: " + safeMessage(e);
                 certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.RENEW,
                         CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
                 logger.error("Local state update failed after connector accepted renew for cert {}: {}",
@@ -703,7 +727,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 throw new CertificateOperationException(msg);
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
-            throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
+            throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
         }
 
         Location location = null;
@@ -727,7 +751,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         } catch (Exception e) {
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION, CertificateEventStatus.FAILED, String.format("Failed to replace certificate in location %s: %s", location != null ? location.getName() : "", e.getMessage()), "");
             logger.error("Failed to replace certificate in all locations during renew operation: {}", e.getMessage());
-            throw new CertificateOperationException("Failed to replace certificate in all locations during renew operation: " + e.getMessage());
+            throw new CertificateOperationException("Failed to replace certificate in all locations during renew operation: " + safeMessage(e));
         }
 
         if (!request.isReplaceInLocations()) {
@@ -780,7 +804,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             transactionManager.commit(status);
         } catch (Exception e) {
             transactionManager.rollback(status);
-            throw new CertificateOperationException("Failed to submit certificate request for certificate rekey: " + e.getMessage());
+            throw new CertificateOperationException("Failed to submit certificate request for certificate rekey: " + safeMessage(e));
         }
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -905,7 +929,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         } catch (Exception e) {
             if (connectorAccepted) {
-                String msg = "Connector accepted rekey but local state update failed: " + e.getMessage();
+                String msg = "Connector accepted rekey but local state update failed: " + safeMessage(e);
                 certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REKEY,
                         CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
                 logger.error("Local state update failed after connector accepted rekey for cert {}: {}",
@@ -913,7 +937,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 throw new CertificateOperationException(msg);
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
-            throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
+            throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
         }
 
         Location location = null;
@@ -937,7 +961,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         } catch (Exception e) {
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_LOCATION, CertificateEventStatus.FAILED, String.format("Failed to replace certificate in location %s: %s", location != null ? location.getName() : "", e.getMessage()), "");
             logger.error("Failed to replace certificate in all locations during rekey operation: {}", e.getMessage());
-            throw new CertificateOperationException("Failed to replace certificate in all locations during rekey operation: " + e.getMessage());
+            throw new CertificateOperationException("Failed to replace certificate in all locations during rekey operation: " + safeMessage(e));
         }
 
         // raise event
@@ -1013,7 +1037,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 // Leave the cert state as-is — the upstream is committed and rolling back here
                 // would create state divergence between the platform and the authority. Surface
                 // the local failure but do not mask the upstream success.
-                String msg = "Connector accepted revoke but local state update failed: " + e.getMessage();
+                String msg = "Connector accepted revoke but local state update failed: " + safeMessage(e);
                 certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE,
                         CertificateEventStatus.FAILED, msg, "");
                 logger.error("Local state update failed after connector accepted revoke for cert {}: {}",
@@ -1026,7 +1050,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             certificateRepository.save(certificate);
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, e.getMessage(), "");
             logger.error("Failed to revoke Certificate: {}", e.getMessage());
-            throw new CertificateOperationException("Failed to revoke certificate: " + e.getMessage());
+            throw new CertificateOperationException("Failed to revoke certificate: " + safeMessage(e));
         }
 
         if (certificate.getKey() != null && request.isDestroyKey()) {
