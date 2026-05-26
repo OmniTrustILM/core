@@ -363,10 +363,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no certificate request. Certificate: %s", certificate)));
         }
 
+        // Once the connector returns a non-error status, the upstream operation is in flight or
+        // already committed. A failure in any subsequent local step MUST NOT roll back the cert
+        // state — that would diverge the platform DB from an authority that has already
+        // accepted (or completed) the issuance.
+        boolean connectorAccepted = false;
         try {
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(
                     certificate.getRaProfile().getAuthorityInstanceReference());
             AdapterOperationResult issueResult = adapter.issue(certificate, null);
+            connectorAccepted = true;
             switch (issueResult.outcome()) {
                 case SYNC_OK -> {
                     if (issueResult.certificateData() == null || issueResult.certificateData().isEmpty()) {
@@ -384,6 +390,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new CertificateOperationException("Unexpected SYNC_NO_CONTENT from authority on issue");
             }
         } catch (Exception e) {
+            if (connectorAccepted) {
+                String msg = "Connector accepted issue but local state update failed: " + e.getMessage();
+                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
+                        CertificateEventStatus.FAILED, msg, "");
+                logger.error("Local state update failed after connector accepted issue for cert {}: {}",
+                        certificate.getUuid(), e.getMessage(), e);
+                throw new CertificateOperationException(msg);
+            }
             handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
             throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -649,9 +663,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        // State-divergence guard — see issueCertificateAction for rationale.
+        boolean connectorAccepted = false;
         try {
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
+            connectorAccepted = true;
             switch (renewResult.outcome()) {
                 case ASYNC_ACCEPTED -> {
                     transitionToPendingIssue(certificate, renewResult.meta(), ResourceAction.RENEW);
@@ -677,6 +694,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on renew");
             }
         } catch (Exception e) {
+            if (connectorAccepted) {
+                String msg = "Connector accepted renew but local state update failed: " + e.getMessage();
+                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.RENEW,
+                        CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
+                logger.error("Local state update failed after connector accepted renew for cert {}: {}",
+                        certificate.getUuid(), e.getMessage(), e);
+                throw new CertificateOperationException(msg);
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -848,9 +873,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        // State-divergence guard — see issueCertificateAction for rationale.
+        boolean connectorAccepted = false;
         try {
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
+            connectorAccepted = true;
             switch (rekeyResult.outcome()) {
                 case ASYNC_ACCEPTED -> {
                     transitionToPendingIssue(certificate, rekeyResult.meta(), ResourceAction.REKEY);
@@ -876,6 +904,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on rekey");
             }
         } catch (Exception e) {
+            if (connectorAccepted) {
+                String msg = "Connector accepted rekey but local state update failed: " + e.getMessage();
+                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REKEY,
+                        CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
+                logger.error("Local state update failed after connector accepted rekey for cert {}: {}",
+                        certificate.getUuid(), e.getMessage(), e);
+                throw new CertificateOperationException(msg);
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
