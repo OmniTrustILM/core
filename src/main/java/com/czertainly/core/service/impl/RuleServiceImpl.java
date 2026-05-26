@@ -15,7 +15,7 @@ import com.czertainly.core.dao.repository.workflows.RuleRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.RuleService;
+import com.czertainly.core.service.RuleExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class RuleServiceImpl implements RuleService {
+public class RuleServiceImpl implements RuleExternalService {
 
     private ConditionRepository conditionRepository;
     private ConditionItemRepository conditionItemRepository;

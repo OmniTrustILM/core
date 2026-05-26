@@ -15,7 +15,7 @@ import com.czertainly.core.dao.repository.SettingRepository;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.service.SettingService;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.util.SecretEncodingVersion;
 import com.czertainly.core.util.SecretsUtil;
 import com.czertainly.core.settings.SettingsCache;
@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
+import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,17 +59,24 @@ public class SettingServiceImpl implements SettingService {
     private final SettingsCache settingsCache;
     private final SettingRepository settingRepository;
 
-    private final TriggerService triggerService;
+    private TriggerExternalService triggerService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
-    public SettingServiceImpl(SettingsCache settingsCache, SettingRepository settingRepository, TriggerService triggerService, ObjectMapper mapper) {
+    public SettingServiceImpl(SettingsCache settingsCache, SettingRepository settingRepository, ObjectMapper mapper) {
         this.mapper = mapper;
         this.settingsCache = settingsCache;
         this.settingRepository = settingRepository;
-        this.triggerService = triggerService;
+    }
 
+    @Autowired
+    public void setTriggerService(TriggerExternalService triggerService) {
+        this.triggerService = triggerService;
+    }
+
+    @PostConstruct
+    public void initCache() {
         refreshCache();
     }
 
@@ -76,7 +84,7 @@ public class SettingServiceImpl implements SettingService {
     public void refreshCache() {
         settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings());
         settingsCache.cacheSettings(SettingsSection.LOGGING, getLoggingSettings());
-        settingsCache.cacheSettings(SettingsSection.EVENTS, getEventsSettings());
+        settingsCache.cacheSettings(SettingsSection.EVENTS, loadEventsSettings());
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, getAuthenticationSettings(true));
     }
 
@@ -190,8 +198,12 @@ public class SettingServiceImpl implements SettingService {
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.LIST)
     public EventsSettingsDto getEventsSettings() {
-        Map<ResourceEvent, List<UUID>> eventsTriggerMapping = triggerService.getTriggersAssociations(null, null);
-        return new EventsSettingsDto(eventsTriggerMapping);
+        return loadEventsSettings();
+    }
+
+    // Called directly by internal/scheduled callers to bypass the @ExternalAuthorization proxy on getEventsSettings().
+    private EventsSettingsDto loadEventsSettings() {
+        return new EventsSettingsDto(triggerService.getTriggersAssociations(null, null));
     }
 
     @Override

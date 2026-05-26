@@ -7,7 +7,7 @@ import com.czertainly.api.model.core.workflows.*;
 
 import java.util.List;
 
-public interface ActionService {
+public interface ActionExternalService {
 
     List<ExecutionDto> listExecutions(Resource resource);
     ExecutionDto getExecution(String executionUuid) throws NotFoundException;
@@ -20,5 +20,4 @@ public interface ActionService {
     ActionDetailDto createAction(ActionRequestDto request) throws AlreadyExistException, NotFoundException;
     ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException;
     void deleteAction(String actionUuid) throws NotFoundException;
-
 }

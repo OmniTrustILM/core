@@ -15,7 +15,7 @@ import com.czertainly.core.dao.repository.workflows.*;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ActionService;
+import com.czertainly.core.service.ActionExternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class ActionServiceImpl implements ActionService {
+public class ActionServiceImpl implements ActionExternalService {
 
     private ExecutionRepository executionRepository;
     private ExecutionItemRepository executionItemRepository;
