@@ -71,6 +71,8 @@ class V3RegisterThenIssueITest extends BaseV3ITest {
 
         // Step 1: register
         ClientCertificateRegistrationDto regReq = new ClientCertificateRegistrationDto();
+        regReq.setSubjectDn("CN=test-register,O=Test");
+        regReq.setSubjectAltName("DNS:test.example.com");
         regReq.setAttributes(List.of());
         var regResp = clientOperationService.registerCertificate(
                 SecuredParentUUID.fromUUID(authority.getUuid()),
@@ -117,7 +119,11 @@ class V3RegisterThenIssueITest extends BaseV3ITest {
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_ISSUE_PATH))
                 .withRequestBody(WireMock.matchingJsonPath("$.meta[?(@.name == 'ejbcaUsername')]"))
                 .withRequestBody(WireMock.matchingJsonPath("$.meta[?(@.content[0].data == 'joe')]")));
-        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REGISTER_PATH)));
+        // Verify the /register request body carried subjectDn + SAN — proves
+        // V3Adapter.register actually forwards operator-supplied identity fields.
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REGISTER_PATH))
+                .withRequestBody(WireMock.matchingJsonPath("$.subjectDn", WireMock.equalTo("CN=test-register,O=Test")))
+                .withRequestBody(WireMock.matchingJsonPath("$.subjectAltName", WireMock.equalTo("DNS:test.example.com"))));
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REGISTER_STATUS_PATH)));
     }
 }

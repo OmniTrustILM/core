@@ -201,7 +201,12 @@ public class AuthorityProviderV3Adapter
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
         CertificateRegistrationRequestDto wire = new CertificateRegistrationRequestDto();
-        wire.setAttributes(req != null ? req.getAttributes() : null);
+        if (req != null) {
+            wire.setSubjectDn(req.getSubjectDn());
+            wire.setSubjectAltName(req.getSubjectAltName());
+            wire.setExtensions(req.getExtensions());
+            wire.setAttributes(req.getAttributes());
+        }
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
 
