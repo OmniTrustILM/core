@@ -3,7 +3,6 @@ package com.czertainly.core.service.handler.authority;
 import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.ConnectorProblemException;
-import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.interfaces.client.v3.AuthoritySyncApiClient;
 import com.czertainly.api.interfaces.client.v3.CertificateSyncApiClient;
@@ -52,19 +51,14 @@ import java.util.List;
  */
 @Component
 public class AuthorityProviderV3Adapter
-        implements AuthorityProviderAdapter, RegisterCapability, AsyncOperationCapability {
-
-    private final ConnectorService connectorService;
-    private final ConnectorApiFactory connectorApiFactory;
-    private final AttributeEngine attributeEngine;
+        extends AbstractAuthorityProviderAdapter
+        implements RegisterCapability, AsyncOperationCapability {
 
     @Autowired
     public AuthorityProviderV3Adapter(ConnectorService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine) {
-        this.connectorService = connectorService;
-        this.connectorApiFactory = connectorApiFactory;
-        this.attributeEngine = attributeEngine;
+        super(connectorService, connectorApiFactory, attributeEngine);
     }
 
     // ---- AuthorityProviderAdapter ----
@@ -289,14 +283,6 @@ public class AuthorityProviderV3Adapter
 
     // ---- private helpers ----
 
-    private ApiClientConnectorInfo connectorForApiClient(AuthorityInstanceReference authority) throws ConnectorException {
-        try {
-            return connectorService.getConnectorForApiClient(authority.getConnectorUuid());
-        } catch (NotFoundException e) {
-            throw new ConnectorException("Connector not found for authority instance: " + authority.getAuthorityInstanceUuid(), e);
-        }
-    }
-
     private List<RequestAttribute> issueAttributesFor(Certificate cert, AuthorityInstanceReference authority) {
         return attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
@@ -307,21 +293,6 @@ public class AuthorityProviderV3Adapter
     private List<RequestAttribute> authorityAttributesFor(AuthorityInstanceReference authority) {
         return attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authority.getUuid())
-                        .connector(authority.getConnectorUuid())
-                        .build());
-    }
-
-    private List<RequestAttribute> raProfileAttributesFor(RaProfile raProfile, AuthorityInstanceReference authority) {
-        return attributeEngine.getRequestObjectDataAttributesContent(
-                ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid())
-                        .connector(authority.getConnectorUuid())
-                        .build());
-    }
-
-    private List<com.czertainly.api.model.common.attribute.common.MetadataAttribute> loadMeta(
-            Certificate cert, AuthorityInstanceReference authority) {
-        return attributeEngine.getMetadataAttributesDefinitionContent(
-                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
                         .connector(authority.getConnectorUuid())
                         .build());
     }

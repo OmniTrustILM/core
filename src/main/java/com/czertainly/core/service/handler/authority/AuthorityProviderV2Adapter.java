@@ -2,7 +2,6 @@ package com.czertainly.core.service.handler.authority;
 
 import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -41,19 +40,13 @@ import java.util.List;
  * {@link AdapterOperationResult#asyncAccepted}; revoke applies equivalent logic inline.</p>
  */
 @Component
-public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
-
-    private final ConnectorService connectorService;
-    private final ConnectorApiFactory connectorApiFactory;
-    private final AttributeEngine attributeEngine;
+public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter {
 
     @Autowired
     public AuthorityProviderV2Adapter(ConnectorService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine) {
-        this.connectorService = connectorService;
-        this.connectorApiFactory = connectorApiFactory;
-        this.attributeEngine = attributeEngine;
+        super(connectorService, connectorApiFactory, attributeEngine);
     }
 
     @Override
@@ -85,10 +78,7 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
         wire.setFormat(newCert.getCertificateRequest().getCertificateRequestFormat());
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
         wire.setCertificate(oldCert.getCertificateContent().getContent());
-        wire.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(
-                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCert.getUuid())
-                        .connector(authority.getConnectorUuid())
-                        .build()));
+        wire.setMeta(loadMeta(oldCert, authority));
 
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         ResponseEntity<CertificateDataResponseDto> response =
@@ -148,26 +138,11 @@ public class AuthorityProviderV2Adapter implements AuthorityProviderAdapter {
 
     // --- private helpers ---
 
-    private ApiClientConnectorInfo connectorForApiClient(AuthorityInstanceReference authority) throws ConnectorException {
-        try {
-            return connectorService.getConnectorForApiClient(authority.getConnectorUuid());
-        } catch (NotFoundException e) {
-            throw new ConnectorException("Connector not found for authority instance: " + authority.getAuthorityInstanceUuid(), e);
-        }
-    }
-
     private List<RequestAttribute> issueAttributesFor(Certificate cert, AuthorityInstanceReference authority) {
         return attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
                         .connector(authority.getConnectorUuid())
                         .operation(AttributeOperation.CERTIFICATE_ISSUE)
-                        .build());
-    }
-
-    private List<RequestAttribute> raProfileAttributesFor(RaProfile raProfile, AuthorityInstanceReference authority) {
-        return attributeEngine.getRequestObjectDataAttributesContent(
-                ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid())
-                        .connector(authority.getConnectorUuid())
                         .build());
     }
 
