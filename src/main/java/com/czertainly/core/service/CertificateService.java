@@ -90,9 +90,6 @@ public interface CertificateService extends ResourceExtensionService {
 
     UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
 
-
-    String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException;
-
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
     void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded);
