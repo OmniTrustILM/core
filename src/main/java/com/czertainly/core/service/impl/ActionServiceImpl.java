@@ -17,6 +17,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ActionExternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -197,30 +198,10 @@ public class ActionServiceImpl implements ActionExternalService {
         }
 
         // Validate source identifier format: name|ContentType
-        String sourceId = dto.getSourceFieldIdentifier();
-        int sourcePipe = sourceId.indexOf("|");
-        if (sourcePipe < 0) {
-            throw new ValidationException("sourceFieldIdentifier must be in format 'name|ContentType', got: " + sourceId);
-        }
-        AttributeContentType sourceContentType;
-        try {
-            sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourcePipe + 1));
-        } catch (IllegalArgumentException e) {
-            throw new ValidationException("Invalid content type in sourceFieldIdentifier: " + sourceId.substring(sourcePipe + 1));
-        }
+        AttributeContentType sourceContentType = getAttributeContentType(dto.getSourceFieldIdentifier(), "sourceFieldIdentifier");
 
         // Validate a target identifier format and extract a target content type
-        String targetId = dto.getFieldIdentifier();
-        int targetPipe = targetId.indexOf("|");
-        if (targetPipe < 0) {
-            throw new ValidationException("fieldIdentifier must be in format 'name|ContentType', got: " + targetId);
-        }
-        AttributeContentType targetContentType;
-        try {
-            targetContentType = AttributeContentType.valueOf(targetId.substring(targetPipe + 1));
-        } catch (IllegalArgumentException e) {
-            throw new ValidationException("Invalid content type in fieldIdentifier: " + targetId.substring(targetPipe + 1));
-        }
+        AttributeContentType targetContentType = getAttributeContentType(dto.getFieldIdentifier(), "fieldIdentifier");
 
         if (sourceContentType != targetContentType) {
             throw new ValidationException("Source content type " + sourceContentType + " does not match target content type " + targetContentType + ".");
@@ -230,6 +211,20 @@ public class ActionServiceImpl implements ActionExternalService {
         executionItem.setSourceFieldIdentifier(dto.getSourceFieldIdentifier());
     }
 
+    private static @NonNull AttributeContentType getAttributeContentType(String sourceId, String propertyName) {
+        String[] sourceParts = sourceId.split("\\|", -1);
+        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
+            throw new ValidationException(propertyName + " must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
+        }
+            AttributeContentType sourceContentType;
+            try {
+                sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
+            } catch (IllegalArgumentException e) {
+                throw new ValidationException("Invalid content type in " + propertyName + ": " + sourceParts[1]);
+            }
+            return sourceContentType;
+        }
+    }
 
     private ExecutionItem createSendNotificationExecutionItem(Execution execution, ExecutionItemRequestDto executionItemRequestDto) throws NotFoundException {
         if (executionItemRequestDto.getNotificationProfileUuid() == null) {
