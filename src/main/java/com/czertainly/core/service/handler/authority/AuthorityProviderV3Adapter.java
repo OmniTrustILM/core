@@ -79,20 +79,9 @@ public class AuthorityProviderV3Adapter
         // Unified meta semantic — connector owns the bag; we forward verbatim. Empty when fresh issuance.
         wire.setMeta(loadMeta(cert, authority));
 
-        boolean connectorAccepted = false;
-        try {
-            ResponseEntity<CertificateDataResponseDto> response =
-                    connectorApiFactory.getCertificateApiClientV3(connectorDto).issue(connectorDto, wire);
-            connectorAccepted = response.getStatusCode().is2xxSuccessful();
-            return mapIssueRenewRegisterResponse(response);
-        } catch (ConnectorException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            if (connectorAccepted) {
-                throw new ConnectorAcceptedButLocalFailureException("Connector accepted issue but local mapping failed", e);
-            }
-            throw e;
-        }
+        return executeWithAcceptanceGuard(CertificateOperation.ISSUE,
+                () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).issue(connectorDto, wire),
+                this::mapIssueRenewRegisterResponse);
     }
 
     @Override
@@ -111,20 +100,9 @@ public class AuthorityProviderV3Adapter
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
 
-        boolean connectorAccepted = false;
-        try {
-            ResponseEntity<CertificateDataResponseDto> response =
-                    connectorApiFactory.getCertificateApiClientV3(connectorDto).renew(connectorDto, wire);
-            connectorAccepted = response.getStatusCode().is2xxSuccessful();
-            return mapIssueRenewRegisterResponse(response);
-        } catch (ConnectorException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            if (connectorAccepted) {
-                throw new ConnectorAcceptedButLocalFailureException("Connector accepted renew but local mapping failed", e);
-            }
-            throw e;
-        }
+        return executeWithAcceptanceGuard(CertificateOperation.RENEW,
+                () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).renew(connectorDto, wire),
+                this::mapIssueRenewRegisterResponse);
     }
 
     @Override
@@ -141,20 +119,9 @@ public class AuthorityProviderV3Adapter
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
 
-        boolean connectorAccepted = false;
-        try {
-            ResponseEntity<CertificateDataResponseDto> response =
-                    connectorApiFactory.getCertificateApiClientV3(connectorDto).revoke(connectorDto, wire);
-            connectorAccepted = response.getStatusCode().is2xxSuccessful();
-            return mapRevokeResponse(response);
-        } catch (ConnectorException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            if (connectorAccepted) {
-                throw new ConnectorAcceptedButLocalFailureException("Connector accepted revoke but local mapping failed", e);
-            }
-            throw e;
-        }
+        return executeWithAcceptanceGuard(CertificateOperation.REVOKE,
+                () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).revoke(connectorDto, wire),
+                this::mapRevokeResponse);
     }
 
     @Override
@@ -204,20 +171,9 @@ public class AuthorityProviderV3Adapter
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
 
-        boolean connectorAccepted = false;
-        try {
-            ResponseEntity<CertificateDataResponseDto> response =
-                    connectorApiFactory.getCertificateApiClientV3(connectorDto).register(connectorDto, wire);
-            connectorAccepted = response.getStatusCode().is2xxSuccessful();
-            return mapIssueRenewRegisterResponse(response);
-        } catch (ConnectorException e) {
-            throw e;
-        } catch (RuntimeException e) {
-            if (connectorAccepted) {
-                throw new ConnectorAcceptedButLocalFailureException("Connector accepted register but local mapping failed", e);
-            }
-            throw e;
-        }
+        return executeWithAcceptanceGuard(CertificateOperation.REGISTER,
+                () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).register(connectorDto, wire),
+                this::mapIssueRenewRegisterResponse);
     }
 
     // ---- AsyncOperationCapability ----
@@ -274,7 +230,7 @@ public class AuthorityProviderV3Adapter
             if (code == ErrorCode.OPERATION_PAST_POINT_OF_NO_RETURN) {
                 return new CancelResult(CancelOutcome.REFUSED_PAST_POINT_OF_NO_RETURN);
             }
-            if (code == ErrorCode.OPERATION_NOT_TRACKED || code == ErrorCode.REGISTRATION_NOT_FOUND) {
+            if (ConnectorOperationErrorCodes.isOperationNotTracked(code)) {
                 return new CancelResult(CancelOutcome.NOT_TRACKED);
             }
             throw e;
@@ -282,6 +238,37 @@ public class AuthorityProviderV3Adapter
     }
 
     // ---- private helpers ----
+
+    @FunctionalInterface
+    private interface ConnectorCall {
+        ResponseEntity<CertificateDataResponseDto> call() throws ConnectorException;
+    }
+
+    /**
+     * Runs a v3 connector call and maps the response, applying the post-acceptance failure rule:
+     * once the connector returns 2xx, a failure in the local mapping is surfaced as
+     * {@link ConnectorAcceptedButLocalFailureException} (callers must NOT roll back state).
+     * Connector-side failures (the call itself throwing) propagate unchanged.
+     */
+    private AdapterOperationResult executeWithAcceptanceGuard(
+            CertificateOperation op, ConnectorCall call,
+            java.util.function.Function<ResponseEntity<CertificateDataResponseDto>, AdapterOperationResult> mapper)
+            throws ConnectorException {
+        boolean connectorAccepted = false;
+        try {
+            ResponseEntity<CertificateDataResponseDto> response = call.call();
+            connectorAccepted = response.getStatusCode().is2xxSuccessful();
+            return mapper.apply(response);
+        } catch (ConnectorException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            if (connectorAccepted) {
+                throw new ConnectorAcceptedButLocalFailureException(
+                        "Connector accepted " + op.name().toLowerCase() + " but local mapping failed", e);
+            }
+            throw e;
+        }
+    }
 
     private List<RequestAttribute> issueAttributesFor(Certificate cert, AuthorityInstanceReference authority) {
         return attributeEngine.getRequestObjectDataAttributesContent(

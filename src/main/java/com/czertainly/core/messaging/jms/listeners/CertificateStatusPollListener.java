@@ -219,8 +219,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return false;
         }
         ErrorCode code = problem.getProblemDetail().getErrorCode();
-        return code == ErrorCode.OPERATION_NOT_TRACKED
-                || code == ErrorCode.REGISTRATION_NOT_FOUND
+        return com.czertainly.core.service.handler.authority.ConnectorOperationErrorCodes.isOperationNotTracked(code)
                 || code == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
