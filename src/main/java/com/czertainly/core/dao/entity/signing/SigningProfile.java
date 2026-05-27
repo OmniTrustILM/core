@@ -46,7 +46,7 @@ public class SigningProfile extends UniquelyIdentifiedAndAudited implements Secu
     private SigningWorkflowType workflowType;
 
     @Column(name = "latest_version", nullable = false)
-    private Integer latestVersion = 1;
+    private int latestVersion = 1;
 
     @Column(name = "time_quality_config_uuid")
     private UUID timeQualityConfigurationUuid;

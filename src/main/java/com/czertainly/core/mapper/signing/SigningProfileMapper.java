@@ -108,7 +108,7 @@ public class SigningProfileMapper {
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
         dto.setDescription(profile.getDescription());
-        dto.setVersion(profile.getLatestVersion() != null ? profile.getLatestVersion() : 1);
+        dto.setVersion(profile.getLatestVersion());
         dto.setSigningWorkflowType(profile.getWorkflowType());
         dto.setEnabled(profile.isEnabled());
         return dto;
