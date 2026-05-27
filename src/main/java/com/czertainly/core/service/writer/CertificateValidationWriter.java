@@ -40,4 +40,22 @@ public class CertificateValidationWriter {
     public int markRevokedIfStillIssued(UUID uuid) {
         return certificateRepository.transitionIssuedToRevoked(uuid);
     }
+
+    /**
+     * Writes the three validation-result columns and, if {@code attemptRevoke} is {@code true}, conditionally transitions
+     * the certificate state from {@code ISSUED} to {@code REVOKED} in the same transaction.
+     *
+     * @param attemptRevoke whether to attempt the ISSUED→REVOKED state transition after writing validation results
+     * @return the number of rows updated by the revoke transition (1 if it happened, 0 if not), or 0 if
+     *         {@code attemptRevoke} is {@code false}
+     */
+    @Transactional
+    public int applyValidationResultAndMaybeRevoke(UUID uuid,
+                                                   CertificateValidationStatus status,
+                                                   OffsetDateTime timestamp,
+                                                   String validationResultJson,
+                                                   boolean attemptRevoke) {
+        certificateRepository.updateValidationResult(uuid, status, timestamp, validationResultJson);
+        return attemptRevoke ? certificateRepository.transitionIssuedToRevoked(uuid) : 0;
+    }
 }

@@ -384,18 +384,21 @@ public class X509CertificateValidator implements ICertificateValidator {
             throw new CertificateException("Error in serialization of validation output for " + certificate);
         }
 
-        validationWriter.applyValidationResult(certificate.getUuid(), resultStatus, now, resultJson);
+        boolean ocspOrCrlSaysRevoked =
+                validationOutput.get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED)
+                || validationOutput.get(CertificateValidationCheck.CRL_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED);
+        boolean attemptRevoke = certificate.getState() == CertificateState.ISSUED && ocspOrCrlSaysRevoked;
+
+        int revokeRows = validationWriter.applyValidationResultAndMaybeRevoke(
+                certificate.getUuid(), resultStatus, now, resultJson, attemptRevoke);
+
         // Keep the in-memory entity coherent with what was just persisted.
         certificate.setValidationStatus(resultStatus);
         certificate.setStatusValidationTimestamp(now);
         certificate.setCertificateValidationResult(resultJson);
 
-        boolean ocspOrCrlSaysRevoked =
-                validationOutput.get(CertificateValidationCheck.OCSP_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED)
-                || validationOutput.get(CertificateValidationCheck.CRL_VERIFICATION).getStatus().equals(CertificateValidationStatus.REVOKED);
-        if (certificate.getState() == CertificateState.ISSUED && ocspOrCrlSaysRevoked) {
-            int rows = validationWriter.markRevokedIfStillIssued(certificate.getUuid());
-            if (rows == 1) {
+        if (attemptRevoke) {
+            if (revokeRows == 1) {
                 // Transition happened successfully.
                 certificate.setState(CertificateState.REVOKED);
             } else {

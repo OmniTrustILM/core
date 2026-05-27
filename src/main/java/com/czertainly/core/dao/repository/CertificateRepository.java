@@ -216,6 +216,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
 
     /**
      * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Certificate c " +
@@ -236,6 +239,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      *     <li>1 if the transition was successful</li>
      *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
      * </ul>
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Certificate c " +
