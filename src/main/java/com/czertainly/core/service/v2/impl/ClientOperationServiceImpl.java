@@ -107,7 +107,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private LocationService locationService;
     private CertificateService certificateService;
     private ComplianceService complianceService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
@@ -166,7 +166,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 

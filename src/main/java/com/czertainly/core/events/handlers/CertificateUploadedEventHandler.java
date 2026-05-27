@@ -24,7 +24,7 @@ import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
@@ -47,7 +47,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private final CertificateRepository certificateRepository;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
 
@@ -58,7 +58,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 

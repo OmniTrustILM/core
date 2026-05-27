@@ -10,7 +10,7 @@ import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
@@ -22,10 +22,10 @@ import java.util.List;
 @RestController
 public class AuditLogControllerImpl implements AuditLogController {
 
-    private AuditLogService auditLogService;
+    private AuditLogExternalService auditLogService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogExternalService(AuditLogExternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 

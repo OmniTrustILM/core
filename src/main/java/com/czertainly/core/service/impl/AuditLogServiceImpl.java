@@ -22,7 +22,8 @@ import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogExternalService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.RequestValidatorHelper;
@@ -52,9 +53,9 @@ import java.util.Map;
 
 @Service
 @Transactional
-public class AuditLogServiceImpl implements AuditLogService {
+public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInternalService {
 
-    private static final LoggerWrapper logger = new LoggerWrapper(AuditLogService.class, null, null);
+    private static final LoggerWrapper logger = new LoggerWrapper(AuditLogServiceImpl.class, null, null);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -165,6 +166,7 @@ public class AuditLogServiceImpl implements AuditLogService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.AUDIT_LOG, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
 

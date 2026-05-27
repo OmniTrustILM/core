@@ -72,7 +72,7 @@ class ApprovalFlowITest extends BaseMessagingIntTest {
     private ApprovalProfileExternalService approvalProfileService;
 
     @Autowired
-    private CertificateEventHistoryService certHistoryService;
+    private CertificateEventHistoryExternalService certHistoryService;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -161,6 +161,7 @@ class ApprovalFlowITest extends BaseMessagingIntTest {
 
         // Wait for the async APPROVAL_REQUESTED event to land in cert history
         await("APPROVAL_REQUEST history entry written")
+                .pollInSameThread()
                 .atMost(5, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
                     List<CertificateEventHistoryDto> history = certHistoryService.getCertificateEventHistory(certUuid);
@@ -194,6 +195,7 @@ class ApprovalFlowITest extends BaseMessagingIntTest {
 
         // Wait for the async APPROVAL_CLOSED event to land in cert history
         await("APPROVAL_CLOSE history entry written")
+                .pollInSameThread()
                 .atMost(5, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
                     List<CertificateEventHistoryDto> history = certHistoryService.getCertificateEventHistory(certUuid);
