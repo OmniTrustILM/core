@@ -22,7 +22,7 @@ import com.czertainly.core.security.authz.opa.OpaClient;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestDetails;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -222,7 +222,7 @@ public class AuthHelper {
         }
     }
 
-    public static void logAndAuditAuthFailure(Logger logger, AuditLogService auditLogService, String message, String authData) {
+    public static void logAndAuditAuthFailure(Logger logger, AuditLogInternalService auditLogService, String message, String authData) {
         if (logger.isDebugEnabled()) {
             logger.debug("{}: {}", message, authData);
         } else {

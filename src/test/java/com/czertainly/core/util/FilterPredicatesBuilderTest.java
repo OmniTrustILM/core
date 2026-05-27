@@ -40,7 +40,7 @@ import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.AttributeService;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogExternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.CryptographicKeyService;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -119,7 +119,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Autowired
     private AuditLogRepository auditLogRepository;
     @Autowired
-    private AuditLogService auditLogService;
+    private AuditLogExternalService auditLogService;
 
     private CriteriaBuilder criteriaBuilder;
 

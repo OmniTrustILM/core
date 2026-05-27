@@ -9,7 +9,7 @@ import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.security.authn.client.dto.AuthenticationResponseDto;
 import com.czertainly.core.security.authn.client.dto.UserDetailsDto;
 import com.czertainly.core.security.exception.AuthenticationServiceException;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.CertificateUtil;
@@ -46,10 +46,10 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
     @Value("${server.ssl.certificate-header-name}")
     private String certificateHeaderName;
 
-    private final AuditLogService auditLogService;
+    private final AuditLogInternalService auditLogService;
 
     public CzertainlyAuthenticationClient(
-            @Autowired AuditLogService auditLogService,
+            @Autowired AuditLogInternalService auditLogService,
             @Autowired ObjectMapper objectMapper,
             @Autowired AuthenticationCache authenticationCache,
             @Value("${auth-service.base-url}") String customAuthServiceBaseUrl) {
