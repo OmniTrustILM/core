@@ -4,7 +4,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.logging.enums.OperationResult;
 import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.service.v2.OAuth2LoginService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
@@ -15,7 +15,7 @@ public final class OAuth2LoginFlowHelper {
         // Utility class.
     }
 
-    public static OAuth2ProviderSettingsDto resolveProviderOrThrow(String provider, HttpServletRequest request, OAuth2LoginService oauth2LoginService, AuditLogService auditLogService) {
+    public static OAuth2ProviderSettingsDto resolveProviderOrThrow(String provider, HttpServletRequest request, OAuth2LoginService oauth2LoginService, AuditLogInternalService auditLogService) {
         OAuth2ProviderSettingsDto providerSettings = oauth2LoginService.getOAuth2ProviderSettings(provider);
         if (providerSettings == null) {
             String accessToken;
