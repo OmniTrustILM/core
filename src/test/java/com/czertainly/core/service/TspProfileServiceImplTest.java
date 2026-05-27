@@ -149,6 +149,58 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
                         SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
     }
 
+    @Test
+    void testGetTspProfileEntity_returnsCorrectEntity() throws NotFoundException {
+        TspProfile entity = tspService.getTspProfileEntity(savedTspProfile.getSecuredUuid());
+
+        Assertions.assertNotNull(entity);
+        Assertions.assertEquals(savedTspProfile.getUuid(), entity.getUuid());
+        Assertions.assertEquals(savedTspProfile.getName(), entity.getName());
+    }
+
+    @Test
+    void testGetTspProfileEntity_notFound() {
+        Assertions.assertThrows(NotFoundException.class,
+                () -> tspService.getTspProfileEntity(
+                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Find all names
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testFindAllNames_returnsExistingNames() {
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertEquals(1, names.size());
+        Assertions.assertTrue(names.contains(savedTspProfile.getName()));
+    }
+
+    @Test
+    void testFindAllNames_returnsAllWhenMultipleExist() {
+        TspProfile second = new TspProfile();
+        second.setName("second-tsp-profile");
+        tspRepository.save(second);
+
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertEquals(2, names.size());
+        Assertions.assertTrue(names.contains(savedTspProfile.getName()));
+        Assertions.assertTrue(names.contains("second-tsp-profile"));
+    }
+
+    @Test
+    void testFindAllNames_emptyWhenNoneExist() {
+        tspRepository.delete(savedTspProfile);
+
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertTrue(names.isEmpty());
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Create
     // ──────────────────────────────────────────────────────────────────────────
