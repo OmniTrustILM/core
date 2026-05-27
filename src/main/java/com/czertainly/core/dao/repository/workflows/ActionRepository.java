@@ -16,6 +16,8 @@ public interface ActionRepository extends SecurityFilterRepository<Action, UUID>
 
     boolean existsByName(String name);
 
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
     @EntityGraph(attributePaths = {"triggers"})
     Optional<Action> findWithTriggersByUuid(UUID uuid);
 
