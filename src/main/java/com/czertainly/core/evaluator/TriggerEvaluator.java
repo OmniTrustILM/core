@@ -337,9 +337,15 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             throw new RuleException("Cannot get uuid from resource " + resource + ".");
         }
 
-        String sourceId = executionItem.getSourceFieldIdentifier();
-        String sourceName = sourceId.substring(0, sourceId.indexOf("|"));
-        AttributeContentType sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourceId.indexOf("|") + 1));
+        final String sourceName;
+        final AttributeContentType sourceContentType;
+        try {
+            String sourceId = executionItem.getSourceFieldIdentifier();
+            sourceName = sourceId.substring(0, sourceId.indexOf("|"));
+            sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourceId.indexOf("|") + 1));
+        } catch (IllegalArgumentException e) {
+            throw new RuleException("Cannot parse source field identifier %s from execution item: %s".formatted(executionItem.getSourceFieldIdentifier(), e.getMessage()));
+        }
         FilterFieldSource sourceFieldSource = executionItem.getSourceFieldSource();
 
         List<BaseAttributeContentV3<?>> content = switch (sourceFieldSource) {
@@ -358,7 +364,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             case DATA -> {
                 List<ResponseAttribute> dataAttrs = attributeEngine.getObjectDataAttributesContentUnversioned(resource, objectUuid);
                 yield dataAttrs.stream()
-                        .filter(ra -> Objects.equals(ra.getName(), sourceName))
+                        .filter(ra -> Objects.equals(ra.getName(), sourceName) && sourceContentType == ra.getContentType())
                         .findFirst()
                         .map(ra -> ra.<List<AttributeContent>>getContent().stream()
                                 .<BaseAttributeContentV3<?>>map(c -> AttributeVersionHelper.convertAttributeContentToV3(c, ra.getContentType()))
@@ -368,7 +374,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             case CUSTOM -> {
                 List<ResponseAttribute> customAttrs = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
                 yield customAttrs.stream()
-                        .filter(ra -> Objects.equals(ra.getName(), sourceName))
+                        .filter(ra -> Objects.equals(ra.getName(), sourceName) && sourceContentType == ra.getContentType())
                         .findFirst()
                         .map(ra -> ((ResponseAttributeV3) ra).getContent())
                         .orElse(null);
