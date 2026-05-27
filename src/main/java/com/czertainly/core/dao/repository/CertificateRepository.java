@@ -217,7 +217,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     /**
      * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Certificate c " +
             "SET c.validationStatus = :status, " +
             "    c.statusValidationTimestamp = :timestamp, " +
@@ -237,7 +237,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
      * </ul>
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Certificate c " +
             "SET c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).REVOKED}, " +
             "    c.updated = CURRENT_TIMESTAMP " +

@@ -400,7 +400,7 @@ public class X509CertificateValidator implements ICertificateValidator {
                 certificate.setState(CertificateState.REVOKED);
             } else {
                 // Transition did not happen - most likely some concurrent update has already set the state.
-                // Read back the state outside the writer's tx and classify the outcome.
+                // Read back the current state (within the same transaction) to classify the outcome.
                 CertificateState observed = certificateRepository.findStateByUuid(certificate.getUuid()).orElse(null);
                 switch (classifyZeroRowOutcome(observed)) {
                     case INTENT_ALREADY_SATISFIED ->
