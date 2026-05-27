@@ -103,4 +103,74 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         assertEquals(v3Interface.getUuid(), saved.get().getConnectorInterfaceUuid(),
                 "connectorInterfaceUuid must point to the v3 interface");
     }
+
+    @Test
+    void createV3Authority_onMixedV2V3Connector_explicitInterfaceUuidSelectsV3() throws Exception {
+        // Give the connector a SECOND AUTHORITY interface (v2) alongside the v3 one from Base,
+        // so findFirst() would be non-deterministic. The request's interfaceUuid must decide.
+        ConnectorInterfaceEntity v2Iface = new ConnectorInterfaceEntity();
+        v2Iface.setConnectorUuid(connector.getUuid());
+        v2Iface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        v2Iface.setVersion("v2");
+        v2Iface.setFeatures(List.of());
+        v2Iface = connectorInterfaceRepository.save(v2Iface);
+        connector.getInterfaces().add(v2Iface);
+
+        FunctionGroup fg = new FunctionGroup();
+        fg.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);
+        fg.setName(FunctionGroupCode.AUTHORITY_PROVIDER.getCode());
+        functionGroupRepository.save(fg);
+        Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
+        c2fg.setConnector(connector);
+        c2fg.setConnectorUuid(connector.getUuid());
+        c2fg.setFunctionGroup(fg);
+        c2fg.setFunctionGroupUuid(fg.getUuid());
+        c2fg.setKinds(MetaDefinitions.serializeArrayString(List.of("V3TestKind")));
+        connector2FunctionGroupRepository.save(c2fg);
+        connector.getFunctionGroups().add(c2fg);
+        connectorRepository.save(connector);
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes/validate"))
+                .willReturn(WireMock.okJson("true")));
+        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(V3_AUTHORITY_PATH))
+                .willReturn(WireMock.aResponse().withStatus(204)));
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo("/v1/authorityProvider/authorities"))
+                .willReturn(WireMock.okJson("{ \"id\": 999 }")));
+
+        AuthorityInstanceRequestDto req = new AuthorityInstanceRequestDto();
+        req.setName("v3-mixed-authority-" + UUID.randomUUID());
+        req.setConnectorUuid(connector.getUuid().toString());
+        req.setInterfaceUuid(v3Interface.getUuid());   // explicitly select v3
+        req.setKind("V3TestKind");
+        req.setAttributes(List.of());
+        req.setCustomAttributes(List.of());
+
+        AuthorityInstanceDto dto = authorityInstanceService.createAuthorityInstance(req);
+
+        assertNotNull(dto.getUuid());
+        // v3 path taken: checkAuthorityConnection called, legacy create NOT called
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_AUTHORITY_PATH)));
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo("/v1/authorityProvider/authorities")));
+
+        var saved = authorityInstanceReferenceRepository.findByName(req.getName()).orElseThrow();
+        assertEquals(v3Interface.getUuid(), saved.getConnectorInterfaceUuid(),
+                "explicit interfaceUuid must bind the v3 interface even when a v2 interface also exists");
+    }
+
+    @Test
+    void createAuthority_unknownInterfaceUuid_throwsValidationException() {
+        AuthorityInstanceRequestDto req = new AuthorityInstanceRequestDto();
+        req.setName("bad-iface-authority-" + UUID.randomUUID());
+        req.setConnectorUuid(connector.getUuid().toString());
+        req.setInterfaceUuid(UUID.randomUUID());   // not an interface on this connector
+        req.setKind("V3TestKind");
+        req.setAttributes(List.of());
+        req.setCustomAttributes(List.of());
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.czertainly.api.exception.ValidationException.class,
+                () -> authorityInstanceService.createAuthorityInstance(req));
+    }
 }

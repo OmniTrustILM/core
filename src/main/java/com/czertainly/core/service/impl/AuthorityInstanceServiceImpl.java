@@ -175,11 +175,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
 
-        ConnectorInterfaceEntity iface = connectorRepository.findByUuid(connectorUuid.getValue())
-                .flatMap(c -> c.getInterfaces().stream()
-                        .filter(i -> i.getInterfaceCode() == ConnectorInterface.AUTHORITY)
-                        .findFirst())
-                .orElse(null);
+        ConnectorInterfaceEntity iface = resolveAuthorityInterface(connectorUuid.getValue(), request.getInterfaceUuid());
         if (iface != null && "v3".equals(iface.getVersion())) {
             return createV3Authority(request, connectorUuid, connector, iface, dataAttributes);
         }
@@ -372,6 +368,30 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         getAuthorityInstanceReferenceEntity(uuid);
         // Since there are is no parent to the Authority, exclusive parent permission evaluation need not be done
+    }
+
+    /**
+     * Resolve the AUTHORITY connector interface to bind a new authority to. When the request
+     * carries an explicit interfaceUuid (mirrors VaultInstanceRequestDto), validate it belongs
+     * to the connector and is an AUTHORITY interface, then use it — this is how an operator
+     * selects v3 on a connector that exposes both v2 and v3. When absent (legacy v1 connectors
+     * that declare no interface, or older callers), fall back to the single AUTHORITY interface;
+     * the pick is undefined if multiple exist, hence the explicit interfaceUuid for v2/v3.
+     */
+    private ConnectorInterfaceEntity resolveAuthorityInterface(UUID connectorUuid, UUID interfaceUuid) {
+        var interfaces = connectorRepository.findByUuid(connectorUuid)
+                .map(c -> c.getInterfaces().stream()
+                        .filter(i -> i.getInterfaceCode() == ConnectorInterface.AUTHORITY)
+                        .toList())
+                .orElse(List.of());
+        if (interfaceUuid != null) {
+            return interfaces.stream()
+                    .filter(i -> interfaceUuid.equals(i.getUuid()))
+                    .findFirst()
+                    .orElseThrow(() -> new ValidationException(
+                            "Connector " + connectorUuid + " has no AUTHORITY interface with UUID " + interfaceUuid));
+        }
+        return interfaces.stream().findFirst().orElse(null);
     }
 
     private AuthorityInstanceDto createV3Authority(
