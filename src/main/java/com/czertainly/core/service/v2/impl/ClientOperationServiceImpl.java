@@ -1034,11 +1034,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             connectorAccepted = true;
 
             switch (revokeResult.outcome()) {
-                case SYNC_NO_CONTENT -> {
+                // 204 (SYNC_NO_CONTENT) and 200 (SYNC_OK, meta-only) are both synchronous
+                // successful revocations; v3 connectors return 200 to deliver metadata.
+                case SYNC_NO_CONTENT, SYNC_OK -> {
                     stateMachine.transition(certificate, CertificateState.REVOKED,
                             CertificateEvent.REVOKE, "Certificate revoked. Reason: "
                                     + (request.getReason() != null ? request.getReason().getLabel() : CertificateRevocationReason.UNSPECIFIED.getLabel()));
                     attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
+                    persistRevokeMetadata(certificate, raProfile, revokeResult.meta());
                 }
                 case ASYNC_ACCEPTED -> {
                     transitionToPendingRevoke(certificate, request);
@@ -1046,7 +1049,6 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                             Resource.CERTIFICATE, certificate.getUuid(), CertificateOperation.REVOKE, 1));
                     return;
                 }
-                case SYNC_OK -> throw new CertificateOperationException("Unexpected SYNC_OK from authority on revoke");
             }
         } catch (Exception e) {
             if (connectorAccepted) {
@@ -1083,6 +1085,26 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.REVOKE));
 
         logger.debug("Certificate revoked: {}", certificate);
+    }
+
+    /**
+     * Best-effort persistence of connector-returned revoke metadata. The terminal REVOKE
+     * transition is already committed by the time this runs, so a meta-write failure must not
+     * propagate (it would roll back the committed revocation and diverge from the connector,
+     * which has accepted the revoke). Mirrors the post-commit meta handling in the poll listener.
+     */
+    private void persistRevokeMetadata(Certificate certificate, RaProfile raProfile, List<MetadataAttribute> meta) {
+        if (meta == null || meta.isEmpty()) {
+            return;
+        }
+        try {
+            attributeEngine.updateMetadataAttributes(meta,
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                            .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid())
+                            .build());
+        } catch (Exception e) {
+            logger.warn("Failed to persist revoke metadata for cert {}; revocation already applied", certificate.getUuid(), e);
+        }
     }
 
     /**

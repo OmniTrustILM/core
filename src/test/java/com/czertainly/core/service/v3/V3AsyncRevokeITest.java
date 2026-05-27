@@ -88,6 +88,35 @@ class V3AsyncRevokeITest extends BaseV3ITest {
     }
 
     @Test
+    void syncRevoke_200WithMeta_transitionsToRevokedWithoutError() throws Exception {
+        // A v3 connector may complete a revoke synchronously with HTTP 200 carrying meta only
+        // (vs 204 no-content). This must map to a terminal REVOKED transition — NOT be rejected
+        // as "Unexpected SYNC_OK", which previously left the cert ISSUED while the connector had
+        // already revoked it (connector-vs-DB divergence).
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(V3_REVOKE_PATH))
+                .willReturn(WireMock.aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(asyncAcceptedBodyWithMeta("revokedAt", "2026-05-27T00:00:00Z"))));
+
+        Certificate cert = buildCertificateInState(CertificateState.ISSUED);
+
+        ClientCertificateRevocationDto revokeReq = new ClientCertificateRevocationDto();
+        revokeReq.setReason(CertificateRevocationReason.KEY_COMPROMISE);
+        revokeReq.setAttributes(List.<RequestAttribute>of());
+
+        clientOperationService.revokeCertificateAction(cert.getUuid(), revokeReq, true);
+
+        Certificate afterRevoke = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        assertEquals(CertificateState.REVOKED, afterRevoke.getState(),
+                "200 (SYNC_OK, meta-only) revoke must transition the cert to REVOKED");
+
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REVOKE_PATH)));
+        // No async poll should be scheduled for a synchronous revoke
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo("/v3/authorityProvider/certificates/revoke/status")));
+    }
+
+    @Test
     void operatorRevoke_onV3Authority_validatesViaV3NotV2() throws Exception {
         // M4-D1: the operator-facing revokeCertificate pre-validates revoke attributes. It must
         // route through the v3 /revoke/attributes endpoint, NOT the legacy v2

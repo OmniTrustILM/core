@@ -10,14 +10,15 @@ import org.springframework.stereotype.Component;
  * Dispatches authority operations to the adapter matching the authority's connector interface
  * version. v2 → {@link AuthorityProviderV2Adapter}, v3 → {@link AuthorityProviderV3Adapter}.
  *
- * <p>Defensive — v1 authorities flow through the legacy v1 service path and never reach this
- * factory. If a v1 (or unrecognized) version is encountered, throws
- * {@link UnsupportedAuthorityVersionException}.</p>
+ * <p>Defensive — legacy v1-authority connectors ({@code FunctionGroupCode.LEGACY_AUTHORITY_PROVIDER})
+ * flow through the separate legacy service path and never reach this factory.</p>
  *
  * <p>{@link ConnectorInterfaceEntity#getVersion()} returns the version string as reported by the
- * connector's info endpoint (e.g. {@code "v2"}, {@code "v3"}). The factory matches on those
- * prefixed string values; any other value, including {@code null} or the bare decimal {@code "2"},
- * results in an {@link UnsupportedAuthorityVersionException}.</p>
+ * connector's info endpoint (e.g. {@code "v2"}, {@code "v3"}). A {@code null} interface is treated
+ * as v2: framework-v1 connectors that speak the v2 authority wire protocol (e.g. ejbca-ng) declare
+ * no interface row, so they route to {@link AuthorityProviderV2Adapter} (see {@link #forAuthority}).
+ * Any other non-null value (an unrecognized or bare-decimal version such as {@code "2"}) results in
+ * an {@link UnsupportedAuthorityVersionException}.</p>
  */
 @Component
 public class AuthorityProviderAdapterFactory {
