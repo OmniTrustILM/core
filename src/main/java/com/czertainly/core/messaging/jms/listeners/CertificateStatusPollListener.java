@@ -122,7 +122,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 && (op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW)
                 && status.certificateData() != null && !status.certificateData().isEmpty();
         boolean revokeCompleted = completed && op == CertificateOperation.REVOKE;
-        CertificateState targetState = completed ? terminalSuccessState(op) : terminalFailureState(op);
+        CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         String reason = status.reason() != null ? status.reason()
                 : "Async " + op + " " + status.status().getLabel().toLowerCase();
 
@@ -202,7 +202,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (!isPendingFor(locked.getState(), op)) {
                 return;
             }
-            stateMachine.transition(locked, terminalFailureState(op), null,
+            stateMachine.transition(locked, op.terminalFailureState(), null,
                     "Operation " + op + " timed out after max poll attempts");
         });
     }
@@ -225,26 +225,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private boolean isPendingFor(CertificateState state, CertificateOperation op) {
-        return switch (op) {
-            case ISSUE, RENEW -> state == CertificateState.PENDING_ISSUE;
-            case REVOKE       -> state == CertificateState.PENDING_REVOKE;
-            case REGISTER     -> state == CertificateState.PENDING_REGISTRATION;
-        };
-    }
-
-    private CertificateState terminalSuccessState(CertificateOperation op) {
-        return switch (op) {
-            case ISSUE, RENEW -> CertificateState.ISSUED;
-            case REGISTER     -> CertificateState.REGISTERED;
-            case REVOKE       -> CertificateState.REVOKED;
-        };
-    }
-
-    private CertificateState terminalFailureState(CertificateOperation op) {
-        return switch (op) {
-            case ISSUE, RENEW, REGISTER -> CertificateState.FAILED;
-            case REVOKE                 -> CertificateState.ISSUED;
-        };
+        return state == op.pendingState();
     }
 
     // SETTERs
