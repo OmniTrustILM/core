@@ -16,6 +16,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.service.SettingService;
 import com.czertainly.core.service.TriggerExternalService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.SecretEncodingVersion;
 import com.czertainly.core.util.SecretsUtil;
 import com.czertainly.core.settings.SettingsCache;
@@ -60,6 +61,7 @@ public class SettingServiceImpl implements SettingService {
     private final SettingRepository settingRepository;
 
     private TriggerExternalService triggerService;
+    private TriggerInternalService triggerInternalService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -73,6 +75,11 @@ public class SettingServiceImpl implements SettingService {
     @Autowired
     public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
+    }
+
+    @Autowired
+    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
+        this.triggerInternalService = triggerInternalService;
     }
 
     @PostConstruct
@@ -203,7 +210,7 @@ public class SettingServiceImpl implements SettingService {
 
     // Called directly by internal/scheduled callers to bypass the @ExternalAuthorization proxy on getEventsSettings().
     private EventsSettingsDto loadEventsSettings() {
-        return new EventsSettingsDto(triggerService.getTriggersAssociations(null, null));
+        return new EventsSettingsDto(triggerInternalService.getTriggersAssociations(null, null));
     }
 
     @Override

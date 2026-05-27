@@ -53,7 +53,7 @@ public class RuleControllerImpl implements RuleController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.CONDITION, operation = Operation.UPDATE)
-    public ConditionDto updateCondition(@LogResource(uuid = true) String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException {
+    public ConditionDto updateCondition(@LogResource(uuid = true) String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException, AlreadyExistException {
         return ruleService.updateCondition(conditionUuid, request);
     }
 
@@ -83,7 +83,7 @@ public class RuleControllerImpl implements RuleController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.RULE, operation = Operation.UPDATE)
-    public RuleDetailDto updateRule(@LogResource(uuid = true) String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException {
+    public RuleDetailDto updateRule(@LogResource(uuid = true) String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException, AlreadyExistException {
         return ruleService.updateRule(ruleUuid, request);
     }
 
