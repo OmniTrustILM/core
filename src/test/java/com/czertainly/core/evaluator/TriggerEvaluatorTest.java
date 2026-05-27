@@ -1,6 +1,7 @@
 package com.czertainly.core.evaluator;
 
 import com.czertainly.api.exception.*;
+import com.czertainly.api.model.client.attribute.RequestAttributeV2;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
@@ -13,8 +14,10 @@ import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
 import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
+import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
@@ -904,6 +907,52 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
                 .filter(a -> a.getName().equals("customTarget4")).findFirst().orElseThrow();
         Assertions.assertEquals("dataValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttributeV2() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        DataAttributeV2 dataAttribute = new DataAttributeV2();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSourceV2");
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSourceV2");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(dataAttribute));
+
+        // RequestAttributeV2 content must use BaseAttributeContentV2, not StringAttributeContentV2,
+        // because the V2 format has no type discriminator and won't round-trip through JSON as the
+        // concrete subtype.
+        BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        content.setReference("ref");
+        content.setData("dataValueV2");
+        RequestAttributeV2 requestAttribute = new RequestAttributeV2();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(content));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(),
+                List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget5");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget5");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget5|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSourceV2|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget5")).findFirst().orElseThrow();
+        Assertions.assertEquals("dataValueV2", attr.getContent().getFirst().getData().toString());
     }
 
 }

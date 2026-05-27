@@ -17,6 +17,7 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.FilterFieldType;
 import com.czertainly.api.model.core.workflows.ExecutionType;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.attribute.engine.AttributeVersionHelper;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.ComplianceInternalRule;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedObject;
@@ -273,7 +274,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             for (ResponseMetadata responseAttributeDto : responseMetadata) {
                 // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
                 if (Objects.equals(responseAttributeDto.getName(), fieldIdentifierName) && fieldAttributeContentType == responseAttributeDto.getContentType() && evaluateConditionOnAttribute(responseAttributeDto.getContent(), responseAttributeDto.getContentType(), conditionValue, operator))
-                        return true;
+                    return true;
 
             }
         }
@@ -292,7 +293,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     @Override
     public void performActions(Trigger trigger, TriggerHistory triggerHistory, T object, Object data) throws RuleException {
-        Class resourceClass = ResourceToClass.getClassByResource(trigger.getResource());
+       Class resourceClass = ResourceToClass.getClassByResource(trigger.getResource());
         if (resourceClass == null) {
             throw new RuleException("Unknown class for resource " + trigger.getResource().getLabel());
         }
@@ -328,7 +329,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
     }
 
-    private List<BaseAttributeContentV3<?>> resolveSourceAttributeContent(Resource resource, ExecutionItem executionItem, T object) throws RuleException, AttributeException {
+    private List<BaseAttributeContentV3<?>> resolveSourceAttributeContent(Resource resource, ExecutionItem executionItem, T object) throws RuleException {
         UUID objectUuid;
         try {
             objectUuid = (UUID) PropertyUtils.getProperty(object, "uuid");
@@ -349,7 +350,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                         .flatMap(m -> m.getItems().stream())
                         .filter(rm -> Objects.equals(rm.getName(), sourceName) && sourceContentType == rm.getContentType())
                         .findFirst()
-                        .map(rm -> (List<BaseAttributeContentV3<?>>) (List<?>) rm.getContent())
+                        .map(rm -> rm.getContent().stream()
+                                .<BaseAttributeContentV3<?>>map(c -> AttributeVersionHelper.convertAttributeContentToV3(c, rm.getContentType()))
+                                .toList())
                         .orElse(null);
             }
             case DATA -> {
@@ -357,7 +360,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 yield dataAttrs.stream()
                         .filter(ra -> Objects.equals(ra.getName(), sourceName))
                         .findFirst()
-                        .map(ra -> ((ResponseAttributeV3) ra).getContent())
+                        .map(ra -> ra.<List<AttributeContent>>getContent().stream()
+                                .<BaseAttributeContentV3<?>>map(c -> AttributeVersionHelper.convertAttributeContentToV3(c, ra.getContentType()))
+                                .toList())
                         .orElse(null);
             }
             case CUSTOM -> {
