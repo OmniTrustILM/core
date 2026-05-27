@@ -57,7 +57,7 @@ class CertificateStatusPollListenerTest {
     @Mock private AttributeEngine attributeEngine;
     @Mock private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
     @Mock private com.czertainly.core.service.CertificateService certificateService;
-    @Mock private com.czertainly.core.service.CryptographicKeyService keyService;
+    @Mock private com.czertainly.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -86,7 +86,7 @@ class CertificateStatusPollListenerTest {
         listener.setAttributeEngine(attributeEngine);
         listener.setTransactionHandler(transactionHandler);
         listener.setCertificateService(certificateService);
-        listener.setKeyService(keyService);
+        listener.setRevocationFinalizer(revocationFinalizer);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);

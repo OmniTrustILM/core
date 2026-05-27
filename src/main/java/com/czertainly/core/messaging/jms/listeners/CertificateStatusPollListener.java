@@ -8,7 +8,6 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
-import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
@@ -17,12 +16,12 @@ import com.czertainly.core.messaging.jms.configuration.StatusPollProperties;
 import com.czertainly.core.messaging.jms.producers.CertificateStatusPollProducer;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
 import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.CryptographicKeyService;
 import com.czertainly.core.service.handler.authority.AsyncOperationCapability;
 import com.czertainly.core.service.handler.authority.AuthorityProviderAdapter;
 import com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.czertainly.core.service.handler.authority.CertificateOperation;
 import com.czertainly.core.service.handler.authority.StatusPollResult;
+import com.czertainly.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +56,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private AttributeEngine attributeEngine;
     private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
     private CertificateService certificateService;
-    private CryptographicKeyService keyService;
+    private CertificateRevocationFinalizer revocationFinalizer;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -127,12 +126,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         String reason = status.reason() != null ? status.reason()
                 : "Async " + op + " " + status.status().getLabel().toLowerCase();
 
-        // Holders for post-commit side effects (best-effort key destruction + meta write) run
-        // OUTSIDE the lock so a slow connector doesn't extend the row lock duration. applied
-        // distinguishes the no-op drop (state no longer pending) from a real transition so the
-        // post-commit blocks are skipped on a drop.
-        boolean[] destroyKeyHolder = {false};
-        java.util.UUID[] keyUuidHolder = {null};
+        // Holders for post-commit side effects run OUTSIDE the lock so a slow connector doesn't
+        // extend the row lock duration. applied distinguishes the no-op drop (state no longer
+        // pending) from a real transition so the post-commit blocks are skipped on a drop.
+        CertificateRevocationFinalizer.KeyCleanup[] revokeCleanupHolder =
+                { CertificateRevocationFinalizer.KeyCleanup.NONE };
         boolean[] applied = {false};
 
         transactionHandler.runInNewTransaction(() -> {
@@ -157,15 +155,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                             "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
                 }
             } else if (revokeCompleted) {
-                // Mirror manuallyConfirmRevoke cleanup: apply preserved revoke attributes (best-effort),
-                // capture destroyKey + keyUuid for post-commit, clear the pending-revoke fields, then
-                // transition state. Without this the operator's destroyKey request on async revoke
-                // would be silently dropped and pendingRevoke* fields would linger in the DB.
-                applyPreservedRevokeAttributes(locked);
-                destroyKeyHolder[0] = Boolean.TRUE.equals(locked.getPendingRevokeDestroyKey());
-                keyUuidHolder[0] = locked.getKey() != null ? locked.getKeyUuid() : null;
-                locked.setPendingRevokeDestroyKey(null);
-                locked.setPendingRevokeAttributes(null);
+                // Shared revoke finalization (apply preserved attrs, capture destroyKey, clear
+                // pending fields); destroyKey runs post-commit via the finalizer below.
+                revokeCleanupHolder[0] = revocationFinalizer.prepareRevokeFinalization(locked);
                 stateMachine.transition(locked, targetState, null, reason);
             } else {
                 stateMachine.transition(locked, targetState, null, reason);
@@ -176,16 +168,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return;
         }
 
-        // Post-commit, best-effort: destroy the cert key when the operator requested it on
-        // the original revoke. Slow operation (connector HTTP call) — runs outside the lock.
-        if (destroyKeyHolder[0] && keyUuidHolder[0] != null) {
-            try {
-                keyService.destroyKey(java.util.List.of(keyUuidHolder[0].toString()));
-            } catch (Exception e) {
-                logger.warn("Failed to destroy key {} after async revoke of cert {}: {}",
-                        keyUuidHolder[0], cert.getUuid(), e.getMessage(), e);
-            }
-        }
+        // Post-commit, best-effort key destruction (slow connector HTTP call) — outside the lock.
+        revocationFinalizer.destroyKeyIfRequested(revokeCleanupHolder[0], cert.getUuid());
 
         // Post-commit meta update — outside the tx so a meta failure does not roll back the
         // state transition (state-divergence rule: once connector accepted COMPLETED, local
@@ -223,27 +207,6 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         });
     }
 
-    /**
-     * Re-apply the revoke-attributes captured when the cert entered PENDING_REVOKE so the
-     * cert detail reflects the revocation parameters. Best-effort: a failure here does not
-     * block the state transition (the connector revoke has already completed upstream).
-     * Mirrors ClientOperationServiceImpl.applyPreservedRevokeAttributes.
-     */
-    private void applyPreservedRevokeAttributes(Certificate cert) {
-        if (cert.getPendingRevokeAttributes() == null || cert.getPendingRevokeAttributes().isEmpty()) {
-            return;
-        }
-        try {
-            attributeEngine.updateObjectDataAttributesContent(
-                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
-                            .connector(cert.getRaProfile().getAuthorityInstanceReference().getConnectorUuid())
-                            .operation(AttributeOperation.CERTIFICATE_REVOKE).build(),
-                    cert.getPendingRevokeAttributes());
-        } catch (Exception e) {
-            logger.warn("Failed to apply preserved revoke attributes on async revoke completion for cert {}: {}",
-                    cert.getUuid(), e.getMessage(), e);
-        }
-    }
 
     /**
      * Connector-side error codes that mean retrying the status poll is pointless: the
@@ -327,7 +290,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
-    public void setKeyService(CryptographicKeyService keyService) {
-        this.keyService = keyService;
+    public void setRevocationFinalizer(CertificateRevocationFinalizer revocationFinalizer) {
+        this.revocationFinalizer = revocationFinalizer;
     }
 }

@@ -68,6 +68,7 @@ import com.czertainly.core.service.handler.authority.CertificateOperation;
 import com.czertainly.core.service.handler.authority.CancelResult;
 import com.czertainly.core.service.handler.authority.CancelOutcome;
 import com.czertainly.core.service.handler.authority.RegisterCapability;
+import com.czertainly.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
@@ -141,10 +142,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private ConnectorCapabilityService capabilityService;
     private CertificateStatusPollProducer pollProducer;
     private com.czertainly.core.events.transaction.TransactionHandler transactionHandler;
+    private CertificateRevocationFinalizer revocationFinalizer;
 
     @Autowired
     public void setTransactionHandler(com.czertainly.core.events.transaction.TransactionHandler transactionHandler) {
         this.transactionHandler = transactionHandler;
+    }
+
+    @Autowired
+    public void setRevocationFinalizer(CertificateRevocationFinalizer revocationFinalizer) {
+        this.revocationFinalizer = revocationFinalizer;
     }
 
     @Autowired
@@ -1620,8 +1627,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         // other operator action on the same cert). The lock is released as soon as the
         // REVOKED state and cleared pending-revoke fields are committed.
         UUID certUuid = UUID.fromString(certificateUuid);
-        boolean destroyKey;
-        UUID keyUuid;
+        CertificateRevocationFinalizer.KeyCleanup keyCleanup;
         TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Certificate cert = certificateRepository.findAndLockWithAssociationsByUuid(certUuid)
@@ -1633,12 +1639,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                         .formatted(cert.getState().getLabel(), cert.toStringShort()));
             }
 
-            applyPreservedRevokeAttributes(cert);
-
-            destroyKey = Boolean.TRUE.equals(cert.getPendingRevokeDestroyKey());
-            keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
-            cert.setPendingRevokeDestroyKey(null);
-            cert.setPendingRevokeAttributes(null);
+            keyCleanup = revocationFinalizer.prepareRevokeFinalization(cert);
             stateMachine.transition(cert, CertificateState.REVOKED,
                     CertificateEvent.REVOKE, "Revocation confirmed manually");
             transactionManager.commit(tx);
@@ -1649,44 +1650,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         // Slow connector calls outside the lock — failures here are logged but do not
         // affect the already-committed state transition.
-        if (destroyKey && keyUuid != null) {
-            destroyKeyBestEffort(certUuid, keyUuid);
-        }
+        revocationFinalizer.destroyKeyIfRequested(keyCleanup, certUuid);
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(certUuid, ResourceAction.REVOKE));
         logger.info("Certificate {} revocation confirmed manually", certUuid);
-    }
-
-    /**
-     * Re-apply the revoke-attributes captured when the cert entered PENDING_REVOKE so the
-     * cert detail reflects the revocation parameters. Best-effort: a failure here does not
-     * block the state transition (the connector revoke already succeeded upstream).
-     */
-    private void applyPreservedRevokeAttributes(Certificate cert) throws NotFoundException {
-        if (cert.getPendingRevokeAttributes() == null || cert.getPendingRevokeAttributes().isEmpty()) {
-            return;
-        }
-        RaProfile raProfile = cert.getRaProfile();
-        try {
-            attributeEngine.updateObjectDataAttributesContent(
-                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
-                            .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid())
-                            .operation(AttributeOperation.CERTIFICATE_REVOKE).build(),
-                    cert.getPendingRevokeAttributes());
-        } catch (AttributeException e) {
-            logger.warn("Failed to apply preserved revoke attributes on manual revoke confirm for cert {}: {}",
-                    cert.getUuid(), e.getMessage(), e);
-        }
-    }
-
-    private void destroyKeyBestEffort(UUID certUuid, UUID keyUuid) {
-        try {
-            logger.debug("Manual revoke confirm: destroying key for cert {}", certUuid);
-            keyService.destroyKey(List.of(keyUuid.toString()));
-        } catch (Exception e) {
-            logger.warn("Failed to destroy certificate key on manual revoke confirm for cert {}: {}",
-                    certUuid, e.getMessage(), e);
-        }
     }
 
     @Override
