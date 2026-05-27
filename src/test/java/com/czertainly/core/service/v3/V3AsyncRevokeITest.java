@@ -5,6 +5,7 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.authority.CertificateRevocationReason;
 import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
+import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.messaging.jms.listeners.CertificateStatusPollListener;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
@@ -84,5 +85,34 @@ class V3AsyncRevokeITest extends BaseV3ITest {
         // Exactly one revoke + one status call
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_REVOKE_PATH)));
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/v3/authorityProvider/certificates/revoke/status")));
+    }
+
+    @Test
+    void operatorRevoke_onV3Authority_validatesViaV3NotV2() throws Exception {
+        // M4-D1: the operator-facing revokeCertificate pre-validates revoke attributes. It must
+        // route through the v3 /revoke/attributes endpoint, NOT the legacy v2
+        // /v2/authorityProvider/authorities/{uuid}/certificates/revoke/attributes endpoints.
+        String v3RevokeAttrs = "/v3/authorityProvider/certificates/revoke/attributes";
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(v3RevokeAttrs))
+                .willReturn(WireMock.okJson("[]")));
+        // If the v2 path is hit, fail loudly (no stub → 404 → ConnectorException).
+
+        Certificate cert = buildCertificateInState(CertificateState.ISSUED);
+
+        ClientCertificateRevocationDto revokeReq = new ClientCertificateRevocationDto();
+        revokeReq.setReason(CertificateRevocationReason.UNSPECIFIED);
+        revokeReq.setAttributes(List.<RequestAttribute>of());
+
+        // Should not throw — validation resolves via the v3 adapter; the actual revoke is
+        // enqueued as an ActionMessage (JMS mocked in the test profile).
+        clientOperationService.revokeCertificate(
+                SecuredParentUUID.fromUUID(authority.getUuid()),
+                raProfile.getSecuredUuid(),
+                cert.getUuid().toString(),
+                revokeReq);
+
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(v3RevokeAttrs)));
+        mockServer.verify(0, WireMock.postRequestedFor(
+                WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes.*")));
     }
 }

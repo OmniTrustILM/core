@@ -139,6 +139,18 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
+    public void validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
+        // v3 dropped the connector-side /validate endpoint (interfaces #560). Structural
+        // validation against the listed definitions is done locally by the caller via
+        // AttributeEngine.validateUpdateDataAttributes — no connector round-trip needed.
+    }
+
+    @Override
+    public void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
+        // v3 has no connector-side /validate — see validateIssueAttributes.
+    }
+
+    @Override
     public void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
             throws ValidationException, ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);

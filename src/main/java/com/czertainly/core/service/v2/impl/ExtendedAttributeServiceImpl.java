@@ -50,6 +50,13 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         this.attributeEngine = attributeEngine;
     }
 
+    private com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory adapterFactory;
+
+    @Autowired
+    public void setAdapterFactory(com.czertainly.core.service.handler.authority.AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
+    }
+
     @Override
     public List<BaseAttribute> listIssueCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
@@ -59,10 +66,8 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-        return connectorApiFactory.getCertificateApiClientV2(connectorDto).listIssueCertificateAttributes(
-                connectorDto,
-                authorityRef.getAuthorityInstanceUuid());
+        // Adapter-routed so v3 authorities use the v3 list endpoint, not the v2 one.
+        return adapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef);
     }
 
     @Override
@@ -74,32 +79,31 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-        return connectorApiFactory.getCertificateApiClientV2(connectorDto).validateIssueCertificateAttributes(
-                connectorDto,
-                authorityRef.getAuthorityInstanceUuid(),
-                attributes);
+        // v2 hits the connector /validate; v3 is a local no-op (contract dropped /validate).
+        // A hard validation failure surfaces as ValidationException; success returns true.
+        adapterFactory.forAuthority(authorityRef).validateIssueAttributes(authorityRef, attributes);
+        return true;
     }
 
     @Override
     public void mergeAndValidateIssueAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
-        if (raProfile.getAuthorityInstanceReference().getConnector() == null) {
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        if (authorityRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        var certificateApiClient = connectorApiFactory.getCertificateApiClientV2(connectorDto);
-
-        // validate first by connector
         if (attributes == null) {
             attributes = new ArrayList<>();
         }
-        certificateApiClient.validateIssueCertificateAttributes(connectorDto, raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), attributes);
+        var adapter = adapterFactory.forAuthority(authorityRef);
 
-        // get definitions from connector
-        List<BaseAttribute> definitions = certificateApiClient.listIssueCertificateAttributes(connectorDto, raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid());
+        // connector-side validate (v2 → /validate; v3 → no-op)
+        adapter.validateIssueAttributes(authorityRef, attributes);
 
-        // validate and update definitions with attribute engine
-        attributeEngine.validateUpdateDataAttributes(raProfile.getAuthorityInstanceReference().getConnectorUuid(), AttributeOperation.CERTIFICATE_ISSUE, definitions, attributes);
+        // version-aware definitions
+        List<BaseAttribute> definitions = adapter.listIssueAttributes(authorityRef);
+
+        // local structural validation against definitions (both versions)
+        attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), AttributeOperation.CERTIFICATE_ISSUE, definitions, attributes);
     }
 
     @Override
@@ -111,10 +115,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-        return connectorApiFactory.getCertificateApiClientV2(connectorDto).listRevokeCertificateAttributes(
-                connectorDto,
-                authorityRef.getAuthorityInstanceUuid());
+        return adapterFactory.forAuthority(authorityRef).listRevokeAttributes(authorityRef);
     }
 
     @Override
@@ -126,33 +127,29 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-        return connectorApiFactory.getCertificateApiClientV2(connectorDto).validateRevokeCertificateAttributes(
-                connectorDto,
-                authorityRef.getAuthorityInstanceUuid(),
-                attributes);
+        adapterFactory.forAuthority(authorityRef).validateRevokeAttributes(authorityRef, attributes);
+        return true;
     }
 
     @Override
     public void mergeAndValidateRevokeAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
-        if (raProfile.getAuthorityInstanceReference().getConnector() == null) {
+        var authorityRef = raProfile.getAuthorityInstanceReference();
+        if (authorityRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
-
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        var certificateApiClient = connectorApiFactory.getCertificateApiClientV2(connectorDto);
-
-        // validate first by connector
         if (attributes == null) {
             attributes = new ArrayList<>();
         }
-        certificateApiClient.validateRevokeCertificateAttributes(connectorDto, raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), attributes);
+        var adapter = adapterFactory.forAuthority(authorityRef);
 
-        // get definitions from connector
-        List<BaseAttribute> definitions = certificateApiClient.listRevokeCertificateAttributes(connectorDto, raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid());
+        // connector-side validate (v2 → /validate; v3 → no-op)
+        adapter.validateRevokeAttributes(authorityRef, attributes);
 
-        // validate and update definitions with attribute engine
-        attributeEngine.validateUpdateDataAttributes(raProfile.getAuthorityInstanceReference().getConnectorUuid(), AttributeOperation.CERTIFICATE_REVOKE, definitions, attributes);
+        // version-aware definitions
+        List<BaseAttribute> definitions = adapter.listRevokeAttributes(authorityRef);
+
+        // local structural validation against definitions (both versions)
+        attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), AttributeOperation.CERTIFICATE_REVOKE, definitions, attributes);
     }
 
     @Override
