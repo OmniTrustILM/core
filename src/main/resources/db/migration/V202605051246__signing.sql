@@ -27,14 +27,14 @@ CREATE TABLE "signing_profile_version"
     -- scheme (authoritative)
     "signing_scheme"                     VARCHAR NOT NULL,
     "managed_signing_type"               VARCHAR,
-    "token_profile_uuid"                 UUID    REFERENCES "token_profile" ("uuid") ON DELETE SET NULL,
-    "certificate_uuid"                   UUID    REFERENCES "certificate" ("uuid") ON DELETE SET NULL,
-    "ra_profile_uuid"                    UUID    REFERENCES "ra_profile" ("uuid") ON DELETE SET NULL,
+    "token_profile_uuid"                 UUID REFERENCES "token_profile" ("uuid") ON DELETE RESTRICT,
+    "certificate_uuid"                   UUID REFERENCES "certificate" ("uuid") ON DELETE RESTRICT,
+    "ra_profile_uuid"                    UUID REFERENCES "ra_profile" ("uuid") ON DELETE RESTRICT,
     "csr_template_uuid"                  UUID,
-    "delegated_signer_connector_uuid"    UUID    REFERENCES "connector" ("uuid") ON DELETE SET NULL,
+    "delegated_signer_connector_uuid"    UUID REFERENCES "connector" ("uuid") ON DELETE RESTRICT,
     -- workflow (authoritative)
     "workflow_type"                      VARCHAR NOT NULL,
-    "signature_formatter_connector_uuid" UUID    REFERENCES "connector" ("uuid") ON DELETE SET NULL,
+    "signature_formatter_connector_uuid" UUID REFERENCES "connector" ("uuid") ON DELETE RESTRICT,
     "qualified_timestamp"                BOOLEAN,
     "default_policy_id"                  VARCHAR,
     "allowed_policy_ids"                 TEXT[],
@@ -55,7 +55,7 @@ ALTER TABLE "tsp_profile"
 ALTER TABLE "signing_profile"
     ADD CONSTRAINT fk_signing_profile_tsp_profile
         FOREIGN KEY ("tsp_profile_uuid")
-            REFERENCES "tsp_profile" ("uuid") ON DELETE SET NULL;
+            REFERENCES "tsp_profile" ("uuid") ON DELETE RESTRICT;
 
 ALTER TABLE "tsp_profile"
     ADD CONSTRAINT fk_tsp_default_signing_profile

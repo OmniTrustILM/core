@@ -3,19 +3,8 @@ package com.czertainly.core.dao.entity.signing;
 import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.core.dao.entity.Certificate;
-import com.czertainly.core.dao.entity.Connector;
-import com.czertainly.core.dao.entity.RaProfile;
-import com.czertainly.core.dao.entity.TokenProfile;
-import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import com.czertainly.core.dao.entity.*;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
@@ -24,7 +13,6 @@ import org.hibernate.type.SqlTypes;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
 @Getter
@@ -154,16 +142,11 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
 
     @Override
     public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass())
-            return false;
-        if (!super.equals(o))
-            return false;
-        SigningProfileVersion that = (SigningProfileVersion) o;
-        return Objects.equals(signingProfileUuid, that.signingProfileUuid) && Objects.equals(signingProfile, that.signingProfile) && Objects.equals(version, that.version) && signingScheme == that.signingScheme && managedSigningType == that.managedSigningType && Objects.equals(tokenProfileUuid, that.tokenProfileUuid) && Objects.equals(tokenProfile, that.tokenProfile) && Objects.equals(certificateUuid, that.certificateUuid) && Objects.equals(certificate, that.certificate) && Objects.equals(raProfileUuid, that.raProfileUuid) && Objects.equals(raProfile, that.raProfile) && Objects.equals(csrTemplateUuid, that.csrTemplateUuid) && Objects.equals(delegatedSignerConnectorUuid, that.delegatedSignerConnectorUuid) && Objects.equals(delegatedSignerConnector, that.delegatedSignerConnector) && workflowType == that.workflowType && Objects.equals(signatureFormatterConnectorUuid, that.signatureFormatterConnectorUuid) && Objects.equals(signatureFormatterConnector, that.signatureFormatterConnector) && Objects.equals(qualifiedTimestamp, that.qualifiedTimestamp) && Objects.equals(defaultPolicyId, that.defaultPolicyId) && Objects.equals(allowedPolicyIds, that.allowedPolicyIds) && Objects.equals(allowedDigestAlgorithms, that.allowedDigestAlgorithms) && Objects.equals(validateTokenSignature, that.validateTokenSignature);
+        return super.equals(o);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), signingProfileUuid, signingProfile, version, signingScheme, managedSigningType, tokenProfileUuid, tokenProfile, certificateUuid, certificate, raProfileUuid, raProfile, csrTemplateUuid, delegatedSignerConnectorUuid, delegatedSignerConnector, workflowType, signatureFormatterConnectorUuid, signatureFormatterConnector, qualifiedTimestamp, defaultPolicyId, allowedPolicyIds, allowedDigestAlgorithms, validateTokenSignature);
+        return super.hashCode();
     }
 }
