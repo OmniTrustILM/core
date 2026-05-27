@@ -4,7 +4,7 @@ import com.czertainly.api.model.core.logging.records.LogRecord;
 import com.czertainly.api.model.core.logging.records.ResourceRecord;
 import com.czertainly.core.logging.AuditLogEnhancer;
 import com.czertainly.core.messaging.model.AuditLogMessage;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 @AllArgsConstructor
 public class AuditLogsListener implements MessageProcessor<AuditLogMessage> {
 
-    private final AuditLogService auditLogService;
+    private final AuditLogInternalService auditLogService;
     private final AuditLogEnhancer auditLogEnhancer;
 
     @Override

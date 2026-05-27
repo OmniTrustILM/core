@@ -153,7 +153,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private ComplianceService complianceService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationService locationService;
     private CryptographicKeyService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
@@ -298,7 +298,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
