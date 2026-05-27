@@ -406,16 +406,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new CertificateOperationException("Unexpected SYNC_NO_CONTENT from authority on issue");
             }
         } catch (Exception e) {
-            if (connectorAccepted) {
-                String msg = "Connector accepted issue but local state update failed: " + safeMessage(e);
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
-                        CertificateEventStatus.FAILED, msg, "");
-                logger.error("Local state update failed after connector accepted issue for cert {}: {}",
-                        certificate.getUuid(), e.getMessage(), e);
-                throw new CertificateOperationException(msg);
-            }
-            handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
-            throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
+            throw issueFamilyFailure(certificate, certificateUuid, null, CertificateEvent.ISSUE,
+                    null, connectorAccepted, "issue", e);
         }
 
         // push certificate to locations
@@ -524,6 +516,31 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             return msg != null ? msg : e.getClass().getSimpleName();
         }
         return "internal error (see server logs)";
+    }
+
+    /**
+     * Shared failure handling for the issue-family actions (issue / renew / rekey). Centralizes
+     * the state-divergence decision: when the connector already accepted the operation, surface
+     * the local failure WITHOUT rolling back state (audit + rethrow); otherwise run the normal
+     * failure cleanup and rethrow. Returns the exception for the caller to throw so control flow
+     * stays obvious at the call site.
+     */
+    private CertificateOperationException issueFamilyFailure(
+            Certificate certificate, UUID certUuid, UUID oldCertUuid, CertificateEvent event,
+            Map<String, Object> additionalInfo, boolean connectorAccepted, String noun, Exception e) {
+        if (connectorAccepted) {
+            String msg = "Connector accepted " + noun + " but local state update failed: " + safeMessage(e);
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), event,
+                    CertificateEventStatus.FAILED, msg,
+                    additionalInfo == null || additionalInfo.isEmpty() ? "" : MetaDefinitions.serialize(additionalInfo));
+            logger.error("Local state update failed after connector accepted {} for cert {}: {}",
+                    noun, certificate.getUuid(), e.getMessage(), e);
+            return new CertificateOperationException(msg);
+        }
+        handleFailedOrRejectedEvent(certificate, oldCertUuid, CertificateState.FAILED, event,
+                additionalInfo != null ? additionalInfo : new HashMap<>(), e.getMessage());
+        return new CertificateOperationException(
+                "Failed to " + noun + " certificate with UUID %s: ".formatted(certUuid) + safeMessage(e));
     }
 
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
@@ -734,16 +751,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on renew");
             }
         } catch (Exception e) {
-            if (connectorAccepted) {
-                String msg = "Connector accepted renew but local state update failed: " + safeMessage(e);
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.RENEW,
-                        CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
-                logger.error("Local state update failed after connector accepted renew for cert {}: {}",
-                        certificate.getUuid(), e.getMessage(), e);
-                throw new CertificateOperationException(msg);
-            }
-            handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
-            throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
+            throw issueFamilyFailure(certificate, certificateUuid, oldCertificate.getUuid(), CertificateEvent.RENEW,
+                    additionalInformation, connectorAccepted, "renew", e);
         }
 
         Location location = null;
@@ -944,16 +953,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 case SYNC_NO_CONTENT -> throw new IllegalStateException("Unexpected SYNC_NO_CONTENT from authority on rekey");
             }
         } catch (Exception e) {
-            if (connectorAccepted) {
-                String msg = "Connector accepted rekey but local state update failed: " + safeMessage(e);
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REKEY,
-                        CertificateEventStatus.FAILED, msg, MetaDefinitions.serialize(additionalInformation));
-                logger.error("Local state update failed after connector accepted rekey for cert {}: {}",
-                        certificate.getUuid(), e.getMessage(), e);
-                throw new CertificateOperationException(msg);
-            }
-            handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
-            throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + safeMessage(e));
+            throw issueFamilyFailure(certificate, certificateUuid, oldCertificate.getUuid(), CertificateEvent.REKEY,
+                    additionalInformation, connectorAccepted, "rekey", e);
         }
 
         Location location = null;
