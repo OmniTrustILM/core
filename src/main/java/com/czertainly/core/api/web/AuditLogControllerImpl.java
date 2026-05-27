@@ -25,7 +25,7 @@ public class AuditLogControllerImpl implements AuditLogController {
     private AuditLogExternalService auditLogService;
 
     @Autowired
-    public void setAuditLogExternalService(AuditLogExternalService auditLogService) {
+    public void setAuditLogService(AuditLogExternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 
