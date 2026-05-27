@@ -3,7 +3,7 @@ package com.czertainly.core.auth.oauth2;
 import com.czertainly.api.model.core.logging.enums.*;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.util.OAuth2Constants;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,10 +24,10 @@ public class CzertainlyOAuth2FailureHandler implements AuthenticationFailureHand
 
     private static final Logger logger = LoggerFactory.getLogger(CzertainlyOAuth2FailureHandler.class);
 
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 

@@ -91,7 +91,7 @@ class EventHandlersTest extends BaseSpringBootTest {
     @Autowired
     private CertificateService certificateService;
     @Autowired
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
     @Autowired
     private RaProfileRepository raProfileRepository;
     @Autowired

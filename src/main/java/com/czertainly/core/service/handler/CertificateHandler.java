@@ -44,7 +44,7 @@ public class CertificateHandler {
 
     private ComplianceService complianceService;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private CryptographicKeyService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
@@ -72,7 +72,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
