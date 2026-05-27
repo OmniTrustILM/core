@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ActionServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private ActionService actionService;
+    private ActionExternalService actionService;
 
     @Test
     void sourceReferenceValid_noException() {
