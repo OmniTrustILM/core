@@ -909,6 +909,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             validationWriter.applyValidationResult(certificate.getUuid(), newStatus, now, null);
             certificate.setValidationStatus(newStatus);
             certificate.setStatusValidationTimestamp(now);
+            certificate.setCertificateValidationResult(null);
         }
 
         if (!oldStatus.equals(newStatus)) {
