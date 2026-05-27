@@ -223,14 +223,13 @@ public class ActionServiceImpl implements ActionExternalService {
         if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
             throw new ValidationException(propertyName + " must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
         }
-            AttributeContentType sourceContentType;
-            try {
-                sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
-            } catch (IllegalArgumentException e) {
-                throw new ValidationException("Invalid content type in " + propertyName + ": " + sourceParts[1]);
-            }
-            return sourceContentType;
+        AttributeContentType sourceContentType;
+        try {
+            sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Invalid content type in " + propertyName + ": " + sourceParts[1]);
         }
+        return sourceContentType;
     }
 
     private ExecutionItem createSendNotificationExecutionItem(Execution execution, ExecutionItemRequestDto executionItemRequestDto) throws NotFoundException {
@@ -249,9 +248,9 @@ public class ActionServiceImpl implements ActionExternalService {
         return executionItem;
     }
 
-    //endregion
+//endregion
 
-    //region Actions
+//region Actions
 
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.LIST)
@@ -353,5 +352,5 @@ public class ActionServiceImpl implements ActionExternalService {
         actionRepository.delete(action);
     }
 
-    //endregion
+//endregion
 }
