@@ -35,6 +35,15 @@ public interface AuthorityProviderAdapter {
 
     AdapterOperationResult revoke(Certificate cert, ClientCertificateRevocationDto req) throws ConnectorException;
 
+    /**
+     * Authority-instance attribute definitions. v2 lists via the function-group attribute endpoint
+     * (`/v1/authorityProvider/{kind}/attributes`); v3 via the stateless
+     * `/v3/authorityProvider/authorities/attributes`. Used by authority create/edit so the operator
+     * input is validated against the version-correct schema (legacy connectors do NOT use this —
+     * they stay on the function-group path in ConnectorService).
+     */
+    List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException;
+
     List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority) throws ConnectorException;
 
     List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority) throws ConnectorException;

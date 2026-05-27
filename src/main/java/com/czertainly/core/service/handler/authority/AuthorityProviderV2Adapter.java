@@ -110,6 +110,18 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
+    public List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+        // v2 authority-instance attributes come from the function-group attribute endpoint
+        // (/v1/authorityProvider/{kind}/attributes). Legacy (LEGACY_AUTHORITY_PROVIDER) connectors
+        // never reach this adapter — they stay on ConnectorService's function-group path.
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        return connectorApiFactory.getAttributeApiClient(connectorDto)
+                .listAttributeDefinitions(connectorDto,
+                        com.czertainly.api.model.core.connector.FunctionGroupCode.AUTHORITY_PROVIDER,
+                        authority.getKind());
+    }
+
+    @Override
     public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV2(connectorDto)

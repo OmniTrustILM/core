@@ -62,18 +62,20 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         connector.getFunctionGroups().add(c2fg);
         connectorRepository.save(connector);
 
-        // mergeAndValidateAttributes uses v1 attribute client regardless of connector version —
-        // stub the v1 paths for the attribute validate and list calls.
-        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
-        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes"))
+        // v3 authority-instance attribute definitions come from the stateless v3 endpoint
+        // (GET /v3/authorityProvider/authorities/attributes), NOT the legacy v1 function-group path.
+        mockServer.stubFor(WireMock.get(WireMock.urlPathEqualTo(V3_AUTHORITY_PATH + "/attributes"))
                 .willReturn(WireMock.okJson("[]")));
 
         // Stub the v3 checkAuthorityConnection endpoint (POST /v3/authorityProvider/authorities → 204)
         mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(V3_AUTHORITY_PATH))
                 .willReturn(WireMock.aResponse().withStatus(204)));
 
-        // Stub v1 createAuthorityInstance — should NOT be called
+        // Stub the legacy v1 attribute + create paths — none should be called for a v3 authority.
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes/validate"))
+                .willReturn(WireMock.okJson("true")));
+        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes"))
+                .willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock.post(WireMock.urlEqualTo("/v1/authorityProvider/authorities"))
                 .willReturn(WireMock.okJson("{ \"id\": 999 }")));
 
@@ -92,8 +94,13 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         // Verify that checkAuthorityConnection (v3) was called
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_AUTHORITY_PATH)));
 
-        // Verify that v1 createAuthorityInstance was NOT called
+        // Verify the v3 attribute endpoint was used for validation
+        mockServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo(V3_AUTHORITY_PATH + "/attributes")));
+
+        // Verify NONE of the legacy v1 paths were touched
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo("/v1/authorityProvider/authorities")));
+        mockServer.verify(0, WireMock.getRequestedFor(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes")));
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes/validate")));
 
         // Verify the saved authority has connectorInterfaceUuid set
         var saved = authorityInstanceReferenceRepository.findByName(req.getName());
@@ -130,6 +137,8 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         connector.getFunctionGroups().add(c2fg);
         connectorRepository.save(connector);
 
+        mockServer.stubFor(WireMock.get(WireMock.urlPathEqualTo(V3_AUTHORITY_PATH + "/attributes"))
+                .willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes/validate"))
                 .willReturn(WireMock.okJson("true")));
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/authorityProvider/V3TestKind/attributes"))
@@ -157,6 +166,36 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         var saved = authorityInstanceReferenceRepository.findByName(req.getName()).orElseThrow();
         assertEquals(v3Interface.getUuid(), saved.getConnectorInterfaceUuid(),
                 "explicit interfaceUuid must bind the v3 interface even when a v2 interface also exists");
+    }
+
+    @Test
+    void editV3Authority_usesCheckConnectionNotUpdateInstance() throws Exception {
+        // v3 is stateless: editing must re-probe via checkAuthorityConnection (POST /v3/.../authorities)
+        // and validate attributes against the v3 attribute endpoint — never the legacy v1
+        // updateAuthorityInstance (PUT /v1/authorityProvider/authorities/{uuid}).
+        mockServer.stubFor(WireMock.get(WireMock.urlPathEqualTo(V3_AUTHORITY_PATH + "/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(V3_AUTHORITY_PATH))
+                .willReturn(WireMock.aResponse().withStatus(204)));
+        mockServer.stubFor(WireMock.put(WireMock.urlPathMatching("/v1/authorityProvider/authorities/.*"))
+                .willReturn(WireMock.okJson("{ \"id\": 999 }")));
+
+        com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto req =
+                new com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto();
+        req.setAttributes(List.of());
+        req.setCustomAttributes(List.of());
+
+        AuthorityInstanceDto dto = authorityInstanceService.editAuthorityInstance(
+                SecuredUUID.fromUUID(authority.getUuid()), req);
+
+        assertNotNull(dto);
+        assertEquals(v3Interface.getUuid(),
+                authorityInstanceReferenceRepository.findByUuid(SecuredUUID.fromUUID(authority.getUuid()))
+                        .orElseThrow().getConnectorInterfaceUuid());
+
+        mockServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo(V3_AUTHORITY_PATH + "/attributes")));
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_AUTHORITY_PATH)));
+        mockServer.verify(0, WireMock.putRequestedFor(WireMock.urlPathMatching("/v1/authorityProvider/authorities/.*")));
     }
 
     @Test
