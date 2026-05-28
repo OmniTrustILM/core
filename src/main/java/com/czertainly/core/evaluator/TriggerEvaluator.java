@@ -339,9 +339,13 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
         final String sourceName;
         final AttributeContentType sourceContentType;
+        String sourceId = executionItem.getSourceFieldIdentifier();
+        String[] sourceParts = sourceId.split("\\|", -1);
+        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
+            throw new RuleException("fieldIdentifier must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
+        }
+        sourceName = sourceId.substring(0, sourceId.indexOf("|"));
         try {
-            String sourceId = executionItem.getSourceFieldIdentifier();
-            sourceName = sourceId.substring(0, sourceId.indexOf("|"));
             sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourceId.indexOf("|") + 1));
         } catch (IllegalArgumentException e) {
             throw new RuleException("Cannot parse source field identifier %s from execution item: %s".formatted(executionItem.getSourceFieldIdentifier(), e.getMessage()));
