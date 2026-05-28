@@ -151,7 +151,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private LocationRepository locationRepository;
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
+    private ComplianceExternalService complianceExternalService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationService locationService;
     private CryptographicKeyService cryptographicKeyService;
@@ -287,8 +288,13 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
+    }
+
+    @Autowired
+    public void setComplianceExternalService(ComplianceExternalService complianceExternalService) {
+        this.complianceExternalService = complianceExternalService;
     }
 
     @Autowired
@@ -1915,7 +1921,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private void certificateComplianceCheck(Certificate certificate) {
         if (certificate.getRaProfile() != null) {
             try {
-                complianceService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
+                complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
                 logger.debug("Error when checking compliance: {}", e.getMessage());
             }
@@ -1980,7 +1986,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             attributeEngine.updateMetadataAttributes(response.getMeta(), ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
 
             try {
-                complianceService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
+                complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
                 logger.error("Error when checking compliance:", e);
             }
