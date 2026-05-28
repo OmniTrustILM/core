@@ -35,7 +35,7 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.core.service.v2.ComplianceProfileService;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.RaProfileService;
@@ -71,7 +71,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     private CertificateRepository certificateRepository;
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
     private ComplianceProfileService complianceProfileService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
@@ -769,7 +769,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 

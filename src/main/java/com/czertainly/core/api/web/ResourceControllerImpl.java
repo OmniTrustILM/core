@@ -11,7 +11,7 @@ import com.czertainly.api.model.core.other.ResourceEventDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -24,10 +24,10 @@ import java.util.Map;
 @RestController
 public class ResourceControllerImpl implements ResourceController {
 
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 

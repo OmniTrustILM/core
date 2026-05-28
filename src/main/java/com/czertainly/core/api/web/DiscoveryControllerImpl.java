@@ -19,7 +19,7 @@ import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.DiscoveryService;
-import com.czertainly.core.service.SchedulerService;
+import com.czertainly.core.service.SchedulerExternalService;
 import com.czertainly.core.tasks.DiscoveryCertificateTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,10 +41,10 @@ public class DiscoveryControllerImpl implements DiscoveryController {
 
     private DiscoveryService discoveryService;
 
-    private SchedulerService schedulerService;
+    private SchedulerExternalService schedulerService;
 
     @Autowired
-    public void setSchedulerService(SchedulerService schedulerService) {
+    public void setSchedulerService(SchedulerExternalService schedulerService) {
         this.schedulerService = schedulerService;
     }
 

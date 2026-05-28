@@ -47,7 +47,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     private TspProfileService tspService;
 
     @Autowired
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
     private TspProfileRepository tspRepository;
