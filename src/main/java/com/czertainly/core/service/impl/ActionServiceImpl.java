@@ -17,6 +17,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ActionExternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -156,7 +157,7 @@ public class ActionServiceImpl implements ActionExternalService {
             throw new ValidationException("Missing field source or field identifier in an execution.");
         }
         if (executionItemRequestDto.getFieldSource() != FilterFieldSource.PROPERTY && executionItemRequestDto.getFieldSource() != FilterFieldSource.CUSTOM) {
-            throw new ValidationException("Missing field source or field identifier in an execution.");
+            throw new ValidationException("Field source must be PROPERTY or CUSTOM for set field execution.");
         }
         if (execution.getResource() == Resource.ANY || execution.getResource() == Resource.NONE) {
             throw new ValidationException("Resource %s is not allowed for execution type %s".formatted(execution.getResource().getLabel(), execution.getType().getLabel()));
@@ -166,7 +167,9 @@ public class ActionServiceImpl implements ActionExternalService {
         executionItem.setExecution(execution);
         executionItem.setFieldSource(executionItemRequestDto.getFieldSource());
         executionItem.setFieldIdentifier(executionItemRequestDto.getFieldIdentifier());
-        if (executionItem.getFieldSource() != FilterFieldSource.CUSTOM) {
+        if (executionItemRequestDto.getSourceFieldSource() != null || executionItemRequestDto.getSourceFieldIdentifier() != null) {
+            validateAndSetSourceReference(executionItem, executionItemRequestDto);
+        } else if (executionItem.getFieldSource() != FilterFieldSource.CUSTOM) {
             executionItem.setData(executionItemRequestDto.getData());
         } else {
             try {
@@ -183,6 +186,50 @@ public class ActionServiceImpl implements ActionExternalService {
         }
 
         return executionItem;
+    }
+
+    private void validateAndSetSourceReference(ExecutionItem executionItem, ExecutionItemRequestDto dto) {
+        if (dto.getSourceFieldSource() == null || dto.getSourceFieldIdentifier() == null) {
+            throw new ValidationException("Both sourceFieldSource and sourceFieldIdentifier must be provided together.");
+        }
+        if (dto.getFieldSource() != FilterFieldSource.CUSTOM) {
+            throw new ValidationException("Source field reference is only supported when target fieldSource is CUSTOM.");
+        }
+        if (dto.getSourceFieldSource() != FilterFieldSource.META
+                && dto.getSourceFieldSource() != FilterFieldSource.DATA
+                && dto.getSourceFieldSource() != FilterFieldSource.CUSTOM) {
+            throw new ValidationException("sourceFieldSource must be META, DATA, or CUSTOM.");
+        }
+        if (dto.getData() != null) {
+            throw new ValidationException("data must be null when sourceFieldSource is set — use source reference or static data, not both.");
+        }
+
+        // Validate source identifier format: name|ContentType
+        AttributeContentType sourceContentType = getAttributeContentType(dto.getSourceFieldIdentifier(), "sourceFieldIdentifier");
+
+        // Validate a target identifier format and extract a target content type
+        AttributeContentType targetContentType = getAttributeContentType(dto.getFieldIdentifier(), "fieldIdentifier");
+
+        if (sourceContentType != targetContentType) {
+            throw new ValidationException("Source content type " + sourceContentType + " does not match target content type " + targetContentType + ".");
+        }
+
+        executionItem.setSourceFieldSource(dto.getSourceFieldSource());
+        executionItem.setSourceFieldIdentifier(dto.getSourceFieldIdentifier());
+    }
+
+    private static @NonNull AttributeContentType getAttributeContentType(String sourceId, String propertyName) {
+        String[] sourceParts = sourceId.split("\\|", -1);
+        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
+            throw new ValidationException(propertyName + " must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
+        }
+        AttributeContentType sourceContentType;
+        try {
+            sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Invalid content type in " + propertyName + ": " + sourceParts[1]);
+        }
+        return sourceContentType;
     }
 
     private ExecutionItem createSendNotificationExecutionItem(Execution execution, ExecutionItemRequestDto executionItemRequestDto) throws NotFoundException {
