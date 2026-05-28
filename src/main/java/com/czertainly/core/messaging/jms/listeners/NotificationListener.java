@@ -318,7 +318,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private NotificationRecipientDto constructNotificationRecipientDto(NotificationRecipient recipient, String
-            notificationProviderKind) {
+            notificationProviderKind, Resource resource) {
         NotificationRecipientDto recipientDto;
         switch (recipient.getRecipientType()) {
             case USER -> {
@@ -356,8 +356,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
                 recipientDto = null;
             }
-            case MAPPED -> // The connector resolves contact details via mapped attributes — no name/email to set here
-                    recipientDto = new NotificationRecipientDto();
+            case MAPPED -> {
+                // The connector resolves contact details via mapped attributes — no email to set here
+                recipientDto = new NotificationRecipientDto();
+                recipientDto.setName("Mapped recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));            }
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));
         }
