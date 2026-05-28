@@ -39,7 +39,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.util.List;
 import java.util.UUID;
 
-class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
+class NotificationMappedIntegrationTest extends BaseSpringBootTest {
 
     private static final String MAPPING_ATTRIBUTE_UUID = "1e5657af-423b-4b4b-a9f7-b1150c584a4a";
     private static final String CONTACT_VALUE = "alice@example.com";
@@ -87,14 +87,14 @@ class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
 
         // Connector and notification instance
         Connector connector = new Connector();
-        connector.setName("testObjectContactConnector");
+        connector.setName("testMappedContactConnector");
         connector.setUrl("http://localhost:" + mockServer.port());
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
         NotificationInstanceReference instance = new NotificationInstanceReference();
-        instance.setName("testObjectContactInstance");
+        instance.setName("testMappedContactInstance");
         instance.setKind("EMAIL");
         instance.setConnectorUuid(connector.getUuid());
         instance.setNotificationInstanceUuid(UUID.randomUUID());
@@ -107,9 +107,9 @@ class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
         mapping.setNotificationInstanceRefUuid(instance.getUuid());
         notificationInstanceMappedAttributeRepository.save(mapping);
 
-        // Notification profile with OBJECT_CONTACT
+        // Notification profile with mapped_CONTACT
         NotificationProfileRequestDto profileRequest = new NotificationProfileRequestDto();
-        profileRequest.setName("objectContactProfile");
+        profileRequest.setName("mappedContactProfile");
         profileRequest.setRecipientType(RecipientType.MAPPED);
         profileRequest.setInternalNotification(false);
         profileRequest.setNotificationInstanceUuid(instance.getUuid());
@@ -122,7 +122,7 @@ class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testObjectContact_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
+    void testMappedContact_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
         UUID certificateUuid = UUID.randomUUID();
         attributeEngine.updateObjectCustomAttributeContent(
                 Resource.CERTIFICATE, certificateUuid,
@@ -142,7 +142,7 @@ class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testObjectContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
+    void testmappedContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
         // No updateObjectCustomAttributeContent call — this certificate has no attribute value set
         UUID certificateWithoutAttribute = UUID.randomUUID();
 
