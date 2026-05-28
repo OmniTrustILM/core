@@ -10,10 +10,12 @@ import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface TimeQualityConfigurationService extends ResourceExtensionService {
 
@@ -28,6 +30,11 @@ public interface TimeQualityConfigurationService extends ResourceExtensionServic
     TimeQualityConfigurationDto updateTimeQualityConfiguration(SecuredUUID uuid, TimeQualityConfigurationRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
 
     void deleteTimeQualityConfiguration(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Returns the cached model for the given UUID.
+     */
+    TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteTimeQualityConfigurations(List<SecuredUUID> uuids);
 }

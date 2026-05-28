@@ -8,6 +8,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
@@ -71,6 +72,7 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
+import com.czertainly.core.service.writer.CertificateValidationWriter;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
 import com.czertainly.core.settings.SettingsCache;
@@ -142,6 +144,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     private CertificateRepository certificateRepository;
     private CertificateChainService chainService;
+    private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
     private RaProfileService raProfileService;
@@ -151,7 +154,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private ComplianceService complianceService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationService locationService;
     private CryptographicKeyService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
@@ -251,6 +254,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
+    public void setValidationWriter(CertificateValidationWriter validationWriter) {
+        this.validationWriter = validationWriter;
+    }
+
+    @Autowired
     public void setCertificateRequestRepository(CertificateRequestRepository certificateRequestRepository) {
         this.certificateRequestRepository = certificateRequestRepository;
     }
@@ -291,7 +299,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -891,9 +899,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         } catch (Exception e) {
             logger.warn("Unable to validate the certificate {}: {}", certificate, e.getMessage());
             newStatus = CertificateValidationStatus.FAILED;
+            OffsetDateTime now = OffsetDateTime.now();
+            validationWriter.applyValidationResult(certificate.getUuid(), newStatus, now, null);
             certificate.setValidationStatus(newStatus);
-            certificate.setStatusValidationTimestamp(OffsetDateTime.now());
-            certificateRepository.save(certificate);
+            certificate.setStatusValidationTimestamp(now);
+            certificate.setCertificateValidationResult(null);
         }
 
         if (!oldStatus.equals(newStatus)) {
@@ -1692,7 +1702,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
     public List<CertificateDto> listScepCaCertificates(SecurityFilter filter, boolean intuneEnabled) {
         setupSecurityFilter(filter);
-        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, List.of("groups", "owner"),
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
                 CertificateUtil.constructQueryScepCaCertAcceptable(intuneEnabled));
         return certificates.stream().map(Certificate::mapToListDto).toList();
     }
@@ -1702,11 +1712,21 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     public List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter) {
         setupSecurityFilter(filter);
 
-        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, List.of("groups", "owner"),
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
                 CertificateUtil.constructQueryCmpSigningCertAcceptable());
 
         return certificates.stream()
                 .map(Certificate::mapToListDto).toList();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
+    public List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp) {
+        setupSecurityFilter(filter);
+
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
+                CertificateUtil.constructQueryDigitalSigningCertAcceptable(signingWorkflowType, qualifiedTimestamp));
+        return certificates.stream().map(Certificate::mapToListDto).toList();
     }
 
     @Override

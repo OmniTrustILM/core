@@ -1,13 +1,21 @@
 package com.czertainly.core.search;
 
+import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
+import com.czertainly.api.model.common.attribute.common.AttributeType;
+import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
+import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.czertainly.api.model.common.attribute.v3.content.TextAttributeContentV3;
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.search.FilterConditionOperator;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.enums.FilterField;
@@ -21,11 +29,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 
 class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
 
+    private static final String CUSTOM_ATTR_NAME = "tqc-tag";
+    private static final String CUSTOM_ATTR_VALUE = "strict-tag-value";
+
     @Autowired
     private TimeQualityConfigurationService timeQualityConfigurationService;
+
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @Autowired
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
@@ -35,7 +50,7 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
     private TimeQualityConfiguration guarded;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         // strict: leapSecondGuard=true, minReachable=3, samplesPerServer=8
         strict = new TimeQualityConfiguration();
         strict.setName("strict-tqc");
@@ -74,6 +89,22 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
         guarded.setMaxClockDrift(Duration.ofMillis(500));
         guarded.setLeapSecondGuard(true);
         guarded = timeQualityConfigurationRepository.save(guarded);
+
+        CustomAttributeV3 customAttr = new CustomAttributeV3();
+        customAttr.setUuid(UUID.randomUUID().toString());
+        customAttr.setName(CUSTOM_ATTR_NAME);
+        customAttr.setType(AttributeType.CUSTOM);
+        customAttr.setContentType(AttributeContentType.TEXT);
+        CustomAttributeProperties props = new CustomAttributeProperties();
+        props.setLabel("TQC Tag");
+        customAttr.setProperties(props);
+        attributeEngine.updateCustomAttributeDefinition(customAttr, List.of(Resource.TIME_QUALITY_CONFIGURATION));
+
+        RequestAttributeV3 requestAttr = new RequestAttributeV3();
+        requestAttr.setUuid(UUID.fromString(customAttr.getUuid()));
+        requestAttr.setName(CUSTOM_ATTR_NAME);
+        requestAttr.setContent(List.of(new TextAttributeContentV3("ref-1", CUSTOM_ATTR_VALUE)));
+        attributeEngine.updateObjectCustomAttributesContent(Resource.TIME_QUALITY_CONFIGURATION, strict.getUuid(), List.of(requestAttr));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -288,6 +319,33 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(1, response.getTotalItems());
         Assertions.assertEquals("strict-tqc", response.getItems().getFirst().getName());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Filter by custom attribute
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void filterByCustomAttribute_exactMatch_returnsOnlyTaggedConfiguration() {
+        List<TimeQualityConfigurationListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertEquals(1, results.size());
+        Assertions.assertEquals("strict-tqc", results.getFirst().getName());
+    }
+
+    @Test
+    void filterByCustomAttribute_notEquals_excludesTaggedConfiguration() {
+        List<TimeQualityConfigurationListDto> results = listWithFilters(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                        CUSTOM_ATTR_NAME + "|TEXT",
+                        FilterConditionOperator.NOT_EQUALS,
+                        CUSTOM_ATTR_VALUE));
+
+        Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("strict-tqc")));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
