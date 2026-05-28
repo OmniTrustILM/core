@@ -5,6 +5,7 @@ import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
+import com.czertainly.core.dao.entity.RaProfile;
 
 import java.util.List;
 
@@ -13,7 +14,11 @@ import java.util.List;
  */
 public interface RegisterCapability {
 
-    List<BaseAttribute> listRegisterAttributes(AuthorityInstanceReference authority) throws ConnectorException;
+    /**
+     * Dynamic register-attribute schema scoped to an RA profile (v3 stateless model: connector
+     * needs both authorityAttributes for upstream auth and raProfileAttributes for profile scope).
+     */
+    List<BaseAttribute> listRegisterAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException;
 
     /**
      * Sends a pre-registration request to the upstream CA for the given certificate placeholder.

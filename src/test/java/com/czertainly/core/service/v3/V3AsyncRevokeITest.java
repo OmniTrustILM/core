@@ -117,6 +117,29 @@ class V3AsyncRevokeITest extends BaseV3ITest {
     }
 
     @Test
+    void listIssueAttributes_v3WireBodyCarriesAuthorityAndRaProfileAttrs() throws Exception {
+        // The v3 /issue/attributes body must be a CertificateAttributeListRequestDto carrying
+        // BOTH authorityAttributes (to identify/authenticate the upstream CA) AND
+        // raProfileAttributes (to scope the returned dynamic-attribute schema to a specific
+        // profile). A bare List<RequestAttribute> would be ambiguous and prevent
+        // profile-specific schemas. Regression guard for M4-D4.
+        String v3IssueAttrs = "/v3/authorityProvider/certificates/issue/attributes";
+        mockServer.stubFor(WireMock.post(WireMock.urlEqualTo(v3IssueAttrs))
+                .willReturn(WireMock.okJson("[]")));
+
+        var issueAttrs = clientOperationService.listIssueCertificateAttributes(
+                SecuredParentUUID.fromUUID(authority.getUuid()),
+                raProfile.getSecuredUuid());
+        assertEquals(0, issueAttrs.size(), "stubbed empty schema");
+
+        // Substring match — matchingJsonPath treats empty arrays as absent in WireMock; we just
+        // need both field names present in the serialized body.
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo(v3IssueAttrs))
+                .withRequestBody(WireMock.containing("\"authorityAttributes\""))
+                .withRequestBody(WireMock.containing("\"raProfileAttributes\"")));
+    }
+
+    @Test
     void operatorRevoke_onV3Authority_validatesViaV3NotV2() throws Exception {
         // M4-D1: the operator-facing revokeCertificate pre-validates revoke attributes. It must
         // route through the v3 /revoke/attributes endpoint, NOT the legacy v2

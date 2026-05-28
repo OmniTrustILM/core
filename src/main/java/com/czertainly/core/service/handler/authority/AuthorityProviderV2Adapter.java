@@ -122,14 +122,15 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
-    public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+    public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
+        // v2 endpoint is keyed by authorityInstanceUuid alone — raProfile is unused (single per-authority schema).
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV2(connectorDto)
                 .listIssueCertificateAttributes(connectorDto, authority.getAuthorityInstanceUuid());
     }
 
     @Override
-    public List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+    public List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV2(connectorDto)
                 .listRevokeCertificateAttributes(connectorDto, authority.getAuthorityInstanceUuid());

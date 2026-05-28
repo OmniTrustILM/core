@@ -9,6 +9,7 @@ import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
+import com.czertainly.core.dao.entity.RaProfile;
 
 import java.util.List;
 
@@ -44,9 +45,16 @@ public interface AuthorityProviderAdapter {
      */
     List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException;
 
-    List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority) throws ConnectorException;
+    /**
+     * Dynamic issue-attribute schema scoped to a specific RA profile. v3 carries both
+     * {@code authorityAttributes} (auth/identity to the upstream CA) and {@code raProfileAttributes}
+     * (which profile/template determines the schema). v2 ignores {@code raProfile} — its endpoint
+     * is keyed by {@code authorityInstanceUuid} alone and returns a single per-authority schema.
+     */
+    List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException;
 
-    List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority) throws ConnectorException;
+    /** See {@link #listIssueAttributes} — identical semantics for revoke. */
+    List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException;
 
     /**
      * Connector-side validation of operator-supplied issue attributes. v2 calls the connector's

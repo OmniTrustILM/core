@@ -9,6 +9,7 @@ import com.czertainly.api.interfaces.client.v3.CertificateSyncApiClient;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.error.ErrorCode;
+import com.czertainly.api.model.connector.v3.certificate.CertificateAttributeListRequestDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateDataResponseDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationCancelRequestDto;
 import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusRequestDto;
@@ -132,17 +133,17 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
-    public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+    public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listIssueAttributes(connectorDto, authorityAttributesFor(authority));
+                .listIssueAttributes(connectorDto, attributeListRequest(authority, raProfile));
     }
 
     @Override
-    public List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+    public List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listRevokeAttributes(connectorDto, authorityAttributesFor(authority));
+                .listRevokeAttributes(connectorDto, attributeListRequest(authority, raProfile));
     }
 
     @Override
@@ -168,10 +169,10 @@ public class AuthorityProviderV3Adapter
     // ---- RegisterCapability ----
 
     @Override
-    public List<BaseAttribute> listRegisterAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+    public List<BaseAttribute> listRegisterAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listRegisterAttributes(connectorDto, authorityAttributesFor(authority));
+                .listRegisterAttributes(connectorDto, attributeListRequest(authority, raProfile));
     }
 
     @Override
@@ -301,6 +302,20 @@ public class AuthorityProviderV3Adapter
                 ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authority.getUuid())
                         .connector(authority.getConnectorUuid())
                         .build());
+    }
+
+    /**
+     * Builds the body for the three v3 attribute-list endpoints (issue/revoke/register). Both
+     * attribute blobs are required so the stateless connector can identify the upstream CA AND
+     * scope the returned schema to a specific RA profile. {@code raProfile} may be null only for
+     * authority-wide listing flows that don't exist today — callers go through the operator
+     * controller which always carries a profile.
+     */
+    private CertificateAttributeListRequestDto attributeListRequest(AuthorityInstanceReference authority, RaProfile raProfile) {
+        CertificateAttributeListRequestDto dto = new CertificateAttributeListRequestDto();
+        dto.setAuthorityAttributes(authorityAttributesFor(authority));
+        dto.setRaProfileAttributes(raProfile != null ? raProfileAttributesFor(raProfile, authority) : List.of());
+        return dto;
     }
 
     private AdapterOperationResult mapIssueRenewRegisterResponse(ResponseEntity<CertificateDataResponseDto> response) {

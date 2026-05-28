@@ -302,6 +302,6 @@ class AuthorityProviderV3AdapterTest {
         when(connectorService.getConnectorForApiClient(connectorUuid))
                 .thenThrow(new NotFoundException("Connector not found"));
 
-        assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority));
+        assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority, null));
     }
 }

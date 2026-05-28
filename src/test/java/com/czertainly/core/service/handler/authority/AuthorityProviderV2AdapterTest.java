@@ -250,7 +250,7 @@ class AuthorityProviderV2AdapterTest {
         List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
         when(certClient.listIssueCertificateAttributes(connectorInfo, "auth-instance-uuid")).thenReturn(expected);
 
-        List<BaseAttribute> result = adapter.listIssueAttributes(authority);
+        List<BaseAttribute> result = adapter.listIssueAttributes(authority, null);
 
         assertSame(expected, result);
     }
@@ -260,7 +260,7 @@ class AuthorityProviderV2AdapterTest {
         List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
         when(certClient.listRevokeCertificateAttributes(connectorInfo, "auth-instance-uuid")).thenReturn(expected);
 
-        List<BaseAttribute> result = adapter.listRevokeAttributes(authority);
+        List<BaseAttribute> result = adapter.listRevokeAttributes(authority, null);
 
         assertSame(expected, result);
     }
@@ -285,6 +285,6 @@ class AuthorityProviderV2AdapterTest {
         when(connectorService.getConnectorForApiClient(connectorUuid))
                 .thenThrow(new NotFoundException("Connector not found"));
 
-        assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority));
+        assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority, null));
     }
 }

@@ -67,7 +67,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         validateLegacyConnector(connector);
 
         // Adapter-routed so v3 authorities use the v3 list endpoint, not the v2 one.
-        return adapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef);
+        return adapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef, raProfile);
     }
 
     @Override
@@ -100,7 +100,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         adapter.validateIssueAttributes(authorityRef, attributes);
 
         // version-aware definitions
-        List<BaseAttribute> definitions = adapter.listIssueAttributes(authorityRef);
+        List<BaseAttribute> definitions = adapter.listIssueAttributes(authorityRef, raProfile);
 
         // local structural validation against definitions (both versions)
         attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), AttributeOperation.CERTIFICATE_ISSUE, definitions, attributes);
@@ -115,7 +115,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
 
-        return adapterFactory.forAuthority(authorityRef).listRevokeAttributes(authorityRef);
+        return adapterFactory.forAuthority(authorityRef).listRevokeAttributes(authorityRef, raProfile);
     }
 
     @Override
@@ -146,7 +146,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         adapter.validateRevokeAttributes(authorityRef, attributes);
 
         // version-aware definitions
-        List<BaseAttribute> definitions = adapter.listRevokeAttributes(authorityRef);
+        List<BaseAttribute> definitions = adapter.listRevokeAttributes(authorityRef, raProfile);
 
         // local structural validation against definitions (both versions)
         attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), AttributeOperation.CERTIFICATE_REVOKE, definitions, attributes);
