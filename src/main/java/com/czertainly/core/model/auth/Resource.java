@@ -80,7 +80,8 @@ public enum Resource {
 
     // SIGNING
     TIME_QUALITY_CONFIGURATION("timeQualityConfigurations"),
-    TSP_PROFILE("tspProfiles")
+    TSP_PROFILE("tspProfiles"),
+    SIGNING_PROFILE("signingProfiles"),
     ;
 
     @Schema(description = "Resource Name",

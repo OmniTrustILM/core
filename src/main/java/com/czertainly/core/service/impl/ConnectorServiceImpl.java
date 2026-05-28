@@ -84,6 +84,12 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    public Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException {
+        return connectorRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
+    }
+
+    @Override
     public ConnectorDto createConnector(ConnectorRequestDto request) throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         var requestV2 = new com.czertainly.api.model.core.connector.v2.ConnectorRequestDto();
         requestV2.setName(request.getName());

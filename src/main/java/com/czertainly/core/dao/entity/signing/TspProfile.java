@@ -4,9 +4,15 @@ import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.czertainly.core.service.model.Securable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
+
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -23,6 +29,19 @@ public class TspProfile extends UniquelyIdentifiedAndAudited implements Securabl
 
     @Column(name = "enabled", nullable = false)
     private boolean enabled = false;
+
+    @Column(name = "default_signing_profile_uuid")
+    private UUID defaultSigningProfileUuid;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "default_signing_profile_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private SigningProfile defaultSigningProfile;
+
+    public void setDefaultSigningProfile(SigningProfile defaultSigningProfile) {
+        this.defaultSigningProfile = defaultSigningProfile;
+        this.defaultSigningProfileUuid = defaultSigningProfile != null ? defaultSigningProfile.getUuid() : null;
+    }
 
     @Override
     public boolean equals(Object o) {
