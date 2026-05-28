@@ -30,6 +30,7 @@ import java.util.UUID;
  * @param <W>               Concrete {@link SigningWorkflow} subtype.
  * @param <SM>              Concrete {@link SigningSchemeModel} subtype.
  */
+@SuppressWarnings("java:S119")
 public record SigningProfileModel<W extends SigningWorkflow, SM extends SigningSchemeModel>(
         UUID uuid,
         String name,

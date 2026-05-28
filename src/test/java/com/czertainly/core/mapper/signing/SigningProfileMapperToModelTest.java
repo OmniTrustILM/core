@@ -1,5 +1,6 @@
 package com.czertainly.core.mapper.signing;
 
+import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -8,8 +9,8 @@ import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
-import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class SigningProfileMapperToModelTest {
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setCertificateUuid(CERT_UUID);
 
-        SigningProfileModel<ManagedTimestampingWorkflow, SigningSchemeModel> model =
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
                 SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
         assertEquals(PROFILE_UUID, model.uuid());
@@ -73,7 +74,7 @@ class SigningProfileMapperToModelTest {
         version.setTokenProfileUuid(TOKEN_UUID);
         version.setCsrTemplateUuid(CSR_TEMPLATE_UUID);
 
-        SigningProfileModel<ManagedTimestampingWorkflow, SigningSchemeModel> model =
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
                 SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
         OneTimeKeyManagedSigning scheme = assertInstanceOf(OneTimeKeyManagedSigning.class, model.signingScheme());
@@ -91,7 +92,7 @@ class SigningProfileMapperToModelTest {
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setCertificateUuid(CERT_UUID);
 
-        SigningProfileModel<ManagedTimestampingWorkflow, SigningSchemeModel> model =
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
                 SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
         assertTrue(model.enabledProtocols().isEmpty());
@@ -106,7 +107,7 @@ class SigningProfileMapperToModelTest {
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setCertificateUuid(CERT_UUID);
 
-        SigningProfileModel<ManagedTimestampingWorkflow, SigningSchemeModel> model =
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
                 SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
         assertNull(model.workflow().timeQualityConfigurationUuid());
@@ -119,9 +120,10 @@ class SigningProfileMapperToModelTest {
         version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
         version.setSigningScheme(SigningScheme.MANAGED);
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+        List<RequestAttribute> empty = List.of();
 
         assertThrows(IllegalArgumentException.class,
-                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of()));
+                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, empty, empty));
     }
 
     @Test
@@ -129,9 +131,10 @@ class SigningProfileMapperToModelTest {
         SigningProfile header = newHeader();
         SigningProfileVersion version = newTimestampingVersion();
         version.setSigningScheme(SigningScheme.DELEGATED);
+        List<RequestAttribute> empty = List.of();
 
         assertThrows(IllegalArgumentException.class,
-                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of()));
+                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, empty, empty));
     }
 
     @Test
@@ -140,9 +143,10 @@ class SigningProfileMapperToModelTest {
         SigningProfileVersion version = newTimestampingVersion();
         version.setSigningScheme(SigningScheme.MANAGED);
         version.setManagedSigningType(null);
+        List<RequestAttribute> empty = List.of();
 
         assertThrows(IllegalStateException.class,
-                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of()));
+                () -> SigningProfileMapper.toManagedTimestampingModel(header, version, empty, empty));
     }
 
     private static SigningProfile newHeader() {

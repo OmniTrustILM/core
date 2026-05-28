@@ -17,9 +17,8 @@ import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.model.signing.SigningProfileModel;
-import com.czertainly.core.model.signing.scheme.DelegatedSigning;
+import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
-import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
@@ -120,7 +119,7 @@ public class SigningProfileMapper {
      * @throws IllegalArgumentException if the profile's workflow type is not {@code TIMESTAMPING}
      *                                  or its signing scheme is not {@code MANAGED}
      */
-    public static SigningProfileModel<ManagedTimestampingWorkflow, SigningSchemeModel> toManagedTimestampingModel(
+    public static SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> toManagedTimestampingModel(
             SigningProfile header,
             SigningProfileVersion version,
             List<RequestAttribute> signingOperationAttributes,
@@ -139,7 +138,7 @@ public class SigningProfileMapper {
                 header.getUuid(), header.getName(), header.getDescription(),
                 ver, header.isEnabled(), protocols,
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
-                buildSchemeModel(version, signingOperationAttributes));
+                buildManagedSchemeModel(version, signingOperationAttributes));
     }
 
     public static SigningProfileListDto toListDto(SigningProfile profile) {
@@ -240,27 +239,20 @@ public class SigningProfileMapper {
     // Model-layer scheme builder (read UUID columns only)
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static SigningSchemeModel buildSchemeModel(SigningProfileVersion version,
-                                                       List<RequestAttribute> signingOperationAttributes) {
-        return switch (version.getSigningScheme()) {
-            case DELEGATED -> new DelegatedSigning(
-                    version.getDelegatedSignerConnectorUuid(),
-                    List.of());
-            case MANAGED -> {
-                if (version.getManagedSigningType() == null) {
-                    throw new IllegalStateException("MANAGED signing profile version has no managedSigningType");
-                }
-                yield switch (version.getManagedSigningType()) {
-                    case STATIC_KEY -> new StaticKeyManagedSigning(
-                            version.getCertificateUuid(),
-                            cacheSafeList(signingOperationAttributes));
-                    case ONE_TIME_KEY -> new OneTimeKeyManagedSigning(
-                            version.getRaProfileUuid(),
-                            version.getTokenProfileUuid(),
-                            version.getCsrTemplateUuid(),
-                            cacheSafeList(signingOperationAttributes));
-                };
-            }
+    private static ManagedSigning buildManagedSchemeModel(SigningProfileVersion version,
+                                                          List<RequestAttribute> signingOperationAttributes) {
+        if (version.getManagedSigningType() == null) {
+            throw new IllegalStateException("MANAGED signing profile version has no managedSigningType");
+        }
+        return switch (version.getManagedSigningType()) {
+            case STATIC_KEY -> new StaticKeyManagedSigning(
+                    version.getCertificateUuid(),
+                    cacheSafeList(signingOperationAttributes));
+            case ONE_TIME_KEY -> new OneTimeKeyManagedSigning(
+                    version.getRaProfileUuid(),
+                    version.getTokenProfileUuid(),
+                    version.getCsrTemplateUuid(),
+                    cacheSafeList(signingOperationAttributes));
         };
     }
 

@@ -40,7 +40,7 @@ public final class SigningProfileModelBuilder {
     public SigningProfileModelBuilder workflow(SigningWorkflow v) { this.workflow = v; return this; }
     public SigningProfileModelBuilder signingScheme(SigningSchemeModel v) { this.signingScheme = v; return this; }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "java:S119"})
     public <W extends SigningWorkflow, SM extends SigningSchemeModel> SigningProfileModel<W, SM> build() {
         return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, (W) workflow, (SM) signingScheme);
     }
