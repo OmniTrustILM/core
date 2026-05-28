@@ -53,10 +53,19 @@ public class ExecutionItem extends UniquelyIdentified {
     @Convert(converter = ObjectToJsonConverter.class)
     private Object data;
 
+    @Column(name = "source_field_source")
+    @Enumerated(EnumType.STRING)
+    private FilterFieldSource sourceFieldSource;
+
+    @Column(name = "source_field_identifier")
+    private String sourceFieldIdentifier;
+
     public ExecutionItemDto mapToDto() {
         ExecutionItemDto executionItemDto = new ExecutionItemDto();
         executionItemDto.setFieldSource(fieldSource);
         executionItemDto.setFieldIdentifier(fieldIdentifier);
+        executionItemDto.setSourceFieldSource(sourceFieldSource);
+        executionItemDto.setSourceFieldIdentifier(sourceFieldIdentifier);
         if (notificationProfileUuid != null) {
             executionItemDto.setNotificationProfileUuid(notificationProfileUuid.toString());
             executionItemDto.setNotificationProfileName(notificationProfile.getName());
