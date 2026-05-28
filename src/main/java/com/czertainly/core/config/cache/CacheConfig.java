@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
         ConnectorApiClientCacheProperties.class,
         CertificateChainCacheProperties.class,
         CryptographicKeyItemCacheProperties.class,
+        TimeQualityConfigurationCacheProperties.class,
         TspProfileCacheProperties.class,
 })
 public class CacheConfig {
@@ -29,6 +30,7 @@ public class CacheConfig {
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
+    public static final String TIME_QUALITY_CONFIGURATION_CACHE = "timeQualityConfiguration";
     public static final String TOKEN_AUTH_CACHE = "tokenAuth";
     public static final String TSP_PROFILE_CACHE = "tspProfile";
     public static final String USER_UUID_AUTH_CACHE = "userUuidAuth";
@@ -38,6 +40,7 @@ public class CacheConfig {
                                      CertificateChainCacheProperties certChainProperties,
                                      ConnectorApiClientCacheProperties connectorCacheProperties,
                                      CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
+                                     TimeQualityConfigurationCacheProperties tqcCacheProperties,
                                      TokenJtiIndex tokenJtiIndex,
                                      TspProfileCacheProperties tspProfileCacheProperties,
                                      UserCertificateIndex userCertificateIndex) {
@@ -74,6 +77,12 @@ public class CacheConfig {
         mgr.registerCustomCache(CRYPTOGRAPHIC_KEY_ITEM_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(cryptographicKeyItemCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(cryptographicKeyItemCacheProperties.maxSize())
+                .recordStats()
+                .build());
+
+        mgr.registerCustomCache(TIME_QUALITY_CONFIGURATION_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(tqcCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(tqcCacheProperties.maxSize())
                 .recordStats()
                 .build());
 
