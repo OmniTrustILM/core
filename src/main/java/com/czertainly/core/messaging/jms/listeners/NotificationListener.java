@@ -200,6 +200,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private List<NotificationRecipient> getRecipients(RecipientType recipientType, List<UUID> recipientUuids, ResourceEvent event, Object data, Resource resource, UUID objectUuid) {
+        if (recipientType == RecipientType.OBJECT_CONTACT) {
+            return List.of(new NotificationRecipient(RecipientType.OBJECT_CONTACT, objectUuid));
+        }
+
         if (recipientType != RecipientType.OWNER && recipientType != RecipientType.DEFAULT) {
             return recipientUuids.stream().map(recipientUuid -> new NotificationRecipient(recipientType, recipientUuid)).toList();
         }
@@ -285,8 +289,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                     continue;
                 }
 
-                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContent(recipient.getRecipientType().getRecipientResource(), recipient.getRecipientUuid());
-
+                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.OBJECT_CONTACT
+                        ? resource
+                        : recipient.getRecipientType().getRecipientResource();
+                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContent(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
                 recipientDto.setMappedAttributes(getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes));
                 recipientsDto.add(recipientDto);
@@ -349,6 +355,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
                 recipientDto = null;
             }
+            case OBJECT_CONTACT -> // The connector resolves contact details via mapped attributes — no name/email to set here
+                    recipientDto = new NotificationRecipientDto();
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));
         }
