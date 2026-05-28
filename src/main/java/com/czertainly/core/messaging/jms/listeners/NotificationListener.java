@@ -200,8 +200,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private List<NotificationRecipient> getRecipients(RecipientType recipientType, List<UUID> recipientUuids, ResourceEvent event, Object data, Resource resource, UUID objectUuid) {
-        if (recipientType == RecipientType.OBJECT_CONTACT) {
-            return List.of(new NotificationRecipient(RecipientType.OBJECT_CONTACT, objectUuid));
+        if (recipientType == RecipientType.MAPPED) {
+            return List.of(new NotificationRecipient(RecipientType.MAPPED, objectUuid));
         }
 
         if (recipientType != RecipientType.OWNER && recipientType != RecipientType.DEFAULT) {
@@ -289,7 +289,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                     continue;
                 }
 
-                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.OBJECT_CONTACT
+                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.MAPPED
                         ? resource
                         : recipient.getRecipientType().getRecipientResource();
                 List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContent(customAttributeResource, recipient.getRecipientUuid());
@@ -355,7 +355,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
                 recipientDto = null;
             }
-            case OBJECT_CONTACT -> // The connector resolves contact details via mapped attributes — no name/email to set here
+            case MAPPED -> // The connector resolves contact details via mapped attributes — no name/email to set here
                     recipientDto = new NotificationRecipientDto();
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));

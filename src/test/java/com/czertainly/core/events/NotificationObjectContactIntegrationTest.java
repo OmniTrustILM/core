@@ -110,7 +110,7 @@ class NotificationObjectContactIntegrationTest extends BaseSpringBootTest {
         // Notification profile with OBJECT_CONTACT
         NotificationProfileRequestDto profileRequest = new NotificationProfileRequestDto();
         profileRequest.setName("objectContactProfile");
-        profileRequest.setRecipientType(RecipientType.OBJECT_CONTACT);
+        profileRequest.setRecipientType(RecipientType.MAPPED);
         profileRequest.setInternalNotification(false);
         profileRequest.setNotificationInstanceUuid(instance.getUuid());
         profile = notificationProfileService.createNotificationProfile(profileRequest);
