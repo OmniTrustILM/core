@@ -36,7 +36,7 @@ No new fields added to any DTO.
 
 `NotificationProfileUpdateRequestDto` validation changes:
 
-- `isRecipientValid()` (`@AssertTrue`): add a guard at the top — `if (recipientType == RecipientType.OBJECT_CONTACT) return true;` — so the existing USER/GROUP/ROLE vs OWNER/NONE/DEFAULT logic is not applied to `OBJECT_CONTACT`, which requires neither `recipientUuids` nor any other UUID.
+- `isRecipientValid()` (`@AssertTrue`): add `OBJECT_CONTACT` to both sides of the existing condition, alongside `OWNER`, `NONE`, and `DEFAULT` — types that require no `recipientUuids`. The USER/GROUP/ROLE branch (requires non-empty `recipientUuids`) also excludes `OBJECT_CONTACT` explicitly.
 - A new `@AssertFalse isInternalNotificationInvalidForObjectContact()`: returns `true` (assertion fails) when `recipientType == OBJECT_CONTACT && internalNotification == true`. Internal notifications require a platform user UUID; `OBJECT_CONTACT` has none.
 - The existing `isInternalNotificationPossible()` (`@AssertFalse`) is left unchanged — it covers `NONE` and `DEFAULT` only.
 
