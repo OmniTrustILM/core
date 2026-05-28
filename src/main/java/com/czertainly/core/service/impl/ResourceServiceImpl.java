@@ -28,6 +28,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -80,7 +81,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<ResourceDto> listResources() {
         List<ResourceDto> resources = new ArrayList<>();
 
@@ -148,7 +149,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<SearchFieldDataByGroupDto> listResourceRuleFilterFields(Resource resource, boolean settable) throws NotFoundException {
 
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(resource, settable);
@@ -185,13 +186,13 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<ResourceEventDto> listResourceEvents(Resource resource) {
         return ResourceEvent.listEventsByResource(resource).stream().map(ResourceEventDto::new).toList();
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents() {
         return Arrays.stream(ResourceEvent.values())
                 .collect(Collectors.groupingBy(

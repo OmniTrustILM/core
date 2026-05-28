@@ -21,9 +21,9 @@ import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.security.authz.SelfPrincipalEndpoint;
 import com.czertainly.core.service.ApprovalExternalService;
 import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
@@ -146,14 +146,14 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void approveApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final ApprovalRecipient approvalRecipient = validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.APPROVED);
         processApprovalToTheNextStep(approvalUuid, approvalRecipient);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void rejectApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final Approval approval = findApprovalByUuid(approvalUuid);
         validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.REJECTED);
