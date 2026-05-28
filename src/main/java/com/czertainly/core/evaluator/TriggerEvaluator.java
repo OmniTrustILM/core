@@ -274,7 +274,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             for (ResponseMetadata responseAttributeDto : responseMetadata) {
                 // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
                 if (Objects.equals(responseAttributeDto.getName(), fieldIdentifierName) && fieldAttributeContentType == responseAttributeDto.getContentType() && evaluateConditionOnAttribute(responseAttributeDto.getContent(), responseAttributeDto.getContentType(), conditionValue, operator))
-                    return true;
+                        return true;
 
             }
         }
@@ -293,7 +293,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     @Override
     public void performActions(Trigger trigger, TriggerHistory triggerHistory, T object, Object data) throws RuleException {
-       Class resourceClass = ResourceToClass.getClassByResource(trigger.getResource());
+        Class resourceClass = ResourceToClass.getClassByResource(trigger.getResource());
         if (resourceClass == null) {
             throw new RuleException("Unknown class for resource " + trigger.getResource().getLabel());
         }
