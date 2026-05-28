@@ -590,7 +590,7 @@ public class CertificateValidationTest extends BaseSpringBootTest {
                 "delta upsert must have changed the revocation reason on serial 1234");
     }
 
-    private Certificate createTrustedCertEntity(X509Certificate cert) throws java.security.cert.CertificateException, NoSuchAlgorithmException {
+    private Certificate createTrustedCertEntity(X509Certificate cert) {
         Certificate entity = certificateService.createCertificateEntity(cert);
         entity.setTrustedCa(true);
         return certificateRepository.save(entity);

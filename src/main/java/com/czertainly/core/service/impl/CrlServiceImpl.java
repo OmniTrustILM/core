@@ -72,11 +72,13 @@ public class CrlServiceImpl implements CrlService {
 
         UUID caCertificateUuid = caCertificate != null ? caCertificate.getUuid() : null;
         // If CRL is not present or current UTC time is past its next_update timestamp, download the CRL and save the CRL and its entries in database
-        if (crl == null || crl.getNextUpdate().before(new Date())) {
-            Crl newCrl = createCrlAndCrlEntries(crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, crl);
+        if (crl == null) {
+            Crl newCrl = downloadAndPersistNewCrl(crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid);
             if (newCrl != null) {
                 crl = newCrl;
             }
+        } else if (crl.getNextUpdate().before(new Date())) {
+            refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid);
         }
 
         // Check if certificate has freshestCrl extension set
@@ -98,7 +100,26 @@ public class CrlServiceImpl implements CrlService {
         crlRepository.clearCaCertificateReferenceIn(caCertificateUuids);
     }
 
-    private Crl createCrlAndCrlEntries(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber, UUID caCertificateUuid, Crl oldCrl) throws IOException {
+    /**
+     * Downloads a CRL and persists it as a brand-new {@link Crl} entity.
+     *
+     * @return the freshly persisted entity, or {@code null} if no configured URL returned a usable CRL.
+     */
+    private Crl downloadAndPersistNewCrl(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber, UUID caCertificateUuid) throws IOException {
+        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, null);
+    }
+
+    /**
+     * Refreshes an existing {@link Crl} in place from the configured distribution points.
+     * The caller's {@code existing} reference is mutated when a newer CRL is found.
+     *
+     * @return {@code true} when a newer CRL was downloaded and applied; {@code false} when every reachable URL returned the same CRL number that is already stored.
+     */
+    private boolean refreshExistingCrl(Crl existing, byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber, UUID caCertificateUuid) throws IOException {
+        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, existing) != null;
+    }
+
+    private Crl downloadCrl(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber, UUID caCertificateUuid, Crl oldCrl) throws IOException {
         List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded);
 
         boolean failedToRead = false;
@@ -180,12 +201,10 @@ public class CrlServiceImpl implements CrlService {
             // Compare DeltaCRLIndicator with base CRL number, if they are not equal, try to get newer CRL
             String deltaCrlIndicator = JcaX509ExtensionUtils.parseExtensionValue(deltaCrl.getExtensionValue(Extension.deltaCRLIndicator.getId())).toString();
             if (!Objects.equals(deltaCrlIndicator, crl.getCrlNumber())) {
-                Crl newCrl = createCrlAndCrlEntries(certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()), issuerDn, issuerSerialNumber, caCertificateUuid, crl);
-                // If received CRL is null, it means it is the old one again, and we are not able to set delta CRL properly
-                if (newCrl == null)
+                // Delta CRL points at a newer base CRL than what we have on file; refresh the base CRL in place.
+                if (!refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()), issuerDn, issuerSerialNumber, caCertificateUuid)) {
                     throw new ValidationException("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
-                // Otherwise delete the old CRL and continue with the new CRL
-                crl = newCrl;
+                }
             }
             updateDeltaCrl(crl, deltaCrl);
             // Managed to process a delta CRL url and do not need to try other URLs
@@ -197,8 +216,18 @@ public class CrlServiceImpl implements CrlService {
     private void updateDeltaCrl(Crl crl, X509CRL deltaCrl) throws IOException {
         ASN1Primitive encodedCrlNumber = JcaX509ExtensionUtils.parseExtensionValue(deltaCrl.getExtensionValue(Extension.cRLNumber.getId()));
         // If delta CRL number has been set, check if delta CRL number is greater than one in DB entity, if it is, process delta CRL entries
-        if (crl.getCrlNumberDelta() != null && Integer.parseInt(encodedCrlNumber.toString()) <= Integer.parseInt(crl.getCrlNumberDelta())) {
-            return;
+        if (crl.getCrlNumberDelta() != null) {
+            int deltaCrlNumber;
+            int storedDeltaCrlNumber;
+            try {
+                deltaCrlNumber = Integer.parseInt(encodedCrlNumber.toString());
+                storedDeltaCrlNumber = Integer.parseInt(crl.getCrlNumberDelta());
+            } catch (NumberFormatException e) {
+                throw new ValidationException("Invalid CRL number format in delta CRL: " + e.getMessage());
+            }
+            if (deltaCrlNumber <= storedDeltaCrlNumber) {
+                return;
+            }
         }
 
         Map<String, CrlEntry> existing = new HashMap<>();
