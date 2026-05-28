@@ -100,7 +100,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private CertificateContentRepository certificateContentRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
 
     public DiscoveryServiceImpl(DiscoveryProperties discoveryProperties) {
@@ -113,7 +113,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

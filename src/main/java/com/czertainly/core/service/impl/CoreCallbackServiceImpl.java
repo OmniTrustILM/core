@@ -16,7 +16,7 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CoreCallbackService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,10 +32,10 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
 
     private CredentialService credentialService;
 
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 

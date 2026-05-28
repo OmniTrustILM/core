@@ -12,7 +12,7 @@ import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.AuthExternalService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -26,7 +26,7 @@ import java.util.List;
 public class AuthControllerImpl implements AuthController {
 
     private AuthExternalService authService;
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
     public void setAuthService(AuthExternalService authService) {
@@ -34,7 +34,7 @@ public class AuthControllerImpl implements AuthController {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 
