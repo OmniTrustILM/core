@@ -10,7 +10,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -23,10 +23,10 @@ import java.util.UUID;
 @RestController
 public class ComplianceControllerImpl implements ComplianceController {
 
-    private ComplianceService complianceService;
+    private ComplianceExternalService complianceService;
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceExternalService complianceService) {
         this.complianceService = complianceService;
     }
 

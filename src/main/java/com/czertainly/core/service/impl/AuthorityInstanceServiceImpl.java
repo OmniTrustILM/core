@@ -53,10 +53,10 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     private ConnectorApiFactory connectorApiFactory;
     private RaProfileService raProfileService;
     private AttributeEngine attributeEngine;
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
