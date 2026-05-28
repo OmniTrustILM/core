@@ -19,6 +19,14 @@ caching:
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
     max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
+  # TSP Profile cache caches TSP Profile by profile name for the timestamping hot path
+  tsp-profiles:
+    ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
+    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+  # TQC cache caches TimeQualityConfigurationModel by UUID for the signing pipeline
+  time-quality-configs:
+    ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
+    max-size: ${TQC_CACHE_MAX_SIZE:50}         # Maximum number of cached TQC models
 
 certificate:
   chain:

@@ -20,25 +20,30 @@ import java.util.concurrent.TimeUnit;
         ConnectorApiClientCacheProperties.class,
         CertificateChainCacheProperties.class,
         CryptographicKeyItemCacheProperties.class,
+        TimeQualityConfigurationCacheProperties.class,
+        TspProfileCacheProperties.class,
 })
 public class CacheConfig {
 
+    public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
+    public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
-    public static final String USER_UUID_AUTH_CACHE = "userUuidAuth";
-    public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
+    public static final String TIME_QUALITY_CONFIGURATION_CACHE = "timeQualityConfiguration";
     public static final String TOKEN_AUTH_CACHE = "tokenAuth";
-    public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
+    public static final String TSP_PROFILE_CACHE = "tspProfile";
+    public static final String USER_UUID_AUTH_CACHE = "userUuidAuth";
 
     @Bean
-    public CacheManager cacheManager(
-            AuthCacheProperties authCacheProperties,
-            CertificateChainCacheProperties certChainProperties,
-            ConnectorApiClientCacheProperties connectorCacheProperties,
-            CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
-            TokenJtiIndex tokenJtiIndex,
-            UserCertificateIndex userCertificateIndex) {
+    public CacheManager cacheManager(AuthCacheProperties authCacheProperties,
+                                     CertificateChainCacheProperties certChainProperties,
+                                     ConnectorApiClientCacheProperties connectorCacheProperties,
+                                     CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
+                                     TimeQualityConfigurationCacheProperties tqcCacheProperties,
+                                     TokenJtiIndex tokenJtiIndex,
+                                     TspProfileCacheProperties tspProfileCacheProperties,
+                                     UserCertificateIndex userCertificateIndex) {
         CaffeineCacheManager mgr = new CaffeineCacheManager(SYSTEM_USER_AUTH_CACHE, USER_UUID_AUTH_CACHE);
         mgr.setCaffeine(Caffeine.newBuilder()
                 .expireAfterWrite(authCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
@@ -72,6 +77,18 @@ public class CacheConfig {
         mgr.registerCustomCache(CRYPTOGRAPHIC_KEY_ITEM_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(cryptographicKeyItemCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(cryptographicKeyItemCacheProperties.maxSize())
+                .recordStats()
+                .build());
+
+        mgr.registerCustomCache(TIME_QUALITY_CONFIGURATION_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(tqcCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(tqcCacheProperties.maxSize())
+                .recordStats()
+                .build());
+
+        mgr.registerCustomCache(TSP_PROFILE_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(tspProfileCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(tspProfileCacheProperties.maxSize())
                 .recordStats()
                 .build());
 

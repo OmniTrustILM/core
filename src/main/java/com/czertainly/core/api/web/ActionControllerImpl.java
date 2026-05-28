@@ -9,7 +9,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.ActionService;
+import com.czertainly.core.service.ActionExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -21,10 +21,10 @@ import java.util.List;
 @RestController
 public class ActionControllerImpl implements ActionController {
 
-    private ActionService actionService;
+    private ActionExternalService actionService;
 
     @Autowired
-    public void setActionService(ActionService actionService) {
+    public void setActionService(ActionExternalService actionService) {
         this.actionService = actionService;
     }
 
@@ -53,7 +53,7 @@ public class ActionControllerImpl implements ActionController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.EXECUTION, operation = Operation.UPDATE)
-    public ExecutionDto updateExecution(@LogResource(uuid = true) String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException {
+    public ExecutionDto updateExecution(@LogResource(uuid = true) String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException {
         return actionService.updateExecution(executionUuid, request);
     }
 
@@ -83,7 +83,7 @@ public class ActionControllerImpl implements ActionController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.ACTION, operation = Operation.UPDATE)
-    public ActionDetailDto updateAction(@LogResource(uuid = true) String actionUuid, UpdateActionRequestDto request) throws NotFoundException {
+    public ActionDetailDto updateAction(@LogResource(uuid = true) String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException {
         return actionService.updateAction(actionUuid, request);
     }
 

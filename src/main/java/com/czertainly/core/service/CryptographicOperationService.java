@@ -98,7 +98,7 @@ public interface CryptographicOperationService {
      * @return list of Core-internal attribute definitions for signing operations
      * @throws ValidationException when the key algorithm is not supported
      */
-    List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm);
+    List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance

@@ -13,7 +13,8 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerExternalService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.AuthHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +28,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class TriggerServiceImpl implements TriggerService {
+public class TriggerServiceImpl implements TriggerExternalService, TriggerInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TriggerServiceImpl.class);
 
@@ -94,9 +95,7 @@ public class TriggerServiceImpl implements TriggerService {
         return triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid)).mapToDetailDto();
     }
 
-    @Override
-    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.DETAIL)
-    public Trigger getTriggerEntity(String triggerUuid) throws NotFoundException {
+    private Trigger getTriggerEntity(String triggerUuid) throws NotFoundException {
         return triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
     }
 
@@ -129,10 +128,17 @@ public class TriggerServiceImpl implements TriggerService {
 
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.UPDATE)
-    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException {
+    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
 
         Trigger trigger = triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
+
+        if (request.getName() != null) {
+            if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
+                throw new AlreadyExistException("Trigger with same name already exists.");
+            }
+            trigger.setName(request.getName());
+        }
 
         trigger.setDescription(request.getDescription());
         trigger.setType(request.getType());
@@ -196,6 +202,12 @@ public class TriggerServiceImpl implements TriggerService {
     //endregion
 
     //region Trigger Associations
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.LIST)
+    public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
+        return getTriggersAssociations(resource, associationObjectUuid);
+    }
 
     @Override
     public Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid) {
@@ -303,6 +315,7 @@ public class TriggerServiceImpl implements TriggerService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.DETAIL)
     public TriggerHistorySummaryDto getTriggerHistorySummary(String associationObjectUuid) throws NotFoundException {
         List<TriggerHistory> triggerHistories = triggerHistoryRepository.findByTriggerAssociationObjectUuidOrderByTriggerUuidAscTriggeredAtAsc(UUID.fromString(associationObjectUuid));
 

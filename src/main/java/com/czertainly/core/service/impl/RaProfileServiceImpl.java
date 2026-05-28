@@ -33,7 +33,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalProfileService;
+import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.core.service.v2.ComplianceProfileService;
 import com.czertainly.core.service.ComplianceService;
 import com.czertainly.core.service.v2.ConnectorService;
@@ -80,7 +80,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     private CmpProfileRepository cmpProfileRepository;
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     private CertificateContentRepository certificateContentRepository;
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.LIST)
@@ -814,7 +814,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setApprovalProfileService(ApprovalProfileService approvalProfileService) {
+    public void setApprovalProfileService(ApprovalProfileExternalService approvalProfileService) {
         this.approvalProfileService = approvalProfileService;
     }
 }

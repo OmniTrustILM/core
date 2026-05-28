@@ -10,7 +10,7 @@ import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -24,10 +24,10 @@ import java.util.UUID;
 @RestController
 public class TriggerControllerImpl implements TriggerController {
 
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
 
     @Autowired
-    public void setTriggerService(TriggerService triggerService) {
+    public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
     }
 
@@ -56,7 +56,7 @@ public class TriggerControllerImpl implements TriggerController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.TRIGGER, operation = Operation.UPDATE)
-    public TriggerDetailDto updateTrigger(@LogResource(uuid = true) String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException {
+    public TriggerDetailDto updateTrigger(@LogResource(uuid = true) String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         return triggerService.updateTrigger(triggerUuid, request);
     }
 
@@ -87,6 +87,6 @@ public class TriggerControllerImpl implements TriggerController {
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.TRIGGER, operation = Operation.LIST_ASSOCIATIONS)
     public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
-        return triggerService.getTriggersAssociations(resource, associationObjectUuid);
+        return triggerService.getEventTriggersAssociations(resource, associationObjectUuid);
     }
 }

@@ -25,7 +25,7 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.ResourceToClass;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.NotificationMessage;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.metamodel.Attribute;
@@ -58,11 +58,11 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     private AttributeEngine attributeEngine;
 
-    private TriggerService triggerService;
+    private TriggerInternalService triggerService;
     private NotificationProducer notificationProducer;
 
     @Autowired
-    public void setTriggerService(TriggerService triggerService) {
+    public void setTriggerService(TriggerInternalService triggerService) {
         this.triggerService = triggerService;
     }
 

@@ -577,7 +577,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Override
-    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) {
+    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException {
         // we need to list based on the key algorithm
         switch (keyAlgorithm) {
             case RSA -> {

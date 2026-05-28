@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @SuppressWarnings("java:S5778")
@@ -32,13 +33,13 @@ class TriggerServiceTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    RuleService ruleService;
+    RuleExternalService ruleService;
 
     @Autowired
-    private ActionService actionService;
+    private ActionExternalService actionService;
 
     @Autowired
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
 
     @Autowired
     private NotificationProfileExternalService notificationProfileService;
@@ -126,6 +127,7 @@ class TriggerServiceTest extends BaseSpringBootTest {
         execution = actionService.createExecution(executionRequest);
 
         UpdateActionRequestDto updateActionRequestDto = new UpdateActionRequestDto();
+        updateActionRequestDto.setName("CategorizeCertificatesAction");
         updateActionRequestDto.setExecutionsUuids(List.of(execution.getUuid()));
         actionService.updateAction(action.getUuid(), updateActionRequestDto);
     }
@@ -227,6 +229,13 @@ class TriggerServiceTest extends BaseSpringBootTest {
         actionRequest.setExecutionsUuids(executionsUuids);
 
         return actionService.createAction(actionRequest);
+    }
+
+    @Test
+    void testGetEventTriggersAssociations() {
+        Map<ResourceEvent, List<UUID>> result = triggerService.getEventTriggersAssociations(null, null);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
     }
 
     @Test

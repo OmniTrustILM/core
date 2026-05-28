@@ -4,6 +4,8 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationError;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.approval.*;
+import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserProfileDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
@@ -19,11 +21,14 @@ import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalExternalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
 import com.czertainly.core.util.AuthHelper;
+import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.RequestValidatorHelper;
 import jakarta.persistence.criteria.*;
 import org.apache.commons.lang3.function.TriFunction;
@@ -39,12 +44,19 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Duration;
 import java.util.*;
+import java.util.function.BiFunction;
 
-@Service
+@Service(Resource.Codes.APPROVAL)
 @Transactional
-public class ApprovalServiceImpl implements ApprovalService {
+public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ApprovalServiceImpl.class);
+
+    private static final BiFunction<Root<Approval>, CriteriaBuilder, Expression<String>> APPROVAL_NAME_EXPRESSION =
+            (root, cb) -> cb.concat(cb.concat(cb.concat(cb.concat(
+                    root.<ResourceAction>get("action").as(String.class), "/"),
+                    root.<Resource>get("resource").as(String.class)), "/"),
+                    root.<UUID>get("objectUuid").as(String.class));
 
     private ApprovalRepository approvalRepository;
 
@@ -65,6 +77,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public ApprovalResponseDto listApprovalsByObject(final SecurityFilter securityFilter, final Resource resource, final UUID objectUuid, final PaginationRequestDto paginationRequestDto) {
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
             final Predicate resourcePredicate = cb.equal(root.get("resource"), resource);
@@ -75,6 +88,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
     public ApprovalResponseDto listUserApprovals(final SecurityFilter securityFilter, final boolean withHistory, final PaginationRequestDto paginationRequestDto) {
         final UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
@@ -99,6 +113,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.DETAIL)
     public ApprovalDetailDto getApprovalDetail(final String uuid) throws NotFoundException {
         ApprovalDetailDto approvalDetailDto = findApprovalByUuid(uuid).mapToDetailDto();
 
@@ -131,12 +146,14 @@ public class ApprovalServiceImpl implements ApprovalService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void approveApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final ApprovalRecipient approvalRecipient = validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.APPROVED);
         processApprovalToTheNextStep(approvalUuid, approvalRecipient);
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void rejectApprovalRecipient(final String approvalUuid, final UserApprovalDto userApprovalDto) throws NotFoundException {
         final Approval approval = findApprovalByUuid(approvalUuid);
         validateAndSetPendingApprovalRecipient(UUID.fromString(approvalUuid), userApprovalDto, ApprovalStatusEnum.REJECTED);
@@ -370,5 +387,28 @@ public class ApprovalServiceImpl implements ApprovalService {
     @Autowired
     public void setApprovalRecipientHelper(ApprovalRecipientHelper approvalRecipientHelper) {
         this.approvalRecipientHelper = approvalRecipientHelper;
+    }
+
+    @Override
+    public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
+        return approvalRepository.findResourceObject(objectUuid, APPROVAL_NAME_EXPRESSION);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.DETAIL)
+    public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
+        return approvalRepository.findResourceObject(objectUuid.getValue(), APPROVAL_NAME_EXPRESSION);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
+    public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
+        TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, filters);
+        return approvalRepository.listResourceObjects(filter, APPROVAL_NAME_EXPRESSION, additionalWhereClause, pagination);
+    }
+
+    @Override
+    public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
+        // there is no method for updating approval
     }
 }

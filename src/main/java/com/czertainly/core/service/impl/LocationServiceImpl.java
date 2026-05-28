@@ -42,7 +42,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.LocationService;
 import com.czertainly.core.service.PermissionEvaluator;
@@ -87,7 +87,7 @@ public class LocationServiceImpl implements LocationService {
     private ConnectorService connectorService;
     private CertificateService certificateService;
     private ClientOperationService clientOperationService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
     private ApplicationEventPublisher applicationEventPublisher;
@@ -138,7 +138,7 @@ public class LocationServiceImpl implements LocationService {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
