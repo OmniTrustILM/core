@@ -283,7 +283,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             logger.debug("Processing recipient {} of type {}.", recipient.getRecipientUuid(), recipient.getRecipientType());
             try {
                 // construct recipient DTO
-                NotificationRecipientDto recipientDto = constructNotificationRecipientDto(recipient, notificationInstanceReference.getKind());
+                NotificationRecipientDto recipientDto = constructNotificationRecipientDto(recipient, notificationInstanceReference.getKind(), resource);
                 if (recipientDto == null) {
                     // this should happen only in case of recipient type NONE
                     continue;
