@@ -49,7 +49,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
     private ComplianceInternalRuleRepository internalRuleRepository;
     private ConditionItemRepository conditionItemRepository;
@@ -78,7 +78,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
