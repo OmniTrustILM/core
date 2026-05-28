@@ -1,15 +1,17 @@
-# Design: Custom Attribute Email Recipient for Notification Profiles
+# Design: OBJECT_CONTACT Recipient Type for Notification Profiles
 
 ## Overview
 
-Allow a notification profile to resolve its recipient email addresses from a STRING or TEXT custom attribute on the triggering resource object, rather than from a registered User, Group, or Role. This enables sending notifications to email addresses that are stored on the object itself — e.g. a certificate's `contactEmail` attribute — including addresses that do not belong to registered CZERTAINLY users.
+Allow a notification profile to resolve notification recipients from the triggering resource object itself, using the object's custom attributes and the existing mapping-attributes mechanism already used for USER and GROUP recipients. This enables sending notifications via whatever contact channel the connector supports (email, SMS, Slack, etc.) to an address stored on the object — e.g. a certificate's `contactEmail` custom attribute — without the sender needing to be a registered CZERTAINLY user.
+
+The contact resolution is entirely connector-driven: which custom attribute to read, how to interpret it, and what channel to use are determined by the notification instance's mapping attributes configuration, not by any field on the notification profile.
 
 ## Scope
 
-- One new `RecipientType`: `CUSTOM_ATTRIBUTE`
-- `NotificationProfileVersion` stores the attribute name to read at runtime
-- `NotificationListener` resolves the attribute, validates each value as an email address, and builds recipients
-- Both repos affected: `CZERTAINLY-Interfaces` (enum, DTOs) and `CZERTAINLY-Core` (entity, service validation, listener, model)
+- One new `RecipientType`: `OBJECT_CONTACT`
+- No new DB column — `NotificationProfileVersion` stores only `recipientType = OBJECT_CONTACT` and null `recipientUuids`
+- `NotificationListener` resolves the recipient to the triggering object itself, then uses the existing `getMappedAttributes()` path for contact resolution
+- Both repos affected: `CZERTAINLY-Interfaces` (enum, DTO validation) and `CZERTAINLY-Core` (listener, model)
 
 ## Data Model
 
@@ -18,125 +20,98 @@ Allow a notification profile to resolve its recipient email addresses from a STR
 New value added:
 
 ```java
-CUSTOM_ATTRIBUTE("customAttribute", "Custom Attribute",
-    "Recipient email is read from a STRING or TEXT custom attribute on the triggering resource object", null)
+OBJECT_CONTACT("objectContact", "Object Contact",
+    "Notification is sent to the contact of the triggering object, resolved via the notification instance's mapping attributes", null)
 ```
 
-`recipientResource` is `null` — there is no User/Group/Role entity backing this type.
+`recipientResource` is `null` — there is no User/Group/Role entity backing this type. The triggering object's resource and UUID are used at runtime.
 
 ### `NotificationProfileVersion` entity (CZERTAINLY-Core)
 
-One new nullable column added via Flyway migration:
-
-```java
-@Column(name = "recipient_attribute_name")
-private String recipientAttributeName;   // non-null only when recipientType = CUSTOM_ATTRIBUTE
-```
+No new column. For `OBJECT_CONTACT` profiles, `recipientUuids` is null/empty and `recipientType = OBJECT_CONTACT`. No Flyway migration needed.
 
 ### DTOs (CZERTAINLY-Interfaces)
 
-`NotificationProfileUpdateRequestDto` gains `recipientAttributeName` (nullable String).
-`NotificationProfileDetailDto` and `NotificationProfileResponseDto` gain the same field for read-back.
+No new fields added to any DTO.
 
-The existing `isRecipientValid()` `@AssertTrue` is updated to handle `CUSTOM_ATTRIBUTE`:
-- `CUSTOM_ATTRIBUTE` requires `recipientAttributeName` non-blank and `recipientUuids` empty
-- All other recipient types: `recipientAttributeName` is silently ignored even if set
+`NotificationProfileUpdateRequestDto` validation changes:
 
-The existing `isInternalNotificationPossible()` `@AssertFalse` is updated to also disallow `internalNotification=true` for `CUSTOM_ATTRIBUTE` — recipients are plain email addresses with no platform user UUIDs, so internal notifications cannot be created for them. `sendInternalNotifications` in `NotificationListener` already throws for unhandled recipient types, making this a required constraint.
+- `isRecipientValid()` (`@AssertTrue`): add a guard at the top — `if (recipientType == RecipientType.OBJECT_CONTACT) return true;` — so the existing USER/GROUP/ROLE vs OWNER/NONE/DEFAULT logic is not applied to `OBJECT_CONTACT`, which requires neither `recipientUuids` nor any other UUID.
+- A new `@AssertFalse isInternalNotificationInvalidForObjectContact()`: returns `true` (assertion fails) when `recipientType == OBJECT_CONTACT && internalNotification == true`. Internal notifications require a platform user UUID; `OBJECT_CONTACT` has none.
+- The existing `isInternalNotificationPossible()` (`@AssertFalse`) is left unchanged — it covers `NONE` and `DEFAULT` only.
 
 ## Creation-Time Validation
 
-Performed in `NotificationProfileServiceImpl` when creating or updating a profile with `recipientType = CUSTOM_ATTRIBUTE`:
-
-| # | Check | Error |
-|---|-------|-------|
-| 1 | `recipientAttributeName` is non-null and non-blank | Required when recipient type is CUSTOM_ATTRIBUTE |
-| 2 | `recipientUuids` is empty | Recipient UUIDs must not be set for CUSTOM_ATTRIBUTE type |
-| 3 | A custom attribute definition with that name exists and has `contentType = STRING` or `TEXT` | Attribute must exist and be of type STRING or TEXT |
-
-Check 3 looks up the attribute definition by name. The profile does not know which resource type it will be used with, so resource-type association is not checked at creation time — handled gracefully at runtime.
-
-For all other recipient types, `recipientAttributeName` is accepted silently without validation.
+No service-level validation required beyond the DTO `@AssertTrue`/`@AssertFalse` constraints. The notification profile stores `recipientType = OBJECT_CONTACT` with null `recipientUuids`, which is sufficient. Which custom attribute to read is determined at runtime by the notification instance's mapping attributes, not by anything stored on the profile.
 
 ## Runtime Behavior
 
-In `NotificationListener.getRecipients()`, new `CUSTOM_ATTRIBUTE` case:
+### `NotificationListener.getRecipients()`
 
-1. Call `attributeEngine.getObjectCustomAttributesContent(resource, objectUuid)` — the same call already used in `sendExternalNotifications` for mapped attributes
-2. Find the attribute matching `recipientAttributeName`
-   - Not found or has no content values → write trigger history record (warning), return empty list
-3. For each STRING/TEXT content value:
-   - **Valid email** (contains `@`, valid domain part) → create `NotificationRecipient` with `recipientType = CUSTOM_ATTRIBUTE` and `email` field set (`recipientUuid` is null)
-   - **Invalid email** → write trigger history record: `"Skipped invalid email address '<value>' from custom attribute '<name>'"`, skip this value, continue with remaining values
-4. Return the list of valid recipients
+New `OBJECT_CONTACT` case:
 
-### `NotificationRecipient` model change
+1. Return `List.of(new NotificationRecipient(RecipientType.OBJECT_CONTACT, objectUuid))` — the triggering object's UUID becomes the recipient UUID.
 
-`NotificationRecipient` gains an optional `email` field:
+No attribute reading happens at this stage. The actual contact resolution (which custom attribute, which channel) is deferred to `sendExternalNotifications()`.
+
+### `sendExternalNotifications()`
+
+At the point where recipient custom attributes are fetched for mapping (currently line 288 in `NotificationListener`):
 
 ```java
-private String email;   // non-null only for CUSTOM_ATTRIBUTE recipients
+// Current code (for USER/GROUP — uses the recipient entity's custom attributes):
+List<ResponseAttribute> recipientCustomAttributes =
+    attributeEngine.getObjectCustomAttributesContent(
+        recipient.getRecipientType().getRecipientResource(),
+        recipient.getRecipientUuid());
+
+// Updated code:
+Resource customAttributeResource = recipient.getRecipientType() == RecipientType.OBJECT_CONTACT
+    ? resource                                              // triggering object's resource type
+    : recipient.getRecipientType().getRecipientResource(); // USER/GROUP entity resource
+List<ResponseAttribute> recipientCustomAttributes =
+    attributeEngine.getObjectCustomAttributesContent(customAttributeResource, recipient.getRecipientUuid());
 ```
 
-### `constructNotificationRecipientDto` change
+For `OBJECT_CONTACT`: `resource` (the triggering object's resource, already a parameter of `sendExternalNotifications`) and `recipient.getRecipientUuid()` (= `objectUuid` set by `getRecipients()`) are used. The custom attributes of the triggering object are then passed to `getMappedAttributes()` exactly as USER/GROUP custom attributes are, and the connector receives the mapped values.
 
-New `CUSTOM_ATTRIBUTE` case in the switch:
+### `constructNotificationRecipientDto()`
+
+New `OBJECT_CONTACT` case in the switch:
 
 ```java
-case CUSTOM_ATTRIBUTE -> {
+case OBJECT_CONTACT -> {
     recipientDto = new NotificationRecipientDto();
-    recipientDto.setEmail(recipient.getEmail());
-    recipientDto.setName(recipient.getEmail());   // no entity name available
+    // No platform entity; name and contact details are resolved by the connector
+    // via mapped attributes — not populated here
 }
 ```
 
-### Mapped attributes for CUSTOM_ATTRIBUTE recipients
-
-`getMappedAttributes()` is called with the recipient's entity custom attributes. For `CUSTOM_ATTRIBUTE` recipients there is no backing entity, so an empty list is passed — no mapped attributes are sent to the connector for these recipients.
-
 ## Error Handling
 
-All failures are non-fatal and per-value:
-
-| Situation | Behaviour |
-|-----------|-----------|
-| Attribute not found on triggering object | Trigger history record written, nobody receives notification from this profile |
-| Attribute found but has no values | Same as above |
-| Attribute value is not a valid email | Trigger history record written, value skipped, remaining values still send |
-| `attributeEngine` call throws | Caught, trigger history record written, nobody receives notification from this profile |
+If `getObjectCustomAttributesContent()` throws for an `OBJECT_CONTACT` recipient, the existing error handling in `sendExternalNotifications()` applies (same as for USER/GROUP failures). If the triggering object has no custom attributes matching what the connector's mapping attributes expect, `getMappedAttributes()` returns an empty list and the connector receives no mapped attributes for that recipient.
 
 ## Testing
 
-### `NotificationProfileServiceTest` (creation-time validation)
-- `recipientType = CUSTOM_ATTRIBUTE` with valid STRING attribute name → accepted
-- `recipientType = CUSTOM_ATTRIBUTE` with valid TEXT attribute name → accepted
-- `recipientType = CUSTOM_ATTRIBUTE` with `recipientAttributeName` null or blank → rejected
-- `recipientType = CUSTOM_ATTRIBUTE` with non-empty `recipientUuids` → rejected
-- `recipientType = CUSTOM_ATTRIBUTE` with attribute name pointing to a non-STRING/TEXT attribute → rejected
-- `recipientType = CUSTOM_ATTRIBUTE` with attribute name not matching any definition → rejected
-- `recipientType = USER` with `recipientAttributeName` set → accepted (silently ignored)
-- `recipientType = CUSTOM_ATTRIBUTE` with `internalNotification = true` → rejected
+### DTO validation (`NotificationProfileUpdateRequestDto`)
+
+- `recipientType = OBJECT_CONTACT`, `recipientUuids = null`, `internalNotification = false` → valid
+- `recipientType = OBJECT_CONTACT`, `recipientUuids` non-empty → invalid (caught by `isRecipientValid()` guard allowing only null/empty UUIDs for OBJECT_CONTACT)
+- `recipientType = OBJECT_CONTACT`, `internalNotification = true` → invalid (caught by `isInternalNotificationInvalidForObjectContact()`)
+- `recipientType = USER`, `recipientUuids` non-empty, `internalNotification = true` → still valid (existing behavior unchanged)
+- `recipientType = NONE`, `internalNotification = true` → still invalid (existing `isInternalNotificationPossible()` unchanged)
 
 ### `NotificationListenerTest` (runtime behaviour)
-- Attribute exists with one valid email → one notification sent
-- Attribute exists with multiple valid emails → one notification per email
-- Attribute exists with mix of valid and invalid emails → valid ones sent, invalid ones produce trigger history records
-- Attribute not found on object → no notification sent, trigger history record written
-- Attribute found but empty → no notification sent, trigger history record written
+
+- `OBJECT_CONTACT` profile → `getRecipients()` returns one recipient with `(OBJECT_CONTACT, objectUuid)`
+- `sendExternalNotifications()` calls `getObjectCustomAttributesContent(resource, objectUuid)` — the triggering object's custom attributes
+- Connector receives mapped attributes derived from the triggering object
 
 ## Files Affected
 
 **CZERTAINLY-Interfaces:**
 - `src/main/java/com/czertainly/api/model/core/notification/RecipientType.java`
 - `src/main/java/com/czertainly/api/model/client/notification/NotificationProfileUpdateRequestDto.java`
-- `src/main/java/com/czertainly/api/model/client/notification/NotificationProfileDetailDto.java`
-- `src/main/java/com/czertainly/api/model/client/notification/NotificationProfileResponseDto.java`
 
 **CZERTAINLY-Core:**
-- `src/main/resources/db/migration/V<next>__add_recipient_attribute_name_to_notification_profile_version.sql`
-- `src/main/java/com/czertainly/core/dao/entity/notifications/NotificationProfileVersion.java`
-- `src/main/java/com/czertainly/core/service/impl/NotificationProfileServiceImpl.java`
-- `src/main/java/com/czertainly/core/messaging/model/NotificationRecipient.java`
 - `src/main/java/com/czertainly/core/messaging/jms/listeners/NotificationListener.java`
-- `src/test/java/com/czertainly/core/service/NotificationProfileServiceTest.java`
-- `src/test/java/com/czertainly/core/messaging/jms/listeners/NotificationListenerTest.java` (create if not exists)
