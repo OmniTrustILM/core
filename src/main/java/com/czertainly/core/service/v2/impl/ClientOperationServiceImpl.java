@@ -369,7 +369,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         final Certificate certificate = certificateRepository.findWithAssociationsByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         if (certificate.isArchived())
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate that has been archived. Certificate: %s", certificate.toStringShort())));
-        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL) {
+        if (certificate.getState() != CertificateState.REQUESTED
+                && certificate.getState() != CertificateState.PENDING_APPROVAL
+                && certificate.getState() != CertificateState.REGISTERED) {
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
         }
         if (certificate.getRaProfile() == null) {
@@ -620,10 +622,28 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueRequestedCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid) throws ConnectorException, NotFoundException {
+    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateSignRequestDto request) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException, CertificateRequestException {
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
-        if (certificate.getState() != CertificateState.REQUESTED) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with status %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+        CertificateState state = certificate.getState();
+
+        if (state == CertificateState.REQUESTED) {
+            if (request != null) {
+                throw new ValidationException(ValidationError.create(
+                        "Cannot supply a sign request body for a certificate in REQUESTED state — the existing CSR is used. Certificate: " + certificate));
+            }
+        } else if (state == CertificateState.REGISTERED) {
+            if (request == null || request.getRequest() == null || request.getRequest().isBlank()) {
+                throw new ValidationException(ValidationError.create(
+                        "Cannot issue a REGISTERED certificate without a CSR — the sign request body is required. Certificate: " + certificate));
+            }
+            // Attach the operator-supplied CSR to the existing REGISTERED cert. Identity
+            // (subject DN, SAN, extensions) and registration meta on the row are preserved;
+            // the V3 adapter's wire body replays meta automatically via the unified meta bag.
+            certificateService.addCertificateRequestToExisting(UUID.fromString(certificateUuid), request);
+        } else {
+            throw new ValidationException(ValidationError.create(String.format(
+                    "Cannot issue existing certificate in state %s — expected REQUESTED or REGISTERED. Certificate: %s",
+                    state.getLabel(), certificate)));
         }
 
         final ActionMessage actionMessage = new ActionMessage();

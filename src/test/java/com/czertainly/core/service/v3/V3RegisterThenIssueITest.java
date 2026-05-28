@@ -95,18 +95,23 @@ class V3RegisterThenIssueITest extends BaseV3ITest {
         assertEquals(CertificateState.REGISTERED, certAfterPoll.getState(),
                 "After COMPLETED poll, cert should be REGISTERED");
 
-        // Step 3: set cert to REQUESTED state so issueCertificateAction can process it,
-        // and attach a CSR as issueCertificateAction requires one.
+        // Step 3: operator finalizes the registration with a CSR via the real endpoint.
+        // issueExistingCertificate accepts {REQUESTED, REGISTERED} and, for REGISTERED, attaches
+        // the supplied CSR to the existing cert row before firing the ISSUE ActionMessage.
         String csrB64 = Base64.getEncoder().encodeToString(V3TestCertHelper.generateSelfSignedCsrDer());
-        certAfterPoll.setState(CertificateState.REQUESTED);
-        var csr = new com.czertainly.core.dao.entity.CertificateRequestEntity();
-        csr.setContent(csrB64);
-        csr.setCertificateRequestFormat(com.czertainly.api.model.core.enums.CertificateRequestFormat.PKCS10);
-        csr = certificateRequestRepository.save(csr);
-        certAfterPoll.setCertificateRequest(csr);
-        certAfterPoll.setCertificateRequestUuid(csr.getUuid());
-        certificateRepository.save(certAfterPoll);
+        com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto signReq =
+                new com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto();
+        signReq.setRequest(csrB64);
+        signReq.setFormat(com.czertainly.api.model.core.enums.CertificateRequestFormat.PKCS10);
 
+        clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(authority.getUuid()),
+                raProfile.getSecuredUuid(),
+                certAfterPoll.getUuid().toString(),
+                signReq);
+
+        // ActionMessage is JMS-mocked in this test profile; drive the action directly so the
+        // adapter.issue path runs (would normally be invoked by ActionsListener).
         clientOperationService.issueCertificateAction(certAfterPoll.getUuid(), true);
 
         // Step 4: cert ends in ISSUED

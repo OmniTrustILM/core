@@ -34,11 +34,12 @@ public class ClientOperationControllerImpl implements ClientOperationController 
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.ISSUE)
-    public ClientCertificateDataResponseDto issueRequestedCertificate(
+    public ClientCertificateDataResponseDto issueExistingCertificate(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
-            @LogResource(uuid = true) String certificateUuid) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException {
-        return clientOperationService.issueRequestedCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), certificateUuid);
+            @LogResource(uuid = true) String certificateUuid,
+            com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto request) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, com.czertainly.api.exception.AttributeException, com.czertainly.api.exception.CertificateRequestException {
+        return clientOperationService.issueExistingCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), certificateUuid, request);
     }
 
     @Override

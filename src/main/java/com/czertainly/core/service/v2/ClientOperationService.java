@@ -35,11 +35,22 @@ public interface ClientOperationService {
             ClientCertificateRequestDto request, CertificateProtocolInfo protocolInfo
     ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException;
 
-    ClientCertificateDataResponseDto issueRequestedCertificate(
+    /**
+     * Issue an existing certificate by UUID. State-aware:
+     * <ul>
+     *   <li>{@code REQUESTED}: the cert already has a CSR attached (protocol/approval flow).
+     *       {@code request} must be null. Issuance proceeds with the existing CSR.</li>
+     *   <li>{@code REGISTERED} (v3 pre-registered): {@code request} must carry a CSR + sign
+     *       attributes. The CSR is attached to the existing cert row, then issuance proceeds.
+     *       Identity (subject DN, SAN, extensions) and registration metadata are preserved.</li>
+     * </ul>
+     */
+    ClientCertificateDataResponseDto issueExistingCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
-            String certificateUuid
-    ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException;
+            String certificateUuid,
+            ClientCertificateSignRequestDto request
+    ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException, CertificateRequestException;
 
     ClientCertificateDataResponseDto issueCertificate(
             SecuredParentUUID authorityUuid,

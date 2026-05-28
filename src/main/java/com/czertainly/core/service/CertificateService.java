@@ -314,6 +314,16 @@ public interface CertificateService extends ResourceExtensionService {
     CertificateDetailDto issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException, AttributeException;
 
     /**
+     * Attach an operator-supplied CSR to an existing certificate row (must be in REGISTERED state).
+     * Used by the register→issue flow on v3 authorities: registration locks in the cert's identity
+     * (subject DN, SAN, extensions) at the upstream CA, then this method binds a CSR to that row
+     * before the standard issue path takes over. Identity fields and registration metadata on the
+     * cert row are preserved; only the CertificateRequestEntity association is set.
+     */
+    void addCertificateRequestToExisting(UUID certificateUuid, com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto request)
+            throws NotFoundException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, ConnectorException;
+
+    /**
      * List certificates eligible for CA certificate of SCEP requests
      *
      * @param filter        Security Filter

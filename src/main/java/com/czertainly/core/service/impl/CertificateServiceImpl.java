@@ -1782,6 +1782,67 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         return dto;
     }
 
+    @Override
+    @Transactional
+    public void addCertificateRequestToExisting(UUID certificateUuid, com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto signRequest)
+            throws NotFoundException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, ConnectorException {
+        Certificate certificate = certificateRepository.findByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (certificate.getState() != CertificateState.REGISTERED) {
+            throw new ValidationException(ValidationError.create(
+                    "addCertificateRequestToExisting requires REGISTERED state; cert " + certificateUuid + " is " + certificate.getState().getLabel()));
+        }
+        if (certificate.getRaProfile() == null) {
+            throw new ValidationException(ValidationError.create(
+                    "Cannot attach a CSR to a certificate without an RA profile association. Certificate: " + certificate));
+        }
+
+        CertificateRequestFormat format = signRequest.getFormat() != null ? signRequest.getFormat() : CertificateRequestFormat.PKCS10;
+        // Generate the normalized base64 CSR. generateBase64EncodedCsr lives on ClientOperationServiceImpl
+        // for the fresh-issue path; here the operator supplies the CSR content directly, so we use it as-is.
+        String csrContent = signRequest.getRequest();
+        byte[] decoded = java.util.Base64.getDecoder().decode(csrContent);
+        CertificateRequest parsed = CertificateRequestUtils.createCertificateRequest(decoded, format);
+
+        String fingerprint = CertificateUtil.getThumbprint(decoded);
+        Optional<CertificateRequestEntity> existingCsr = certificateRequestRepository.findByFingerprint(fingerprint);
+        CertificateRequestEntity csrEntity;
+        if (existingCsr.isPresent()) {
+            csrEntity = existingCsr.get();
+        } else {
+            csrEntity = certificate.prepareCertificateRequest(format);
+            csrEntity.setFingerprint(fingerprint);
+            csrEntity.setContent(csrContent);
+            setCertificateRequestEntitySignatureAlgorithms(parsed, csrEntity);
+            csrEntity = certificateRequestRepository.save(csrEntity);
+        }
+
+        if (signRequest.getCsrAttributes() != null && !signRequest.getCsrAttributes().isEmpty()) {
+            attributeEngine.updateObjectDataAttributesContent(
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, csrEntity.getUuid()).build(),
+                    signRequest.getCsrAttributes());
+        }
+        if (signRequest.getSignatureAttributes() != null && !signRequest.getSignatureAttributes().isEmpty()) {
+            attributeEngine.updateObjectDataAttributesContent(
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, csrEntity.getUuid())
+                            .operation(AttributeOperation.SIGN).build(),
+                    signRequest.getSignatureAttributes());
+        }
+
+        certificate.setCertificateRequest(csrEntity);
+        certificate.setCertificateRequestUuid(csrEntity.getUuid());
+        certificateRepository.save(certificate);
+
+        if (signRequest.getAttributes() != null && !signRequest.getAttributes().isEmpty()) {
+            UUID connectorUuid = certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid();
+            attributeEngine.updateObjectDataAttributesContent(
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                            .connector(connectorUuid)
+                            .operation(AttributeOperation.CERTIFICATE_ISSUE).build(),
+                    signRequest.getAttributes());
+        }
+    }
+
     private void setProtocolAssociations(CertificateProtocolInfo protocolInfo, Certificate certificate) throws NotFoundException, AttributeException {
         CertificateProtocolAssociation protocolAssociation = new CertificateProtocolAssociation();
         UUID protocolProfileUuid = protocolInfo.getProtocolProfileUuid();
