@@ -3,6 +3,9 @@ package com.czertainly.core.service;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
@@ -20,9 +23,11 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.AttributeDefinition;
 import com.czertainly.core.dao.entity.AttributeRelation;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.AttributeDefinitionRepository;
 import com.czertainly.core.dao.repository.AttributeRelationRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -62,6 +67,9 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeRelationRepository attributeRelationRepository;
+
+    @Autowired
+    private SigningProfileRepository signingProfileRepository;
 
     /**
      * A pre-existing TimeQualityConfiguration saved directly via repository.
@@ -236,9 +244,9 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testGetTimeQualityConfiguration_notFound_throwsNotFoundException() {
+        SecuredUUID nonExistentUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000001");
         Assertions.assertThrows(NotFoundException.class,
-                () -> timeQualityConfigurationService.getTimeQualityConfiguration(
-                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+                () -> timeQualityConfigurationService.getTimeQualityConfiguration(nonExistentUuid));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -334,8 +342,9 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
     @Test
     void testCreateTimeQualityConfiguration_duplicateName_throwsAlreadyExistException() throws AlreadyExistException, AttributeException, NotFoundException {
         timeQualityConfigurationService.createTimeQualityConfiguration(buildCreateRequest("duplicate-name"));
+        TimeQualityConfigurationRequestDto duplicateRequest = buildCreateRequest("duplicate-name");
         Assertions.assertThrows(AlreadyExistException.class,
-                () -> timeQualityConfigurationService.createTimeQualityConfiguration(buildCreateRequest("duplicate-name")));
+                () -> timeQualityConfigurationService.createTimeQualityConfiguration(duplicateRequest));
     }
 
     @Test
@@ -344,8 +353,9 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Mockito.doThrow(new DataIntegrityViolationException("unique constraint violation"))
                .when(timeQualityConfigurationRepository).saveAndFlush(any(TimeQualityConfiguration.class));
 
+        TimeQualityConfigurationRequestDto createRequest = buildCreateRequest("race-name");
         AlreadyExistException ex = Assertions.assertThrows(AlreadyExistException.class,
-                () -> timeQualityConfigurationService.createTimeQualityConfiguration(buildCreateRequest("race-name")));
+                () -> timeQualityConfigurationService.createTimeQualityConfiguration(createRequest));
         Assertions.assertTrue(ex.getMessage().contains("race-name"));
     }
 
@@ -355,9 +365,10 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Mockito.doThrow(new DataIntegrityViolationException("unique constraint violation"))
                .when(timeQualityConfigurationRepository).saveAndFlush(any(TimeQualityConfiguration.class));
 
+        SecuredUUID uuid = savedConfiguration.getSecuredUuid();
+        TimeQualityConfigurationRequestDto updateRequest = buildUpdateRequest("race-name");
         AlreadyExistException ex = Assertions.assertThrows(AlreadyExistException.class,
-                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(
-                        savedConfiguration.getSecuredUuid(), buildUpdateRequest("race-name")));
+                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(uuid, updateRequest));
         Assertions.assertTrue(ex.getMessage().contains("race-name"));
     }
 
@@ -403,11 +414,11 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testUpdateTimeQualityConfiguration_notFound_throwsNotFoundException() {
+        SecuredUUID nonExistentUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000001");
         TimeQualityConfigurationRequestDto request = buildUpdateRequest("does-not-matter");
 
         Assertions.assertThrows(NotFoundException.class,
-                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(
-                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001"), request));
+                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(nonExistentUuid, request));
     }
 
     @Test
@@ -444,9 +455,10 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
     @Test
     void testUpdateTimeQualityConfiguration_toExistingNameOfAnotherConfig_throwsAlreadyExistException() throws AlreadyExistException, AttributeException, NotFoundException {
         TimeQualityConfigurationDto second = timeQualityConfigurationService.createTimeQualityConfiguration(buildCreateRequest("config-beta"));
+        SecuredUUID secondUuid = SecuredUUID.fromString(second.getUuid());
         TimeQualityConfigurationRequestDto updateRequest = buildUpdateRequest("existing-tq-config");
         Assertions.assertThrows(AlreadyExistException.class,
-                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(SecuredUUID.fromString(second.getUuid()), updateRequest));
+                () -> timeQualityConfigurationService.updateTimeQualityConfiguration(secondUuid, updateRequest));
     }
 
     @Test
@@ -474,9 +486,58 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testDeleteTimeQualityConfiguration_notFound_throwsNotFoundException() {
+        SecuredUUID nonExistentUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000001");
         Assertions.assertThrows(NotFoundException.class,
-                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(
-                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(nonExistentUuid));
+    }
+
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_throwsValidationException() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        SecuredUUID uuid = savedConfiguration.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(uuid));
+    }
+
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_entityNotRemoved() throws NotFoundException {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        SecuredUUID uuid = savedConfiguration.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(uuid));
+        Assertions.assertTrue(timeQualityConfigurationRepository.findById(uuid.getValue()).isPresent(),
+                "Configuration must remain in the database when referenced by a signing profile");
+    }
+
+    @Test
+    void testDeleteTimeQualityConfiguration_referencedBySigningProfile_errorMessageContainsProfileName() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        SecuredUUID uuid = savedConfiguration.getSecuredUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> timeQualityConfigurationService.deleteTimeQualityConfiguration(uuid));
+        Assertions.assertTrue(ex.getMessage().contains("referencing-profile"),
+                "Error message should contain the name of the referencing signing profile");
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -504,6 +565,25 @@ class TimeQualityConfigurationServiceImplTest extends BaseSpringBootTest {
         Assertions.assertEquals(1, messages.size());
         Assertions.assertEquals("00000000-0000-0000-0000-000000000099", messages.getFirst().getUuid());
         Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteTimeQualityConfigurations_referencedBySigningProfile_returnsErrorMessage() {
+        SigningProfile profile = new SigningProfile();
+        profile.setName("bulk-referencing-profile");
+        profile.setEnabled(false);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setTimeQualityConfigurationUuid(savedConfiguration.getUuid());
+        signingProfileRepository.save(profile);
+
+        List<BulkActionMessageDto> messages = timeQualityConfigurationService.bulkDeleteTimeQualityConfigurations(
+                List.of(savedConfiguration.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedConfiguration.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertTrue(timeQualityConfigurationRepository.findById(savedConfiguration.getUuid()).isPresent(),
+                "Configuration must remain in the database after a failed bulk delete");
     }
 
     @Test
