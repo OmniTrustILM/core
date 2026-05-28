@@ -39,7 +39,7 @@ public class TimeQualityConfigurationMapper {
                 configuration.getUuid(),
                 configuration.getName(),
                 configuration.getAccuracy(),
-                configuration.getNtpServers(),
+                List.copyOf(configuration.getNtpServers()),
                 configuration.getNtpCheckInterval(),
                 configuration.getNtpSamplesPerServer(),
                 configuration.getNtpCheckTimeout(),
