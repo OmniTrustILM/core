@@ -31,6 +31,7 @@ import com.czertainly.core.service.NotificationInternalService;
 import com.czertainly.core.service.ResourceObjectAssociationService;
 import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.service.v2.ConnectorService;
+import com.czertainly.core.util.AuthHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
@@ -292,7 +293,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 Resource customAttributeResource = recipient.getRecipientType() == RecipientType.MAPPED
                         ? resource
                         : recipient.getRecipientType().getRecipientResource();
-                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContent(customAttributeResource, recipient.getRecipientUuid());
+                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContentNoAuth(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
                 recipientDto.setMappedAttributes(getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes));
                 recipientsDto.add(recipientDto);

@@ -721,6 +721,11 @@ public class AttributeEngine {
         return getObjectCustomAttributesContent(objectType, objectUuid, securityResourceFilter);
     }
 
+    public List<ResponseAttribute> getObjectCustomAttributesContentNoAuth(Resource objectType, UUID objectUuid) {
+        List<ObjectAttributeContent> objectContents = attributeContent2ObjectRepository.getObjectCustomAttributesContent(AttributeType.CUSTOM, objectType, objectUuid, null, null);
+        return getResponseAttributes(objectContents);
+    }
+
     private List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid, SecurityResourceFilter securityResourceFilter) {
         List<UUID> allowedAttributes = null;
         List<UUID> forbiddenAttributes = null;
