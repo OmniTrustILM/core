@@ -14,7 +14,7 @@ public interface ComplianceInternalService {
      * Get the latest compliance check result for the specified resource object using the provided compliance result
      *
      * @param resource Resource of the object
-     * @param objectUuid UUID of the
+     * @param objectUuid UUID of the object
      * @param complianceResult ComplianceResultDto containing the compliance check result data
      * @return ComplianceCheckResultDto containing the result of the latest compliance check
      */
