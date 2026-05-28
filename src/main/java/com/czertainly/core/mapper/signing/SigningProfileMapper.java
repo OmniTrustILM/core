@@ -48,7 +48,7 @@ public class SigningProfileMapper {
         dto.setUuid(header.getUuid().toString());
         dto.setName(header.getName());
         dto.setDescription(header.getDescription());
-        dto.setVersion(version.getVersion() != null ? version.getVersion() : 1);
+        dto.setVersion(version.getVersion());
         dto.setEnabled(header.isEnabled());
         dto.setCustomAttributes(safeList(customAttributes));
 
@@ -118,6 +118,8 @@ public class SigningProfileMapper {
      *
      * @throws IllegalArgumentException if the profile's workflow type is not {@code TIMESTAMPING}
      *                                  or its signing scheme is not {@code MANAGED}
+     * @throws IllegalStateException    if the version's {@code managedSigningType} is {@code null}
+     *                                  despite declaring a managed scheme (DB integrity violation)
      */
     public static SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> toManagedTimestampingModel(
             SigningProfile header,
@@ -132,11 +134,9 @@ public class SigningProfileMapper {
         }
 
         List<SigningProtocol> protocols = header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
-        int ver = version.getVersion() != null ? version.getVersion() : 1;
-
         return new SigningProfileModel<>(
                 header.getUuid(), header.getName(), header.getDescription(),
-                ver, header.isEnabled(), protocols,
+                version.getVersion(), header.isEnabled(), protocols,
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes));
     }

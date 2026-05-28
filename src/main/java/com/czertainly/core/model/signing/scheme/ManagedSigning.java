@@ -11,7 +11,6 @@ import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
  * switch (model.signingScheme()) {
  *     case StaticKeyManagedSigning s -> s.certificateUuid();
  *     case OneTimeKeyManagedSigning o -> o.raProfileUuid();
- *     case DelegatedSigning d -> d.connectorUuid();
  * }
  * }</pre>
  */
