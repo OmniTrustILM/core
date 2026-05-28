@@ -160,6 +160,7 @@ public class CrlServiceImpl implements CrlService {
 
             UUID persistedUuid = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
             crl.setUuid(persistedUuid);
+            crl.setLastRevocationDate(lastRevocationDate);
             return crl;
         }
 
@@ -200,11 +201,10 @@ public class CrlServiceImpl implements CrlService {
 
             // Compare DeltaCRLIndicator with base CRL number, if they are not equal, try to get newer CRL
             String deltaCrlIndicator = JcaX509ExtensionUtils.parseExtensionValue(deltaCrl.getExtensionValue(Extension.deltaCRLIndicator.getId())).toString();
-            if (!Objects.equals(deltaCrlIndicator, crl.getCrlNumber())) {
-                // Delta CRL points at a newer base CRL than what we have on file; refresh the base CRL in place.
-                if (!refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()), issuerDn, issuerSerialNumber, caCertificateUuid)) {
-                    throw new ValidationException("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
-                }
+            // Delta CRL points at a newer base CRL than what we have on file; refresh the base CRL in place.
+            if (!Objects.equals(deltaCrlIndicator, crl.getCrlNumber())
+                    && !refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()), issuerDn, issuerSerialNumber, caCertificateUuid)) {
+                throw new ValidationException("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
             }
             updateDeltaCrl(crl, deltaCrl);
             // Managed to process a delta CRL url and do not need to try other URLs

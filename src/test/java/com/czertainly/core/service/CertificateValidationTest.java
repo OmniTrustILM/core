@@ -604,7 +604,7 @@ public class CertificateValidationTest extends BaseSpringBootTest {
 
     private void replaceStub(String urlPath, byte[] body) {
         mockServer.getStubMappings().stream()
-                .filter(s -> s.getRequest().getUrl() != null && s.getRequest().getUrl().equals(urlPath))
+                .filter(s -> urlPath.equals(s.getRequest().getUrlPathPattern()))
                 .findFirst()
                 .ifPresent(s -> mockServer.removeStubMapping(s));
         stubCrlPoint(urlPath, body);
