@@ -142,7 +142,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testmappedContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
+    void testMappedContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
         // No updateObjectCustomAttributeContent call — this certificate has no attribute value set
         UUID certificateWithoutAttribute = UUID.randomUUID();
 
@@ -155,8 +155,8 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         // Processing must not throw — missing attribute is handled gracefully
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
-        // Connector is still called — the notification is not silently dropped
-        mockServer.verify(1, WireMock.postRequestedFor(
+        // Connector is not called
+        mockServer.verify(0, WireMock.postRequestedFor(
                 WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify")));
     }
 }

@@ -295,8 +295,14 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 // Unauthenticated lookup is correct here, since the access to the custom attributes has been resolved when defining mapping attributes.
                 List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContentNoAuth(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
-                recipientDto.setMappedAttributes(getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes));
+                List<RequestAttribute> mappedAttributes = getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes);
+                if (recipient.getRecipientType() == RecipientType.MAPPED && mappedAttributes.isEmpty()) {
+                    throw new ValidationException("Notification recipient with MAPPED type does not have any mapped attributes resolved, notification cannot be sent for this recipient.");
+                }
+                recipientDto.setMappedAttributes(mappedAttributes);
                 recipientsDto.add(recipientDto);
+            } catch (ValidationException e) {
+                throw e;
             } catch (Exception e) {
                 logger.warn("{} with UUID {} was not found or retrieval of its attributes failed: {}. Notification was not sent for this recipient.", recipient.getRecipientType().getLabel(), recipient.getRecipientUuid(), e.getMessage());
             }
@@ -359,7 +365,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             case MAPPED -> {
                 // The connector resolves contact details via mapped attributes — no email to set here
                 recipientDto = new NotificationRecipientDto();
-                recipientDto.setName("Mapped recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));            }
+                recipientDto.setName("Mapped recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));
+            }
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));
         }
