@@ -70,7 +70,9 @@ class SchedulerServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private SchedulerService schedulerService;
+    private SchedulerExternalService schedulerService;
+    @Autowired
+    private SchedulerInternalService schedulerInternalService;
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
     @Autowired
@@ -280,7 +282,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v1/discoveryProvider/discover/4bd64640-be29-4e14-aad8-5c0ffa55c5bd"))
                 .willReturn(WireMock.okJson(discoveredCertificatesMockResponse)));
 
-        schedulerService.runScheduledJob(jobName);
+        schedulerInternalService.runScheduledJob(jobName);
 
 
         List<DiscoveryHistory> discoveries = discoveryRepository.findAll();
@@ -369,7 +371,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         SystemScheduledJobs systemScheduledJobs = new SystemScheduledJobs();
-        systemScheduledJobs.setSchedulerService(schedulerService);
+        systemScheduledJobs.setSchedulerService(schedulerInternalService);
 
         systemScheduledJobs.registerJobs();
 

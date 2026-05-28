@@ -28,7 +28,7 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.service.TokenInstanceService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
@@ -55,7 +55,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     private ConnectorService connectorService;
     private CredentialService credentialService;
     private AttributeEngine attributeEngine;
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     // --------------------------------------------------------------------------------
     // Repositories
@@ -63,7 +63,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
