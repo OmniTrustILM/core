@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
 import com.czertainly.api.model.common.UuidDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.core.certificate.*;
@@ -326,6 +327,17 @@ public interface CertificateService extends ResourceExtensionService {
      * @return List of available signing certificates
      */
     List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter);
+
+    /**
+     * List certificates eligible for digital signing.
+     *
+     * @param filter              security filter
+     * @param signingWorkflowType digital signing workflow type
+     * @param qualifiedTimestamp  when {@code true} and workflow is TIMESTAMPING, restricts results to certificates that satisfy
+     *                            ETSI EN 319 421 qualified timestamp requirements
+     * @return List of available certificates
+     */
+    List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp);
 
     /**
      * Find certificates which are expiring and not renewed and trigger event handling these certificates

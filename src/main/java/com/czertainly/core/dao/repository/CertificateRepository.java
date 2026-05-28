@@ -42,6 +42,8 @@ import java.util.UUID;
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
 
+    List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
+
     @EntityGraph(attributePaths = {"certificateContent"})
     Optional<Certificate> findByUuid(UUID uuid);
 

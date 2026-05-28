@@ -16,7 +16,9 @@ import com.czertainly.api.clients.NotificationInstanceApiClient;
 import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.czertainly.api.clients.cryptography.KeyManagementApiClient;
 import com.czertainly.api.clients.cryptography.TokenInstanceApiClient;
+import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
 import com.czertainly.api.interfaces.client.v1.AttributeSyncApiClient;
+import com.czertainly.api.interfaces.client.v1.signing.SignatureFormatterSyncApiClient;
 import com.czertainly.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
 import com.czertainly.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.czertainly.api.interfaces.client.v2.ComplianceSyncApiClient;
@@ -111,6 +113,10 @@ public class ConnectorApiFactory {
     private final Optional<com.czertainly.api.clients.mq.v2.InfoApiClient> mqInfoApiClientV2;
     private final Optional<com.czertainly.api.clients.mq.v2.MetricsApiClient> mqMetricsApiClientV2;
 
+    // Signing clients
+    private final SignatureFormatterApiClient restSignatureFormatterApiClient;
+    private final Optional<com.czertainly.api.clients.mq.signing.SignatureFormatterApiClient> mqSignatureFormatterApiClient;
+
     // Vault/Secret clients
     private final com.czertainly.api.clients.secret.VaultApiClient restVaultApiClient;
     private final Optional<com.czertainly.api.clients.mq.secret.VaultApiClient> mqVaultApiClient;
@@ -125,8 +131,8 @@ public class ConnectorApiFactory {
 
     @PostConstruct
     void logInitialization() {
-        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, vault={}, secret(REST-only)={}",
-                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
+        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatter={}, vault={}, secret(REST-only)={}",
+                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormatterApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
     }
 
     /**
@@ -230,6 +236,10 @@ public class ConnectorApiFactory {
 
     public NotificationInstanceSyncApiClient getNotificationInstanceApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restNotificationInstanceApiClient, mqNotificationInstanceApiClient);
+    }
+
+    public SignatureFormatterSyncApiClient getSignatureFormatterApiClient(ApiClientConnectorInfo connector) {
+        return getClient(connector, restSignatureFormatterApiClient, mqSignatureFormatterApiClient);
     }
 
     public com.czertainly.api.interfaces.client.v1.secret.VaultSyncApiClient getVaultApiClient(ApiClientConnectorInfo connector) {

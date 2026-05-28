@@ -3,6 +3,8 @@ package com.czertainly.core.service.impl;
 import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationError;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
 import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
@@ -23,6 +25,7 @@ import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
 import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration_;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
@@ -33,7 +36,9 @@ import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationMod
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.SigningProfileService;
 import com.czertainly.core.service.TimeQualityConfigurationService;
+import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.SearchHelper;
 import org.springframework.cache.Cache;
@@ -61,6 +66,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service(Resource.Codes.TIME_QUALITY_CONFIGURATION)
@@ -69,6 +75,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private static final String NOT_FOUND_MSG = "Time Quality Configuration not found: ";
 
     private AttributeEngine attributeEngine;
+    private SigningProfileService signingProfileService;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
     private ApplicationEventPublisher applicationEventPublisher;
@@ -258,10 +265,20 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     private void deleteTimeQualityConfiguration(TimeQualityConfiguration configuration) {
+        SecuredList<SigningProfile> signingProfiles = signingProfileService.listSigningProfileEntitiesAssociatedTimeQualityConfiguration(
+                SecuredUUID.fromUUID(configuration.getUuid()), SecurityFilter.create());
+        if (!signingProfiles.isEmpty()) {
+            throw new ValidationException(ValidationError.create(String.format(
+                    "Cannot delete Time Quality Configuration: associated with Signing Profiles (%d): %s",
+                    signingProfiles.size(),
+                    signingProfiles.getAllowed().stream().map(SigningProfile::getName).collect(Collectors.joining(", "))
+            )));
+        }
         UUID uuid = configuration.getUuid();
-        attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, uuid);
+        attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
         applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
         applicationEventPublisher.publishEvent(new TimeQualityConfigDeletedEvent(this, uuid));
+        signingProfileService.notifyTimeQualityConfigurationChange(configuration.getUuid());
         timeQualityConfigurationRepository.delete(configuration);
         evictTimeQualityConfigurationCache(uuid);
     }
@@ -286,6 +303,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
         try {
             TimeQualityConfiguration saved = timeQualityConfigurationRepository.saveAndFlush(configuration);
             applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
+            signingProfileService.notifyTimeQualityConfigurationChange(saved.getUuid());
             return saved;
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException("Time Quality Configuration with name '" + name + "' already exists.");
@@ -306,6 +324,11 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     @Autowired
     public void setSelf(TimeQualityConfigurationServiceImpl self) {
         this.self = self;
+    }
+
+    @Autowired
+    public void setSigningProfileService(SigningProfileService signingProfileService) {
+        this.signingProfileService = signingProfileService;
     }
 
     @Autowired

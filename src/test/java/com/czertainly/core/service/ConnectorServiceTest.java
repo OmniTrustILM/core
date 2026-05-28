@@ -218,6 +218,19 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetConnectorEntity() throws NotFoundException {
+        Connector entity = connectorService.getConnectorEntity(connector.getSecuredUuid());
+        Assertions.assertNotNull(entity);
+        Assertions.assertEquals(connector.getUuid(), entity.getUuid());
+        Assertions.assertEquals(connector.getName(), entity.getName());
+    }
+
+    @Test
+    void testGetConnectorEntity_notFound() {
+        Assertions.assertThrows(NotFoundException.class, () -> connectorService.getConnectorEntity(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
     void testAddConnector() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException, JsonProcessingException {
         List<ConnectorInterfaceInfo> connectorInterfaceInfos = new ArrayList<>();
         List<ConnectorInterface> connectorInterfaces = List.of(ConnectorInterface.INFO, ConnectorInterface.HEALTH, ConnectorInterface.HEALTH, ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
