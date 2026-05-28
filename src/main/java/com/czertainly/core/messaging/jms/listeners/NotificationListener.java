@@ -297,12 +297,11 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 // prepare mapped attributes
                 List<RequestAttribute> mappedAttributes = getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes);
                 if (recipient.getRecipientType() == RecipientType.MAPPED && mappedAttributes.isEmpty()) {
-                    throw new ValidationException("Notification recipient with MAPPED type does not have any mapped attributes resolved, notification cannot be sent for this recipient.");
+                    logger.warn("Notification recipient with MAPPED type does not have any mapped attributes resolved, notification cannot be sent for recipient mapped to {} object with UUID {}.", customAttributeResource, recipient.getRecipientUuid());
+                    continue;
                 }
                 recipientDto.setMappedAttributes(mappedAttributes);
                 recipientsDto.add(recipientDto);
-            } catch (ValidationException e) {
-                throw e;
             } catch (Exception e) {
                 logger.warn("{} with UUID {} was not found or retrieval of its attributes failed: {}. Notification was not sent for this recipient.", recipient.getRecipientType().getLabel(), recipient.getRecipientUuid(), e.getMessage());
             }

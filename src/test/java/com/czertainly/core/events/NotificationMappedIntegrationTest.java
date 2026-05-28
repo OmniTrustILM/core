@@ -156,7 +156,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
         // Connector is not called
-        mockServer.verify(0, WireMock.postRequestedFor(
+        mockServer.verify(1, WireMock.postRequestedFor(
                 WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify")));
     }
 }
