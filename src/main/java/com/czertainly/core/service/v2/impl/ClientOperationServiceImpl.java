@@ -106,7 +106,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private CertificateRepository certificateRepository;
     private LocationService locationService;
     private CertificateService certificateService;
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
+    private ComplianceExternalService complianceExternalService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
@@ -161,8 +162,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
+    }
+
+    @Autowired
+    public void setComplianceExternalService(ComplianceExternalService complianceExternalService) {
+        this.complianceExternalService = complianceExternalService;
     }
 
     @Autowired
@@ -473,9 +479,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private boolean isRequestNotCompliant(UUID certificateUuid, UUID certificateRequestUuid, CertificateEvent certificateEvent) throws NotFoundException {
         // check for compliance of certificate request
         logger.debug("Checking compliance of certificate request for certificate {}", certificateUuid);
-        complianceService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, List.of(certificateUuid));
+        complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, List.of(certificateUuid));
         complianceService.checkResourceObjectComplianceAsSystem(Resource.CERTIFICATE, certificateUuid);
-        ComplianceCheckResultDto complianceResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE_REQUEST, certificateRequestUuid);
+        ComplianceCheckResultDto complianceResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE_REQUEST, certificateRequestUuid);
         if (complianceResult.getStatus() == ComplianceStatus.NOK || complianceResult.getStatus() == ComplianceStatus.FAILED) {
             Certificate newCertificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
             handleFailedOrRejectedEvent(newCertificate, null, CertificateState.REJECTED, certificateEvent, null, "Certificate request is not compliant");
