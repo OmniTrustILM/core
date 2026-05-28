@@ -56,6 +56,7 @@ public class EventHistoryMapper {
                                                      List<UUID> paginatedObjectUuids, int objectsPageNumber, int objectsItemsPerPage,
                                                      Map<UUID, List<TriggerHistory>> triggerHistoriesPerObject) {
         EventHistoryDto dto = new EventHistoryDto();
+        dto.setResource(eventHistory.getEvent().getResource());
         dto.setStartedAt(eventHistory.getStartedAt());
         dto.setFinishedAt(eventHistory.getFinishedAt());
         dto.setStatus(eventHistory.getStatus());
