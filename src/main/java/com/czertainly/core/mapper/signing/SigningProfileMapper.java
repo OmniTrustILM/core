@@ -221,11 +221,11 @@ public class SigningProfileMapper {
             SigningProfile header, SigningProfileVersion version, List<RequestAttribute> signatureFormatterConnectorAttributes) {
         return new ManagedTimestampingWorkflow(
                 version.getSignatureFormatterConnectorUuid(),
-                safeList(signatureFormatterConnectorAttributes),
+                cacheSafeList(signatureFormatterConnectorAttributes),
                 version.getQualifiedTimestamp(),
                 header.getTimeQualityConfigurationUuid(),
                 version.getDefaultPolicyId(),
-                safeList(version.getAllowedPolicyIds()),
+                cacheSafeList(version.getAllowedPolicyIds()),
                 timestampingDigestAlgorithms(version),
                 version.getValidateTokenSignature());
     }
@@ -253,12 +253,12 @@ public class SigningProfileMapper {
                 yield switch (version.getManagedSigningType()) {
                     case STATIC_KEY -> new StaticKeyManagedSigning(
                             version.getCertificateUuid(),
-                            safeList(signingOperationAttributes));
+                            cacheSafeList(signingOperationAttributes));
                     case ONE_TIME_KEY -> new OneTimeKeyManagedSigning(
                             version.getRaProfileUuid(),
                             version.getTokenProfileUuid(),
                             version.getCsrTemplateUuid(),
-                            safeList(signingOperationAttributes));
+                            cacheSafeList(signingOperationAttributes));
                 };
             }
         };
@@ -282,5 +282,12 @@ public class SigningProfileMapper {
 
     private static <T> List<T> safeList(List<T> list) {
         return list != null ? list : new ArrayList<>();
+    }
+
+    /**
+     * Returns an immutable, defensive copy of {@code list}, or an empty immutable list when {@code list} is {@code null}.
+     */
+    private static <T> List<T> cacheSafeList(List<T> list) {
+        return list != null ? List.copyOf(list) : List.of();
     }
 }
