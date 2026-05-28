@@ -292,6 +292,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 Resource customAttributeResource = recipient.getRecipientType() == RecipientType.MAPPED
                         ? resource
                         : recipient.getRecipientType().getRecipientResource();
+                // Unauthenticated lookup is correct here, since the access to the custom attributes has been resolved when defining mapping attributes.
                 List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContentNoAuth(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
                 recipientDto.setMappedAttributes(getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes));
