@@ -31,42 +31,33 @@ public class CrlWriter {
         this.crlEntryRepository = crlEntryRepository;
     }
 
-    @Transactional
-    public void insertCrl(Crl crl) {
-        crlRepository.insertWithIssuerConflictResolve(crl);
-    }
-
-    @Transactional
-    public void insertCrlEntry(UUID crlUuid, String serialNumber, Date revocationDate, String revocationReason) {
-        crlEntryRepository.insertWithIdConflictResolve(crlUuid, serialNumber, revocationDate, revocationReason);
-    }
-
     /**
      * Persists a base CRL plus all of its entries in a single transaction.
      *
-     * <p>For a new CRL: inserts the CRL row (ON CONFLICT DO NOTHING), re-binds to the winning row, inserts the entries,
+     * <p>For a new CRL: inserts the CRL row (ON CONFLICT DO NOTHING), resolves the winning row's UUID, inserts the entries,
      * and writes the base-metadata columns.
      * For an updated CRL: deletes the old entries for the existing UUID, inserts the new entries, and writes the base-metadata columns.
+     *
+     * <p>Returns the UUID of the persisted row — for a new CRL under ON CONFLICT this may differ from {@code crl.getUuid()}
+     * if a concurrent writer won the race. Callers that need a fresh entity must refetch from the repository.
      */
     @Transactional
-    public Crl persistCrlAndEntries(Crl crl, boolean isNewCrl, List<CrlEntryData> entries, Date lastRevocationDate) {
+    public UUID persistCrlAndEntries(Crl crl, boolean isNewCrl, List<CrlEntryData> entries, Date lastRevocationDate) {
         if (isNewCrl) {
             crlRepository.insertWithIssuerConflictResolve(crl);
         } else {
             crlEntryRepository.deleteAllByCrlUuid(crl.getUuid());
         }
-        Crl persisted = crlRepository.findByIssuerDnAndSerialNumber(crl.getIssuerDn(), crl.getSerialNumber())
+        UUID persistedUuid = crlRepository.findByIssuerDnAndSerialNumber(crl.getIssuerDn(), crl.getSerialNumber())
+                .map(Crl::getUuid)
                 .orElseThrow(() -> new IllegalStateException(
                         "CRL row not found after insert/update for issuer " + crl.getIssuerDn()));
         for (CrlEntryData e : entries) {
             crlEntryRepository.insertWithIdConflictResolve(
-                    persisted.getUuid(), e.serialNumber(), e.revocationDate(), e.revocationReason());
+                    persistedUuid, e.serialNumber(), e.revocationDate(), e.revocationReason());
         }
-        crlRepository.updateBaseMetadata(persisted.getUuid(), crl.getCrlNumber(), crl.getNextUpdate(), lastRevocationDate);
-        persisted.setCrlNumber(crl.getCrlNumber());
-        persisted.setNextUpdate(crl.getNextUpdate());
-        persisted.setLastRevocationDate(lastRevocationDate);
-        return persisted;
+        crlRepository.updateBaseMetadata(persistedUuid, crl.getCrlNumber(), crl.getNextUpdate(), lastRevocationDate);
+        return persistedUuid;
     }
 
     /**

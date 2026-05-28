@@ -74,7 +74,7 @@ public class CrlServiceImpl implements CrlService {
         // If CRL is not present or current UTC time is past its next_update timestamp, download the CRL and save the CRL and its entries in database
         if (crl == null || crl.getNextUpdate().before(new Date())) {
             Crl newCrl = createCrlAndCrlEntries(crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, crl);
-            // If CRL received is not null, then the downloaded CRL is updated CRL, delete old CRL and use updated one
+            // If CRL received is not null, then the downloaded CRL is updated CRL: use updated one
             if (newCrl != null) {
                 crl = newCrl;
             }
@@ -102,7 +102,6 @@ public class CrlServiceImpl implements CrlService {
     private Crl createCrlAndCrlEntries(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber, UUID caCertificateUuid, Crl oldCrl) throws IOException {
         List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded);
 
-        boolean failedToRead = false;
         for (String crlUrl : crlUrls) {
             X509CRL x509CRL;
             try {
@@ -110,7 +109,6 @@ public class CrlServiceImpl implements CrlService {
             } catch (Exception e) {
                 // Failed to read content from URL, continue to next URL
                 logger.error("Failed to read CRL content from URL: {}, {}", crlUrl, e.getMessage());
-                failedToRead = true;
                 continue;
             }
 
@@ -139,10 +137,13 @@ public class CrlServiceImpl implements CrlService {
             List<CrlEntryData> entries = new ArrayList<>();
             Date lastRevocationDate = collectEntries(x509CRL, entries);
 
-            return crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            UUID persistedUuid = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            return crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerialNumber)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "CRL row " + persistedUuid + " not found after persist for issuer " + issuerDn));
         }
 
-        if (failedToRead) {
+        if (!crlUrls.isEmpty()) {
             throw new IOException("Failed to read CRL from %d available URL(s)".formatted(crlUrls.size()));
         }
 
