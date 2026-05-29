@@ -1,12 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Getter
 @Setter
@@ -42,15 +40,6 @@ public class Crl extends UniquelyIdentified {
 
     @Column(name = "last_revocation_date")
     private Date lastRevocationDate;
-
-    @OneToMany(mappedBy = "crl", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
-    @JsonBackReference
-    @ToString.Exclude
-    private List<CrlEntry> crlEntries;
-
-    public Map<String, CrlEntry> getCrlEntriesMap() {
-        return crlEntries.stream().collect(Collectors.toMap(crlEntry -> crlEntry.getId().getSerialNumber(), crlEntry -> crlEntry));
-    }
 
     @Override
     public final boolean equals(Object o) {
