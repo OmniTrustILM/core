@@ -48,32 +48,30 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
         SecurityContextHolder.setStrategyName(SecurityContextHolder.MODE_INHERITABLETHREADLOCAL);
         SecurityContextHolder.getContext().setAuthentication(getAuthentication());
 
-        // Dedicated WireMock server for OCSP.
         ocspServer = new WireMockServer(0);
         ocspServer.start();
 
         String ocspUrl = "http://localhost:" + ocspServer.port() + "/ocsp";
 
-        // Generate a real CA + end-entity cert pair. The end-entity cert embeds the WireMock URL as its OCSP AIA
-        // so X509CertificateValidator's OCSP check makes an HTTP call to WireMock, keeping the validation transaction open.
+        // The EE cert embeds this WireMock URL as its OCSP AIA, so X509CertificateValidator's OCSP
+        // check makes a real HTTP call to WireMock during validate().
         CertificateGeneratorHelper.CertificateChainInfo chain =
                 CertificateGeneratorHelper.generateCertificateWithIssuer(
                         KeyAlgorithm.RSA, "CN=RowLock-CA", "CN=RowLock-EE", ocspUrl);
 
-        // CA cert in DB: its subjectDnNormalized must match the EE cert's issuerDnNormalized.
+        // The CA must be in the DB so chain completion links EE→CA (subjectDnNormalized matches the
+        // EE's issuerDnNormalized); the EE needs an RA profile with an authority connector to revoke.
         storeCertificate(chain.getCaCertificate(), null);
-
-        // EE cert linked to an RA profile that has an authority connector (required for the revoke HTTP call).
         eeCertUuid = storeCertificate(chain.getEndEntityCertificate(), unassociatedRaProfileUuid).getUuid();
 
-        // OCSP stub: a 3-second fixed delay models a slow OCSP responder, so the validation's external
-        // call is still in flight while the concurrent revoke runs.
+        // 3 s fixed delay models a slow OCSP responder, so the validation's external call is still in
+        // flight while the concurrent revoke runs (the window the test exercises).
         ocspServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/ocsp"))
                 .willReturn(WireMock.aResponse()
                         .withStatus(500)
                         .withFixedDelay(3_000)));
 
-        // Authority connector: 202 Accepted causes revokeCertificateAction() to perform the local PENDING_REVOKE transition.
+        // 202 Accepted routes revokeCertificateAction() into the local PENDING_REVOKE transition.
         WireMock.stubFor(WireMock.post(WireMock.urlPathMatching(
                         "/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
@@ -112,19 +110,9 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
      * promptly and that the certificate row reflects the {@code PENDING_REVOKE} transition once the
      * concurrent validation finishes.
      *
-     * <p>Timeline:
-     * <ol>
-     *   <li>Background thread: {@code validate()} calls {@code completeCertificateChain()} →
-     *       {@code updateCertificateChain()} → {@code chainWriter.applyIssuerReference(eeCert)}, whose
-     *       UPDATE commits in its own micro-transaction and releases the certificate row lock before
-     *       the thread POSTs to the WireMock OCSP endpoint (3 s fixed delay).</li>
-     *   <li>Main thread (500 ms into step 1): {@code revokeCertificateAction()} calls the authority
-     *       connector (202 → OK) then performs the PENDING_REVOKE transition UPDATE, which proceeds
-     *       without waiting on the validation thread and returns promptly.</li>
-     * </ol>
-     *
-     * <p>The issuer-reference UPDATE having committed before any external HTTP call is what lets the
-     * concurrent revoke complete without contending for the row lock during the OCSP call.
+     * <p>Because {@code validate()} commits its issuer-reference write in its own micro-transaction
+     * before making the OCSP HTTP call, it holds no row lock during that call — so the concurrent
+     * revoke must not contend for the lock and must return without waiting on the slow OCSP response.
      */
     @Test
     void revokeDuringValidationCompletesPromptlyAndPreservesRevokedState() throws Exception {
@@ -132,19 +120,15 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
                 .findAllWithAssociationsByUuidIn(List.of(eeCertUuid))
                 .getFirst();
 
-        // Step 1: start validation in a background thread. The issuer-reference UPDATE (via
-        // updateCertificateChain → applyIssuerReference) commits and releases the row lock, then the
-        // thread makes the OCSP HTTP call (3 s WireMock fixed delay).
         ExecutorService exec = Executors.newSingleThreadExecutor();
         Future<?> validationFuture = exec.submit(() ->
                 certificateHandler.validate(certWithAssociations));
 
-        // Allow the background thread to pass through updateCertificateChain() and enter the OCSP
-        // HTTP call. 500 ms is well within the 3 s OCSP window.
-        Thread.sleep(500);
+        // Proceed only once the validation thread's OCSP request has actually reached WireMock and is
+        // blocking on the 3 s delay. Polling the request journal (rather than a fixed sleep) makes the
+        // overlap deterministic: the revoke below is guaranteed to run while the OCSP call is in flight.
+        awaitOcspRequestInFlight();
 
-        // Step 2: revoke — connector returns 202, which routes into the PENDING_REVOKE transition.
-        // This UPDATE proceeds independently of the in-flight validation and completes promptly.
         ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
         revokeRequest.setAttributes(List.of());
         revokeRequest.setDestroyKey(false);
@@ -158,13 +142,29 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
 
         Assertions.assertTrue(
                 revokeElapsedMs < 2_000,
-                "revokeCertificateAction took " + revokeElapsedMs + " ms — a revoke issued during an "
-                + "in-progress validation is expected to complete in under 2 s, independently of the "
-                + "validation's external OCSP call.");
+                "revokeCertificateAction took " + revokeElapsedMs + " ms — with the OCSP call confirmed "
+                + "in flight, a revoke is expected to complete in under 2 s; a duration near the 3 s OCSP "
+                + "delay would indicate it is contending for the certificate row lock.");
 
         Certificate finalCert = certificateRepository.findByUuid(eeCertUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REVOKE, finalCert.getState(),
                 "Certificate state must remain PENDING_REVOKE after the concurrent validation "
                 + "completes, since the validation thread updates only the validation columns.");
+    }
+
+    /**
+     * Blocks until the OCSP endpoint has received at least one request, i.e. the background
+     * validation thread is parked on WireMock's fixed delay. The request journal is populated on
+     * receipt, before the delayed response is served, so this returns while the call is still open.
+     */
+    private void awaitOcspRequestInFlight() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 3_000;
+        while (ocspServer.countRequestsMatching(
+                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/ocsp")).build()).getCount() == 0) {
+            if (System.currentTimeMillis() > deadline) {
+                Assertions.fail("OCSP request never reached WireMock; validation thread did not enter the OCSP call.");
+            }
+            Thread.sleep(20);
+        }
     }
 }
