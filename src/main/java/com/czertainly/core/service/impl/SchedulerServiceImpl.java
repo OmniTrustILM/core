@@ -22,7 +22,6 @@ import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SchedulerExternalService;
@@ -187,7 +186,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.SCHEDULED_JOB, action = ResourceAction.UPDATE)
     public ScheduledJobDetailDto updateScheduledJob(String uuid, UpdateScheduledJob request) throws NotFoundException, SchedulerException {
         ScheduledJob scheduledJob = scheduledJobsRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(ScheduledJob.class, uuid));
         if (scheduledJob.isSystem()) throw new ValidationException("Cannot updated system job.");
@@ -229,7 +228,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.SCHEDULED_JOB, action = ResourceAction.CREATE)
     public ScheduledJobDetailDto registerScheduledJob(final Class<? extends ScheduledJobTask> scheduledJobTaskClass, final String jobName, final String cronExpression, final boolean oneTime, final Object taskData) throws SchedulerException {
         final ScheduledJobTask scheduledJobTask = applicationContext.getBean(scheduledJobTaskClass);
         return registerScheduler(scheduledJobTask, jobName, cronExpression, oneTime, taskData);
