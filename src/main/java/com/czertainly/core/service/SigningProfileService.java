@@ -19,6 +19,7 @@ import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.model.SecuredList;
@@ -38,11 +39,11 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     SecuredList<SigningProfile> listSigningProfilesAssociatedWithTsp(SecuredUUID tspProfileUuid, SecurityFilter filter);
 
-    void notifyTimeQualityConfigurationChange(UUID timeQualityConfigurationUuid);
-
     SigningProfileDto getSigningProfile(SecuredUUID uuid, Integer version) throws NotFoundException;
 
     SigningProfile getSigningProfileEntity(SecuredUUID uuid) throws NotFoundException;
+
+    SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException;
 
     List<String> findAllNames();
 

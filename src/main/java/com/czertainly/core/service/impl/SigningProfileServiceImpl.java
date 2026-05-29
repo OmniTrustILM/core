@@ -38,7 +38,9 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.enums.FilterField;
+import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -83,12 +85,17 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -118,6 +125,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
+    private CacheManager cacheManager;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -237,6 +245,60 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
+    public SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException {
+        return self.loadSigningProfileModel(name);
+    }
+
+    @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
+    @Transactional(readOnly = true)
+    public SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
+        SigningProfile profile = signingProfileRepository.findByName(name)
+                .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
+        SigningProfileVersion currentVersion = profile.getVersions().stream()
+                .filter(v -> v.getVersion() == profile.getLatestVersion())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Signing Profile '" + name
+                        + "' has no row for latestVersion " + profile.getLatestVersion()));
+
+        List<RequestAttribute> signingOperationAttributes = attributeEngine.getRequestObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
+                        .operation(AttributeOperation.SIGN)
+                        .version(currentVersion.getVersion()).build());
+        List<RequestAttribute> signatureFormatterConnectorAttributes = attributeEngine.getRequestObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
+                        .connector(currentVersion.getSignatureFormatterConnectorUuid())
+                        .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                        .version(currentVersion.getVersion()).build());
+
+        // Narrow scope: only managed-timestamping profiles are cacheable for now.
+        return SigningProfileMapper.toManagedTimestampingModel(
+                profile, currentVersion, signingOperationAttributes, signatureFormatterConnectorAttributes);
+    }
+
+    /**
+     * Evicts a signing profile by name. Callers inside a {@code @Transactional} method
+     * (delete/enable/disable/activateTsp/deactivateTsp) reach the deferred branch, so the cache entry survives until
+     * the mutating transaction commits. Callers from {@code NOT_SUPPORTED} create/update paths have their transaction
+     * already committed, so the eviction happens immediately.
+     */
+    private void evictSigningProfileCache(String name) {
+        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
+        if (cache == null) return;
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            cache.evict(name);
+                        }
+                    });
+        } else {
+            cache.evict(name);
+        }
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
     public SigningProfileDto getSigningProfile(SecuredUUID uuid, Integer version) throws NotFoundException {
         SigningProfile profile = findByUuid(uuid);
@@ -265,7 +327,9 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        return self.persistCreate(request, formatterDefinitions);
+        SigningProfileDto created = self.persistCreate(request, formatterDefinitions);
+        evictSigningProfileCache(created.getName());
+        return created;
     }
 
     @Transactional
@@ -302,7 +366,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        return self.persistUpdate(uuid, request, formatterDefinitions);
+        String oldName = findByUuid(uuid).getName();
+        SigningProfileDto updated = self.persistUpdate(uuid, request, formatterDefinitions);
+        evictSigningProfileCache(oldName);
+        evictSigningProfileCache(updated.getName());
+        return updated;
     }
 
     @Transactional
@@ -390,6 +458,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileRepository.delete(signingProfile);
         attributeEngine.deleteObjectAttributeContent(Resource.SIGNING_PROFILE, signingProfile.getUuid());
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(signingProfile.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -429,6 +498,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         p.setEnabled(true);
         signingProfileRepository.save(p);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(p.getName());
     }
 
     @Override
@@ -464,6 +534,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         p.setEnabled(false);
         signingProfileRepository.save(p);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(p.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -488,6 +559,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfile.setTspProfile(tspProfile);
         signingProfileRepository.save(signingProfile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(signingProfile.getName());
         return SigningProfileMapper.toTspActivationDto(signingProfile);
     }
 
@@ -499,6 +571,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(profile.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -774,11 +847,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         findByUuid(uuid);
     }
 
-    @Override
-    public void notifyTimeQualityConfigurationChange(UUID timeQualityConfigurationUuid) {
-        // Cache eviction will be added when signing profile cache is introduced.
-    }
-
     // ──────────────────────────────────────────────────────────────────────────
     // Dependencies
     // ──────────────────────────────────────────────────────────────────────────
@@ -787,6 +855,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setSelf(SigningProfileServiceImpl self) {
         this.self = self;
+    }
+
+    @Autowired
+    public void setCacheManager(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
     }
 
     @Autowired

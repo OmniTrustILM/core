@@ -278,7 +278,6 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
         attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
         applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
         applicationEventPublisher.publishEvent(new TimeQualityConfigDeletedEvent(this, uuid));
-        signingProfileService.notifyTimeQualityConfigurationChange(configuration.getUuid());
         timeQualityConfigurationRepository.delete(configuration);
         evictTimeQualityConfigurationCache(uuid);
     }
@@ -303,7 +302,6 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
         try {
             TimeQualityConfiguration saved = timeQualityConfigurationRepository.saveAndFlush(configuration);
             applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
-            signingProfileService.notifyTimeQualityConfigurationChange(saved.getUuid());
             return saved;
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException("Time Quality Configuration with name '" + name + "' already exists.");
