@@ -21,6 +21,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictions;
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
 import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
@@ -41,11 +42,8 @@ import com.czertainly.core.service.TimeQualityConfigurationService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.SearchHelper;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -283,19 +281,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     private void evictTimeQualityConfigurationCache(UUID uuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            cache.evict(uuid);
-                        }
-                    });
-        } else {
-            cache.evict(uuid);
-        }
+        CacheEvictions.evictAfterCommit(cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE), uuid);
     }
 
     private TimeQualityConfiguration saveOrTranslateUniqueViolation(TimeQualityConfiguration configuration, String name) throws AlreadyExistException {

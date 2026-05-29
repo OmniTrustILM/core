@@ -39,6 +39,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictions;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.SearchHelper;
@@ -85,7 +86,6 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
@@ -94,8 +94,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -277,24 +275,12 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     /**
      * Evicts a signing profile by name. Callers inside a {@code @Transactional} method
-     * (delete/enable/disable/activateTsp/deactivateTsp) reach the deferred branch, so the cache entry survives until
-     * the mutating transaction commits. Callers from {@code NOT_SUPPORTED} create/update paths have their transaction
-     * already committed, so the eviction happens immediately.
+     * (persistUpdate/delete/enable/disable/activateTsp/deactivateTsp) reach the deferred branch, so the cache entry
+     * survives until the mutating transaction commits. Callers whose transaction has already committed (the
+     * {@code NOT_SUPPORTED} create path) evict immediately.
      */
     private void evictSigningProfileCache(String name) {
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            cache.evict(name);
-                        }
-                    });
-        } else {
-            cache.evict(name);
-        }
+        CacheEvictions.evictAfterCommit(cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE), name);
     }
 
     @Override
@@ -366,11 +352,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        String oldName = findByUuid(uuid).getName();
-        SigningProfileDto updated = self.persistUpdate(uuid, request, formatterDefinitions);
-        evictSigningProfileCache(oldName);
-        evictSigningProfileCache(updated.getName());
-        return updated;
+        return self.persistUpdate(uuid, request, formatterDefinitions);
     }
 
     @Transactional
@@ -380,6 +362,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileVersionRepository.acquireAdvisoryLock("signing-profile:" + uuid.getValue());
 
         SigningProfile profile = findByUuid(uuid);
+        // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
+        String oldName = profile.getName();
 
         Optional<SigningProfile> existingWithSameName = signingProfileRepository.findByName(request.getName());
         if (existingWithSameName.isPresent() && !existingWithSameName.get().getUuid().equals(profile.getUuid())) {
@@ -404,6 +388,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, version, request.getSigningScheme());
         List<ResponseAttribute> signatureFormatterConnectorAttributes = persistSignatureFormatterConnectorAttributes(profile, version, request.getWorkflow(), formatterDefinitions);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(oldName);
+        evictSigningProfileCache(profile.getName());
         return SigningProfileMapper.toDto(profile, version, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
     }
 

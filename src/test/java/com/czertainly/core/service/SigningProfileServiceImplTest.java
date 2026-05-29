@@ -571,7 +571,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void updateSigningProfile_rename_evictsBothNames_immediately() throws Exception {
+        void updateSigningProfile_rename_evictsBothNames() throws Exception {
             // given: a cached profile named "evict-old"
             SigningProfileDto created = createAndCacheProfile("evict-old");
             Cache cache = signingProfileCache();
