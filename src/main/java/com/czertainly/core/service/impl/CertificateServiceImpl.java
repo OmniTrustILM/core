@@ -892,6 +892,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
         List<Certificate> certificateChain = chainService.getCertificateChainInternal(certificate, true);
         boolean isCompleteChain = !certificateChain.isEmpty() && chainService.completeCertificateChain(certificateChain.getLast(), certificateChain);

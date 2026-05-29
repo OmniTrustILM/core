@@ -246,6 +246,14 @@ public class CertificateGeneratorHelper {
             return Base64.getEncoder().encodeToString(endEntityCertificate.getEncoded());
         }
 
+        public X509Certificate getCaCertificate() {
+            return caCertificate;
+        }
+
+        public X509Certificate getEndEntityCertificate() {
+            return endEntityCertificate;
+        }
+
         public CertificateChainInfo(KeyPair caCertificateKeyPair, X509Certificate caCertificate, KeyPair endEntityCertificateKeyPair, X509Certificate endEntityCertificate) {
             this.caCertificateKeyPair = caCertificateKeyPair;
             this.caCertificate = caCertificate;
