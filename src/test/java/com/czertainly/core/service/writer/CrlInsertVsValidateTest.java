@@ -1,6 +1,7 @@
 package com.czertainly.core.service.writer;
 
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.czertainly.core.dao.entity.Crl;
 import com.czertainly.core.dao.repository.CrlRepository;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.service.CrlService;
@@ -47,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -126,6 +128,10 @@ class CrlInsertVsValidateTest extends BaseSpringBootTest {
         assertEquals(1L, matchingRows,
                 "exactly one CRL row must exist for the issuer — ON CONFLICT (issuer_dn, serial_number) DO NOTHING "
                         + "ensures the second insertWithIssuerConflictResolve is a no-op.");
+
+        Crl winningRow = crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerial).orElseThrow();
+        assertNotNull(winningRow.getCrlNumber(), "crl_number must be set on the winning row");
+        assertNotNull(winningRow.getNextUpdate(), "next_update must be set on the winning row");
     }
 
     private void raceWorker(CountDownLatch ready, CountDownLatch fire, AtomicReference<Throwable> err) {

@@ -43,15 +43,17 @@ public class CrlWriter {
      */
     @Transactional
     public UUID persistCrlAndEntries(Crl crl, boolean isNewCrl, List<CrlEntryData> entries, Date lastRevocationDate) {
+        UUID persistedUuid;
         if (isNewCrl) {
             crlRepository.insertWithIssuerConflictResolve(crl);
+            persistedUuid = crlRepository.findByIssuerDnAndSerialNumber(crl.getIssuerDn(), crl.getSerialNumber())
+                    .map(Crl::getUuid)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "CRL row not found after insert for issuer " + crl.getIssuerDn()));
         } else {
-            crlEntryRepository.deleteAllByCrlUuid(crl.getUuid());
+            persistedUuid = crl.getUuid();
+            crlEntryRepository.deleteAllByCrlUuid(persistedUuid);
         }
-        UUID persistedUuid = crlRepository.findByIssuerDnAndSerialNumber(crl.getIssuerDn(), crl.getSerialNumber())
-                .map(Crl::getUuid)
-                .orElseThrow(() -> new IllegalStateException(
-                        "CRL row not found after insert/update for issuer " + crl.getIssuerDn()));
         for (CrlEntryData e : entries) {
             crlEntryRepository.insertWithIdConflictResolve(
                     persistedUuid, e.serialNumber(), e.revocationDate(), e.revocationReason());

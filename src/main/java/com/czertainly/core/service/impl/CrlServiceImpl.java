@@ -223,7 +223,8 @@ public class CrlServiceImpl implements CrlService {
                 deltaCrlNumber = Integer.parseInt(encodedCrlNumber.toString());
                 storedDeltaCrlNumber = Integer.parseInt(crl.getCrlNumberDelta());
             } catch (NumberFormatException e) {
-                throw new ValidationException("Invalid CRL number format in delta CRL: " + e.getMessage());
+                logger.warn("Invalid CRL number format in delta CRL: {}", e.getMessage());
+                throw new ValidationException("Invalid CRL number format in delta CRL");
             }
             if (deltaCrlNumber <= storedDeltaCrlNumber) {
                 return;
