@@ -247,9 +247,10 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         return self.loadSigningProfileModel(name);
     }
 
+    // Package-private internal cache loader, self-invoked.
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
-    public SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
         SigningProfile profile = signingProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
         SigningProfileVersion currentVersion = profile.getVersions().stream()
