@@ -30,7 +30,7 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     private SigningProfile signingProfile;
 
     @Column(name = "version", nullable = false)
-    private Integer version;
+    private int version;
 
     // ── Scheme (authoritative) ──────────────────────────────────────────────
 
