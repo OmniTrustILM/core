@@ -8,6 +8,7 @@ import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileD
 import com.czertainly.api.model.client.signing.profile.scheme.*;
 import com.czertainly.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
 import com.czertainly.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.client.signing.profile.workflow.TimestampingWorkflowDto;
 import com.czertainly.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
@@ -15,6 +16,11 @@ import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
+import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.scheme.ManagedSigning;
+import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
+import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
+import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.ArrayList;
@@ -31,7 +37,7 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
 
     /**
-     * Converts a {@link SigningProfile} and {@link SigningProfileVersion} entities to a full {@link SigningProfileDto},
+     * Transforms a {@link SigningProfile} and {@link SigningProfileVersion} entities to a full {@link SigningProfileDto},
      * populating custom attributes, connector signing-operation attributes, and workflow formatter attributes.
      */
     public static SigningProfileDto toDto(SigningProfile header, SigningProfileVersion version,
@@ -42,7 +48,7 @@ public class SigningProfileMapper {
         dto.setUuid(header.getUuid().toString());
         dto.setName(header.getName());
         dto.setDescription(header.getDescription());
-        dto.setVersion(version.getVersion() != null ? version.getVersion() : 1);
+        dto.setVersion(version.getVersion());
         dto.setEnabled(header.isEnabled());
         dto.setCustomAttributes(safeList(customAttributes));
 
@@ -102,6 +108,38 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
     // Public mappers — model layer
     // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Transforms a {@link SigningProfile} and {@link SigningProfileVersion} pair to a {@link SigningProfileModel} typed
+     * with {@link ManagedTimestampingWorkflow}. The caller must ensure the profile uses a managed timestamping workflow.
+     *
+     * <p>This assembler reads UUID columns only (e.g. {@code version.getCertificateUuid()}, {@code header.getTimeQualityConfigurationUuid()})
+     * and never dereferences the lazy JPA associations, so it is safe to invoke on detached entities and outside an open Session.</p>
+     *
+     * @throws IllegalArgumentException if the profile's workflow type is not {@code TIMESTAMPING}
+     *                                  or its signing scheme is not {@code MANAGED}
+     * @throws IllegalStateException    if the version's {@code managedSigningType} is {@code null}
+     *                                  despite declaring a managed scheme (DB integrity violation)
+     */
+    public static SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> toManagedTimestampingModel(
+            SigningProfile header,
+            SigningProfileVersion version,
+            List<RequestAttribute> signingOperationAttributes,
+            List<RequestAttribute> signatureFormatterConnectorAttributes) {
+        if (version.getWorkflowType() != SigningWorkflowType.TIMESTAMPING) {
+            throw new IllegalArgumentException("Signing Profile '%s' does not use a timestamping workflow".formatted(header.getName()));
+        }
+        if (version.getSigningScheme() != SigningScheme.MANAGED) {
+            throw new IllegalArgumentException("Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
+        }
+
+        List<SigningProtocol> protocols = header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
+        return new SigningProfileModel<>(
+                header.getUuid(), header.getName(), header.getDescription(),
+                version.getVersion(), header.isEnabled(), protocols,
+                buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
+                buildManagedSchemeModel(version, signingOperationAttributes));
+    }
 
     public static SigningProfileListDto toListDto(SigningProfile profile) {
         SigningProfileListDto dto = new SigningProfileListDto();
@@ -173,6 +211,51 @@ public class SigningProfileMapper {
         }
         return wf;
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Model-layer workflow builders (read UUID columns only)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private static ManagedTimestampingWorkflow buildManagedTimestampingWorkflowModel(
+            SigningProfile header, SigningProfileVersion version, List<RequestAttribute> signatureFormatterConnectorAttributes) {
+        return new ManagedTimestampingWorkflow(
+                version.getSignatureFormatterConnectorUuid(),
+                cacheSafeList(signatureFormatterConnectorAttributes),
+                version.getQualifiedTimestamp(),
+                header.getTimeQualityConfigurationUuid(),
+                version.getDefaultPolicyId(),
+                cacheSafeList(version.getAllowedPolicyIds()),
+                timestampingDigestAlgorithms(version),
+                version.getValidateTokenSignature());
+    }
+
+    private static List<DigestAlgorithm> timestampingDigestAlgorithms(SigningProfileVersion version) {
+        return version.getAllowedDigestAlgorithms() != null
+                ? version.getAllowedDigestAlgorithms().stream().map(DigestAlgorithm::findByCode).toList()
+                : List.of();
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Model-layer scheme builder (read UUID columns only)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private static ManagedSigning buildManagedSchemeModel(SigningProfileVersion version,
+                                                          List<RequestAttribute> signingOperationAttributes) {
+        if (version.getManagedSigningType() == null) {
+            throw new IllegalStateException("MANAGED signing profile version has no managedSigningType");
+        }
+        return switch (version.getManagedSigningType()) {
+            case STATIC_KEY -> new StaticKeyManagedSigning(
+                    version.getCertificateUuid(),
+                    cacheSafeList(signingOperationAttributes));
+            case ONE_TIME_KEY -> new OneTimeKeyManagedSigning(
+                    version.getRaProfileUuid(),
+                    version.getTokenProfileUuid(),
+                    version.getCsrTemplateUuid(),
+                    cacheSafeList(signingOperationAttributes));
+        };
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Shared utilities
     // ──────────────────────────────────────────────────────────────────────────
@@ -191,5 +274,12 @@ public class SigningProfileMapper {
 
     private static <T> List<T> safeList(List<T> list) {
         return list != null ? list : new ArrayList<>();
+    }
+
+    /**
+     * Returns an immutable, defensive copy of {@code list}, or an empty immutable list when {@code list} is {@code null}.
+     */
+    private static <T> List<T> cacheSafeList(List<T> list) {
+        return list != null ? List.copyOf(list) : List.of();
     }
 }
