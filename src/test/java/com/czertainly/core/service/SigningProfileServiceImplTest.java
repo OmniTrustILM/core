@@ -443,205 +443,241 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         if (cache != null) cache.clear();
     }
 
-    @Test
-    void getSigningProfileModel_assemblesManagedTimestampingModel() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("cache-mt-1"));
-
-        SigningProfileModel<?, ?> model = signingProfileService.getSigningProfileModel("cache-mt-1");
-
-        assertNotNull(model);
-        assertEquals(UUID.fromString(created.getUuid()), model.uuid());
-        assertEquals("cache-mt-1", model.name());
-        assertEquals(1, model.version());
-        assertNotNull(model.workflow());
-        assertNotNull(model.signingScheme());
-        assertTrue(model.enabledProtocols().isEmpty());
-
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("cache-mt-1"));
+    private Cache signingProfileCache() {
+        return cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
     }
 
-    @Test
-    void getSigningProfileModel_secondCallServedFromCache() throws Exception {
-        signingProfileService.createSigningProfile(buildManagedTimestampingRequest("cache-mt-2"));
-        Mockito.clearInvocations(signingProfileRepositorySpy);
-
-        signingProfileService.getSigningProfileModel("cache-mt-2");
-        signingProfileService.getSigningProfileModel("cache-mt-2");
-
-        Mockito.verify(signingProfileRepositorySpy, Mockito.times(1)).findByName("cache-mt-2");
+    /**
+     * Creates a MANAGED/TIMESTAMPING profile, primes its cache entry via getSigningProfileModel,
+     * asserts the entry is present, and returns the created profile.
+     */
+    private SigningProfileDto createAndCacheProfile(String name) throws Exception {
+        SigningProfileDto created = signingProfileService.createSigningProfile(buildManagedTimestampingRequest(name));
+        signingProfileService.getSigningProfileModel(name);
+        assertNotNull(signingProfileCache().get(name));
+        return created;
     }
 
-    @Test
-    void getSigningProfileModel_nonManagedTimestamping_throwsAndDoesNotCache() throws Exception {
-        signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("cache-deleg-ts"));
+    @Nested
+    class GetModel {
 
-        assertThrows(IllegalArgumentException.class,
-                () -> signingProfileService.getSigningProfileModel("cache-deleg-ts"));
+        @Test
+        void getSigningProfileModel_assemblesManagedTimestampingModel() throws Exception {
+            // given: a MANAGED/TIMESTAMPING profile
+            SigningProfileDto created = signingProfileService.createSigningProfile(
+                    buildManagedTimestampingRequest("cache-mt-1"));
 
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNull(cache.get("cache-deleg-ts"));
+            // when
+            SigningProfileModel<?, ?> model = signingProfileService.getSigningProfileModel("cache-mt-1");
+
+            // then: the assembled model carries the profile data
+            assertNotNull(model);
+            assertEquals(UUID.fromString(created.getUuid()), model.uuid());
+            assertEquals("cache-mt-1", model.name());
+            assertEquals(1, model.version());
+            assertNotNull(model.workflow());
+            assertNotNull(model.signingScheme());
+            assertTrue(model.enabledProtocols().isEmpty());
+
+            // then: the model is stored in the signing profile cache
+            assertNotNull(signingProfileCache().get("cache-mt-1"));
+        }
+
+        @Test
+        void getSigningProfileModel_secondCallServedFromCache() throws Exception {
+            // given: a cached MANAGED/TIMESTAMPING profile
+            signingProfileService.createSigningProfile(buildManagedTimestampingRequest("cache-mt-2"));
+            Mockito.clearInvocations(signingProfileRepositorySpy);
+
+            // when: the model is requested twice
+            signingProfileService.getSigningProfileModel("cache-mt-2");
+            signingProfileService.getSigningProfileModel("cache-mt-2");
+
+            // then: the repository is hit only once; the second call is served from the cache
+            Mockito.verify(signingProfileRepositorySpy, Mockito.times(1)).findByName("cache-mt-2");
+        }
+
+        @Test
+        void getSigningProfileModel_nonManagedTimestamping_throwsAndDoesNotCache() throws Exception {
+            // given: a DELEGATED/TIMESTAMPING profile, which cannot be assembled into a managed model
+            signingProfileService.createSigningProfile(buildDelegatedTimestampingRequest("cache-deleg-ts"));
+
+            // when/then
+            assertThrows(IllegalArgumentException.class,
+                    () -> signingProfileService.getSigningProfileModel("cache-deleg-ts"));
+
+            // then: nothing is cached for a model that could not be assembled
+            assertNull(signingProfileCache().get("cache-deleg-ts"));
+        }
+
+        @Test
+        void getSigningProfileModel_unknownName_throwsNotFound() {
+            // given: no profile with this name
+
+            // when/then
+            assertThrows(NotFoundException.class,
+                    () -> signingProfileService.getSigningProfileModel("does-not-exist"));
+        }
+
     }
 
-    @Test
-    void getSigningProfileModel_unknownName_throwsNotFound() {
-        assertThrows(NotFoundException.class,
-                () -> signingProfileService.getSigningProfileModel("does-not-exist"));
+    @Nested
+    class CacheEviction {
+
+        @Test
+        void deleteSigningProfile_evictsByName_deferredToAfterCommit() throws Exception {
+            // given: a cached profile
+            SigningProfileDto created = createAndCacheProfile("evict-del");
+            Cache cache = signingProfileCache();
+
+            // when: delete runs inside a transaction
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                try {
+                    signingProfileService.deleteSigningProfile(
+                            SecuredUUID.fromString(created.getUuid()));
+                } catch (Exception e) {
+                    fail(e);
+                }
+                // then: the entry survives until the transaction commits
+                assertNotNull(cache.get("evict-del"), "entry must survive until commit");
+            });
+
+            // then: the entry is evicted after commit
+            assertNull(cache.get("evict-del"), "entry must be evicted after commit");
+        }
+
+        @Test
+        void disableSigningProfile_evictsByName() throws Exception {
+            // given: a cached profile
+            SigningProfileDto created = createAndCacheProfile("evict-disable");
+
+            // when
+            signingProfileService.disableSigningProfile(SecuredUUID.fromString(created.getUuid()));
+
+            // then
+            assertNull(signingProfileCache().get("evict-disable"));
+        }
+
+        @Test
+        void enableSigningProfile_evictsByName() throws Exception {
+            // given: a cached profile
+            SigningProfileDto created = createAndCacheProfile("evict-enable");
+
+            // when
+            signingProfileService.enableSigningProfile(SecuredUUID.fromString(created.getUuid()));
+
+            // then
+            assertNull(signingProfileCache().get("evict-enable"));
+        }
+
+        @Test
+        void updateSigningProfile_rename_evictsBothNames_immediately() throws Exception {
+            // given: a cached profile named "evict-old"
+            SigningProfileDto created = createAndCacheProfile("evict-old");
+            Cache cache = signingProfileCache();
+
+            // when: the profile is renamed to "evict-new"
+            SigningProfileRequestDto renameReq = buildManagedTimestampingRequest("evict-new");
+            signingProfileService.updateSigningProfile(
+                    SecuredUUID.fromString(created.getUuid()), renameReq);
+
+            // then: both the old and the new name are evicted
+            assertNull(cache.get("evict-old"));
+            assertNull(cache.get("evict-new"));
+        }
+
+        @Test
+        void bulkDeleteSigningProfiles_evictsEachName() throws Exception {
+            // given: two cached profiles
+            SigningProfileDto a = createAndCacheProfile("evict-bulk-a");
+            SigningProfileDto b = createAndCacheProfile("evict-bulk-b");
+            Cache cache = signingProfileCache();
+
+            // when
+            signingProfileService.bulkDeleteSigningProfiles(List.of(
+                    SecuredUUID.fromString(a.getUuid()),
+                    SecuredUUID.fromString(b.getUuid())));
+
+            // then: every deleted profile's entry is evicted
+            assertNull(cache.get("evict-bulk-a"));
+            assertNull(cache.get("evict-bulk-b"));
+        }
+
+        @Test
+        void deactivateTsp_evictsByName() throws Exception {
+            // given: a cached profile
+            SigningProfileDto created = createAndCacheProfile("evict-deactivate");
+
+            // when
+            signingProfileService.deactivateTsp(SecuredUUID.fromString(created.getUuid()));
+
+            // then
+            assertNull(signingProfileCache().get("evict-deactivate"));
+        }
+
+        @Test
+        void activateTsp_evictsByName() throws Exception {
+            // given: a cached profile and a TSP profile to link
+            SigningProfileDto created = createAndCacheProfile("evict-activate");
+
+            TspProfile tspProfile = new TspProfile();
+            tspProfile.setName("tsp-for-activate");
+            tspProfile = tspRepository.save(tspProfile);
+
+            // when
+            signingProfileService.activateTsp(
+                    SecuredUUID.fromString(created.getUuid()), tspProfile.getSecuredUuid());
+
+            // then
+            assertNull(signingProfileCache().get("evict-activate"));
+        }
+
     }
 
-    @Test
-    void deleteSigningProfile_evictsByName_deferredToAfterCommit() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-del"));
-        signingProfileService.getSigningProfileModel("evict-del");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-del"));
+    @Nested
+    class CacheIsolation {
 
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            try {
-                signingProfileService.deleteSigningProfile(
-                        SecuredUUID.fromString(created.getUuid()));
-            } catch (Exception e) {
-                fail(e);
-            }
-            assertNotNull(cache.get("evict-del"), "entry must survive until commit");
-        });
+        @Test
+        void signingProfileMutation_triggersTspFanout_exactlyOnce() throws Exception {
+            // given: a profile whose mutation triggers the TSP cache fan-out
+            SigningProfileDto created = signingProfileService.createSigningProfile(
+                    buildManagedTimestampingRequest("xcache-fanout"));
+            Mockito.clearInvocations(tspProfileServiceSpy);
 
-        assertNull(cache.get("evict-del"), "entry must be evicted after commit");
-    }
+            // when
+            signingProfileService.disableSigningProfile(SecuredUUID.fromString(created.getUuid()));
 
-    @Test
-    void disableSigningProfile_evictsByName() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-disable"));
-        signingProfileService.getSigningProfileModel("evict-disable");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-disable"));
+            // then: the pre-existing fan-out is preserved and NOT duplicated by the SP-cache helper
+            Mockito.verify(tspProfileServiceSpy, Mockito.times(1)).evictAllCachedModels();
+        }
 
-        signingProfileService.disableSigningProfile(SecuredUUID.fromString(created.getUuid()));
+        @Test
+        void tspCacheEviction_doesNotTouchSigningProfileCache() throws Exception {
+            // given: a cached signing profile
+            createAndCacheProfile("xcache-tsp");
 
-        assertNull(cache.get("evict-disable"));
-    }
+            // when: a TspProfile mutation evicts the TSP cache (stand-in: evictAllCachedModels)
+            tspProfileService.evictAllCachedModels();
 
-    @Test
-    void enableSigningProfile_evictsByName() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-enable"));
-        signingProfileService.getSigningProfileModel("evict-enable");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-enable"));
+            // then: the signing profile cache is untouched
+            assertNotNull(signingProfileCache().get("xcache-tsp"), "TSP cache eviction must not affect SP cache");
+        }
 
-        signingProfileService.enableSigningProfile(SecuredUUID.fromString(created.getUuid()));
+        @Test
+        void timeQualityConfigurationMutation_doesNotTouchSigningProfileCache() throws Exception {
+            // given: a cached signing profile
+            createAndCacheProfile("xcache-tqc");
 
-        assertNull(cache.get("evict-enable"));
-    }
+            // when: a TimeQualityConfiguration is created and deleted
+            TimeQualityConfigurationDto tqc = timeQualityConfigurationService.createTimeQualityConfiguration(
+                    buildTimeQualityConfigurationRequestDto("xcache-tqc-config"));
+            timeQualityConfigurationService.deleteTimeQualityConfiguration(
+                    SecuredUUID.fromString(tqc.getUuid()));
 
-    @Test
-    void updateSigningProfile_rename_evictsBothNames_immediately() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-old"));
-        signingProfileService.getSigningProfileModel("evict-old");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-old"));
+            // then: the signing profile cache is untouched
+            assertNotNull(signingProfileCache().get("xcache-tqc"), "TQC mutation must not affect SP cache");
+        }
 
-        SigningProfileRequestDto renameReq = buildManagedTimestampingRequest("evict-new");
-        signingProfileService.updateSigningProfile(
-                SecuredUUID.fromString(created.getUuid()), renameReq);
-
-        assertNull(cache.get("evict-old"));
-        assertNull(cache.get("evict-new"));
-    }
-
-    @Test
-    void bulkDeleteSigningProfiles_evictsEachName() throws Exception {
-        SigningProfileDto a = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-bulk-a"));
-        SigningProfileDto b = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-bulk-b"));
-        signingProfileService.getSigningProfileModel("evict-bulk-a");
-        signingProfileService.getSigningProfileModel("evict-bulk-b");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-bulk-a"));
-        assertNotNull(cache.get("evict-bulk-b"));
-
-        signingProfileService.bulkDeleteSigningProfiles(List.of(
-                SecuredUUID.fromString(a.getUuid()),
-                SecuredUUID.fromString(b.getUuid())));
-
-        assertNull(cache.get("evict-bulk-a"));
-        assertNull(cache.get("evict-bulk-b"));
-    }
-
-    @Test
-    void deactivateTsp_evictsByName() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-deactivate"));
-        signingProfileService.getSigningProfileModel("evict-deactivate");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-deactivate"));
-
-        signingProfileService.deactivateTsp(SecuredUUID.fromString(created.getUuid()));
-
-        assertNull(cache.get("evict-deactivate"));
-    }
-
-    @Test
-    void activateTsp_evictsByName() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("evict-activate"));
-        signingProfileService.getSigningProfileModel("evict-activate");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("evict-activate"));
-
-        TspProfile tspProfile = new TspProfile();
-        tspProfile.setName("tsp-for-activate");
-        tspProfile = tspRepository.save(tspProfile);
-
-        signingProfileService.activateTsp(
-                SecuredUUID.fromString(created.getUuid()), tspProfile.getSecuredUuid());
-
-        assertNull(cache.get("evict-activate"));
-    }
-
-    @Test
-    void signingProfileMutation_triggersTspFanout_exactlyOnce() throws Exception {
-        SigningProfileDto created = signingProfileService.createSigningProfile(
-                buildManagedTimestampingRequest("xcache-fanout"));
-        Mockito.clearInvocations(tspProfileServiceSpy);
-
-        signingProfileService.disableSigningProfile(SecuredUUID.fromString(created.getUuid()));
-
-        // Pre-existing fan-out is preserved and NOT duplicated by the new SP-cache helper.
-        Mockito.verify(tspProfileServiceSpy, Mockito.times(1)).evictAllCachedModels();
-    }
-
-    @Test
-    void tspCacheEviction_doesNotTouchSigningProfileCache() throws Exception {
-        signingProfileService.createSigningProfile(buildManagedTimestampingRequest("xcache-tsp"));
-        signingProfileService.getSigningProfileModel("xcache-tsp");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("xcache-tsp"));
-
-        // Stand-in for any TspProfile mutation: evictAllCachedModels clears ONLY the TSP cache.
-        tspProfileService.evictAllCachedModels();
-
-        assertNotNull(cache.get("xcache-tsp"), "TSP cache eviction must not affect SP cache");
-    }
-
-    @Test
-    void timeQualityConfigurationMutation_doesNotTouchSigningProfileCache() throws Exception {
-        signingProfileService.createSigningProfile(buildManagedTimestampingRequest("xcache-tqc"));
-        signingProfileService.getSigningProfileModel("xcache-tqc");
-        Cache cache = cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        assertNotNull(cache.get("xcache-tqc"));
-
-        TimeQualityConfigurationDto tqc = timeQualityConfigurationService.createTimeQualityConfiguration(
-                buildTimeQualityConfigurationRequestDto("xcache-tqc-config"));
-        timeQualityConfigurationService.deleteTimeQualityConfiguration(
-                SecuredUUID.fromString(tqc.getUuid()));
-
-        assertNotNull(cache.get("xcache-tqc"), "TQC mutation must not affect SP cache");
     }
 
     @Nested
