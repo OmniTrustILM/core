@@ -23,6 +23,10 @@ caching:
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
     max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+  # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
+  signing-profiles:
+    ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
+    max-size: ${SIGNING_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached signing profile models
   # TQC cache caches TimeQualityConfigurationModel by UUID for the signing pipeline
   time-quality-configs:
     ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid

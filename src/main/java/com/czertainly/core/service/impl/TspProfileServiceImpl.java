@@ -18,6 +18,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictions;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -43,7 +44,6 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
@@ -53,8 +53,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -376,34 +374,12 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     private void evictTspProfileCache(String name) {
-        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(name);
-                }
-            });
-        } else {
-            cache.evict(name);
-        }
+        CacheEvictions.evictAfterCommit(cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE), name);
     }
 
     @Override
     public void evictAllCachedModels() {
-        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.clear();
-                }
-            });
-        } else {
-            cache.clear();
-        }
+        CacheEvictions.clearAfterCommit(cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE));
     }
 
     @Autowired
