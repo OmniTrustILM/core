@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
+
 /**
  * Verifies that certificate revocation and certificate X.509 validation interleave cleanly when they run concurrently
  * against the same certificate row: a revoke issued while a validation is in progress completes promptly and the resulting
@@ -97,6 +99,7 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
     }
 
     @AfterEach
+    @Override
     void tearDown() {
         if (ocspServer != null && ocspServer.isRunning()) {
             ocspServer.stop();
@@ -121,35 +124,38 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
                 .getFirst();
 
         ExecutorService exec = Executors.newSingleThreadExecutor();
-        Future<?> validationFuture = exec.submit(() ->
-                certificateHandler.validate(certWithAssociations));
+        try {
+            Future<?> validationFuture = exec.submit(() ->
+                    certificateHandler.validate(certWithAssociations));
 
-        // Proceed only once the validation thread's OCSP request has actually reached WireMock and is
-        // blocking on the 3 s delay. Polling the request journal (rather than a fixed sleep) makes the
-        // overlap deterministic: the revoke below is guaranteed to run while the OCSP call is in flight.
-        awaitOcspRequestInFlight();
+            // Proceed only once the validation thread's OCSP request has actually reached WireMock and is
+            // blocking on the 3 s delay. Polling the request journal (rather than a fixed sleep) makes the
+            // overlap deterministic: the revoke below is guaranteed to run while the OCSP call is in flight.
+            awaitOcspRequestInFlight();
 
-        ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
-        revokeRequest.setAttributes(List.of());
-        revokeRequest.setDestroyKey(false);
+            ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
+            revokeRequest.setAttributes(List.of());
+            revokeRequest.setDestroyKey(false);
 
-        long revokeStart = System.currentTimeMillis();
-        clientOperationService.revokeCertificateAction(eeCertUuid, revokeRequest, true);
-        long revokeElapsedMs = System.currentTimeMillis() - revokeStart;
+            long revokeStart = System.currentTimeMillis();
+            clientOperationService.revokeCertificateAction(eeCertUuid, revokeRequest, true);
+            long revokeElapsedMs = System.currentTimeMillis() - revokeStart;
 
-        validationFuture.get(10, TimeUnit.SECONDS);
-        exec.shutdown();
+            validationFuture.get(10, TimeUnit.SECONDS);
 
-        Assertions.assertTrue(
-                revokeElapsedMs < 2_000,
-                "revokeCertificateAction took " + revokeElapsedMs + " ms — with the OCSP call confirmed "
-                + "in flight, a revoke is expected to complete in under 2 s; a duration near the 3 s OCSP "
-                + "delay would indicate it is contending for the certificate row lock.");
+            Assertions.assertTrue(
+                    revokeElapsedMs < 2_000,
+                    "revokeCertificateAction took " + revokeElapsedMs + " ms — with the OCSP call confirmed "
+                    + "in flight, a revoke is expected to complete in under 2 s; a duration near the 3 s OCSP "
+                    + "delay would indicate it is contending for the certificate row lock.");
 
-        Certificate finalCert = certificateRepository.findByUuid(eeCertUuid).orElseThrow();
-        Assertions.assertEquals(CertificateState.PENDING_REVOKE, finalCert.getState(),
-                "Certificate state must remain PENDING_REVOKE after the concurrent validation "
-                + "completes, since the validation thread updates only the validation columns.");
+            Certificate finalCert = certificateRepository.findByUuid(eeCertUuid).orElseThrow();
+            Assertions.assertEquals(CertificateState.PENDING_REVOKE, finalCert.getState(),
+                    "Certificate state must remain PENDING_REVOKE after the concurrent validation "
+                    + "completes, since the validation thread updates only the validation columns.");
+        } finally {
+            exec.shutdownNow();
+        }
     }
 
     /**
@@ -157,14 +163,11 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
      * validation thread is parked on WireMock's fixed delay. The request journal is populated on
      * receipt, before the delayed response is served, so this returns while the call is still open.
      */
-    private void awaitOcspRequestInFlight() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 3_000;
-        while (ocspServer.countRequestsMatching(
-                WireMock.postRequestedFor(WireMock.urlPathEqualTo("/ocsp")).build()).getCount() == 0) {
-            if (System.currentTimeMillis() > deadline) {
-                Assertions.fail("OCSP request never reached WireMock; validation thread did not enter the OCSP call.");
-            }
-            Thread.sleep(20);
-        }
+    private void awaitOcspRequestInFlight() {
+        await()
+                .atMost(3, TimeUnit.SECONDS)
+                .pollInterval(20, TimeUnit.MILLISECONDS)
+                .until(() -> ocspServer.countRequestsMatching(
+                        WireMock.postRequestedFor(WireMock.urlPathEqualTo("/ocsp")).build()).getCount() > 0);
     }
 }
