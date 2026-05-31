@@ -125,15 +125,13 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     @Override
-    public TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid)
-            throws NotFoundException {
+    public TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid) throws NotFoundException {
         return self.loadTimeQualityConfigurationModel(uuid);
     }
 
     @Cacheable(value = CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE, key = "#tqcUuid", sync = true)
     @Transactional(readOnly = true)
-    TimeQualityConfigurationModel loadTimeQualityConfigurationModel(UUID tqcUuid)
-            throws NotFoundException {
+    TimeQualityConfigurationModel loadTimeQualityConfigurationModel(UUID tqcUuid) throws NotFoundException {
         TimeQualityConfiguration configuration = timeQualityConfigurationRepository
                 .findById(tqcUuid)
                 .orElseThrow(() -> new NotFoundException(NOT_FOUND_MSG + tqcUuid));
