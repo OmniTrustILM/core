@@ -67,6 +67,8 @@ public interface CertificateService extends ResourceExtensionService {
      * Hot-path accessor for digital signing. Returns an immutable snapshot of the certificate's acceptability data and
      * structural key references, cached in {@link com.czertainly.core.config.cache.CacheConfig#SIGNING_CERTIFICATE_CACHE}.
      *
+     * <p>No authorization check — must not be called from REST controllers.
+     *
      * @throws NotFoundException if no certificate exists for the UUID
      */
     SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException;

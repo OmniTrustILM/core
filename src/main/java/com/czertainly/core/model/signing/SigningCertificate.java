@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Immutable, internal-only snapshot of the certificate data the digital signing.
+ * Immutable, internal-only snapshot of the certificate data for digital signing.
  */
 public record SigningCertificate(
         UUID uuid,

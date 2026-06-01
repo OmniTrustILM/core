@@ -74,7 +74,11 @@ public class CryptographyUtil {
      */
     public static String resolvePqcParameterSpecName(KeyAlgorithm keyAlgorithm, String publicKey) {
         if (publicKey == null) {
-            return null;
+            return switch (keyAlgorithm) {
+                case FALCON, MLDSA, SLHDSA -> throw new ValidationException(
+                        ValidationError.create("PQC algorithm requires a public key to derive the parameter-spec name"));
+                default -> null;
+            };
         }
         // IOException is declared by each BC constructor but not triggered by any known input —
         // caught defensively in case a future BC version starts throwing it for malformed payloads.
@@ -85,7 +89,7 @@ public class CryptographyUtil {
                             SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec().getName();
                 } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(ValidationError.create("Failed obtaining signature algorithm"));
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
             }
             case MLDSA -> {
@@ -94,7 +98,7 @@ public class CryptographyUtil {
                             SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec().getName();
                 } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(ValidationError.create("Failed obtaining signature algorithm"));
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
             }
             case SLHDSA -> {
@@ -103,7 +107,7 @@ public class CryptographyUtil {
                             SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
                             .getParameterSpec().getName();
                 } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(ValidationError.create("Failed obtaining signature algorithm"));
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
             }
             default -> {

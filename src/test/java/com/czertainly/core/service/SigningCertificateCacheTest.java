@@ -33,7 +33,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -195,7 +194,7 @@ class SigningCertificateCacheTest extends BaseSpringBootTest {
 
         Assertions.assertEquals(first, second);
         Mockito.verify(certificateRepository, Mockito.times(1))
-                .findForSigningByUuid(ArgumentMatchers.eq(uuid));
+                .findForSigningByUuid(uuid);
     }
 
     @Test

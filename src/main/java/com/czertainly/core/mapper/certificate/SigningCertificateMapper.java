@@ -28,7 +28,7 @@ public class SigningCertificateMapper {
                 cert.isArchived(),
                 cert.getState(),
                 cert.getValidationStatus(),
-                MetaDefinitions.deserializeArrayString(cert.getExtendedKeyUsage()),
+                List.copyOf(MetaDefinitions.deserializeArrayString(cert.getExtendedKeyUsage())),
                 cert.getExtendedKeyUsageCritical(),
                 cert.getQcCompliance(),
                 keyUuid,
