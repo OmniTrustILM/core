@@ -106,6 +106,7 @@ class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
         }
         SecurityContextHolder.clearContext();
         SecurityContextHolder.setStrategyName(SecurityContextHolder.MODE_THREADLOCAL);
+        super.tearDown();
     }
 
     /**
