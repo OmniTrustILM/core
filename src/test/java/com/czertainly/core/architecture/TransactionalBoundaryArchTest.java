@@ -44,8 +44,11 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  *
  * <p><b>Rule D</b> — all public methods in {@code @Service}-annotated classes in {@code ..service.writer..} must be
  * effectively {@code @Transactional} with propagation {@code REQUIRED} (the default). Combined with Rule C, this
- * statically guarantees that every {@code @Modifying} repository call site has an ambient transaction — for every
- * present and future method, without per-method integration tests.</p>
+ * ensures that every {@code @Modifying} repository call site reachable through a public Writer entry point has an
+ * ambient transaction — for every present and future method, without per-method integration tests. This holds for
+ * proxy-routed calls only: Spring's proxy-based transaction management does not apply {@code @Transactional} to
+ * self-invocations, so a {@code @Modifying} call reached via an internal {@code this.method()} hop relies on the
+ * outer public method's transaction rather than starting its own.</p>
  */
 @AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class TransactionalBoundaryArchTest {
@@ -140,12 +143,14 @@ public class TransactionalBoundaryArchTest {
                         @Override
                         public void check(JavaMethod method, ConditionEvents events) {
                             Propagation p = effectivePropagation(method);
-                            if (p == null || p == Propagation.REQUIRED) return;
+                            if (p == Propagation.REQUIRED) return;
+                            String detail = (p == null)
+                                    ? "has no effective @Transactional"
+                                    : "has propagation " + p;
                             events.add(SimpleConditionEvent.violated(method,
                                     method.getFullName()
-                                            + " is a Writer method with propagation "
-                                            + p
-                                            + " — Writer methods must use REQUIRED so @Modifying calls"
+                                            + " is a Writer method that " + detail
+                                            + " — Writer methods must be @Transactional(REQUIRED) so @Modifying calls"
                                             + " have an ambient transaction (Rule D)"));
                         }
                     });
