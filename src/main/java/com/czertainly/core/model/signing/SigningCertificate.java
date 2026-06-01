@@ -12,14 +12,12 @@ import java.util.UUID;
 public record SigningCertificate(
         UUID uuid,
         String commonName,
-        // certificate-level acceptability inputs
         boolean archived,
         CertificateState state,
         CertificateValidationStatus validationStatus,
         List<String> extendedKeyUsageOids,
         Boolean extendedKeyUsageCritical,
         Boolean qcCompliance,
-        // structural references (key-level), not key-item material
         UUID keyUuid,
         UUID tokenInstanceReferenceUuid,
         UUID tokenProfileUuid,

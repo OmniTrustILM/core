@@ -12,10 +12,11 @@ import org.springframework.stereotype.Component;
 /**
  * Evicts the certificate-chain and signing-certificate caches after any mutation on {@link CertificateRepository}.
  *
- * <p>Intercepts {@code save*}, {@code delete*}, {@code insert*}, {@code update*}, and {@code clear*} calls on
- * {@link CertificateRepository} — covering all Spring Data CRUD methods (save, saveAll, saveAndFlush, delete,
- * deleteAll, deleteAllInBatch, etc.), the custom native upserts, the targeted {@code @Modifying} UPDATEs and
- * the field-nulling helpers.
+ * <p>Intercepts {@code save*}, {@code delete*}, {@code insert*}, {@code update*}, {@code clear*},
+ * {@code archive*}, and {@code set*} calls on {@link CertificateRepository} — covering all Spring Data
+ * CRUD methods (save, saveAll, saveAndFlush, delete, deleteAll, deleteAllInBatch, etc.), the custom native
+ * upserts, the targeted {@code @Modifying} UPDATEs, bulk archive/unarchive operations, and the field-setting
+ * helpers (e.g. {@code setKeyUuid}).
  *
  * <p><strong>Eviction strategy.</strong> Every matched mutation triggers a full {@code cache.clear()}
  * (deferred to {@code afterCommit} and deduped per transaction by {@link CacheEvictor}).
@@ -40,7 +41,8 @@ public class CertificateRepositoryCacheEvictionAspect {
 
     @Pointcut("target(com.czertainly.core.dao.repository.CertificateRepository+) "
             + "&& (execution(* save*(..)) || execution(* delete*(..)) || execution(* insert*(..)) "
-            + "|| execution(* update*(..)) || execution(* clear*(..)))")
+            + "|| execution(* update*(..)) || execution(* clear*(..)) || execution(* archive*(..)) "
+            + "|| execution(* set*(..)))")
     private void certificateMutation() {}
 
     @AfterReturning("certificateMutation()")

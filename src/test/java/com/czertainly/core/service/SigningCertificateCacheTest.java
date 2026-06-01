@@ -254,6 +254,38 @@ class SigningCertificateCacheTest extends BaseSpringBootTest {
     }
 
     @Test
+    void cacheIsEvictedAfterCryptographicKeyMutation() throws Exception {
+        Certificate cert = persistSigningCertificate();
+        UUID uuid = cert.getUuid();
+
+        certificateService.getSigningCertificate(uuid);
+        Assertions.assertNotNull(cache.get(uuid), "cache should be warm before key mutation");
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            key.setName("renamed-key");
+            cryptographicKeyRepository.save(key);
+        });
+
+        Assertions.assertNull(cache.get(uuid), "CryptographicKey mutation must evict the signingCertificate cache");
+    }
+
+    @Test
+    void cacheIsEvictedAfterCryptographicKeyItemMutation() throws Exception {
+        Certificate cert = persistSigningCertificate();
+        UUID uuid = cert.getUuid();
+
+        certificateService.getSigningCertificate(uuid);
+        Assertions.assertNotNull(cache.get(uuid), "cache should be warm before key-item mutation");
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            privateItem.setEnabled(false);
+            cryptographicKeyItemRepository.save(privateItem);
+        });
+
+        Assertions.assertNull(cache.get(uuid), "CryptographicKeyItem mutation must evict the signingCertificate cache");
+    }
+
+    @Test
     void keylessCertificateMapsNullKeyReferences() throws Exception {
         KeyPair kp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(kp, "CN=SigningCacheTest-Keyless");

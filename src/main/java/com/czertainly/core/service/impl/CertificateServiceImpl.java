@@ -807,6 +807,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(readOnly = true)
     @Cacheable(value = CacheConfig.SIGNING_CERTIFICATE_CACHE, key = "#certificateUuid", sync = true)
     public SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException {
         Certificate cert = certificateRepository.findForSigningByUuid(certificateUuid)
