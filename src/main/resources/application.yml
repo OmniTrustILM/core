@@ -9,12 +9,12 @@ caching:
     max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
   # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
   connectors:
-    ttl-minutes: ${CONNECTOR_CACHE_TTL_MINUTES:5}
-    max-size: ${CONNECTOR_CACHE_MAX_SIZE:100}
-  # Certificate-chain cache avoids repeated recursive-CTE lookups on the TSP hot path.
-  cert-chain:
-    ttl-minutes: ${CERT_CHAIN_CACHE_TTL_MINUTES:5}
-    max-size: ${CERT_CHAIN_CACHE_MAX_SIZE:1000}
+    ttl-minutes: ${CONNECTORS_CACHE_TTL_MINUTES:5}
+    max-size: ${CONNECTORS_CACHE_MAX_SIZE:100}
+  # Certificate-chain cache avoids repeated recursive-CTE lookups on the signing hot path.
+  cert-chains:
+    ttl-minutes: ${CERT_CHAINS_CACHE_TTL_MINUTES:5}
+    max-size: ${CERT_CHAINS_CACHE_MAX_SIZE:1000}
   # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
