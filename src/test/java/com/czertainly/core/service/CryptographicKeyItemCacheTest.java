@@ -236,6 +236,15 @@ class CryptographicKeyItemCacheTest extends BaseSpringBootTest {
     }
 
     @Test
+    void notFoundExceptionPropagatesOnCacheMiss() {
+        UUID unknownUuid = UUID.randomUUID();
+        org.junit.jupiter.api.Assertions.assertThrows(
+                NotFoundException.class,
+                () -> cryptographicKeyService.getKeyItemModel(unknownUuid)
+        );
+    }
+
+    @Test
     void editingKeyEvictsAllItemsInThatKey() throws NotFoundException, AttributeException {
         // given - the key has two items, both cached
         CryptographicKeyItem secondItem = new CryptographicKeyItem();
