@@ -15,6 +15,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.freeze.FreezingArchRule;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.Repository;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +41,11 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  * <p><b>Rule C</b> — only {@code *Writer} beans (production code residing in {@code ..service.writer..}) may invoke
  * a {@code @Modifying}-annotated repository method. Frozen via {@link FreezingArchRule} so pre-existing violations
  * can be resolved incrementally.</p>
+ *
+ * <p><b>Rule D</b> — all public methods in {@code @Service}-annotated classes in {@code ..service.writer..} must be
+ * effectively {@code @Transactional} with propagation {@code REQUIRED} (the default). Combined with Rule C, this
+ * statically guarantees that every {@code @Modifying} repository call site has an ambient transaction — for every
+ * present and future method, without per-method integration tests.</p>
  */
 @AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class TransactionalBoundaryArchTest {
@@ -120,6 +126,29 @@ public class TransactionalBoundaryArchTest {
                                     }
                                 }
                             }));
+
+    // ---- Rule D: Writer service methods must carry @Transactional(REQUIRED) ----
+
+    @ArchTest
+    static final ArchRule writer_service_methods_must_be_transactional_required =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAPackage("..service.writer..")
+                    .and().areDeclaredInClassesThat().areAnnotatedWith(Service.class)
+                    .and().arePublic()
+                    .should(new ArchCondition<JavaMethod>(
+                            "be effectively @Transactional with REQUIRED propagation") {
+                        @Override
+                        public void check(JavaMethod method, ConditionEvents events) {
+                            Propagation p = effectivePropagation(method);
+                            if (p == null || p == Propagation.REQUIRED) return;
+                            events.add(SimpleConditionEvent.violated(method,
+                                    method.getFullName()
+                                            + " is a Writer method with propagation "
+                                            + p
+                                            + " — Writer methods must use REQUIRED so @Modifying calls"
+                                            + " have an ambient transaction (Rule D)"));
+                        }
+                    });
 
     private static Propagation effectivePropagation(JavaMethod method) {
         if (method.isAnnotatedWith(Transactional.class)) {
