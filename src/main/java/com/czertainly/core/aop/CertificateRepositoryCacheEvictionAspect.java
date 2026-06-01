@@ -10,7 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Evicts certificate-dependent caches after any mutation on {@link CertificateRepository}.
+ * Evicts the certificate-chain and signing-certificate caches after any mutation on {@link CertificateRepository}.
  *
  * <p>Intercepts {@code save*}, {@code delete*}, {@code insert*}, {@code update*}, and {@code clear*} calls on
  * {@link CertificateRepository} — covering all Spring Data CRUD methods (save, saveAll, saveAndFlush, delete,
@@ -46,5 +46,6 @@ public class CertificateRepositoryCacheEvictionAspect {
     @AfterReturning("certificateMutation()")
     public void onMutation() {
         cacheEvictor.clear(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        cacheEvictor.clear(CacheConfig.SIGNING_CERTIFICATE_CACHE);
     }
 }

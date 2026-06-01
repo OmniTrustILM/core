@@ -943,12 +943,18 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         }
         UUID tokenInstanceUuid = UUID.fromString(tokenInstanceReference.getTokenInstanceUuid());
 
+        String pqcParameterSpecName = keyItem.getType() == KeyType.PUBLIC_KEY
+                ? CryptographyUtil.resolvePqcParameterSpecName(keyItem.getKeyAlgorithm(), keyItem.getKeyData())
+                : null;
+
         return new CryptographicKeyItemModel(
                 keyItem.getUuid(),
-                keyItem.getState(),
                 keyItem.isEnabled(),
-                keyItem.getUsage(),
                 keyItem.getKeyAlgorithm(),
+                keyItem.getState(),
+                keyItem.getType(),
+                keyItem.getUsage(),
+                pqcParameterSpecName,
                 keyItem.getKeyReferenceUuid(),
                 tokenInstanceReference.getConnectorUuid(),
                 tokenInstanceUuid

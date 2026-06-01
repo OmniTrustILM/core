@@ -79,6 +79,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
 
+    @EntityGraph(attributePaths = {"key", "key.items"})
+    Optional<Certificate> findForSigningByUuid(UUID uuid);
+
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
     Certificate findByCertificateContent(CertificateContent certificateContent);

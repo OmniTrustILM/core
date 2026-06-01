@@ -16,6 +16,7 @@ import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
@@ -61,6 +62,14 @@ public interface CertificateService extends ResourceExtensionService {
      * @throws CertificateException if any chain entry cannot be parsed
      */
     List<X509Certificate> getCertificateChainForSigning(UUID certificateUuid, boolean withEndCertificate) throws CertificateException;
+
+    /**
+     * Hot-path accessor for digital signing. Returns an immutable snapshot of the certificate's acceptability data and
+     * structural key references, cached in {@link com.czertainly.core.config.cache.CacheConfig#SIGNING_CERTIFICATE_CACHE}.
+     *
+     * @throws NotFoundException if no certificate exists for the UUID
+     */
+    SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException;
 
     CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException;
 
