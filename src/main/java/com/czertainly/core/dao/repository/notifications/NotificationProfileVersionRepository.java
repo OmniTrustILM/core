@@ -41,7 +41,7 @@ public interface NotificationProfileVersionRepository extends SecurityFilterRepo
             )
             """)
     @Modifying
-    void detachHistoricalInstanceReferences(@Param("uuid") UUID uuid);
+    void detachHistoricalInstanceReferencesByNotificationInstanceRefUuid(@Param("uuid") UUID uuid);
 
     @Query("""
             UPDATE NotificationProfileVersion npv SET npv.notificationInstanceRefUuid = NULL
@@ -50,4 +50,3 @@ public interface NotificationProfileVersionRepository extends SecurityFilterRepo
     @Modifying
     int detachNotificationInstanceRefUuid(@Param("uuid") UUID uuid);
 }
-

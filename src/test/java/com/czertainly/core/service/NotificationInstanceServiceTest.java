@@ -279,6 +279,13 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         version.setNotificationInstanceRefUuid(UUID.fromString(EXISTING_NIR_UUID));
         notificationProfileVersionRepository.save(version);
 
+        NotificationProfileVersion version2 = new NotificationProfileVersion();
+        version2.setNotificationProfileUuid(profile.getUuid());
+        version2.setVersion(2);
+        version2.setRecipientType(RecipientType.NONE);
+        version2.setInternalNotification(false);
+        notificationProfileVersionRepository.save(version2);
+
         mockServer.stubFor(WireMock.delete(
                         WireMock.urlPathMatching("/v1/notificationProvider/notifications/%s".formatted(EXISTING_NIR_UUID)))
                 .willReturn(WireMock.aResponse().withStatus(404).withBody("Not Found")));
@@ -286,7 +293,7 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertDoesNotThrow(() -> notificationInstanceService.deleteNotificationInstance(UUID.fromString(EXISTING_NIR_UUID)));
         Assertions.assertFalse(notificationInstanceReferenceRepository.findByUuid(UUID.fromString(EXISTING_NIR_UUID)).isPresent());
 
-        NotificationProfileVersion reloaded = notificationProfileVersionRepository.findById(version.getUuid()).orElseThrow();
+        NotificationProfileVersion reloaded = notificationProfileVersionRepository.findById(version2.getUuid()).orElseThrow();
         Assertions.assertNull(reloaded.getNotificationInstanceRefUuid());
     }
 

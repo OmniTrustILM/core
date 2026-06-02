@@ -19,7 +19,7 @@ public class NotificationProfileVersionWriter {
 
     @Transactional
     public void detachHistoricalInstanceReferencesByNotificationInstanceRefUuid(UUID notificationInstanceRefUuid) {
-        notificationProfileVersionRepository.detachHistoricalInstanceReferences(notificationInstanceRefUuid);
+        notificationProfileVersionRepository.detachHistoricalInstanceReferencesByNotificationInstanceRefUuid(notificationInstanceRefUuid);
     }
 
     @Transactional

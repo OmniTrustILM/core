@@ -275,7 +275,15 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     private void removeNotificationInstance(NotificationInstanceReference notificationInstanceRef) throws ValidationException {
-        boolean isOrphaned = false;
+        // Read before writing: check current-version references that block deletion.
+        List<String> blockingProfiles = notificationProfileVersionRepository
+                .findCurrentVersionProfileNamesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+        if (!blockingProfiles.isEmpty()) {
+            throw new ValidationException(
+                    "Cannot delete notification instance. Notification profile(s) referencing this notification instance: "
+                            + String.join(", ", blockingProfiles));
+        }
+
         if (notificationInstanceRef.getConnector() != null) {
             try {
                 ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid());
@@ -283,34 +291,17 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
                         notificationInstanceRef.getNotificationInstanceUuid().toString());
             } catch (ConnectorEntityNotFoundException notFoundException) {
                 logger.warn("Notification is already deleted in the connector. Proceeding to remove it from the core");
-                isOrphaned = true;
             } catch (Exception e) {
                 throw new ValidationException("Error in delete of notification instance: " + e.getMessage());
             }
         } else {
             logger.debug("Deleting notification without connector: {}", notificationInstanceRef);
-            isOrphaned = true;
         }
 
-        // Read before writing: check current-version references that block deletion.
-        // Historical versions are auto-unlinked, but current versions require the user to update the profile first.
-        // Orphaned instances skip this check — all references are unlinked unconditionally.
-        if (!isOrphaned) {
-            List<String> blockingProfiles = notificationProfileVersionRepository
-                    .findCurrentVersionProfileNamesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
-            if (!blockingProfiles.isEmpty()) {
-                throw new ValidationException(
-                        "Cannot delete notification instance. Notification profile(s) referencing this notification instance: "
-                                + String.join(", ", blockingProfiles));
-            }
-        }
-
-        if (isOrphaned) {
-            int detachedCount = notificationProfileVersionWriter.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
-            logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
-        } else {
-            notificationProfileVersionWriter.detachHistoricalInstanceReferencesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
-        }
+        // At this point, the notification instance is orphaned and no longer linked to any current profile version, but there might still be historical profile versions linked to it.
+        // Detach the instance from all historical versions to maintain data integrity, since there is no way to update previous versions to remove the instance.
+        int detachedCount = notificationProfileVersionWriter.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+        logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
 
         notificationInstanceReferenceRepository.delete(notificationInstanceRef);
     }
