@@ -30,6 +30,7 @@ import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
 import com.czertainly.core.service.NotificationInstanceExternalService;
 import com.czertainly.core.service.ResourceInternalService;
+import com.czertainly.core.service.writer.NotificationProfileVersionWriter;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +55,14 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private CredentialService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
+    private NotificationProfileVersionWriter notificationProfileVersionWriter;
 
     private ResourceInternalService resourceService;
+
+    @Autowired
+    public void setNotificationProfileVersionWriter(NotificationProfileVersionWriter notificationProfileVersionWriter) {
+        this.notificationProfileVersionWriter = notificationProfileVersionWriter;
+    }
 
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
@@ -299,10 +306,10 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
         }
 
         if (isOrphaned) {
-            int detachedCount = notificationProfileVersionRepository.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+            int detachedCount = notificationProfileVersionWriter.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
             logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
         } else {
-            notificationProfileVersionRepository.detachHistoricalInstanceReferences(notificationInstanceRef.getUuid());
+            notificationProfileVersionWriter.detachHistoricalInstanceReferencesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
         }
 
         notificationInstanceReferenceRepository.delete(notificationInstanceRef);
