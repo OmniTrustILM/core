@@ -301,7 +301,8 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         version.setVersion(1);
         version.setRecipientType(RecipientType.NONE);
         version.setInternalNotification(false);
-        version.setNotificationInstanceRefUuid(UUID.fromString(EXISTING_NIR_UUID));
+        UUID uuid = UUID.fromString(EXISTING_NIR_UUID);
+        version.setNotificationInstanceRefUuid(uuid);
         notificationProfileVersionRepository.save(version);
 
         mockServer.stubFor(WireMock.delete(
@@ -309,7 +310,7 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         ValidationException ex = Assertions.assertThrows(ValidationException.class,
-                () -> notificationInstanceService.deleteNotificationInstance(UUID.fromString(EXISTING_NIR_UUID)));
+                () -> notificationInstanceService.deleteNotificationInstance(uuid));
         Assertions.assertTrue(ex.getMessage().contains("BlockingProfile"));
     }
 
