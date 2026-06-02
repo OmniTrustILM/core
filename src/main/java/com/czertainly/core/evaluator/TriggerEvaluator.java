@@ -264,10 +264,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     private boolean evaluateMetaAttributeConditionItem(Resource resource, String fieldIdentifier, UUID objectUuid, Object conditionValue, FilterConditionOperator operator) throws RuleException {
         // If the Field Source is Meta Attribute, we expect Field Identifier to be formatted as follows 'name|contentType', since there can be multiple Meta Attributes with the same name, the Content Type must be specified
-        String[] split = fieldIdentifier.split("\\|");
-        if (split.length < 2) throw new RuleException("Field identifier is not in correct format.");
-        AttributeContentType fieldAttributeContentType = AttributeContentType.valueOf(split[1]);
-        String fieldIdentifierName = split[0];
+        String[] parts = parseNameAndContentType(fieldIdentifier);
+        AttributeContentType fieldAttributeContentType = AttributeContentType.valueOf(parts[1]);
+        String fieldIdentifierName = parts[0];
         // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying attribute, otherwise continue wit next
         List<MetadataResponseDto> metadata = attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(resource, objectUuid).build());
         for (List<ResponseMetadata> responseMetadata : metadata.stream().map(MetadataResponseDto::getItems).toList()) {
@@ -283,9 +282,11 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private boolean evaluateCustomAttributeConditionItem(Resource resource, UUID objectUuid, String fieldIdentifier, Object conditionValue, FilterConditionOperator operator) throws RuleException {
-        // If source is Custom Attribute, retrieve custom attributes of this object and find the attribute which has Name equal to Field Identifier
+        // If source is Custom Attribute, Field Identifier is formatted as 'name|contentType'; extract name to look up the attribute
+        String[] parts = parseNameAndContentType(fieldIdentifier);
+        String attributeName = parts[0];
         List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
-        ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), fieldIdentifier)).findFirst().orElse(null);
+        ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
         if (attributeToCompare == null) return false;
         // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
         return evaluateConditionOnAttribute(attributeToCompare.getContent(), attributeToCompare.getContentType(), conditionValue, operator);
@@ -339,14 +340,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
         final String sourceName;
         final AttributeContentType sourceContentType;
-        String sourceId = executionItem.getSourceFieldIdentifier();
-        String[] sourceParts = sourceId.split("\\|", -1);
-        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
-            throw new RuleException("fieldIdentifier must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
-        }
-        sourceName = sourceId.substring(0, sourceId.indexOf("|"));
+        String[] sourceParts = parseNameAndContentType(executionItem.getSourceFieldIdentifier());
+        sourceName = sourceParts[0];
         try {
-            sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourceId.indexOf("|") + 1));
+            sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
         } catch (IllegalArgumentException e) {
             throw new RuleException("Cannot parse source field identifier %s from execution item: %s".formatted(executionItem.getSourceFieldIdentifier(), e.getMessage()));
         }
@@ -437,7 +434,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             throw new RuleException("Cannot set custom attributes for an object not in database.");
         }
         attributeEngine.updateObjectCustomAttributeContent(resource, objectUuid, null,
-                fieldIdentifier.substring(0, fieldIdentifier.indexOf("|")), attributeContents);
+                parseNameAndContentType(fieldIdentifier)[0], attributeContents);
     }
 
     protected void performSendNotificationAction(Resource resource, ResourceEvent event, Execution execution, T object, Object data, TriggerHistory triggerHistory) {
@@ -481,6 +478,14 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             return false;
         }
         return true;
+    }
+
+    private static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
+        String[] parts = fieldIdentifier.split("\\|", 2);
+        if (parts.length < 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
+            throw new RuleException("Field identifier is not in correct format 'name|contentType', got: " + fieldIdentifier);
+        }
+        return parts;
     }
 
     private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> commonOperatorFunctionMap;

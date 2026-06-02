@@ -586,16 +586,63 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         customAttributeRequest.setLabel("custom");
         customAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
         customAttributeRequest.setContentType(AttributeContentType.STRING);
+        customAttributeRequest.setList(true);
 
         CustomAttributeDefinitionDetailDto customAttribute = attributeService.createCustomAttribute(customAttributeRequest);
         attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, customAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data1"), new StringAttributeContentV3("ref", "data")));
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
-        newCondition.setFieldIdentifier("custom");
+        newCondition.setFieldIdentifier("custom|STRING");
+
         newCondition.setOperator(FilterConditionOperator.EQUALS);
         newCondition.setValue("data");
         Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.STARTS_WITH);
+        newCondition.setValue("da");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.ENDS_WITH);
+        newCondition.setValue("ta");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^\\d+$");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
     }
 
     @Test
