@@ -55,6 +55,7 @@ import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
+import com.czertainly.core.mapper.certificate.SigningCertificateMapper;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
@@ -63,6 +64,7 @@ import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
@@ -805,6 +807,15 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @Cacheable(value = CacheConfig.SIGNING_CERTIFICATE_CACHE, key = "#certificateUuid", sync = true)
+    public SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException {
+        Certificate cert = certificateRepository.findForSigningByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        return SigningCertificateMapper.toSigningCertificate(cert);
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     public CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException {
         List<CertificateContentDto> certificateContent = getCertificateContent(List.of(uuid.getValue()));
@@ -892,7 +903,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
+        performValidation(certificate);
+    }
+
+    private void performValidation(Certificate certificate) {
         List<Certificate> certificateChain = chainService.getCertificateChainInternal(certificate, true);
         boolean isCompleteChain = !certificateChain.isEmpty() && chainService.completeCertificateChain(certificateChain.getLast(), certificateChain);
 
@@ -919,11 +935,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CertificateValidationResultDto getCertificateValidationResult(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateValidationResultDto resultDto = new CertificateValidationResultDto();
         if (CertificateUtil.isValidationEnabled(certificate, resultDto)) {
-            validate(certificate);
+            performValidation(certificate);
         }
         resultDto.setResultStatus(certificate.getValidationStatus());
 

@@ -11,6 +11,9 @@ caching:
   cert-chains:
     ttl-minutes: 5
     max-size: 1000
+  signing-certs:
+    ttl-minutes: 5
+    max-size: 1000
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000
@@ -171,6 +174,14 @@ settings:
     # Effectively disable the scheduled cache refresh during tests so that
     # in-memory cache values populated by @BeforeEach are not wiped mid-test.
     refresh-interval: 31536000
+
+validation:
+  ocsp:
+    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckTest
+    # (3 s) so the OCSP HTTP call waits for WireMock's response instead of timing out at the
+    # 1 s default. The held OCSP call is what keeps validate()'s would-be row lock observable.
+    read-timeout: 5000
+    connect-timeout: 5000
 
 proxy:
   enabled: true

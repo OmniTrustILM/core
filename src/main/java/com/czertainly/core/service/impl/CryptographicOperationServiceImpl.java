@@ -141,12 +141,12 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
-        if (!key.usage().contains(KeyUsage.ENCRYPT)) {
+        if (!key.keyUsage().contains(KeyUsage.ENCRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support encryption"
@@ -198,12 +198,12 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
-        if (!key.usage().contains(KeyUsage.DECRYPT)) {
+        if (!key.keyUsage().contains(KeyUsage.DECRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support decryption"
@@ -286,12 +286,12 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     private SignDataResponseDto executeSignData(CryptographicKeyItemModel key, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
-        if (!key.usage().contains(KeyUsage.SIGN)) {
+        if (!key.keyUsage().contains(KeyUsage.SIGN)) {
             throw new ValidationException(ValidationError.create("Key Usage of the certificate does not support signing"));
         }
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
@@ -331,13 +331,13 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
-        if (!key.usage().contains(KeyUsage.VERIFY)) {
+        if (!key.keyUsage().contains(KeyUsage.VERIFY)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support verification"

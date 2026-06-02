@@ -15,6 +15,10 @@ caching:
   cert-chains:
     ttl-minutes: ${CERT_CHAINS_CACHE_TTL_MINUTES:5}
     max-size: ${CERT_CHAINS_CACHE_MAX_SIZE:1000}
+  # Signing-certificate cache holds certificate data + structural references for the signing hot path.
+  signing-certs:
+    ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
+    max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}
   # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
@@ -30,7 +34,7 @@ caching:
   # TQC cache caches TimeQualityConfigurationModel by UUID for the signing pipeline
   time-quality-configs:
     ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
-    max-size: ${TQC_CACHE_MAX_SIZE:50}         # Maximum number of cached TQC models
+    max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
 
 certificate:
   chain:

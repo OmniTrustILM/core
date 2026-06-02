@@ -23,6 +23,8 @@ import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
+import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,9 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.security.KeyPairGenerator;
+import java.security.Security;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -242,6 +247,43 @@ class CryptographicKeyItemCacheTest extends BaseSpringBootTest {
                 NotFoundException.class,
                 () -> cryptographicKeyService.getKeyItemModel(unknownUuid)
         );
+    }
+
+    @Test
+    void modelCarriesTypeForPrivateKeyAndNullPqcSpec() throws NotFoundException {
+        CryptographicKeyItemModel model = cryptographicKeyService.getKeyItemModel(keyItem.getUuid());
+
+        assertThat(model.keyType()).isEqualTo(KeyType.PRIVATE_KEY);
+        assertThat(model.pqcParameterSpecName()).isNull(); // RSA private key → no PQC spec
+    }
+
+    @Test
+    void modelCarriesPqcSpecForMlDsaPublicKey() throws Exception {
+        if (Security.getProvider("BC") == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME);
+        kpg.initialize(MLDSAParameterSpec.ml_dsa_44);
+        String publicKeyB64 = Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
+
+        CryptographicKeyItem pub = new CryptographicKeyItem();
+        pub.setName("mldsaPublic");
+        pub.setKey(key);
+        pub.setKeyUuid(key.getUuid());
+        pub.setType(KeyType.PUBLIC_KEY);
+        pub.setState(KeyState.ACTIVE);
+        pub.setEnabled(true);
+        pub.setKeyAlgorithm(KeyAlgorithm.MLDSA);
+        pub.setFormat(KeyFormat.SPKI);
+        pub.setKeyData(publicKeyB64);
+        pub = cryptographicKeyItemRepository.saveAndFlush(pub);
+        pub.setKeyReferenceUuid(pub.getUuid());
+        pub = cryptographicKeyItemRepository.saveAndFlush(pub);
+
+        CryptographicKeyItemModel model = cryptographicKeyService.getKeyItemModel(pub.getUuid());
+
+        assertThat(model.keyType()).isEqualTo(KeyType.PUBLIC_KEY);
+        assertThat(model.pqcParameterSpecName()).isEqualTo(MLDSAParameterSpec.ml_dsa_44.getName());
     }
 
     @Test
