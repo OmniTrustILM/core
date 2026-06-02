@@ -151,7 +151,7 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
     private List<UUID> queryUuids(SigningWorkflowType workflowType, boolean qualified) {
         return certificateRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(),
-                        CertificateUtil.constructQueryDigitalSigningCertAcceptable(workflowType, qualified))
+                        CertificateEligibilityUtil.constructQueryDigitalSigningCertAcceptable(workflowType, qualified))
                 .stream().map(Certificate::getUuid).toList();
     }
 

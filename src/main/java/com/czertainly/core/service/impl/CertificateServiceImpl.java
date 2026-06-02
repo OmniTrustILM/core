@@ -1726,7 +1726,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     public List<CertificateDto> listScepCaCertificates(SecurityFilter filter, boolean intuneEnabled) {
         setupSecurityFilter(filter);
         List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
-                CertificateUtil.constructQueryScepCaCertAcceptable(intuneEnabled));
+                CertificateEligibilityUtil.constructQueryScepCaCertAcceptable(intuneEnabled));
         return certificates.stream().map(Certificate::mapToListDto).toList();
     }
 
@@ -1736,7 +1736,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         setupSecurityFilter(filter);
 
         List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
-                CertificateUtil.constructQueryCmpSigningCertAcceptable());
+                CertificateEligibilityUtil.constructQueryCmpSigningCertAcceptable());
 
         return certificates.stream()
                 .map(Certificate::mapToListDto).toList();
@@ -1748,7 +1748,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         setupSecurityFilter(filter);
 
         List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
-                CertificateUtil.constructQueryDigitalSigningCertAcceptable(signingWorkflowType, qualifiedTimestamp));
+                CertificateEligibilityUtil.constructQueryDigitalSigningCertAcceptable(signingWorkflowType, qualifiedTimestamp));
         return certificates.stream().map(Certificate::mapToListDto).toList();
     }
 

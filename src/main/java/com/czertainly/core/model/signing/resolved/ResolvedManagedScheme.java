@@ -1,5 +1,7 @@
 package com.czertainly.core.model.signing.resolved;
 
+import com.czertainly.core.signing.tsa.CertificateChain;
+
 /**
  * Sealed interface for the resolved (request-time) representation of a managed signing scheme.
  *
@@ -9,4 +11,10 @@ package com.czertainly.core.model.signing.resolved;
  */
 public sealed interface ResolvedManagedScheme
         permits ResolvedStaticKeyManagedSigning {
+
+    /**
+     * The validated certificate chain to sign with and embed in the token, built once at resolution time.
+     * Every managed scheme signs with a platform-held certificate, so a chain is always present.
+     */
+    CertificateChain chain();
 }
