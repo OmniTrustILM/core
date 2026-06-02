@@ -29,7 +29,7 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
 import com.czertainly.core.service.NotificationInstanceExternalService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,10 +55,10 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

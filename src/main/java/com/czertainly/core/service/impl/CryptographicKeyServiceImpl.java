@@ -53,8 +53,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
+import com.czertainly.core.config.cache.CacheEvictor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.lang.NonNull;
@@ -65,8 +65,6 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
@@ -119,7 +117,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private NotificationProducer notificationProducer;
 
     private UserManagementApiClient userManagementApiClient;
-    private CacheManager cacheManager;
+    private CacheEvictor cacheEvictor;
     // --------------------------------------------------------------------------------
     // Repositories
     // --------------------------------------------------------------------------------
@@ -190,8 +188,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired
@@ -926,13 +924,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @Cacheable(value = CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, key = "#keyItemUuid", sync = true)
+    @Transactional(readOnly = true)
     public CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException {
-        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        if (cache != null) {
-            CryptographicKeyItemModel cached = cache.get(keyItemUuid, CryptographicKeyItemModel.class);
-            if (cached != null)
-                return cached;
-        }
         CryptographicKeyItem keyItem = cryptographicKeyItemRepository
                 .findWithConnectorByUuid(keyItemUuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
@@ -949,34 +943,26 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         }
         UUID tokenInstanceUuid = UUID.fromString(tokenInstanceReference.getTokenInstanceUuid());
 
-        CryptographicKeyItemModel model = new CryptographicKeyItemModel(
+        String pqcParameterSpecName = keyItem.getType() == KeyType.PUBLIC_KEY
+                ? CryptographyUtil.resolvePqcParameterSpecName(keyItem.getKeyAlgorithm(), keyItem.getKeyData())
+                : null;
+
+        return new CryptographicKeyItemModel(
                 keyItem.getUuid(),
-                keyItem.getState(),
                 keyItem.isEnabled(),
-                keyItem.getUsage(),
                 keyItem.getKeyAlgorithm(),
+                keyItem.getState(),
+                keyItem.getType(),
+                keyItem.getUsage(),
+                pqcParameterSpecName,
                 keyItem.getKeyReferenceUuid(),
                 tokenInstanceReference.getConnectorUuid(),
                 tokenInstanceUuid
         );
-        if (cache != null)
-            cache.put(keyItemUuid, model);
-        return model;
     }
 
     private void evictKeyItemCache(UUID keyItemUuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(keyItemUuid);
-                }
-            });
-        } else {
-            cache.evict(keyItemUuid);
-        }
+        cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, keyItemUuid);
     }
 
     @Override

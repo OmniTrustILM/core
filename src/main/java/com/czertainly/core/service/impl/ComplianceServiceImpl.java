@@ -16,8 +16,10 @@ import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.compliance.*;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.service.handler.ComplianceProfileRuleHandler;
 import com.czertainly.core.service.handler.ComplianceSubjectHandler;
 import org.slf4j.Logger;
@@ -33,7 +35,7 @@ import java.util.*;
 
 @Service
 @Transactional
-public class ComplianceServiceImpl implements ComplianceService {
+public class ComplianceServiceImpl implements ComplianceExternalService, ComplianceInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceServiceImpl.class);
     private static final String COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE = "Cannot check compliance for resource %s. Resource does not support compliance check";
@@ -137,6 +139,7 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public ComplianceCheckResultDto getComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException {
         logger.debug("Get Compliance Check Result called for resource={} uuid={}", resource.getLabel(), objectUuid);
         if (!resource.complianceSubject() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM) {
@@ -285,6 +288,7 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void checkResourceObjectsComplianceValidation(Resource resource, List<UUID> objectUuids) throws ValidationException, NotFoundException {
         if (resource == Resource.CERTIFICATE_REQUEST || (!resource.complianceSubject() && !resource.hasComplianceProfiles() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM)) {
             throw new ValidationException("Cannot check compliance for resource %s. Resource does not support compliance check or does not allow association of compliance profiles".formatted(resource.getLabel()));

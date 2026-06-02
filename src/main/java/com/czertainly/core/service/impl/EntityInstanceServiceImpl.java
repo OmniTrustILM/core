@@ -35,7 +35,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
 import com.czertainly.core.service.EntityInstanceService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.RequestValidatorHelper;
@@ -67,10 +67,10 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     private CredentialService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

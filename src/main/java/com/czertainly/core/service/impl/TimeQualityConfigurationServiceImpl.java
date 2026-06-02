@@ -21,6 +21,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictor;
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
 import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
@@ -41,11 +42,7 @@ import com.czertainly.core.service.TimeQualityConfigurationService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.SearchHelper;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -79,7 +76,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
     private ApplicationEventPublisher applicationEventPublisher;
-    private CacheManager cacheManager;
+    private CacheEvictor cacheEvictor;
 
     @Override
     @ExternalAuthorization(resource = Resource.TIME_QUALITY_CONFIGURATION, action = ResourceAction.LIST)
@@ -128,18 +125,16 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     @Override
-    public TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid)
-            throws NotFoundException {
+    public TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid) throws NotFoundException {
         return self.loadTimeQualityConfigurationModel(uuid);
     }
 
-    @Cacheable(value = CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE, key = "#uuid", sync = true)
+    @Cacheable(value = CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE, key = "#tqcUuid", sync = true)
     @Transactional(readOnly = true)
-    TimeQualityConfigurationModel loadTimeQualityConfigurationModel(UUID uuid)
-            throws NotFoundException {
+    TimeQualityConfigurationModel loadTimeQualityConfigurationModel(UUID tqcUuid) throws NotFoundException {
         TimeQualityConfiguration configuration = timeQualityConfigurationRepository
-                .findById(uuid)
-                .orElseThrow(() -> new NotFoundException(NOT_FOUND_MSG + uuid));
+                .findById(tqcUuid)
+                .orElseThrow(() -> new NotFoundException(NOT_FOUND_MSG + tqcUuid));
         return TimeQualityConfigurationMapper.toModel(configuration);
     }
 
@@ -278,32 +273,18 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
         attributeEngine.deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, configuration.getUuid());
         applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
         applicationEventPublisher.publishEvent(new TimeQualityConfigDeletedEvent(this, uuid));
-        signingProfileService.notifyTimeQualityConfigurationChange(configuration.getUuid());
         timeQualityConfigurationRepository.delete(configuration);
         evictTimeQualityConfigurationCache(uuid);
     }
 
     private void evictTimeQualityConfigurationCache(UUID uuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            cache.evict(uuid);
-                        }
-                    });
-        } else {
-            cache.evict(uuid);
-        }
+        cacheEvictor.evict(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE, uuid);
     }
 
     private TimeQualityConfiguration saveOrTranslateUniqueViolation(TimeQualityConfiguration configuration, String name) throws AlreadyExistException {
         try {
             TimeQualityConfiguration saved = timeQualityConfigurationRepository.saveAndFlush(configuration);
             applicationEventPublisher.publishEvent(new TimeQualityConfigChangedEvent(this));
-            signingProfileService.notifyTimeQualityConfigurationChange(saved.getUuid());
             return saved;
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException("Time Quality Configuration with name '" + name + "' already exists.");
@@ -337,7 +318,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 }

@@ -18,7 +18,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ApprovalProfileExternalService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
 import com.czertainly.core.util.RequestValidatorHelper;
 import org.apache.commons.lang3.StringUtils;
@@ -50,7 +50,7 @@ public class ApprovalProfileServiceImpl implements ApprovalProfileExternalServic
 
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Override
     @ExternalAuthorization(resource = Resource.APPROVAL_PROFILE, action = ResourceAction.LIST)
@@ -326,7 +326,7 @@ public class ApprovalProfileServiceImpl implements ApprovalProfileExternalServic
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
