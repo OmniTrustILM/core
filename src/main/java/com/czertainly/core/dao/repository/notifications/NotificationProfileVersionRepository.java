@@ -48,6 +48,6 @@ public interface NotificationProfileVersionRepository extends SecurityFilterRepo
             WHERE npv.notificationInstanceRefUuid = :uuid
             """)
     @Modifying
-    Long detachNotificationInstanceRefUuid(@Param("uuid") UUID uuid);
+    int detachNotificationInstanceRefUuid(@Param("uuid") UUID uuid);
 }
 

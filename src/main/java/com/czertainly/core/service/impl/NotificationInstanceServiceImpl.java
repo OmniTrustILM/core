@@ -299,7 +299,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
         }
 
         if (isOrphaned) {
-            Long detachedCount = notificationProfileVersionRepository.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+            int detachedCount = notificationProfileVersionRepository.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
             logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
         } else {
             notificationProfileVersionRepository.detachHistoricalInstanceReferences(notificationInstanceRef.getUuid());
