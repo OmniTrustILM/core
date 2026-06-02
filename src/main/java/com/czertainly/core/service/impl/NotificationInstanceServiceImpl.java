@@ -126,9 +126,17 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
         }
 
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceReference.getConnectorUuid());
-        NotificationProviderInstanceDto notificationProviderInstanceDto = connectorApiFactory.getNotificationInstanceApiClient(connectorDto).getNotificationInstance(
-                connectorDto,
-                notificationInstanceReference.getNotificationInstanceUuid().toString());
+        NotificationProviderInstanceDto notificationProviderInstanceDto;
+        try {
+            notificationProviderInstanceDto = connectorApiFactory.getNotificationInstanceApiClient(connectorDto).getNotificationInstance(
+                    connectorDto,
+                    notificationInstanceReference.getNotificationInstanceUuid().toString());
+        } catch (ConnectorEntityNotFoundException e) {
+            notificationInstanceDto.setConnectorName(notificationInstanceReference.getConnectorName() + " (Orphaned)");
+            notificationInstanceDto.setAttributes(attributes);
+            logger.warn("Notification Instance {} is not present in the connector.", notificationInstanceReference.getName());
+            return notificationInstanceDto;
+        }
 
         if (attributes.isEmpty() && notificationProviderInstanceDto.getAttributes() != null && !notificationProviderInstanceDto.getAttributes().isEmpty()) {
             try {
@@ -260,6 +268,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     private void removeNotificationInstance(NotificationInstanceReference notificationInstanceRef) throws ValidationException {
+        boolean isOrphaned = false;
         if (notificationInstanceRef.getConnector() != null) {
             try {
                 ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid());
@@ -267,17 +276,33 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
                         notificationInstanceRef.getNotificationInstanceUuid().toString());
             } catch (ConnectorEntityNotFoundException notFoundException) {
                 logger.warn("Notification is already deleted in the connector. Proceeding to remove it from the core");
+                isOrphaned = true;
             } catch (Exception e) {
                 throw new ValidationException("Error in delete of notification instance: " + e.getMessage());
             }
         } else {
             logger.debug("Deleting notification without connector: {}", notificationInstanceRef);
+            isOrphaned = true;
         }
 
-        // check notification profiles referencing notification instance
-        Long referencesCount = notificationProfileVersionRepository.countByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
-        if (referencesCount > 0) {
-            throw new ValidationException("Cannot delete notification instance. %d notification profile version(s) are referencing this notification instance".formatted(referencesCount));
+        // Read before writing: check current-version references that block deletion.
+        // Historical versions are auto-unlinked, but current versions require the user to update the profile first.
+        // Orphaned instances skip this check — all references are unlinked unconditionally.
+        if (!isOrphaned) {
+            List<String> blockingProfiles = notificationProfileVersionRepository
+                    .findCurrentVersionProfileNamesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+            if (!blockingProfiles.isEmpty()) {
+                throw new ValidationException(
+                        "Cannot delete notification instance. Notification profile(s) referencing this notification instance: "
+                                + String.join(", ", blockingProfiles));
+            }
+        }
+
+        if (isOrphaned) {
+            Long detachedCount = notificationProfileVersionRepository.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+            logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
+        } else {
+            notificationProfileVersionRepository.detachHistoricalInstanceReferences(notificationInstanceRef.getUuid());
         }
 
         notificationInstanceReferenceRepository.delete(notificationInstanceRef);
