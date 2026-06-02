@@ -138,6 +138,7 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     public CustomAttributeDefinitionDto mapToCustomAttributeDefinitionDto() {
         CustomAttributeDefinitionDto dto = new CustomAttributeDefinitionDto();
         CustomAttributeV3 attribute = (CustomAttributeV3) this.definition;
+        dto.setLabel(label);
         dto.setUuid(attribute.getUuid());
         dto.setName(attribute.getName());
         dto.setDescription(attribute.getDescription());
@@ -152,6 +153,7 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
         AttributeDefinitionDto dto = new AttributeDefinitionDto();
         MetadataAttributeV2 attribute = (MetadataAttributeV2) this.definition;
         dto.setUuid(uuid.toString());
+        dto.setLabel(label);
         dto.setName(attribute.getName());
         dto.setContentType(attribute.getContentType());
         dto.setDescription(attribute.getDescription());
