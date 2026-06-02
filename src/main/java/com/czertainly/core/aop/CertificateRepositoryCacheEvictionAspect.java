@@ -10,12 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Evicts certificate-dependent caches after any mutation on {@link CertificateRepository}.
- *
- * <p>Intercepts {@code save*}, {@code delete*}, {@code insert*}, {@code update*}, and {@code clear*} calls on
- * {@link CertificateRepository} — covering all Spring Data CRUD methods (save, saveAll, saveAndFlush, delete,
- * deleteAll, deleteAllInBatch, etc.), the custom native upserts, the targeted {@code @Modifying} UPDATEs and
- * the field-nulling helpers.
+ * Evicts the certificate-chain and signing-certificate caches after any mutation on {@link CertificateRepository}.
+ * The intercepted verb prefixes are declared in the {@link #certificateMutation()} pointcut below.
  *
  * <p><strong>Eviction strategy.</strong> Every matched mutation triggers a full {@code cache.clear()}
  * (deferred to {@code afterCommit} and deduped per transaction by {@link CacheEvictor}).
@@ -40,11 +36,13 @@ public class CertificateRepositoryCacheEvictionAspect {
 
     @Pointcut("target(com.czertainly.core.dao.repository.CertificateRepository+) "
             + "&& (execution(* save*(..)) || execution(* delete*(..)) || execution(* insert*(..)) "
-            + "|| execution(* update*(..)) || execution(* clear*(..)))")
+            + "|| execution(* update*(..)) || execution(* clear*(..)) || execution(* archive*(..)) "
+            + "|| execution(* set*(..)) || execution(* transition*(..)))")
     private void certificateMutation() {}
 
     @AfterReturning("certificateMutation()")
     public void onMutation() {
         cacheEvictor.clear(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        cacheEvictor.clear(CacheConfig.SIGNING_CERTIFICATE_CACHE);
     }
 }
