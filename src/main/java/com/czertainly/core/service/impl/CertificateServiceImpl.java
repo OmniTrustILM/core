@@ -55,6 +55,7 @@ import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
+import com.czertainly.core.mapper.certificate.SigningCertificateMapper;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
@@ -63,6 +64,7 @@ import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
@@ -802,6 +804,15 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             chain.add(CertificateUtil.parseCertificate(contents.get(i)));
         }
         return Collections.unmodifiableList(chain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(value = CacheConfig.SIGNING_CERTIFICATE_CACHE, key = "#certificateUuid", sync = true)
+    public SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException {
+        Certificate cert = certificateRepository.findForSigningByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        return SigningCertificateMapper.toSigningCertificate(cert);
     }
 
     @Override

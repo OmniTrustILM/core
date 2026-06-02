@@ -333,6 +333,48 @@ class CryptographyUtilTest {
         assertNotNull(algId.getAlgorithm());
     }
 
+    // --- resolvePqcParameterSpecName ---
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForRsa() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.RSA, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForEcdsa() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.ECDSA, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForMlkem() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLKEM, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameFalcon1024() throws Exception {
+        String publicKey = generatePublicKeyBase64("Falcon", FalconParameterSpec.falcon_1024, BouncyCastlePQCProvider.PROVIDER_NAME);
+        assertEquals("FALCON-1024", CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.FALCON, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameMlDsa44() throws Exception {
+        String publicKey = generatePublicKeyBase64("ML-DSA", MLDSAParameterSpec.ml_dsa_44, BouncyCastleProvider.PROVIDER_NAME);
+        assertEquals(MLDSAParameterSpec.ml_dsa_44.getName(), CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameSlhDsa() throws Exception {
+        String publicKey = generatePublicKeyBase64("SLH-DSA", SLHDSAParameterSpec.slh_dsa_shake_128s, BouncyCastleProvider.PROVIDER_NAME);
+        assertEquals(SLHDSAParameterSpec.slh_dsa_shake_128s.getName(), CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.SLHDSA, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameThrowsOnInvalidPqcKey() {
+        String invalidKey = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02, 0x03});
+        assertThrows(ValidationException.class,
+                () -> CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, invalidKey));
+    }
+
     // --- helpers ---
 
     private static String generatePublicKeyBase64(String keyAlgorithm, AlgorithmParameterSpec spec, String provider)

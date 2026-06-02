@@ -11,6 +11,9 @@ caching:
   cert-chains:
     ttl-minutes: 5
     max-size: 1000
+  signing-certs:
+    ttl-minutes: 5
+    max-size: 1000
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000

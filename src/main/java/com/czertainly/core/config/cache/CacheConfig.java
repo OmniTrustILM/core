@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
         ConnectorApiClientCacheProperties.class,
         CertificateChainCacheProperties.class,
         CryptographicKeyItemCacheProperties.class,
+        SigningCertificateCacheProperties.class,
         SigningProfileCacheProperties.class,
         TimeQualityConfigurationCacheProperties.class,
         TspProfileCacheProperties.class,
@@ -30,6 +31,7 @@ public class CacheConfig {
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
+    public static final String SIGNING_CERTIFICATE_CACHE = "signingCertificate";
     public static final String SIGNING_PROFILE_CACHE = "signingProfile";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
     public static final String TIME_QUALITY_CONFIGURATION_CACHE = "timeQualityConfiguration";
@@ -42,6 +44,7 @@ public class CacheConfig {
                                      CertificateChainCacheProperties certChainProperties,
                                      ConnectorApiClientCacheProperties connectorCacheProperties,
                                      CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
+                                     SigningCertificateCacheProperties signingCertificateCacheProperties,
                                      SigningProfileCacheProperties signingProfileCacheProperties,
                                      TimeQualityConfigurationCacheProperties tqcCacheProperties,
                                      TokenJtiIndex tokenJtiIndex,
@@ -80,6 +83,12 @@ public class CacheConfig {
         mgr.registerCustomCache(CRYPTOGRAPHIC_KEY_ITEM_CACHE, Caffeine.newBuilder()
                 .expireAfterWrite(cryptographicKeyItemCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                 .maximumSize(cryptographicKeyItemCacheProperties.maxSize())
+                .recordStats()
+                .build());
+
+        mgr.registerCustomCache(SIGNING_CERTIFICATE_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(signingCertificateCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(signingCertificateCacheProperties.maxSize())
                 .recordStats()
                 .build());
 
