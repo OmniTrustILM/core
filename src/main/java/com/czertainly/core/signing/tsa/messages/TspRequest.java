@@ -39,13 +39,16 @@ public record TspRequest(
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof TspRequest other)) return false;
-        return hashAlgorithm == other.hashAlgorithm
-                && Arrays.equals(hashedMessage, other.hashedMessage)
-                && policy.equals(other.policy)
-                && nonce.equals(other.nonce)
-                && includeSignerCertificate == other.includeSignerCertificate
-                && Objects.equals(requestExtensions, other.requestExtensions);
+        if (!(o instanceof TspRequest(
+                DigestAlgorithm otherHashAlgorithm, byte[] otherHashedMessage, Optional<String> otherPolicy,
+                Optional<BigInteger> otherNonce, boolean otherIncludeSignerCertificate, Extensions otherRequestExtensions)))
+            return false;
+        return hashAlgorithm == otherHashAlgorithm
+                && Arrays.equals(hashedMessage, otherHashedMessage)
+                && policy.equals(otherPolicy)
+                && nonce.equals(otherNonce)
+                && includeSignerCertificate == otherIncludeSignerCertificate
+                && Objects.equals(requestExtensions, otherRequestExtensions);
     }
 
     @Override

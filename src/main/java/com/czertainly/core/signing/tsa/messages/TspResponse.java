@@ -15,8 +15,8 @@ public sealed interface TspResponse {
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (!(o instanceof Granted other)) return false;
-            return Arrays.equals(timestampBytes, other.timestampBytes);
+            if (!(o instanceof Granted(byte[] otherTimestampBytes))) return false;
+            return Arrays.equals(timestampBytes, otherTimestampBytes);
         }
 
         @Override
