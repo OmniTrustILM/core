@@ -129,7 +129,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
             } catch (Exception e) {
                 log.error("Failed to delete Signing Record {}", uuid, e);
                 messages.add(BulkActionMessageDto.failure(uuid.toString(), signingRecord != null ?
-                        signingRecord.getName() : "", e, "Failed to signing record"));
+                        signingRecord.getName() : "", e, "Failed to delete signing record"));
             }
         }
         return messages;
