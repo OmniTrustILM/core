@@ -267,16 +267,16 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         String[] parts = parseNameAndContentType(fieldIdentifier);
         AttributeContentType fieldAttributeContentType = parseAttributeContentType(parts[1]);
         String fieldIdentifierName = parts[0];
-        // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying attribute, otherwise continue wit next
+        // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying entry, otherwise continue with next.
+        // Note: negated operators are evaluated per entry (true if any entry satisfies them), which diverges from FilterPredicatesBuilder's NOT EXISTS semantics when the same meta attribute is contributed by multiple connectors.
         List<MetadataResponseDto> metadata = attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(resource, objectUuid).build());
         for (List<ResponseMetadata> responseMetadata : metadata.stream().map(MetadataResponseDto::getItems).toList()) {
             for (ResponseMetadata responseAttributeDto : responseMetadata) {
-                // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
                 if (Objects.equals(responseAttributeDto.getName(), fieldIdentifierName) && fieldAttributeContentType == responseAttributeDto.getContentType() && evaluateConditionOnAttribute(responseAttributeDto.getContent(), responseAttributeDto.getContentType(), conditionValue, operator))
                         return true;
             }
         }
-        // If no attribute has been evaluated as satisfying, the condition is not satisfied as whole
+        // If no entry has been evaluated as satisfying, the condition is not satisfied as a whole
         return false;
     }
 
