@@ -19,7 +19,9 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigInteger;
 import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
@@ -121,16 +123,14 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
     }
 
     private static List<byte[]> encodeBase64DerChain(CertificateChain certificateChain) throws TspException {
-        try {
-            return certificateChain.chain().stream().map(cert -> {
-                try {
-                    return Base64.getEncoder().encode(cert.getEncoded());
-                } catch (CertificateEncodingException e) {
-                    throw new RuntimeException(e);
-                }
-            }).toList();
-        } catch (Exception e) {
-            throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Failed to encode certificate chain: " + e.getMessage(), e, "Internal error encoding certificate chain");
+        List<byte[]> result = new ArrayList<>();
+        for (X509Certificate certificate : certificateChain.chain()) {
+            try {
+                result.add(Base64.getEncoder().encode(certificate.getEncoded()));
+            } catch (CertificateEncodingException e) {
+                throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Failed to encode certificate chain: " + e.getMessage(), e, "Internal error encoding certificate chain");
+            }
         }
+        return result;
     }
 }

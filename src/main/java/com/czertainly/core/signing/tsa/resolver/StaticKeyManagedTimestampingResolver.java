@@ -4,8 +4,6 @@ import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.interfaces.core.tsp.error.TspException;
 import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.signing.tsa.CertificateChain;
 import com.czertainly.core.model.signing.SigningCertificate;

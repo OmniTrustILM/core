@@ -2,13 +2,33 @@ package com.czertainly.core.signing.tsa.messages;
 
 import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
 
+import java.util.Arrays;
+
 /**
  * Result of processing a timestamp request — either {@link Granted} with
  * the DER-encoded timestamp token (CMS {@code ContentInfo}), or {@link Rejected} with failure info and status string.
  */
 public sealed interface TspResponse {
 
-    record Granted(byte[] timestampBytes) implements TspResponse {}
+    record Granted(byte[] timestampBytes) implements TspResponse {
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Granted other)) return false;
+            return Arrays.equals(timestampBytes, other.timestampBytes);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(timestampBytes);
+        }
+
+        @Override
+        public String toString() {
+            return "Granted[timestampBytes=" + Arrays.toString(timestampBytes) + "]";
+        }
+    }
 
     record Rejected(TspFailureInfo failureInfo, String statusString) implements TspResponse {}
 

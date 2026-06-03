@@ -29,8 +29,9 @@ class CertificateChainTest {
         X509Certificate nullCert = null;
 
         // when
+        List<X509Certificate> leafChain = List.of(leafCert);
         var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(nullCert, List.of(leafCert)));
+                () -> new CertificateChain(nullCert, leafChain));
 
         // then
         assertEquals("signingCertificate must not be null", exception.getMessage());

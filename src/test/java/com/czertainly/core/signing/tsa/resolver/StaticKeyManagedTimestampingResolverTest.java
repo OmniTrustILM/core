@@ -126,7 +126,7 @@ class StaticKeyManagedTimestampingResolverTest {
 
             when(certificateService.getSigningCertificate(CERTIFICATE_UUID)).thenReturn(certificate);
             when(cryptographicKeyService.getKeyItemModel(keyItemUuid)).thenReturn(keyItem);
-            when(certificateService.getCertificateChainForSigning(eq(CERTIFICATE_UUID), eq(true))).thenReturn(chain);
+            when(certificateService.getCertificateChainForSigning(CERTIFICATE_UUID, true)).thenReturn(chain);
             when(timeQualityConfigurationService.getTimeQualityConfigurationModel(TQC_UUID)).thenReturn(tqc);
             when(connectorService.getConnectorForApiClient(CONNECTOR_UUID)).thenReturn(connector);
 

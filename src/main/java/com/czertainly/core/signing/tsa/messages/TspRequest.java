@@ -5,6 +5,8 @@ import com.czertainly.core.signing.tsa.validator.TspRequestValidator;
 import org.bouncycastle.asn1.x509.Extensions;
 
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -33,4 +35,33 @@ public record TspRequest(
         Optional<BigInteger> nonce,
         boolean includeSignerCertificate,
         Extensions requestExtensions) {
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof TspRequest other)) return false;
+        return hashAlgorithm == other.hashAlgorithm
+                && Arrays.equals(hashedMessage, other.hashedMessage)
+                && policy.equals(other.policy)
+                && nonce.equals(other.nonce)
+                && includeSignerCertificate == other.includeSignerCertificate
+                && Objects.equals(requestExtensions, other.requestExtensions);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(hashAlgorithm, policy, nonce, includeSignerCertificate, requestExtensions);
+        result = 31 * result + Arrays.hashCode(hashedMessage);
+        return result;
+    }
+
+    @Override
+    public String toString() {
+        return "TspRequest[hashAlgorithm=" + hashAlgorithm
+                + ", hashedMessage=" + Arrays.toString(hashedMessage)
+                + ", policy=" + policy
+                + ", nonce=" + nonce
+                + ", includeSignerCertificate=" + includeSignerCertificate
+                + ", requestExtensions=" + requestExtensions + "]";
+    }
 }

@@ -92,10 +92,10 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
         byte[] dtbs = {1, 2, 3};
         byte[] signature = {4, 5, 6};
 
-        when(formatter.formatDtbs(eq(request), eq(profile), eq(serialNumber), eq(genTime), eq(chain), eq(SignatureAlgorithm.SHA256_WITH_RSA)))
+        when(formatter.formatDtbs(request, profile, serialNumber, genTime, chain, SignatureAlgorithm.SHA256_WITH_RSA))
                 .thenReturn(dtbs);
-        when(signer.sign(eq(dtbs))).thenReturn(signature);
-        when(formatter.formatSigningResponse(eq(request), eq(profile), eq(serialNumber), eq(genTime), eq(chain), eq(dtbs), eq(signature), eq(SignatureAlgorithm.SHA256_WITH_RSA)))
+        when(signer.sign(dtbs)).thenReturn(signature);
+        when(formatter.formatSigningResponse(request, profile, serialNumber, genTime, chain, dtbs, signature, SignatureAlgorithm.SHA256_WITH_RSA))
                 .thenReturn(validTokenBytes);
 
         // when
