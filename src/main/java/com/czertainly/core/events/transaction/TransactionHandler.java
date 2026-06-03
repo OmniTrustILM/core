@@ -14,12 +14,10 @@ public class TransactionHandler {
     public <T> T runInTransaction(Callable<T> action) throws EventException {
         try {
             return action.call();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (EventException e) {
+        } catch (RuntimeException | EventException e) {
             throw e;
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new EventException(e.getMessage());
         }
     }
 
