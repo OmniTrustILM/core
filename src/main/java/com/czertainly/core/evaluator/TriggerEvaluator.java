@@ -274,7 +274,6 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
                 if (Objects.equals(responseAttributeDto.getName(), fieldIdentifierName) && fieldAttributeContentType == responseAttributeDto.getContentType() && evaluateConditionOnAttribute(responseAttributeDto.getContent(), responseAttributeDto.getContentType(), conditionValue, operator))
                         return true;
-
             }
         }
         // If no attribute has been evaluated as satisfying, the condition is not satisfied as whole
@@ -282,9 +281,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private boolean evaluateCustomAttributeConditionItem(Resource resource, UUID objectUuid, String fieldIdentifier, Object conditionValue, FilterConditionOperator operator) throws RuleException {
-        // If source is Custom Attribute, Field Identifier is formatted as 'name|contentType'; extract name to look up the attribute
-        String[] parts = parseNameAndContentType(fieldIdentifier);
-        String attributeName = parts[0];
+        // If source is Custom Attribute, Field Identifier is either formatted as 'name|contentType', or only as `name` since the content type is not needed
+        String attributeName = fieldIdentifier.contains("|") ? parseNameAndContentType(fieldIdentifier)[0] : fieldIdentifier;
         List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
         ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
         // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
@@ -482,7 +480,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return parts;
     }
 
-    private AttributeContentType parseAttributeContentType(String contentType) throws RuleException {
+    private static AttributeContentType parseAttributeContentType(String contentType) throws RuleException {
         try {
             return AttributeContentType.valueOf(contentType);
         } catch (IllegalArgumentException e) {

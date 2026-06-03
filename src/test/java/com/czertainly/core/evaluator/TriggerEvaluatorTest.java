@@ -729,7 +729,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
-        newCondition.setFieldIdentifier("customAbsent|STRING");
+        newCondition.setFieldIdentifier("customAbsent");
 
         // Absent attribute has no content — EMPTY is satisfied
         newCondition.setOperator(FilterConditionOperator.EMPTY);
