@@ -15,14 +15,13 @@ import java.util.List;
 @Component
 public class BestEffortSigningRecordWriter implements SigningRecordWriter {
 
-    private static final int MAX_BATCH_SIZE = 200;
-
     private final SigningRecordRepository repository;
     private final SigningRecordMapper mapper;
     private final SigningRecordMetrics metrics;
     private final TransactionTemplate tx;
     private final BestEffortBackpressurePolicy policy;
     private final BestEffortSigningRecordQueue queue;
+    private final int maxBatchSize;
 
     public BestEffortSigningRecordWriter(
             SigningRecordRepository repository,
@@ -30,13 +29,15 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
             SigningRecordMetrics metrics,
             PlatformTransactionManager txm,
             BestEffortSigningRecordQueue queue,
-            @Value("${signing-record.best-effort.backpressure-policy:DROP_OLDEST}") BestEffortBackpressurePolicy policy) {
+            @Value("${signing-record.best-effort.backpressure-policy:DROP_OLDEST}") BestEffortBackpressurePolicy policy,
+            @Value("${signing-record.best-effort.max-batch-size:200}") int maxBatchSize) {
         this.repository = repository;
         this.mapper = mapper;
         this.metrics = metrics;
         this.tx = new TransactionTemplate(txm);
         this.policy = policy;
         this.queue = queue;
+        this.maxBatchSize = maxBatchSize;
     }
 
     @Override
@@ -79,14 +80,14 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
     }
 
     /**
-     * Waits up to {@code timeoutMs} for queued records, then persists a single batch (up to
-     * {@link #MAX_BATCH_SIZE} records) in one transaction. Returns immediately when the wait times out with
+     * Waits up to {@code timeoutMs} for queued records, then persists a single batch (up to the configured
+     * {@code signing-record.best-effort.max-batch-size}) in one transaction. Returns immediately when the wait times out with
      * an empty queue. A persistence failure is counted and logged but not propagated — best-effort records
      * are allowed to be lost. {@link InterruptedException} is propagated so the caller owning the thread
      * lifecycle can decide whether to stop.
      */
     public void drainAndPersistBatch(long timeoutMs) throws InterruptedException {
-        List<SigningRecord> batch = queue.pollBatch(MAX_BATCH_SIZE, timeoutMs);
+        List<SigningRecord> batch = queue.pollBatch(maxBatchSize, timeoutMs);
         if (batch.isEmpty()) {
             return;
         }

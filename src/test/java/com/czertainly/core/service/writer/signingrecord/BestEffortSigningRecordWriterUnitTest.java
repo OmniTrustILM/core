@@ -196,7 +196,7 @@ class BestEffortSigningRecordWriterUnitTest {
     }
 
     private BestEffortSigningRecordWriter createWriter(BestEffortBackpressurePolicy policy) {
-        return new BestEffortSigningRecordWriter(repository, new SigningRecordMapper(), metrics, txm, queue, policy);
+        return new BestEffortSigningRecordWriter(repository, new SigningRecordMapper(), metrics, txm, queue, policy, MAX_BATCH_SIZE);
     }
 
     private SigningRecordInput recordableInput() {
