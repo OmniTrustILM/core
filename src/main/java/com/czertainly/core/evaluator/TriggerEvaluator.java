@@ -265,7 +265,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     private boolean evaluateMetaAttributeConditionItem(Resource resource, String fieldIdentifier, UUID objectUuid, Object conditionValue, FilterConditionOperator operator) throws RuleException {
         // If the Field Source is Meta Attribute, we expect Field Identifier to be formatted as follows 'name|contentType', since there can be multiple Meta Attributes with the same name, the Content Type must be specified
         String[] parts = parseNameAndContentType(fieldIdentifier);
-        AttributeContentType fieldAttributeContentType = parseAttributeContentType(fieldIdentifier);
+        AttributeContentType fieldAttributeContentType = parseAttributeContentType(parts[1]);
         String fieldIdentifierName = parts[0];
         // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying attribute, otherwise continue wit next
         List<MetadataResponseDto> metadata = attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(resource, objectUuid).build());
@@ -484,9 +484,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private AttributeContentType parseAttributeContentType(String contentType) throws RuleException {
-        AttributeContentType sourceContentType;
         try {
-            return sourceContentType = AttributeContentType.valueOf(contentType);
+            return AttributeContentType.valueOf(contentType);
         } catch (IllegalArgumentException e) {
             throw new RuleException("Cannot parse content type %s from execution item: %s".formatted(contentType, e.getMessage()));
         }
