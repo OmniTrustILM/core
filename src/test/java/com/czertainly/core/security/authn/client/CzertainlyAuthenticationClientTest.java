@@ -350,6 +350,26 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
     }
 
     @Test
+    void authenticateSystemUser_cacheHit_doesNotClobberExistingActorMdc() {
+        // given - cache primed, then the MDC carries a different actor (e.g. an enclosing internal call)
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        MDC.clear();
+        LoggingHelper.putActorInfoWhenNull(com.czertainly.api.model.core.logging.enums.ActorType.CORE, "b2c3d4e5-0000-0000-0000-000000000002", "existingActor");
+
+        // when - cache hit on a thread that already has an actor
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+
+        // then - the existing actor identity stands; only the missing auth method is filled in
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(com.czertainly.api.model.core.logging.enums.ActorType.CORE, actor.type());
+        assertEquals("existingActor", actor.name());
+        assertEquals(UUID.fromString("b2c3d4e5-0000-0000-0000-000000000002"), actor.uuid());
+        assertEquals(AuthMethod.USER_PROXY, actor.authMethod());
+    }
+
+    @Test
     void authenticateSystemUser_anonymousResult_leavesLoaderActorMdcUntouched() {
         // given - auth service rejects; anonymous results are never cached, the loader always runs
         authServiceMock.enqueue(

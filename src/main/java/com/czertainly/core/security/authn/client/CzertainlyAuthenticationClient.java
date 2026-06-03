@@ -83,14 +83,15 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
     /**
      * Replays the actor MDC side effects of {@link #authenticate} so that cache hits leave the MDC in the same state as cache misses.
      * {@code AuditLogAspect} reads actor identity exclusively from the MDC.
-     * Restores the actor type, auth method, user UUID and username; on a cache miss the loader has already set
-     * identical values, so reapplying them is a no-op.
+     * Restores the actor type, user UUID and username only when the MDC carries no actor yet.
      * Anonymous results are never cached, so the loader's anonymous MDC path is unaffected.
      */
     private static AuthenticationInfo restoreActorMdc(AuthenticationInfo authInfo) {
         if (!authInfo.isAnonymous()) {
+            if (!LoggingHelper.hasActorInfo()) {
+                LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getUserUuid(), authInfo.getUsername());
+            }
             LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getAuthMethod());
-            LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getUserUuid(), authInfo.getUsername());
         }
         return authInfo;
     }

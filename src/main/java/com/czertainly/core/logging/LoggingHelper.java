@@ -65,6 +65,10 @@ public class LoggingHelper {
         }
     }
 
+    public static boolean hasActorInfo() {
+        return MDC.get(LOG_ACTOR_TYPE) != null;
+    }
+
     public static ActorType getActorType() {
         return ActorType.valueOf(MDC.get(LOG_ACTOR_TYPE));
     }
