@@ -261,8 +261,7 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         NotificationInstanceDto dto = notificationInstanceService.getNotificationInstance(UUID.fromString(EXISTING_NIR_UUID));
 
         Assertions.assertNotNull(dto);
-        Assertions.assertEquals(EXISTING_NIR_NAME, dto.getName());
-        Assertions.assertTrue(dto.getConnectorName().contains("(Orphaned)"));
+        Assertions.assertTrue(dto.getName().contains("(Orphaned)"));
     }
 
     @Test

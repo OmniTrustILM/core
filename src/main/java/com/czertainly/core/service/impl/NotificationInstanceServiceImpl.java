@@ -139,7 +139,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
                     connectorDto,
                     notificationInstanceReference.getNotificationInstanceUuid().toString());
         } catch (ConnectorEntityNotFoundException e) {
-            notificationInstanceDto.setConnectorName(notificationInstanceReference.getConnectorName() + " (Orphaned)");
+            notificationInstanceDto.setName(notificationInstanceReference.getName() + " (Orphaned)");
             notificationInstanceDto.setAttributes(attributes);
             logger.warn("Notification Instance {} is not present in the connector.", notificationInstanceReference.getName());
             return notificationInstanceDto;
