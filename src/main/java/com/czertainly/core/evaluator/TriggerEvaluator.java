@@ -654,8 +654,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                     // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
                     return !isNegated;
             } catch (Exception e) {
-                throw new RuleException("Cannot evaluate operator %s on attribute value '%s' with condition value '%s' (contentType: %s): %s"
-                        .formatted(operator, attributeValue, conditionValue, contentType, e.getMessage()));
+                throw new RuleException("Cannot evaluate operator %s with condition value '%s' (contentType: %s): %s"
+                        .formatted(operator, conditionValue, contentType, e.getMessage()));
             }
         }
         // No positive match found: for non-negated ops return false, for negated ops return true
