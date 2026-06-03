@@ -47,7 +47,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
     protected NotificationProducer notificationProducer;
     protected ApplicationEventPublisher applicationEventPublisher;
     protected EventHistoryRepository eventHistoryRepository;
-    private TransactionHandler transactionHandler;
+    protected TransactionHandler transactionHandler;
 
     protected final TriggerEvaluator<T> triggerEvaluator;
     protected final SecurityFilterRepository<T, UUID> repository;

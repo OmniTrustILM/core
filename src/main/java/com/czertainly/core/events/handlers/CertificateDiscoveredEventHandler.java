@@ -66,7 +66,6 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
     private static final Semaphore processCertSemaphore = new Semaphore(10);
 
     private CertificateHandler certificateHandler;
-    private TransactionHandler transactionHandler;
     private ValidationProducer validationProducer;
 
     private CertificateService certificateService;
@@ -81,11 +80,6 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
     @Autowired
     public void setDiscoveryCertificateHandler(CertificateHandler certificateHandler) {
         this.certificateHandler = certificateHandler;
-    }
-
-    @Autowired
-    public void setTransactionHandler(TransactionHandler transactionHandler) {
-        this.transactionHandler = transactionHandler;
     }
 
     @Autowired
