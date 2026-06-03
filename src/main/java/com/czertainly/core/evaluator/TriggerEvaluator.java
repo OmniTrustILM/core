@@ -265,7 +265,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     private boolean evaluateMetaAttributeConditionItem(Resource resource, String fieldIdentifier, UUID objectUuid, Object conditionValue, FilterConditionOperator operator) throws RuleException {
         // If the Field Source is Meta Attribute, we expect Field Identifier to be formatted as follows 'name|contentType', since there can be multiple Meta Attributes with the same name, the Content Type must be specified
         String[] parts = parseNameAndContentType(fieldIdentifier);
-        AttributeContentType fieldAttributeContentType = AttributeContentType.valueOf(parts[1]);
+        AttributeContentType fieldAttributeContentType = parseAttributeContentType(fieldIdentifier);
         String fieldIdentifierName = parts[0];
         // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying attribute, otherwise continue wit next
         List<MetadataResponseDto> metadata = attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(resource, objectUuid).build());
@@ -339,14 +339,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         final String sourceName;
-        final AttributeContentType sourceContentType;
         String[] sourceParts = parseNameAndContentType(executionItem.getSourceFieldIdentifier());
         sourceName = sourceParts[0];
-        try {
-            sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
-        } catch (IllegalArgumentException e) {
-            throw new RuleException("Cannot parse source field identifier %s from execution item: %s".formatted(executionItem.getSourceFieldIdentifier(), e.getMessage()));
-        }
+        final AttributeContentType sourceContentType = parseAttributeContentType(sourceParts[1]);
         FilterFieldSource sourceFieldSource = executionItem.getSourceFieldSource();
 
         List<BaseAttributeContentV3<?>> content = switch (sourceFieldSource) {
@@ -486,6 +481,15 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             throw new RuleException("Field identifier is not in correct format 'name|contentType', got: " + fieldIdentifier);
         }
         return parts;
+    }
+
+    private AttributeContentType parseAttributeContentType(String contentType) throws RuleException {
+        AttributeContentType sourceContentType;
+        try {
+            return sourceContentType = AttributeContentType.valueOf(contentType);
+        } catch (IllegalArgumentException e) {
+            throw new RuleException("Cannot parse content type %s from execution item: %s".formatted(contentType, e.getMessage()));
+        }
     }
 
     private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> commonOperatorFunctionMap;
@@ -637,20 +641,21 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         };
         boolean isNegated = effectiveOperator != operator;
 
-        // If the attribute is a list, iterate through each item and check if any match the condition.
+        // If the attribute is a list, iterate through each item and short-circuit on the first definitive result.
         // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
-        boolean contentMatched = false;
         for (AttributeContent attributeContent : content) {
             Object attributeValue = contentType.isFilterByData() ? attributeContent.getData() : attributeContent.getReference();
             try {
                 if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValue)))
-                    contentMatched = true;
+                    // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
+                    return !isNegated;
             } catch (Exception e) {
                 throw new RuleException("Cannot evaluate operator %s on attribute value '%s' with condition value '%s' (contentType: %s): %s"
                         .formatted(operator, attributeValue, conditionValue, contentType, e.getMessage()));
             }
         }
-        return isNegated != contentMatched;
+        // No positive match found: for non-negated ops return false, for negated ops return true
+        return isNegated;
     }
 
 
