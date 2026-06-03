@@ -137,6 +137,7 @@ class GlobalMetadataServiceTest extends BaseSpringBootTest {
         Assertions.assertFalse(metadata.isEmpty());
         Assertions.assertEquals(1, metadata.size());
         Assertions.assertEquals(metaDefinition.getUuid().toString(), metadata.get(0).getUuid());
+        Assertions.assertEquals(((MetadataAttributeV2) metaDefinition.getDefinition()).getProperties().getLabel(), metadata.getFirst().getLabel());
     }
 
     @Test
