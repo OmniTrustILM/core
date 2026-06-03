@@ -7,6 +7,7 @@ import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoGeneratorBuilder;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.tsp.TSPAlgorithms;
@@ -16,6 +17,7 @@ import org.bouncycastle.tsp.TimeStampTokenGenerator;
 
 import java.math.BigInteger;
 import java.security.KeyPair;
+import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Date;
 
@@ -42,19 +44,26 @@ public final class TimestampTokenTestUtil {
      * verification tests.
      */
     public static TokenWithCert createTimestampTokenWithCert() throws Exception {
+        ensureBouncyCastleProvider();
         KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate cert = CertificateTestUtil.createTimestampingCertificate(keyPair);
 
-        var dcProvider = new JcaDigestCalculatorProviderBuilder().setProvider("BC").build();
+        var dcProvider = new JcaDigestCalculatorProviderBuilder().setProvider(BouncyCastleProvider.PROVIDER_NAME).build();
         DigestCalculator sha256Calculator = dcProvider.get(new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256));
         var signerInfoGenerator = new JcaSimpleSignerInfoGeneratorBuilder()
-                .setProvider("BC")
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                 .build("SHA256withRSA", keyPair.getPrivate(), cert);
         var tokenGenerator = new TimeStampTokenGenerator(
                 signerInfoGenerator, sha256Calculator, new ASN1ObjectIdentifier("1.2.3.4"));
 
         var tsReq = new TimeStampRequestGenerator().generate(TSPAlgorithms.SHA256, new byte[32]);
         return new TokenWithCert(tokenGenerator.generate(tsReq, BigInteger.ONE, new Date()), cert);
+    }
+
+    private static void ensureBouncyCastleProvider() {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
     }
 
     public record TokenWithCert(TimeStampToken token, X509Certificate cert) {}

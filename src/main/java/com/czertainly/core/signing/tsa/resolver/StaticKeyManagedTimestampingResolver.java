@@ -88,16 +88,23 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
         }
 
         SigningCertificate certificate;
-        List<CryptographicKeyItemModel> keyItems = new ArrayList<>();
         try {
             certificate = certificateService.getSigningCertificate(certificateUuid);
-            for (UUID keyItemUuid : certificate.keyItemUuids()) {
-                keyItems.add(cryptographicKeyService.getKeyItemModel(keyItemUuid));
-            }
         } catch (NotFoundException e) {
             throw new TspException(TspFailureInfo.SYSTEM_FAILURE,
                     "Signing certificate not found: " + certificateUuid, e,
                     "Signing key certificate could not be found.");
+        }
+
+        List<CryptographicKeyItemModel> keyItems = new ArrayList<>();
+        for (UUID keyItemUuid : certificate.keyItemUuids()) {
+            try {
+                keyItems.add(cryptographicKeyService.getKeyItemModel(keyItemUuid));
+            } catch (NotFoundException e) {
+                throw new TspException(TspFailureInfo.SYSTEM_FAILURE,
+                        "Key item %s referenced by signing certificate %s not found.".formatted(keyItemUuid, certificateUuid), e,
+                        "Signing key could not be found.");
+            }
         }
 
         List<X509Certificate> chain;

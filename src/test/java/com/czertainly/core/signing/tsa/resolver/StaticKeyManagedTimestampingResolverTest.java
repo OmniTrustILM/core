@@ -231,6 +231,7 @@ class StaticKeyManagedTimestampingResolverTest {
             // when / then
             assertThatThrownBy(() -> resolver.resolve(model))
                     .isInstanceOf(TspException.class)
+                    .hasMessageContaining(keyItemUuid.toString())
                     .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
         }
 
