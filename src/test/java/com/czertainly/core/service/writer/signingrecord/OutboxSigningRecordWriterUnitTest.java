@@ -81,7 +81,7 @@ class OutboxSigningRecordWriterUnitTest {
         writer.record(recordableInput);
 
         // then
-        verify(repository).save(any(SigningRecordOutbox.class));
+        verify(repository).saveAndFlush(any(SigningRecordOutbox.class));
         assertEquals(1, createdCounter(MODE));
         assertEquals(1, outboxEnqueuedCounter());
         assertEquals(1, durationSampleCount(MODE));
@@ -90,7 +90,7 @@ class OutboxSigningRecordWriterUnitTest {
     @Test
     void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreatedOrEnqueued_whenSaveFails() {
         // given
-        doThrow(new RuntimeException("db down")).when(repository).save(any());
+        doThrow(new RuntimeException("db down")).when(repository).saveAndFlush(any());
 
         // when
         Executable record = () -> writer.record(recordableInput());

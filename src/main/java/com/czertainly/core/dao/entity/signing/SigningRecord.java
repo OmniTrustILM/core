@@ -27,6 +27,11 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
     @Column(name = "name")
     private String name;
 
+    @Override
+    public String getName() {
+        return name;
+    }
+
     @Column(name = "signing_profile_uuid")
     private UUID signingProfileUuid;
 

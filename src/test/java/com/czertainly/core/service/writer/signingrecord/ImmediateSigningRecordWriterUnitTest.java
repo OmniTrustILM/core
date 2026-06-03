@@ -70,7 +70,7 @@ class ImmediateSigningRecordWriterUnitTest {
         writer.record(recordableInput);
 
         // then
-        verify(repository).save(any(SigningRecord.class));
+        verify(repository).saveAndFlush(any(SigningRecord.class));
         assertEquals(1, createdCounter("IMMEDIATE"));
         assertEquals(1, durationSampleCount("IMMEDIATE"));
     }
@@ -78,7 +78,7 @@ class ImmediateSigningRecordWriterUnitTest {
     @Test
     void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreated_whenSaveFails() {
         // given
-        doThrow(new RuntimeException("db down")).when(repository).save(any());
+        doThrow(new RuntimeException("db down")).when(repository).saveAndFlush(any());
 
         // when
         Executable record = () -> writer.record(recordableInput());

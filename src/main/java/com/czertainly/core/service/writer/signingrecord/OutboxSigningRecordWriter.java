@@ -57,7 +57,8 @@ public class OutboxSigningRecordWriter implements SigningRecordWriter {
         }
         metrics.timed("DEFERRED_DURABLE", () -> {
             try {
-                outboxRepository.save(mapper.toOutbox(input));
+                // saveAndFlush so a constraint violation surfaces inside the metric scope
+                outboxRepository.saveAndFlush(mapper.toOutbox(input));
                 metrics.outboxEnqueued().increment();
                 metrics.created("DEFERRED_DURABLE").increment();
             } catch (RuntimeException e) {

@@ -30,7 +30,8 @@ public class ImmediateSigningRecordWriter implements SigningRecordWriter {
         }
         metrics.timed("IMMEDIATE", () -> {
             try {
-                repository.save(mapper.toRecord(input));
+                // saveAndFlush so a constraint violation surfaces inside the metric scope
+                repository.saveAndFlush(mapper.toRecord(input));
                 metrics.created("IMMEDIATE").increment();
             } catch (RuntimeException e) {
                 metrics.persistFailed("IMMEDIATE").increment();
