@@ -26,9 +26,7 @@ com.czertainly.core.service.impl.CertificateServiceImpl calls @Modifying CmpProf
 com.czertainly.core.service.impl.CertificateServiceImpl calls @Modifying CmpProfileRepository.clearSigningCertificateReferenceIn() from outside ..service.writer..
 com.czertainly.core.service.impl.CertificateServiceImpl calls @Modifying ScepProfileRepository.clearCaCertificateReference() from outside ..service.writer..
 com.czertainly.core.service.impl.CertificateServiceImpl calls @Modifying ScepProfileRepository.clearCaCertificateReferenceIn() from outside ..service.writer..
-com.czertainly.core.service.impl.CrlServiceImpl calls @Modifying CrlEntryRepository.insertWithIdConflictResolve() from outside ..service.writer..
 com.czertainly.core.service.impl.CrlServiceImpl calls @Modifying CrlRepository.clearCaCertificateReferenceIn() from outside ..service.writer..
-com.czertainly.core.service.impl.CrlServiceImpl calls @Modifying CrlRepository.insertWithIssuerConflictResolve() from outside ..service.writer..
 com.czertainly.core.service.impl.CryptographicKeyServiceImpl calls @Modifying CryptographicKeyItemRepository.insertWithFingerprintConflictResolve() from outside ..service.writer..
 com.czertainly.core.service.impl.DiscoveryServiceImpl calls @Modifying CertificateContentRepository.deleteUnusedCertificateContents() from outside ..service.writer..
 com.czertainly.core.service.impl.LocationServiceImpl calls @Modifying CertificateLocationRepository.deleteByLocationUuid() from outside ..service.writer..

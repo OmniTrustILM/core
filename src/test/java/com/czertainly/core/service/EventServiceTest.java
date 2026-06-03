@@ -304,6 +304,8 @@ class EventServiceTest extends BaseSpringBootTest {
                 ResourceEvent.CERTIFICATE_DISCOVERED, Resource.CERTIFICATE, certificateUuid, eventHistoryRequest());
 
         Assertions.assertEquals(1, response.getTotalItems());
+        EventHistoryDto dto = response.getItems().getFirst();
+        Assertions.assertEquals(Resource.CERTIFICATE, dto.getResource());
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

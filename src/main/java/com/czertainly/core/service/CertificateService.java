@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
 import com.czertainly.api.model.common.UuidDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.core.certificate.*;
@@ -15,6 +16,7 @@ import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
@@ -61,6 +63,16 @@ public interface CertificateService extends ResourceExtensionService {
      */
     List<X509Certificate> getCertificateChainForSigning(UUID certificateUuid, boolean withEndCertificate) throws CertificateException;
 
+    /**
+     * Hot-path accessor for digital signing. Returns an immutable snapshot of the certificate's acceptability data and
+     * structural key references, cached in {@link com.czertainly.core.config.cache.CacheConfig#SIGNING_CERTIFICATE_CACHE}.
+     *
+     * <p>No authorization check — must not be called from REST controllers.
+     *
+     * @throws NotFoundException if no certificate exists for the UUID
+     */
+    SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException;
+
     CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException;
 
     CertificateDownloadResponseDto downloadCertificate(UUID uuid, CertificateFormat certificateFormat, CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException;
@@ -88,9 +100,6 @@ public interface CertificateService extends ResourceExtensionService {
     FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
 
     UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
-
-
-    String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException;
 
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
@@ -329,6 +338,17 @@ public interface CertificateService extends ResourceExtensionService {
      * @return List of available signing certificates
      */
     List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter);
+
+    /**
+     * List certificates eligible for digital signing.
+     *
+     * @param filter              security filter
+     * @param signingWorkflowType digital signing workflow type
+     * @param qualifiedTimestamp  when {@code true} and workflow is TIMESTAMPING, restricts results to certificates that satisfy
+     *                            ETSI EN 319 421 qualified timestamp requirements
+     * @return List of available certificates
+     */
+    List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp);
 
     /**
      * Find certificates which are expiring and not renewed and trigger event handling these certificates

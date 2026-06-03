@@ -28,6 +28,8 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
@@ -49,7 +51,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class ResourceServiceImpl implements ResourceService {
+public class ResourceServiceImpl implements ResourceExternalService, ResourceInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ResourceServiceImpl.class);
 
     private AttributeEngine attributeEngine;
@@ -79,6 +81,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceDto> listResources() {
         List<ResourceDto> resources = new ArrayList<>();
 
@@ -124,6 +127,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<NameAndUuidDto> getResourceObjects(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
         if (resourceExtensionService == null)
@@ -132,6 +136,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<ResponseAttribute> updateAttributeContentForObject(Resource resource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
         logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeUuid);
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
@@ -144,6 +149,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<SearchFieldDataByGroupDto> listResourceRuleFilterFields(Resource resource, boolean settable) throws NotFoundException {
 
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(resource, settable);
@@ -180,11 +186,13 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceEventDto> listResourceEvents(Resource resource) {
         return ResourceEvent.listEventsByResource(resource).stream().map(ResourceEventDto::new).toList();
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents() {
         return Arrays.stream(ResourceEvent.values())
                 .collect(Collectors.groupingBy(

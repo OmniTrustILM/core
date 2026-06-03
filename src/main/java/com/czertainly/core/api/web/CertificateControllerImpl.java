@@ -19,7 +19,7 @@ import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ApprovalExternalService;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryExternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.converter.CertificateFormatConverter;
@@ -46,7 +46,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     private CertificateService certificateService;
 
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
 
     private ClientOperationService clientOperationService;
 
@@ -249,7 +249,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryExternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 

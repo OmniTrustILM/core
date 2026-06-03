@@ -10,7 +10,7 @@ import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.evaluator.CertificateTriggerEvaluator;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.messaging.model.EventMessage;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -20,10 +20,10 @@ import java.util.UUID;
 @Component(ResourceEvent.Codes.CERTIFICATE_NOT_COMPLIANT)
 public class CertificateNotCompliantEventHandler extends CertificateEventsHandler {
 
-    private ComplianceService complianceService;
+    private ComplianceExternalService complianceService;
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceExternalService complianceService) {
         this.complianceService = complianceService;
     }
 

@@ -14,9 +14,7 @@ import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContent
 import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
 import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.service.ConnectorAuthExternalService;
 import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
@@ -41,7 +39,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
 
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Set<AuthType> getAuthenticationTypes() {
         return EnumSet.allOf(AuthType.class);
     }
@@ -79,7 +77,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getBasicAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -114,14 +112,14 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Boolean validateBasicAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getBasicAuthAttributes(), attributes);
         return true;
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getCertificateAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -220,7 +218,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Boolean validateCertificateAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getCertificateAttributes(), attributes);
 
@@ -261,7 +259,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getApiKeyAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -303,20 +301,20 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Boolean validateApiKeyAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getApiKeyAuthAttributes(), attributes);
         return true;
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getJWTAuthAttributes() {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Boolean validateJWTAuthAttributes(List<RequestAttribute> attributes) {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }

@@ -42,9 +42,9 @@ public class CertificateHandler {
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
 
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private CryptographicKeyService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
@@ -62,7 +62,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
@@ -72,7 +72,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 

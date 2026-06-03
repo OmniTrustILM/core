@@ -2,8 +2,7 @@ package com.czertainly.core.security.authn.client;
 
 import com.czertainly.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
-import com.czertainly.core.service.AuditLogService;
-import com.czertainly.core.service.impl.AuditLogServiceImpl;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,7 +30,7 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
     private CzertainlyAuthenticationClient czertainlyAuthenticationClient;
 
     @Autowired
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
     private AuthenticationCache authenticationCache;

@@ -16,7 +16,8 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ComplianceProfileService;
+import com.czertainly.core.service.ComplianceProfileExternalService;
+import com.czertainly.core.service.ComplianceProfileInternalService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -38,7 +39,9 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
     private ComplianceProfileRepository complianceProfileRepository;
 
     @Autowired
-    private ComplianceProfileService complianceProfileService;
+    private ComplianceProfileExternalService complianceProfileService;
+    @Autowired
+    private ComplianceProfileInternalService complianceProfileInternalService;
 
     @Autowired
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
@@ -213,10 +216,10 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
         complianceProfile2.setDescription("Sample Description2");
         complianceProfileRepository.save(complianceProfile2);
 
-        var objects = complianceProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        var objects = complianceProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(2, objects.size());
 
-        var profileInfo = complianceProfileService.getResourceObjectInternal(complianceProfile.getUuid());
+        var profileInfo = complianceProfileInternalService.getResourceObjectInternal(complianceProfile.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), profileInfo.getName());
     }
 
@@ -487,11 +490,11 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = complianceProfileService.getResourceObjectInternal(complianceProfile.getUuid());
+        NameAndUuidDto nameAndUuidDto = complianceProfileInternalService.getResourceObjectInternal(complianceProfile.getUuid());
         Assertions.assertEquals(complianceProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = complianceProfileService.getResourceObjectExternal(complianceProfile.getSecuredUuid());
+        nameAndUuidDto = complianceProfileInternalService.getResourceObjectExternal(complianceProfile.getSecuredUuid());
         Assertions.assertEquals(complianceProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), nameAndUuidDto.getName());
     }
