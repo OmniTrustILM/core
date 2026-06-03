@@ -16,6 +16,9 @@ public record CertificateChain(X509Certificate signingCertificate, List<X509Cert
         if (signingCertificate == null) {
             throw new IllegalArgumentException("signingCertificate must not be null");
         }
+        if (chain == null) {
+            throw new IllegalArgumentException("chain must not be null");
+        }
 
         chain = List.copyOf(chain);
         if (chain.isEmpty() || !chain.getFirst().equals(signingCertificate)) {
@@ -36,6 +39,9 @@ public record CertificateChain(X509Certificate signingCertificate, List<X509Cert
     }
 
     public static CertificateChain of(List<X509Certificate> chain) {
+        if (chain == null || chain.isEmpty()) {
+            throw new IllegalArgumentException("chain must not be null or empty");
+        }
         return new CertificateChain(chain.getFirst(), chain);
     }
 }

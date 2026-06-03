@@ -7,6 +7,7 @@ import com.czertainly.api.model.core.oid.OidCategory;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CryptographicKey;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
+import com.czertainly.core.dao.entity.TokenInstanceReference;
 import com.czertainly.core.dao.entity.TokenProfile;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.model.signing.SigningCertificate;
@@ -126,7 +127,7 @@ class CertificateEligibilityUtilTest {
             List<CertificateTestData.KeyItemData> publicKeys,
             List<CertificateTestData.KeyItemData> privateKeys,
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
-            boolean withTokenProfile, List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
+            boolean withTokenProfile, boolean withTokenInstanceReference, List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
             SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance,
             boolean expectedResult
     ) {
@@ -168,6 +169,9 @@ class CertificateEligibilityUtilTest {
             if (withTokenProfile) {
                 key.setTokenProfile(new TokenProfile());
             }
+            if (withTokenInstanceReference) {
+                key.setTokenInstanceReference(new TokenInstanceReference());
+            }
             certificate.setKey(key);
         }
 
@@ -181,7 +185,7 @@ class CertificateEligibilityUtilTest {
             List<CertificateTestData.KeyItemData> publicKeys,
             List<CertificateTestData.KeyItemData> privateKeys,
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
-            boolean withTokenProfile, List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
+            boolean withTokenProfile, boolean withTokenInstanceReference, List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
             SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance,
             boolean expectedResult
     ) {
@@ -205,8 +209,8 @@ class CertificateEligibilityUtilTest {
                 extendedKeyUsageCritical,
                 qcCompliance,
                 hasKey ? UUID.randomUUID() : null,
-                UUID.randomUUID(),
                 (hasKey && withTokenProfile) ? UUID.randomUUID() : null,
+                (hasKey && withTokenInstanceReference) ? UUID.randomUUID() : null,
                 keyItems.stream().map(CryptographicKeyItemModel::keyItemUuid).toList()
         );
 

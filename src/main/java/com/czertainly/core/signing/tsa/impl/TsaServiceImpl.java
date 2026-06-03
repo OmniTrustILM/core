@@ -35,6 +35,7 @@ public class TsaServiceImpl implements TsaService {
         this.managedTimestampEngine = managedTimestampEngine;
     }
 
+    @Override
     public TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException {
 
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
@@ -42,6 +43,7 @@ public class TsaServiceImpl implements TsaService {
         return processTspRequestForSigningProfile(tspProfile.defaultSigningProfileName(), request);
     }
 
+    @Override
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
 

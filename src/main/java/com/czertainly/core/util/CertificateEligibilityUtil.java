@@ -270,10 +270,12 @@ public class CertificateEligibilityUtil {
      * |-- keyUuid IS NOT NULL
      * |-- state == ISSUED
      * |-- validationStatus IN (VALID, EXPIRING)
-     * |-- key.tokenProfileUuid IS NOT NULL  (associated Token Profile)
+     * |-- key.tokenProfileUuid IS NOT NULL           (associated Token Profile)
+     * |-- key.tokenInstanceReferenceUuid IS NOT NULL (associated Token Instance)
      * |-- AT LEAST ONE private key must exist
      * |-- ALL private keys must meet criteria
      *     |-- state=ACTIVE AND usage & SIGN
+     * |-- AT LEAST ONE public key must exist
      * |-- (TIMESTAMPING only) extendedKeyUsage is exclusively the TSA OID (RFC 3161)
      * |-- (TIMESTAMPING only) extendedKeyUsageCritical is true (RFC 3161)
      * |-- (TIMESTAMPING + qualifiedTimestamp only) certificate carries id-etsi-qcs-QcCompliance (ETSI EN 319 412-5 / EN 319 421)
@@ -299,6 +301,15 @@ public class CertificateEligibilityUtil {
                     cb.not(constructKeyItemPredicate(cb, invPkSubRoot, null, KeyState.ACTIVE, KeyUsage.SIGN.getBit()))
             );
 
+            // Subquery to ensure at least one public key exists.
+            Subquery<Integer> publicKeySubquery = cr.subquery(Integer.class);
+            Root<CryptographicKeyItem> pubSubRoot = publicKeySubquery.from(CryptographicKeyItem.class);
+            publicKeySubquery.select(cb.literal(1));
+            publicKeySubquery.where(
+                    cb.equal(pubSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
+                    cb.equal(pubSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PUBLIC_KEY)
+            );
+
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(cb.not(root.get(Certificate_.ARCHIVED)));
             predicates.add(cb.isNotNull(root.get(Certificate_.KEY_UUID)));
@@ -306,7 +317,9 @@ public class CertificateEligibilityUtil {
             predicates.add(root.get(Certificate_.VALIDATION_STATUS).in(List.of(CertificateValidationStatus.VALID, CertificateValidationStatus.EXPIRING)));
             predicates.add(cb.exists(privateKeySubquery));
             predicates.add(cb.not(cb.exists(invalidPrivateKeySubquery)));
+            predicates.add(cb.exists(publicKeySubquery));
             predicates.add(cb.isNotNull(root.get(Certificate_.KEY).get(CryptographicKey_.TOKEN_PROFILE_UUID)));
+            predicates.add(cb.isNotNull(root.get(Certificate_.KEY).get(CryptographicKey_.TOKEN_INSTANCE_REFERENCE_UUID)));
 
             // RFC 3161: the EKU extension MUST contain only id-kp-timeStamping and MUST be critical.
             if (workflowType == SigningWorkflowType.TIMESTAMPING) {
@@ -339,10 +352,13 @@ public class CertificateEligibilityUtil {
      */
     public static boolean isCertificateDigitalSigningAcceptable(Certificate certificate, SigningWorkflowType workflowType, boolean qualifiedTimestamp) {
         List<SigningPrivateKeyView> privateKeys = new ArrayList<>();
+        boolean hasPublicKey = false;
         if (certificate.getKey() != null) {
             for (CryptographicKeyItem item : certificate.getKey().getItems()) {
                 if (item.getType() == KeyType.PRIVATE_KEY) {
                     privateKeys.add(new SigningPrivateKeyView(item.getState(), item.getUsage()));
+                } else if (item.getType() == KeyType.PUBLIC_KEY) {
+                    hasPublicKey = true;
                 }
             }
         }
@@ -350,9 +366,11 @@ public class CertificateEligibilityUtil {
                 certificate.isArchived(),
                 certificate.getKey() != null,
                 certificate.getKey() != null && certificate.getKey().getTokenProfile() != null,
+                certificate.getKey() != null && certificate.getKey().getTokenInstanceReference() != null,
                 certificate.getState(),
                 certificate.getValidationStatus(),
                 privateKeys,
+                hasPublicKey,
                 MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()),
                 Boolean.TRUE.equals(certificate.getExtendedKeyUsageCritical()),
                 Boolean.TRUE.equals(certificate.getQcCompliance())
@@ -374,18 +392,23 @@ public class CertificateEligibilityUtil {
     public static boolean isCertificateDigitalSigningAcceptable(SigningCertificate certificate, List<CryptographicKeyItemModel> keyItems,
                                                                 SigningWorkflowType workflowType, boolean qualifiedTimestamp) {
         List<SigningPrivateKeyView> privateKeys = new ArrayList<>();
+        boolean hasPublicKey = false;
         for (CryptographicKeyItemModel item : keyItems) {
             if (item.keyType() == KeyType.PRIVATE_KEY) {
                 privateKeys.add(new SigningPrivateKeyView(item.keyState(), item.keyUsage()));
+            } else if (item.keyType() == KeyType.PUBLIC_KEY) {
+                hasPublicKey = true;
             }
         }
         SigningAcceptabilityView view = new SigningAcceptabilityView(
                 certificate.archived(),
                 certificate.keyUuid() != null,
                 certificate.tokenProfileUuid() != null,
+                certificate.tokenInstanceReferenceUuid() != null,
                 certificate.state(),
                 certificate.validationStatus(),
                 privateKeys,
+                hasPublicKey,
                 certificate.extendedKeyUsageOids(),
                 Boolean.TRUE.equals(certificate.extendedKeyUsageCritical()),
                 Boolean.TRUE.equals(certificate.qcCompliance())
@@ -401,9 +424,11 @@ public class CertificateEligibilityUtil {
             boolean archived,
             boolean hasKey,
             boolean hasTokenProfile,
+            boolean hasTokenInstanceReference,
             CertificateState state,
             CertificateValidationStatus validationStatus,
             List<SigningPrivateKeyView> privateKeys,
+            boolean hasPublicKey,
             List<String> extendedKeyUsageOids,
             boolean extendedKeyUsageCritical,
             boolean qcCompliant
@@ -421,8 +446,9 @@ public class CertificateEligibilityUtil {
             return false;
         }
 
-        // The associated CryptographicKey must have a Token Profile assigned.
+        // The associated CryptographicKey must have a Token Profile and Token Instance Reference assigned.
         if (!view.hasTokenProfile()) return false;
+        if (!view.hasTokenInstanceReference()) return false;
 
         // All private keys must be ACTIVE and carry the SIGN usage.
         // Other key types (split keys, secret keys) do not apply to certificate signing.
@@ -432,6 +458,9 @@ public class CertificateEligibilityUtil {
                 return false;
             }
         }
+
+        // A public key item must be present; the signer creator requires it to resolve the signing algorithm.
+        if (!view.hasPublicKey()) return false;
 
         if (workflowType == SigningWorkflowType.TIMESTAMPING) {
             // RFC 3161: the EKU extension MUST contain only id-kp-timeStamping and MUST be critical.

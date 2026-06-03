@@ -14,7 +14,6 @@ public sealed interface ResolvedManagedScheme
 
     /**
      * The validated certificate chain to sign with and embed in the token, built once at resolution time.
-     * Every managed scheme signs with a platform-held certificate, so a chain is always present.
      */
     CertificateChain chain();
 }

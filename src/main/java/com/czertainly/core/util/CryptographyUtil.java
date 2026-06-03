@@ -80,6 +80,10 @@ public class CryptographyUtil {
                 return digest.getProviderName() + "WITHECDSA";
             }
             case FALCON, MLDSA, SLHDSA -> {
+                if (pqcParameterSpecName == null) {
+                    throw new ValidationException(
+                            ValidationError.create("pqcParameterSpecName is required for PQC algorithm " + keyAlgorithm));
+                }
                 return pqcParameterSpecName;
             }
             default -> throw new ValidationException(
