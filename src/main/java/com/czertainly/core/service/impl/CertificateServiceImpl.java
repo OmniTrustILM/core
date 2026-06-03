@@ -8,6 +8,7 @@ import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
@@ -52,19 +53,18 @@ import com.czertainly.core.dao.repository.scep.ScepProfileRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
-import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
+import com.czertainly.core.mapper.certificate.SigningCertificateMapper;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
-import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
-import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
@@ -74,13 +74,13 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
+import com.czertainly.core.service.writer.CertificateValidationWriter;
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.*;
 import com.czertainly.core.validation.certificate.ICertificateValidator;
 import jakarta.persistence.criteria.*;
-import org.springframework.aop.framework.AopContext;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.cms.ContentInfo;
@@ -110,9 +110,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 import java.io.*;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.*;
@@ -149,6 +146,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     private CertificateRepository certificateRepository;
     private CertificateChainService chainService;
+    private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
     private RaProfileService raProfileService;
@@ -157,8 +155,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private LocationRepository locationRepository;
     private CertificateContentRepository certificateContentRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
-    private ComplianceService complianceService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private ComplianceInternalService complianceService;
+    private ComplianceExternalService complianceExternalService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationService locationService;
     private CryptographicKeyService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
@@ -182,7 +181,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private ApplicationEventPublisher applicationEventPublisher;
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
-    private CertificateUploadedEventHandler certificateUploadedEventHandler;
+    private CertificateUploadService certificateUploadService;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -192,8 +191,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Autowired
     @Lazy
-    public void setCertificateUploadedEventHandler(CertificateUploadedEventHandler certificateUploadedEventHandler) {
-        this.certificateUploadedEventHandler = certificateUploadedEventHandler;
+    public void setCertificateUploadService(CertificateUploadService certificateUploadService) {
+        this.certificateUploadService = certificateUploadService;
     }
 
     @Autowired
@@ -258,6 +257,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
+    public void setValidationWriter(CertificateValidationWriter validationWriter) {
+        this.validationWriter = validationWriter;
+    }
+
+    @Autowired
     public void setCertificateRequestRepository(CertificateRequestRepository certificateRequestRepository) {
         this.certificateRequestRepository = certificateRequestRepository;
     }
@@ -293,12 +297,17 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setComplianceExternalService(ComplianceExternalService complianceExternalService) {
+        this.complianceExternalService = complianceExternalService;
+    }
+
+    @Autowired
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -798,6 +807,15 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @Cacheable(value = CacheConfig.SIGNING_CERTIFICATE_CACHE, key = "#certificateUuid", sync = true)
+    public SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException {
+        Certificate cert = certificateRepository.findForSigningByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        return SigningCertificateMapper.toSigningCertificate(cert);
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     public CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException {
         List<CertificateContentDto> certificateContent = getCertificateContent(List.of(uuid.getValue()));
@@ -885,7 +903,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
+        performValidation(certificate);
+    }
+
+    private void performValidation(Certificate certificate) {
         List<Certificate> certificateChain = chainService.getCertificateChainInternal(certificate, true);
         boolean isCompleteChain = !certificateChain.isEmpty() && chainService.completeCertificateChain(certificateChain.getLast(), certificateChain);
 
@@ -898,9 +921,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         } catch (Exception e) {
             logger.warn("Unable to validate the certificate {}: {}", certificate, e.getMessage());
             newStatus = CertificateValidationStatus.FAILED;
+            OffsetDateTime now = OffsetDateTime.now();
+            validationWriter.applyValidationResult(certificate.getUuid(), newStatus, now, null);
             certificate.setValidationStatus(newStatus);
-            certificate.setStatusValidationTimestamp(OffsetDateTime.now());
-            certificateRepository.save(certificate);
+            certificate.setStatusValidationTimestamp(now);
+            certificate.setCertificateValidationResult(null);
         }
 
         if (!oldStatus.equals(newStatus)) {
@@ -910,11 +935,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public CertificateValidationResultDto getCertificateValidationResult(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateValidationResultDto resultDto = new CertificateValidationResultDto();
         if (CertificateUtil.isValidationEnabled(certificate, resultDto)) {
-            validate(certificate);
+            performValidation(certificate);
         }
         resultDto.setResultStatus(certificate.getValidationStatus());
 
@@ -1068,7 +1094,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException {
-        String fingerprint = ((CertificateService) AopContext.currentProxy()).upload(request.getCertificate(), request.getCustomAttributes(), false);
+        String fingerprint = certificateUploadService.upload(request.getCertificate(), request.getCustomAttributes(), false);
         return new FingerprintDto(fingerprint);
     }
 
@@ -1076,46 +1102,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException {
-        String fingerprint = ((CertificateService) AopContext.currentProxy()).upload(request.getCertificate(), request.getCustomAttributes(), true);
+        String fingerprint = certificateUploadService.upload(request.getCertificate(), request.getCustomAttributes(), true);
         return new UuidDto(certificateRepository.findByFingerprint(fingerprint).orElseThrow().getUuid().toString());
-    }
-
-    @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException {
-        X509Certificate certificate = CertificateUtil.parseUploadedCertificateContent(certificateData);
-        String fingerprint;
-        try {
-            fingerprint = CertificateUtil.getThumbprint(certificate);
-        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
-            throw new CertificateException("Failed to calculate certificate fingerprint: " + e.getMessage());
-        }
-        if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
-            throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
-        }
-
-        if (customAttributes != null && !customAttributes.isEmpty()) {
-            attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, customAttributes);
-        }
-
-        CertificateUploadEventMessageData eventMessageData = CertificateUploadEventMessageData.builder()
-                .customAttributes(customAttributes)
-                .certificateContent(certificateData)
-                .build();
-        EventMessage eventMessage = CertificateUploadedEventHandler.constructEventMessage(eventMessageData);
-        if (sync) {
-            try {
-                certificateUploadedEventHandler.handleEvent(eventMessage);
-            } catch (EventException e) {
-                throw new CertificateException("Failed to produce certificate upload event: " + e.getMessage());
-            }
-            if (certificateRepository.findByFingerprint(fingerprint).isEmpty()) {
-                throw new CertificateException("Certificate was not uploaded. See Certificate Uploaded Event History for more details.");
-            }
-        } else {
-            eventProducer.produceMessage(eventMessage);
-        }
-        return fingerprint;
     }
 
 
@@ -1737,7 +1725,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
     public List<CertificateDto> listScepCaCertificates(SecurityFilter filter, boolean intuneEnabled) {
         setupSecurityFilter(filter);
-        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, List.of("groups", "owner"),
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
                 CertificateUtil.constructQueryScepCaCertAcceptable(intuneEnabled));
         return certificates.stream().map(Certificate::mapToListDto).toList();
     }
@@ -1747,11 +1735,21 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     public List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter) {
         setupSecurityFilter(filter);
 
-        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, List.of("groups", "owner"),
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
                 CertificateUtil.constructQueryCmpSigningCertAcceptable());
 
         return certificates.stream()
                 .map(Certificate::mapToListDto).toList();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.LIST)
+    public List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp) {
+        setupSecurityFilter(filter);
+
+        List<Certificate> certificates = certificateRepository.findUsingSecurityFilter(filter, CertificateRepository.FETCH_GROUPS_AND_OWNER,
+                CertificateUtil.constructQueryDigitalSigningCertAcceptable(signingWorkflowType, qualifiedTimestamp));
+        return certificates.stream().map(Certificate::mapToListDto).toList();
     }
 
     @Override
@@ -1949,7 +1947,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private void certificateComplianceCheck(Certificate certificate) {
         if (certificate.getRaProfile() != null) {
             try {
-                complianceService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
+                complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
                 logger.debug("Error when checking compliance: {}", e.getMessage());
             }
@@ -2014,7 +2012,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             attributeEngine.updateMetadataAttributes(response.getMeta(), ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
 
             try {
-                complianceService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
+                complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
                 logger.error("Error when checking compliance:", e);
             }

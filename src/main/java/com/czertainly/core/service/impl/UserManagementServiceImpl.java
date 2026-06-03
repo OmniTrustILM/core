@@ -66,6 +66,7 @@ public class UserManagementServiceImpl implements UserManagementService {
     private UserManagementApiClient userManagementApiClient;
 
     private CertificateService certificateService;
+    private CertificateUploadService certificateUploadService;
     private GroupService groupService;
     private ResourceObjectAssociationService objectAssociationService;
     private AuditLogsProducer auditLogsProducer;
@@ -75,6 +76,11 @@ public class UserManagementServiceImpl implements UserManagementService {
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
 
     private AuthenticationCache authenticationCache;
+
+    @Autowired
+    public void setCertificateUploadService(CertificateUploadService certificateUploadService) {
+        this.certificateUploadService = certificateUploadService;
+    }
 
     @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
@@ -346,7 +352,7 @@ public class UserManagementServiceImpl implements UserManagementService {
 
         if (uploadCertificate) {
             try {
-                String fingerprint = certificateService.upload(certificateData, null, true);
+                String fingerprint = certificateUploadService.upload(certificateData, null, true);
                 certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
                 logger.getLogger().debug("New Certificate uploaded for the user");
             } catch (Exception e) {

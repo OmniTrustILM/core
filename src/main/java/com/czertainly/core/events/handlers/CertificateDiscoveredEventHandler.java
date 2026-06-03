@@ -281,6 +281,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
                 eventData.setDiscoveryConnectorUuid(discovery.getConnectorUuid());
                 eventData.setDiscoveryConnectorName(discovery.getConnectorName());
 
+                certificateHandler.updateDiscoveredCertificate(discovery, certificate, discoveryCertificate.getMeta());
+
                 for (TriggerAssociation triggerAssociation : mergedTriggers) {
                     // Create trigger history entry
                     Trigger trigger = triggerAssociation.getTrigger();
@@ -288,7 +290,6 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
                     eventContext.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, certificate, discoveryCertificate.getUuid(), eventData, eventHistory);
                 }
 
-                certificateHandler.updateDiscoveredCertificate(discovery, certificate, discoveryCertificate.getMeta());
                 keysToCertificatesMap.computeIfAbsent(x509Cert.getPublicKey(), k -> new ArrayList<>()).add(certificate.getUuid());
                 byte[] altPublicKey = x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
                 if (altPublicKey != null) {

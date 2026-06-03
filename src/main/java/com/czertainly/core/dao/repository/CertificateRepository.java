@@ -1,6 +1,7 @@
 package com.czertainly.core.dao.repository;
 
 import com.czertainly.api.model.core.certificate.CertificateDto;
+import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
@@ -24,23 +25,18 @@ import java.util.UUID;
  * Spring Data repository for {@link Certificate} entities.
  *
  * <p><strong>Cache eviction:</strong>
- * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts every
- * {@code save*}, {@code delete*} and {@code insert*} call on this bean and evicts the
- * certificate-chain cache automatically — callers do not need to evict manually after those
- * operations. This covers {@link #insertWithFingerprintConflictResolve}, which writes the
- * chain-defining {@code issuer_certificate_uuid} and {@code certificate_content_id} columns
- * via a native upsert.
+ * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts mutations on this
+ * bean and evicts both the certificate-chain cache and the signing-certificate cache automatically —
+ * callers do not need to evict manually.
  *
- * <p>The remaining {@code @Modifying} bulk-update methods in this interface are <em>not</em>
- * matched by that aspect (the pointcut targets only the {@code save*}/{@code delete*}/{@code insert*}
- * naming convention), but they do not need manual cache eviction either: they only modify columns
- * that are not part of chain traversal ({@code keyUuid}/{@code altKeyUuid},
- * {@code hybridCertificate}, {@code archived}, {@code subjectDn}/{@code issuerDn} display strings).
- * The chain cache is built from {@code issuer_certificate_uuid} and {@code certificate_content_id}
- * — none of those columns are touched by these queries.
+ * <p>The naming convention is the contract: any new mutating method must begin with one of the verb
+ * prefixes matched by the aspect's pointcut. Over-matching a read-only method is harmless; under-matching
+ * a mutation leaves stale entries cached for up to the TTL.
  */
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
+
+    List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 
     @EntityGraph(attributePaths = {"certificateContent"})
     Optional<Certificate> findByUuid(UUID uuid);
@@ -75,6 +71,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     /** Batch variant used when preloading a list of chain ancestors in one round-trip for {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
+
+    @EntityGraph(attributePaths = {"key", "key.items"})
+    Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
@@ -212,6 +211,49 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             "    c.updated = CURRENT_TIMESTAMP " +
             "WHERE c.uuid = :uuid")
     void clearIssuerReference(@Param("uuid") UUID uuid);
+
+    /**
+     * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.validationStatus = :status, " +
+            "    c.statusValidationTimestamp = :timestamp, " +
+            "    c.certificateValidationResult = :result, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateValidationResult(@Param("uuid") UUID uuid,
+                                @Param("status") CertificateValidationStatus status,
+                                @Param("timestamp") OffsetDateTime timestamp,
+                                @Param("result") String result);
+
+    /**
+     * Conditionally transitions a single certificate row from {@code ISSUED} to {@code REVOKED}.
+     * Returns the number of affected rows:
+     * <ul>
+     *     <li>1 if the transition was successful</li>
+     *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
+     * </ul>
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).REVOKED}, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid " +
+            "  AND c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}")
+    int transitionIssuedToRevoked(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the current {@code state} of a certificate row by UUID.
+     */
+    @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
 
     @Modifying
     @Query(value = """

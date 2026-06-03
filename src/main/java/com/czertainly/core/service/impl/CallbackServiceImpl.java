@@ -55,10 +55,10 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private CryptographicKeyService cryptographicKeyService;
     private TokenProfileService tokenProfileService;
     private AttributeEngine attributeEngine;
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

@@ -4,18 +4,11 @@ import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.core.audit.AuditLogResponseDto;
 import com.czertainly.api.model.core.audit.ExportResultDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.AuditLogOutput;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.enums.OperationResult;
-import com.czertainly.api.model.core.logging.records.LogRecord;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 
 import java.util.List;
 
-
-public interface AuditLogService {
+public interface AuditLogExternalService {
 
     /**
      *
@@ -44,8 +37,4 @@ public interface AuditLogService {
      * @return List of {@link SearchFieldDataByGroupDto} object with definition the possible fields
      */
     List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup();
-
-    void log(LogRecord logRecord, AuditLogOutput logOutput);
-
-    void logAuthentication(Operation operation, OperationResult operationResult, String message, String authData);
 }

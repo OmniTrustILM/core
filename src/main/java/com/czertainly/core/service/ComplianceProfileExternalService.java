@@ -12,7 +12,8 @@ import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface ComplianceProfileService extends ResourceExtensionService {
+public interface ComplianceProfileExternalService {
+
     /**
      * List of all Compliance Profiles available in the system
      *
@@ -67,7 +68,7 @@ public interface ComplianceProfileService extends ResourceExtensionService {
      *
      * @param uuid    Uuid of the compliance provider
      * @param request Parameters for adding a new group to the compliance profile. See {@link ComplianceGroupRequestDto}
-     * @return
+     * @return Compliance Profile DTO
      * @throws AlreadyExistException Thrown when the selected group is already associated
      */
     ComplianceProfileDto addGroup(SecuredUUID uuid, ComplianceGroupRequestDto request) throws AlreadyExistException, NotFoundException, ConnectorException;
@@ -114,7 +115,7 @@ public interface ComplianceProfileService extends ResourceExtensionService {
      * Remove compliance profiles forcefully. This methods makes removes the object dependencies and set them null.
      *
      * @param uuids Uuids of the compliance profiles to be deleted forcefully.
-     * @return
+     * @return List of dependencies for profiles that has RA Profile associations. See {@link BulkActionMessageDto}
      */
     List<BulkActionMessageDto> forceDeleteComplianceProfiles(List<SecuredUUID> uuids);
 

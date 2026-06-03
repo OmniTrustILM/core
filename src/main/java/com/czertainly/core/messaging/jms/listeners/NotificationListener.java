@@ -117,6 +117,12 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             notificationProfileVersion = notificationProfileVersionRepository.findTopByNotificationProfileUuidOrderByVersionDesc(notificationProfileUuid).orElseThrow(() -> new NotFoundException(NotificationProfile.class, notificationProfileUuid));
         }
 
+        boolean sendInternalNotifications = notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring());
+        if (!sendInternalNotifications && notificationProfileVersion.getNotificationInstanceRefUuid() == null) {
+            handleNotificationErrorWithWarnLog("Notification profile %s in event %s does not have assigned notification instance and internal notification is not enabled, notification cannot be sent.".formatted(notificationProfileVersion.getNotificationProfile().getName(), message.getEvent()), message);
+            return;
+        }
+
         if (!proceedWithNotifying(notificationProfileVersion, pendingNotification)) {
             logger.debug("Notification suppressed for {} with UUID {} by configuration of notification profile {} for event {}. Notification sent last time at {} and was repeated {} times.", pendingNotification.getResource().getLabel(), pendingNotification.getObjectUuid(), notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), pendingNotification.getLastSentAt(), pendingNotification.getRepetitions());
             return;
@@ -128,7 +134,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         boolean notificationSent = sendExternalNotificationsForProfile(message, notificationProfileVersion, recipients);
 
         // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
-        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
+        if (sendInternalNotifications) {
             try {
                 sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
                 notificationSent = true;
@@ -200,6 +206,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private List<NotificationRecipient> getRecipients(RecipientType recipientType, List<UUID> recipientUuids, ResourceEvent event, Object data, Resource resource, UUID objectUuid) {
+        if (recipientType == RecipientType.MAPPED) {
+            return List.of(new NotificationRecipient(RecipientType.MAPPED, objectUuid));
+        }
+
         if (recipientType != RecipientType.OWNER && recipientType != RecipientType.DEFAULT) {
             return recipientUuids.stream().map(recipientUuid -> new NotificationRecipient(recipientType, recipientUuid)).toList();
         }
@@ -279,16 +289,24 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             logger.debug("Processing recipient {} of type {}.", recipient.getRecipientUuid(), recipient.getRecipientType());
             try {
                 // construct recipient DTO
-                NotificationRecipientDto recipientDto = constructNotificationRecipientDto(recipient, notificationInstanceReference.getKind());
+                NotificationRecipientDto recipientDto = constructNotificationRecipientDto(recipient, notificationInstanceReference.getKind(), resource);
                 if (recipientDto == null) {
                     // this should happen only in case of recipient type NONE
                     continue;
                 }
 
-                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContent(recipient.getRecipientType().getRecipientResource(), recipient.getRecipientUuid());
-
+                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.MAPPED
+                        ? resource
+                        : recipient.getRecipientType().getRecipientResource();
+                // Unauthenticated lookup is correct here, since the access to the custom attributes has been resolved when defining mapping attributes.
+                List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContentForSystemContext(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
-                recipientDto.setMappedAttributes(getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes));
+                List<RequestAttribute> mappedAttributes = getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes);
+                if (recipient.getRecipientType() == RecipientType.MAPPED && mappedAttributes.isEmpty()) {
+                    logger.warn("Notification recipient with MAPPED type does not have any mapped attributes resolved, notification cannot be sent for recipient mapped to {} object with UUID {}.", customAttributeResource, recipient.getRecipientUuid());
+                    continue;
+                }
+                recipientDto.setMappedAttributes(mappedAttributes);
                 recipientsDto.add(recipientDto);
             } catch (Exception e) {
                 logger.warn("{} with UUID {} was not found or retrieval of its attributes failed: {}. Notification was not sent for this recipient.", recipient.getRecipientType().getLabel(), recipient.getRecipientUuid(), e.getMessage());
@@ -311,7 +329,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private NotificationRecipientDto constructNotificationRecipientDto(NotificationRecipient recipient, String
-            notificationProviderKind) {
+            notificationProviderKind, Resource resource) {
         NotificationRecipientDto recipientDto;
         switch (recipient.getRecipientType()) {
             case USER -> {
@@ -348,6 +366,11 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 }
 
                 recipientDto = null;
+            }
+            case MAPPED -> {
+                // The connector resolves contact details via mapped attributes — no email to set here
+                recipientDto = new NotificationRecipientDto();
+                recipientDto.setName("Mapped recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));
             }
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));

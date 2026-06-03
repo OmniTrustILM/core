@@ -7,16 +7,16 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.czertainly.api.exception.SchedulerException;
-import com.czertainly.core.service.SchedulerService;
+import com.czertainly.core.service.SchedulerInternalService;
 
 @Configuration
 @EnableScheduling
 public class SystemScheduledJobs {
 
-    private SchedulerService schedulerService;
+    private SchedulerInternalService schedulerService;
 
     @Autowired
-    public void setSchedulerService(SchedulerService schedulerService) {
+    public void setSchedulerService(SchedulerInternalService schedulerService) {
         this.schedulerService = schedulerService;
     }
 

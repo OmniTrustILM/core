@@ -1,21 +1,15 @@
 package com.czertainly.core.service;
 
 import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.core.auth.AttributeResource;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceDto;
 import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.other.ResourceEventDto;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -24,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public interface ResourceService {
+public interface ResourceExternalService {
 
     /**
      * Method to retrieve resources available in platform
@@ -32,24 +26,6 @@ public interface ResourceService {
      * @return List of resources
      */
     List<ResourceDto> listResources();
-
-    /**
-     * Function to get the object for specified resource, for external use with authorization check
-     *
-     * @param resource   resource
-     * @param objectUuid object UUID
-     * @return ResourceObjectDto object
-     */
-    ResourceObjectDto getResourceObject(Resource resource, UUID objectUuid) throws NotFoundException;
-
-    /**
-     * Function to get the object for specified resource, for internal use without authorization
-     *
-     * @param resource   resource
-     * @param objectUuid object UUID
-     * @return ResourceObjectDto object
-     */
-    ResourceObjectDto getResourceObjectInternal(Resource resource, UUID objectUuid) throws NotFoundException;
 
     /**
      * Function to get the list of objects available to be displayed for object level access for Access Control
@@ -78,7 +54,6 @@ public interface ResourceService {
             List<? extends AttributeContent> request
     ) throws NotFoundException, AttributeException;
 
-
     /**
      * Method to retrieve filter fields that can be used for creating rule conditions and actions
      *
@@ -102,11 +77,4 @@ public interface ResourceService {
      * @return Map of events
      */
     Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents();
-
-    boolean hasResourceExtensionService(Resource resource);
-
-    void loadResourceObjectContentData(AttributeCallback callback, RequestAttributeCallback requestAttributeCallback, Map<String, AttributeResource> resources) throws NotFoundException, AttributeException, ConnectorException;
-
-    void loadResourceObjectContentData(List<DataAttribute> attributes) throws NotFoundException, AttributeException, ConnectorException;
-
 }

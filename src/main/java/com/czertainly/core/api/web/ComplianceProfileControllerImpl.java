@@ -16,7 +16,7 @@ import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ComplianceProfileService;
+import com.czertainly.core.service.ComplianceProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,10 +28,10 @@ import java.util.List;
 @RestController("complianceProfileControllerV1")
 public class ComplianceProfileControllerImpl implements ComplianceProfileController {
 
-    private ComplianceProfileService complianceProfileService;
+    private ComplianceProfileExternalService complianceProfileService;
 
     @Autowired
-    public void setComplianceProfileService(ComplianceProfileService complianceProfileService) {
+    public void setComplianceProfileService(ComplianceProfileExternalService complianceProfileService) {
         this.complianceProfileService = complianceProfileService;
     }
 

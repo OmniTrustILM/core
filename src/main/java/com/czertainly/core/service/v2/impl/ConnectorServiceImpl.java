@@ -48,14 +48,11 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
+import com.czertainly.core.config.cache.CacheEvictor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import reactor.core.Exceptions;
 
 import java.util.*;
@@ -85,11 +82,11 @@ public class ConnectorServiceImpl implements ConnectorService {
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
 
-    private CacheManager cacheManager;
+    private CacheEvictor cacheEvictor;
 
     @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired
@@ -656,19 +653,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     void evictConnectorCache(UUID uuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.CONNECTOR_API_CLIENT_CACHE);
-        Objects.requireNonNull(cache);
-
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(uuid);
-                }
-            });
-        } else {
-            cache.evict(uuid);
-        }
+        cacheEvictor.evict(CacheConfig.CONNECTOR_API_CLIENT_CACHE, uuid);
     }
 
 }
