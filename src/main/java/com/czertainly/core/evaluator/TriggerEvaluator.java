@@ -660,7 +660,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     private FilterFieldType contentTypeToFieldType(AttributeContentType contentType) {
         switch (contentType) {
-            case STRING, TEXT, CODEBLOCK, SECRET, FILE, CREDENTIAL, OBJECT -> {
+            case STRING, TEXT, CODEBLOCK, SECRET, FILE, CREDENTIAL, OBJECT, RESOURCE -> {
                 return FilterFieldType.STRING;
             }
             case INTEGER, FLOAT -> {
