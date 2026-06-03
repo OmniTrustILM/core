@@ -41,9 +41,10 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
         SigningRecord record = insertRecord(profile);
 
         // when
-        serveSignedDocumentInTransaction(record.getUuid());
+        Instant stampedAt = serveSignedDocumentAndReadStampInTransaction(record.getUuid());
 
         // then
+        assertNotNull(stampedAt);
         assertFalse(recordRepo.existsById(record.getUuid()));
     }
 
@@ -112,6 +113,29 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
                 } catch (NotFoundException e) {
                     throw new RuntimeException(e);
                 }
+            });
+        } catch (RuntimeException e) {
+            if (e.getCause() instanceof NotFoundException notFound) {
+                throw notFound;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Serves the document and reads back the retrieved-at stamp within the same ambient transaction. The
+     * delete-after-retrieval path removes the row in an {@code afterCommit} hook, so the stamp is only
+     * observable before the transaction commits.
+     */
+    private Instant serveSignedDocumentAndReadStampInTransaction(UUID recordUuid) throws NotFoundException {
+        try {
+            return new TransactionTemplate(txm).execute(status -> {
+                try {
+                    hook.onSignedDocumentServed(recordUuid);
+                } catch (NotFoundException e) {
+                    throw new RuntimeException(e);
+                }
+                return recordRepo.findById(recordUuid).orElseThrow().getSignedDocumentRetrievedAt();
             });
         } catch (RuntimeException e) {
             if (e.getCause() instanceof NotFoundException notFound) {
