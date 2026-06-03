@@ -1,5 +1,6 @@
 package com.czertainly.core.signing.record;
 
+import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

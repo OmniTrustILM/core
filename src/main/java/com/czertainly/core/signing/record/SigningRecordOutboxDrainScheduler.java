@@ -1,5 +1,6 @@
 package com.czertainly.core.signing.record;
 
+import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;

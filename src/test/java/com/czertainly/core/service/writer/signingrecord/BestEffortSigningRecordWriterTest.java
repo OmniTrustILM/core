@@ -1,4 +1,4 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -7,6 +7,7 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.signing.record.SigningRecordBestEffortFlusher;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * {@code signing_record}. The writer's branch logic (policy gating, queue dispatch, metrics, failure isolation,
  * mapping field-fidelity over a captor) is pinned against mocks in {@link BestEffortSigningRecordWriterUnitTest},
  * and the queue's eviction/blocking/batching mechanics against the real queue in
- * {@link BestEffortSigningRecordQueueTest}. What only a real database can prove lives here: a queued record
+ * BestEffortSigningRecordQueueTest. What only a real database can prove lives here: a queued record
  * survives the flusher's real transactional {@code saveAll} (including the {@code signing_profile} foreign key)
  * and reads back field-for-field — through the jsonb and {@code byte[]} columns a mocked repository would only echo.
  */

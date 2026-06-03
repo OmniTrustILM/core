@@ -3,6 +3,7 @@ package com.czertainly.core.signing.record;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
+import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;

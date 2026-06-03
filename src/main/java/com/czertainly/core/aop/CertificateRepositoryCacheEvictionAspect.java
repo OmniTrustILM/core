@@ -1,5 +1,7 @@
 package com.czertainly.core.aop;
 
+import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictor;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
@@ -8,15 +10,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Evicts the certificate-chain cache after any mutation on {@link CertificateRepository}.
- *
- * <p>Intercepts {@code save*}, {@code delete*}, {@code insert*}, {@code update*}, and {@code clear*} calls on
- * {@link CertificateRepository} — covering all Spring Data CRUD methods (save, saveAll, saveAndFlush, delete,
- * deleteAll, deleteAllInBatch, etc.), the custom native upserts, the targeted {@code @Modifying} UPDATEs and
- * the field-nulling helpers.
+ * Evicts the certificate-chain and signing-certificate caches after any mutation on {@link CertificateRepository}.
+ * The intercepted verb prefixes are declared in the {@link #certificateMutation()} pointcut below.
  *
  * <p><strong>Eviction strategy.</strong> Every matched mutation triggers a full {@code cache.clear()}
- * (deferred to {@code afterCommit} and deduped per transaction by {@link CertificateChainCacheEvictor}).
+ * (deferred to {@code afterCommit} and deduped per transaction by {@link CacheEvictor}).
  * The conservative full-wipe was chosen. The cache is cheap to repopulate (a single recursive CTE per signing request)
  * and because issuer-rewiring mutations invalidate every chain whose path contains the affected certificate — without
  * a reverse index (ancestor UUID → set of cached leaf UUIDs maintained on cache put) the full clear is the only safe move.
@@ -29,20 +27,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class CertificateRepositoryCacheEvictionAspect {
 
-    private CertificateChainCacheEvictor certChainCacheEvictor;
+    private CacheEvictor cacheEvictor;
 
     @Autowired
-    public void setCertChainCacheEvictor(CertificateChainCacheEvictor certChainCacheEvictor) {
-        this.certChainCacheEvictor = certChainCacheEvictor;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Pointcut("target(com.czertainly.core.dao.repository.CertificateRepository+) "
             + "&& (execution(* save*(..)) || execution(* delete*(..)) || execution(* insert*(..)) "
-            + "|| execution(* update*(..)) || execution(* clear*(..)))")
+            + "|| execution(* update*(..)) || execution(* clear*(..)) || execution(* archive*(..)) "
+            + "|| execution(* set*(..)) || execution(* transition*(..)))")
     private void certificateMutation() {}
 
     @AfterReturning("certificateMutation()")
     public void onMutation() {
-        certChainCacheEvictor.evict();
+        cacheEvictor.clear(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        cacheEvictor.clear(CacheConfig.SIGNING_CERTIFICATE_CACHE);
     }
 }

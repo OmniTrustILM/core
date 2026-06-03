@@ -11,7 +11,6 @@ import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -20,7 +19,6 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@TestPropertySource(properties = "scheduled-tasks.enabled=true")
 class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
 
     @Autowired

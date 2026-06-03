@@ -1,7 +1,11 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
-import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
+import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.signing.record.SigningRecordInput;
+import com.czertainly.core.signing.record.SigningRecordMapper;
+import com.czertainly.core.signing.record.SigningRecordMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -16,26 +20,34 @@ import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSign
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Pure unit test for {@link ImmediateSigningRecordWriter} over a mocked {@link SigningRecordRepository}.
- * The writer's job is narrow: skip empty policies, otherwise map + save + count synchronously. Unlike the
- * best-effort writer it has no queue and does not swallow persistence failures — they propagate to the caller.
- * Persistence wiring (mapper output, columns, transaction) is covered against the real context in
- * {@link ImmediateSigningRecordWriterTest}.
+ * Pure unit test for {@link OutboxSigningRecordWriter} over a mocked {@link SigningRecordOutboxRepository}.
+ * The writer's job is narrow: skip empty policies, otherwise map + stage into the outbox + count synchronously.
+ * Like the immediate writer (and unlike the best-effort writer) it does not swallow persistence failures — they
+ * propagate to the caller. What distinguishes it is the {@code DEFERRED_DURABLE} mode and the extra
+ * {@code outbox.enqueued} counter, asserted here. Persistence wiring (the row landing in {@code signing_record_outbox}
+ * and not {@code signing_record}, field fidelity through jsonb/byte[] columns) is covered against the real context in
+ * {@link OutboxSigningRecordWriterTest}.
  */
-class ImmediateSigningRecordWriterUnitTest {
+class OutboxSigningRecordWriterUnitTest {
+
+    private static final String MODE = "DEFERRED_DURABLE";
 
     private MeterRegistry registry;
-    private SigningRecordRepository repository;
-    private ImmediateSigningRecordWriter writer;
+    private SigningRecordOutboxRepository repository;
+    private OutboxSigningRecordWriter writer;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        repository = mock(SigningRecordRepository.class);
-        writer = new ImmediateSigningRecordWriter(repository, new SigningRecordMapper(), new SigningRecordMetrics(registry));
+        repository = mock(SigningRecordOutboxRepository.class);
+        writer = new OutboxSigningRecordWriter(repository, mock(SigningRecordRepository.class),
+                new SigningRecordMapper(), new SigningRecordMetrics(registry));
     }
 
     @Test
@@ -56,10 +68,12 @@ class ImmediateSigningRecordWriterUnitTest {
         // then
         assertEquals(1, skippedCounter());
         verifyNoInteractions(repository);
+        assertEquals(0, createdCounter(MODE));
+        assertEquals(0, outboxEnqueuedCounter());
     }
 
     @Test
-    void record_savesMappedRecordAndCountsCreated_whenPolicyRecordsContent() {
+    void record_stagesMappedOutboxRowAndCountsCreatedAndEnqueued_whenPolicyRecordsContent() {
         // given
         var recordableInput = recordableInput();
 
@@ -67,13 +81,14 @@ class ImmediateSigningRecordWriterUnitTest {
         writer.record(recordableInput);
 
         // then
-        verify(repository).save(any(SigningRecord.class));
-        assertEquals(1, createdCounter("IMMEDIATE"));
-        assertEquals(1, durationSampleCount("IMMEDIATE"));
+        verify(repository).save(any(SigningRecordOutbox.class));
+        assertEquals(1, createdCounter(MODE));
+        assertEquals(1, outboxEnqueuedCounter());
+        assertEquals(1, durationSampleCount(MODE));
     }
 
     @Test
-    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreated_whenSaveFails() {
+    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreatedOrEnqueued_whenSaveFails() {
         // given
         doThrow(new RuntimeException("db down")).when(repository).save(any());
 
@@ -82,8 +97,9 @@ class ImmediateSigningRecordWriterUnitTest {
 
         // then
         assertThrows(RuntimeException.class, record);
-        assertEquals(0, createdCounter("IMMEDIATE"));
-        assertEquals(1, persistFailedCounter("IMMEDIATE"));
+        assertEquals(1, persistFailedCounter(MODE));
+        assertEquals(0, createdCounter(MODE));
+        assertEquals(0, outboxEnqueuedCounter());
     }
 
     private SigningRecordInput recordableInput() {
@@ -98,6 +114,11 @@ class ImmediateSigningRecordWriterUnitTest {
 
     private double createdCounter(String mode) {
         var counter = registry.find("signing_record.created.total").tag("mode", mode).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double outboxEnqueuedCounter() {
+        var counter = registry.find("signing_record.outbox.enqueued.total").counter();
         return counter == null ? 0d : counter.count();
     }
 

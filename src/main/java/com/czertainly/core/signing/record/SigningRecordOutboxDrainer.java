@@ -3,6 +3,7 @@ package com.czertainly.core.signing.record;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
+import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

@@ -23,7 +23,6 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
@@ -97,7 +96,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.DETAIL)
     public ComplianceProfileDto getComplianceProfile(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         var dtoV2 = complianceProfileServiceV2.getComplianceProfile(uuid);
 
@@ -105,7 +104,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.CREATE)
     public ComplianceProfileDto createComplianceProfile(ComplianceProfileRequestDto request) throws AlreadyExistException, NotFoundException, ValidationException, AttributeException, ConnectorException {
         var requestV2 = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileRequestDto();
         requestV2.setName(request.getName());
@@ -263,7 +262,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public ComplianceProfileDto addGroup(SecuredUUID uuid, ComplianceGroupRequestDto request) throws NotFoundException, ConnectorException {
         var requestDto = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
         requestDto.setRemoval(false);
@@ -276,7 +275,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public ComplianceProfileDto removeGroup(SecuredUUID uuid, ComplianceGroupRequestDto request) throws NotFoundException, ConnectorException {
         var requestDto = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
         requestDto.setRemoval(true);
@@ -289,25 +288,25 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.DELETE)
     public void deleteComplianceProfile(SecuredUUID uuid) throws NotFoundException, ValidationException {
         complianceProfileServiceV2.deleteComplianceProfile(uuid);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> bulkDeleteComplianceProfiles(List<SecuredUUID> uuids) throws NotFoundException, ValidationException {
         return complianceProfileServiceV2.bulkDeleteComplianceProfiles(uuids);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> forceDeleteComplianceProfiles(List<SecuredUUID> uuids) {
         return complianceProfileServiceV2.forceDeleteComplianceProfiles(uuids);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.LIST)
     public List<ComplianceRulesListResponseDto> getComplianceRules(String complianceProviderUuid, String kind, List<CertificateType> certificateType) throws NotFoundException, ConnectorException {
         boolean withKind = kind != null && !kind.isBlank();
         boolean withComplianceProvider = complianceProviderUuid != null && !complianceProviderUuid.isBlank();
@@ -357,7 +356,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.LIST)
     public List<ComplianceGroupsListResponseDto> getComplianceGroups(String complianceProviderUuid, String kind) throws NotFoundException, ConnectorException {
         boolean withKind = kind != null && !kind.isBlank();
         boolean withComplianceProvider = complianceProviderUuid != null && !complianceProviderUuid.isBlank();
@@ -412,7 +411,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public void associateProfile(SecuredUUID uuid, RaProfileAssociationRequestDto raProfiles) throws NotFoundException, AlreadyExistException {
         for (String raProfileUuid : raProfiles.getRaProfileUuids()) {
             complianceProfileServiceV2.associateComplianceProfile(uuid, Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
@@ -420,7 +419,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public void disassociateProfile(SecuredUUID uuid, RaProfileAssociationRequestDto raProfiles) throws NotFoundException {
         for (String raProfileUuid : raProfiles.getRaProfileUuids()) {
             complianceProfileServiceV2.disassociateComplianceProfile(uuid, Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
@@ -428,7 +427,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.CHECK_COMPLIANCE)
     public void checkCompliance(List<SecuredUUID> uuids) {
         // will be implemented in compliance check V2 rewrite
     }

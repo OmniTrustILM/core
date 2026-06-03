@@ -1,10 +1,5 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
-import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
@@ -13,14 +8,8 @@ import com.czertainly.core.util.BaseSpringBootTest;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
-import java.time.Instant;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-@TestPropertySource(properties = "scheduled-tasks.enabled=true")
 class SigningRecordEndToEndTest extends BaseSpringBootTest {
 
     @Autowired

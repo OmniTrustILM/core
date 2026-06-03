@@ -1,9 +1,10 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.signing.record.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;

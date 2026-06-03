@@ -1,6 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;

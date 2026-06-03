@@ -21,6 +21,7 @@ public class SigningRecordMapper {
      */
     public SigningRecord toRecord(SigningRecordInput input) {
         SigningRecord record = new SigningRecord();
+        record.setUuid(UUID.randomUUID());
         record.setName(input.getDisplayName());
         record.setSigningProfileUuid(input.getSigningProfile().uuid());
         record.setSigningProfileVersion(input.getSigningProfile().version());
@@ -36,6 +37,7 @@ public class SigningRecordMapper {
      */
     public SigningRecordOutbox toOutbox(SigningRecordInput input) {
         SigningRecordOutbox outbox = new SigningRecordOutbox();
+        outbox.setUuid(UUID.randomUUID());
         outbox.setName(input.getDisplayName());
         outbox.setSigningProfileUuid(input.getSigningProfile().uuid());
         outbox.setSigningProfileVersion(input.getSigningProfile().version());

@@ -2,10 +2,9 @@ package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
-import com.czertainly.core.signing.record.BestEffortSigningRecordWriter;
-import com.czertainly.core.signing.record.ImmediateSigningRecordWriter;
-import com.czertainly.core.signing.record.OutboxSigningRecordWriter;
-import com.czertainly.core.signing.record.SigningRecordWriterFactory;
+import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
+import com.czertainly.core.service.writer.signingrecord.ImmediateSigningRecordWriter;
+import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 

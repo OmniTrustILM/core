@@ -1,7 +1,8 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.signing.record.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

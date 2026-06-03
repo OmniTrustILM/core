@@ -1,13 +1,20 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SigningRecordService;
+import com.czertainly.core.signing.record.SigningRecordInput;
 import com.czertainly.core.util.BaseSpringBootTest;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -29,10 +36,15 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
     @Autowired
     private SigningRecordService signingRecordService;
 
+    @Autowired
+    private SigningProfileRepository profileRepo;
+
     @Test
-    void persistsAllRecordableContent_whenEveryToggleEnabled() throws NotFoundException {
+    void persistsAllRecordableContent_whenEveryToggleEnabled() throws NotFoundException, JsonProcessingException {
         // given
+        SigningProfile persistedProfile = insertSigningProfile("immediate-profile");
         SigningProfileModel<?, ?> signingProfile = aSigningProfile()
+                .uuid(persistedProfile.getUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
         SigningRecordInput input = aSigningRecordInput()
@@ -54,7 +66,7 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
 
         SigningRecordDto record = signingRecordService
                 .getSigningRecord(SecuredUUID.fromString(all.getFirst().getUuid()));
-        assertEquals("{ \"foo\": \"bar\" }", record.getRequestMetadataJson());
+        assertSameJson("{ \"foo\": \"bar\" }", record.getRequestMetadataJson()); // jsonb re-renders whitespace
         assertEquals("the-signature", new String(record.getSignatureValue(), UTF_8));
         assertEquals("the-signed-document", new String(record.getSignedDocument(), UTF_8));
         assertEquals("the-data-to-be-signed", new String(record.getDtbs(), UTF_8));
@@ -76,5 +88,24 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
                 .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
                 .getItems();
         assertEquals(0, all.size());
+    }
+
+    /**
+     * Persists the {@code signing_profile} row referenced by a record's {@code signing_profile_uuid}.
+     * The profile's model fields are irrelevant to the writer (it reads only uuid, version and record policy),
+     * so this fills the NOT NULL columns with unremarkable values.
+     */
+    private SigningProfile insertSigningProfile(String name) {
+        SigningProfile profile = new SigningProfile();
+        profile.setName(name);
+        profile.setSigningScheme(SigningScheme.DELEGATED);
+        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profile.setLatestVersion(1);
+        return profileRepo.saveAndFlush(profile);
+    }
+
+    private void assertSameJson(String expected, String actual) throws JsonProcessingException {
+        ObjectMapper mapper = new ObjectMapper();
+        assertEquals(mapper.readTree(expected), mapper.readTree(actual));
     }
 }

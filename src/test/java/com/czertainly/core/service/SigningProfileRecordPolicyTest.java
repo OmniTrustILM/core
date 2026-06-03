@@ -3,19 +3,23 @@ package com.czertainly.core.service;
 import com.czertainly.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
+import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
 import com.czertainly.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
+import com.czertainly.api.model.core.connector.ConnectorStatus;
+import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -30,12 +34,28 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
     private SigningProfileVersionRepository versionRepo;
     @Autowired
     private SigningRecordRepository recordRepo;
+    @Autowired
+    private ConnectorRepository connectorRepo;
+
+    private Connector delegatedConnector;
+
+    @BeforeEach
+    void setUp() {
+        Connector connector = new Connector();
+        connector.setName("delegated-signer-connector");
+        connector.setUrl("http://delegated-signer-connector");
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        delegatedConnector = connectorRepo.save(connector);
+    }
 
     private SigningProfileRequestDto buildRequest(String name) {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test");
-        request.setSigningScheme(new DelegatedSigningRequestDto());
+        DelegatedSigningRequestDto scheme = new DelegatedSigningRequestDto();
+        scheme.setConnectorUuid(delegatedConnector.getUuid());
+        request.setSigningScheme(scheme);
         request.setWorkflow(new RawSigningWorkflowRequestDto());
         return request;
     }

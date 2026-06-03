@@ -1,5 +1,6 @@
 package com.czertainly.core.signing.record;
 
+import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

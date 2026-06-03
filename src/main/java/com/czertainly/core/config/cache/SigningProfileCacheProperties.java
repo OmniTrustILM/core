@@ -5,8 +5,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 @Validated
-@ConfigurationProperties(prefix = "caching.cert-chains")
-public record CertificateChainCacheProperties(
+@ConfigurationProperties(prefix = "caching.signing-profiles")
+public record SigningProfileCacheProperties(
         @Min(1) int ttlMinutes,
         @Min(1) int maxSize
 ) {

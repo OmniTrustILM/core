@@ -26,7 +26,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SigningRecordService;
-import com.czertainly.core.signing.record.SigningRecordDeletionWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;

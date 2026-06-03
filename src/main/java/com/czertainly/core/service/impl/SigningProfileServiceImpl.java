@@ -44,8 +44,11 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.config.cache.CacheEvictor;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.service.*;
+import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -83,6 +86,7 @@ import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -120,6 +124,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private TspProfileService tspProfileService;
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
+    private CacheEvictor cacheEvictor;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -239,6 +244,49 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
+    public SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException {
+        return self.loadSigningProfileModel(name);
+    }
+
+    // Package-private internal cache loader, self-invoked.
+    @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
+    @Transactional(readOnly = true)
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
+        SigningProfile profile = signingProfileRepository.findByName(name)
+                .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
+        SigningProfileVersion currentVersion = profile.getVersions().stream()
+                .filter(v -> v.getVersion() == profile.getLatestVersion())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Signing Profile '" + name
+                        + "' has no row for latestVersion " + profile.getLatestVersion()));
+
+        List<RequestAttribute> signingOperationAttributes = attributeEngine.getRequestObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
+                        .operation(AttributeOperation.SIGN)
+                        .version(currentVersion.getVersion()).build());
+        List<RequestAttribute> signatureFormatterConnectorAttributes = attributeEngine.getRequestObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
+                        .connector(currentVersion.getSignatureFormatterConnectorUuid())
+                        .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                        .version(currentVersion.getVersion()).build());
+
+        // Narrow scope: only managed-timestamping profiles are cacheable for now.
+        return SigningProfileMapper.toManagedTimestampingModel(
+                profile, currentVersion, signingOperationAttributes, signatureFormatterConnectorAttributes);
+    }
+
+    /**
+     * Evicts a signing profile by name. Callers inside a {@code @Transactional} method
+     * (persistUpdate/delete/enable/disable/activateTsp/deactivateTsp) reach the deferred branch, so the cache entry
+     * survives until the mutating transaction commits. Callers whose transaction has already committed (the
+     * {@code NOT_SUPPORTED} create path) evict immediately.
+     */
+    private void evictSigningProfileCache(String name) {
+        cacheEvictor.evict(CacheConfig.SIGNING_PROFILE_CACHE, name);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
     public SigningProfileDto getSigningProfile(SecuredUUID uuid, Integer version) throws NotFoundException {
         SigningProfile profile = findByUuid(uuid);
@@ -267,7 +315,9 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        return self.persistCreate(request, formatterDefinitions);
+        SigningProfileDto created = self.persistCreate(request, formatterDefinitions);
+        evictSigningProfileCache(created.getName());
+        return created;
     }
 
     @Transactional
@@ -317,6 +367,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileVersionRepository.acquireAdvisoryLock("signing-profile:" + uuid.getValue());
 
         SigningProfile profile = findByUuid(uuid);
+        // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
+        String oldName = profile.getName();
 
         Optional<SigningProfile> existingWithSameName = signingProfileRepository.findByName(request.getName());
         if (existingWithSameName.isPresent() && !existingWithSameName.get().getUuid().equals(profile.getUuid())) {
@@ -329,8 +381,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
         SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion()).orElse(null);
         boolean recordsExist = signingRecordService.doesSigningRecordExist(profile.getUuid(), profile.getLatestVersion());
-        // TODO: QUESTION: Why do we want to bump if the record policy changed, but no records are present? How is the
-        // record policy different from other properties of signing profile?
         boolean policyRecordDifferent = currentVersion != null && contentPolicydDifferFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
         if (bump) {
@@ -365,6 +415,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, version, request.getSigningScheme());
         List<ResponseAttribute> signatureFormatterConnectorAttributes = persistSignatureFormatterConnectorAttributes(profile, version, request.getWorkflow(), formatterDefinitions);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(oldName);
+        evictSigningProfileCache(profile.getName());
         return SigningProfileMapper.toDto(profile, version, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
     }
 
@@ -419,6 +471,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileRepository.delete(signingProfile);
         attributeEngine.deleteObjectAttributeContent(Resource.SIGNING_PROFILE, signingProfile.getUuid());
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(signingProfile.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -458,6 +511,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         p.setEnabled(true);
         signingProfileRepository.save(p);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(p.getName());
     }
 
     @Override
@@ -493,6 +547,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         p.setEnabled(false);
         signingProfileRepository.save(p);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(p.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -517,6 +572,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfile.setTspProfile(tspProfile);
         signingProfileRepository.save(signingProfile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(signingProfile.getName());
         return SigningProfileMapper.toTspActivationDto(signingProfile);
     }
 
@@ -528,6 +584,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(profile.getName());
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -839,11 +896,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         findByUuid(uuid);
     }
 
-    @Override
-    public void notifyTimeQualityConfigurationChange(UUID timeQualityConfigurationUuid) {
-        // Cache eviction will be added when signing profile cache is introduced.
-    }
-
     // ──────────────────────────────────────────────────────────────────────────
     // Dependencies
     // ──────────────────────────────────────────────────────────────────────────
@@ -852,6 +904,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setSelf(SigningProfileServiceImpl self) {
         this.self = self;
+    }
+
+    @Autowired
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired

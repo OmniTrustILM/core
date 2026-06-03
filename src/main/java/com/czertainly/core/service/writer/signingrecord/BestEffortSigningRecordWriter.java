@@ -1,7 +1,8 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.signing.record.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -84,7 +85,7 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
      * are allowed to be lost. {@link InterruptedException} is propagated so the caller owning the thread
      * lifecycle can decide whether to stop.
      */
-    void drainAndPersistBatch(long timeoutMs) throws InterruptedException {
+    public void drainAndPersistBatch(long timeoutMs) throws InterruptedException {
         List<SigningRecord> batch = queue.pollBatch(MAX_BATCH_SIZE, timeoutMs);
         if (batch.isEmpty()) {
             return;

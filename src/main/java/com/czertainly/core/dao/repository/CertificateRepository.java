@@ -25,20 +25,13 @@ import java.util.UUID;
  * Spring Data repository for {@link Certificate} entities.
  *
  * <p><strong>Cache eviction:</strong>
- * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts every
- * {@code save*}, {@code delete*} and {@code insert*} call on this bean and evicts the
- * certificate-chain cache automatically — callers do not need to evict manually after those
- * operations. This covers {@link #insertWithFingerprintConflictResolve}, which writes the
- * chain-defining {@code issuer_certificate_uuid} and {@code certificate_content_id} columns
- * via a native upsert.
+ * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts mutations on this
+ * bean and evicts both the certificate-chain cache and the signing-certificate cache automatically —
+ * callers do not need to evict manually.
  *
- * <p>The remaining {@code @Modifying} bulk-update methods in this interface are <em>not</em>
- * matched by that aspect (the pointcut targets only the {@code save*}/{@code delete*}/{@code insert*}
- * naming convention), but they do not need manual cache eviction either: they only modify columns
- * that are not part of chain traversal ({@code keyUuid}/{@code altKeyUuid},
- * {@code hybridCertificate}, {@code archived}, {@code subjectDn}/{@code issuerDn} display strings).
- * The chain cache is built from {@code issuer_certificate_uuid} and {@code certificate_content_id}
- * — none of those columns are touched by these queries.
+ * <p>The naming convention is the contract: any new mutating method must begin with one of the verb
+ * prefixes matched by the aspect's pointcut. Over-matching a read-only method is harmless; under-matching
+ * a mutation leaves stale entries cached for up to the TTL.
  */
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
@@ -78,6 +71,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     /** Batch variant used when preloading a list of chain ancestors in one round-trip for {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
+
+    @EntityGraph(attributePaths = {"key", "key.items"})
+    Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
