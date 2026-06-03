@@ -620,16 +620,37 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private boolean evaluateConditionOnAttribute(List<? extends AttributeContent> content, AttributeContentType contentType, Object conditionValue, FilterConditionOperator operator) throws RuleException {
+        if (operator == FilterConditionOperator.EMPTY) {
+            return content.isEmpty();
+        }
+        if (operator == FilterConditionOperator.NOT_EMPTY) {
+            return !content.isEmpty();
+        }
+
+        // For negated operators, evaluate the positive counterpart across all items and negate the result:
+        // "none of the items satisfies EQUALS/CONTAINS/MATCHES" — mirrors FilterPredicatesBuilder's NOT EXISTS semantics.
+        FilterConditionOperator effectiveOperator = switch (operator) {
+            case NOT_EQUALS -> FilterConditionOperator.EQUALS;
+            case NOT_CONTAINS -> FilterConditionOperator.CONTAINS;
+            case NOT_MATCHES -> FilterConditionOperator.MATCHES;
+            default -> operator;
+        };
+        boolean isNegated = effectiveOperator != operator;
+
+        // If the attribute is a list, iterate through each item and check if any match the condition.
+        // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
+        boolean contentMatched = false;
         for (AttributeContent attributeContent : content) {
             Object attributeValue = contentType.isFilterByData() ? attributeContent.getData() : attributeContent.getReference();
             try {
-                if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(operator).apply(attributeValue, conditionValue)))
-                    return true;
+                if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValue)))
+                    contentMatched = true;
             } catch (Exception e) {
-                throw new RuleException("Invalid condition.");
+                throw new RuleException("Cannot evaluate operator %s on attribute value '%s' with condition value '%s' (contentType: %s): %s"
+                        .formatted(operator, attributeValue, conditionValue, contentType, e.getMessage()));
             }
         }
-        return false;
+        return isNegated != contentMatched;
     }
 
 
