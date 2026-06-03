@@ -2,13 +2,15 @@ package com.czertainly.core.signing.tsa;
 
 import com.czertainly.core.util.CertificateTestUtil;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CertificateChainTest {
 
@@ -21,145 +23,147 @@ class CertificateChainTest {
         caCert = CertificateTestUtil.createCACertificate();
     }
 
-    // ── constructor ───────────────────────────────────────────────────────────
+    // ── Constructor ───────────────────────────────────────────────────────────
 
-    @Test
-    void constructor_throwsIllegalArgumentException_whenSigningCertificateIsNull() {
-        // given
-        X509Certificate nullCert = null;
+    @Nested
+    class Constructor {
 
-        // when
-        List<X509Certificate> leafChain = List.of(leafCert);
-        var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(nullCert, leafChain));
+        @Test
+        void throwsIllegalArgumentException_whenSigningCertificateIsNull() {
+            // given
+            X509Certificate nullCert = null;
+            List<X509Certificate> leafChain = List.of(leafCert);
 
-        // then
-        assertEquals("signingCertificate must not be null", exception.getMessage());
+            // when / then
+            assertThatThrownBy(() -> new CertificateChain(nullCert, leafChain))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("signingCertificate must not be null");
+        }
+
+        @Test
+        void throwsIllegalArgumentException_whenChainDoesNotStartWithSigningCertificate() {
+            // given — chain starts with caCert, but signingCertificate is leafCert
+            var chain = List.of(caCert, leafCert);
+
+            // when / then
+            assertThatThrownBy(() -> new CertificateChain(leafCert, chain))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("chain must start with the signing certificate");
+        }
+
+        @Test
+        void throwsIllegalArgumentException_whenChainIsEmpty() {
+            // given
+            var emptyChain = List.<X509Certificate>of();
+
+            // when / then
+            assertThatThrownBy(() -> new CertificateChain(leafCert, emptyChain))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("chain must start with the signing certificate");
+        }
+
+        @Test
+        void throwsIllegalArgumentException_whenSigningCertificateIsACaCertificate() throws Exception {
+            // given — a CA certificate cannot be used as the signing (end-entity) certificate
+            var caCertAsLeaf = CertificateTestUtil.createCACertificate();
+            var chain = List.of(caCertAsLeaf);
+
+            // when / then
+            assertThatThrownBy(() -> new CertificateChain(caCertAsLeaf, chain))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("signingCertificate must be an end-entity certificate, not a CA");
+        }
+
+        @Test
+        void throwsIllegalArgumentException_whenIntermediateCertificateIsNotACaCertificate() throws Exception {
+            // given — a non-CA certificate in the intermediate position is invalid
+            var anotherLeafCert = CertificateTestUtil.createTimestampingCertificate();
+            var chain = List.of(leafCert, anotherLeafCert);
+
+            // when / then
+            assertThatThrownBy(() -> new CertificateChain(leafCert, chain))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("certificate at index 1 in the chain must be a CA certificate");
+        }
+
+        @Test
+        void setsSigningCertificateAndChain_whenChainStartsWithSigningCertificate() {
+            // given
+            var chain = List.of(leafCert, caCert);
+
+            // when
+            var certificateChain = new CertificateChain(leafCert, chain);
+
+            // then
+            assertThat(certificateChain.signingCertificate()).isEqualTo(leafCert);
+            assertThat(certificateChain.chain()).isEqualTo(chain);
+        }
+
+        @Test
+        void returnsImmutableChain() {
+            // given — a mutable list that could be modified after construction
+            var mutableList = new ArrayList<>(List.of(leafCert, caCert));
+            var certificateChain = new CertificateChain(leafCert, mutableList);
+
+            // when
+            mutableList.add(caCert);
+
+            // then — chain inside the record must not reflect the external mutation
+            assertThat(certificateChain.chain()).hasSize(2);
+        }
     }
 
-    @Test
-    void constructor_throwsIllegalArgumentException_whenChainDoesNotStartWithSigningCertificate() {
-        // given - chain starts with caCert, but signingCertificate is leafCert
-        var chain = List.of(caCert, leafCert);
+    // ── OfSingleCertificate ───────────────────────────────────────────────────
 
-        // when
-        var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(leafCert, chain));
+    @Nested
+    class OfSingleCertificate {
 
-        // then
-        assertEquals("chain must start with the signing certificate", exception.getMessage());
+        @Test
+        void setsSigningCertificateToGivenCertificate() {
+            // when
+            var certificateChain = CertificateChain.of(leafCert);
+
+            // then
+            assertThat(certificateChain.signingCertificate()).isEqualTo(leafCert);
+        }
+
+        @Test
+        void setsChainToSingletonListContainingTheCertificate() {
+            // when
+            var certificateChain = CertificateChain.of(leafCert);
+
+            // then
+            assertThat(certificateChain.chain()).isEqualTo(List.of(leafCert));
+        }
     }
 
-    @Test
-    void constructor_throwsIllegalArgumentException_whenChainIsEmpty() {
-        // given
-        var emptyChain = List.<X509Certificate>of();
+    // ── OfCertificateList ─────────────────────────────────────────────────────
 
-        // when
-        var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(leafCert, emptyChain));
+    @Nested
+    class OfCertificateList {
 
-        // then
-        assertEquals("chain must start with the signing certificate", exception.getMessage());
-    }
+        @Test
+        void setsSigningCertificateToFirstElementOfTheChain() {
+            // given
+            var chain = List.of(leafCert, caCert);
 
-    @Test
-    void constructor_throwsIllegalArgumentException_whenSigningCertificateIsACaCertificate() throws Exception {
-        // given - a CA certificate cannot be used as the signing (end-entity) certificate
-        var caCertAsLeaf = CertificateTestUtil.createCACertificate();
-        var chain = List.of(caCertAsLeaf);
+            // when
+            var certificateChain = CertificateChain.of(chain);
 
-        // when
-        var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(caCertAsLeaf, chain));
+            // then
+            assertThat(certificateChain.signingCertificate()).isEqualTo(leafCert);
+        }
 
-        // then
-        assertEquals("signingCertificate must be an end-entity certificate, not a CA", exception.getMessage());
-    }
+        @Test
+        void setsChainToTheGivenList() {
+            // given
+            var chain = List.of(leafCert, caCert);
 
-    @Test
-    void constructor_throwsIllegalArgumentException_whenIntermediateCertificateIsNotACaCertificate() throws Exception {
-        // given - a non-CA certificate in the intermediate position is invalid
-        var anotherLeafCert = CertificateTestUtil.createTimestampingCertificate();
-        var chain = List.of(leafCert, anotherLeafCert);
+            // when
+            var certificateChain = CertificateChain.of(chain);
 
-        // when
-        var exception = assertThrows(IllegalArgumentException.class,
-                () -> new CertificateChain(leafCert, chain));
-
-        // then
-        assertEquals("certificate at index 1 in the chain must be a CA certificate", exception.getMessage());
-    }
-
-    @Test
-    void constructor_setsSigningCertificateAndChain_whenChainStartsWithSigningCertificate() {
-        // given
-        var chain = List.of(leafCert, caCert);
-
-        // when
-        var certificateChain = new CertificateChain(leafCert, chain);
-
-        // then
-        assertEquals(leafCert, certificateChain.signingCertificate());
-        assertEquals(chain, certificateChain.chain());
-    }
-
-    @Test
-    void constructor_returnsImmutableChain() {
-        // given - a mutable list that could be modified after construction
-        var mutableList = new ArrayList<>(List.of(leafCert, caCert));
-        var certificateChain = new CertificateChain(leafCert, mutableList);
-
-        // when
-        mutableList.add(caCert);
-
-        // then - chain inside the record must not reflect the external mutation
-        assertEquals(2, certificateChain.chain().size());
-    }
-
-    // ── of(X509Certificate) ───────────────────────────────────────────────────
-
-    @Test
-    void ofSingleCert_setsSigningCertificateToGivenCertificate() {
-        // when
-        var certificateChain = CertificateChain.of(leafCert);
-
-        // then
-        assertEquals(leafCert, certificateChain.signingCertificate());
-    }
-
-    @Test
-    void ofSingleCert_setsChainToSingletonListContainingTheCertificate() {
-        // when
-        var certificateChain = CertificateChain.of(leafCert);
-
-        // then
-        assertEquals(List.of(leafCert), certificateChain.chain());
-    }
-
-    // ── of(List<X509Certificate>) ─────────────────────────────────────────────
-
-    @Test
-    void ofList_setsSigningCertificateToFirstElementOfTheChain() {
-        // given
-        var chain = List.of(leafCert, caCert);
-
-        // when
-        var certificateChain = CertificateChain.of(chain);
-
-        // then
-        assertEquals(leafCert, certificateChain.signingCertificate());
-    }
-
-    @Test
-    void ofList_setsChainToTheGivenList() {
-        // given
-        var chain = List.of(leafCert, caCert);
-
-        // when
-        var certificateChain = CertificateChain.of(chain);
-
-        // then
-        assertEquals(chain, certificateChain.chain());
+            // then
+            assertThat(certificateChain.chain()).isEqualTo(chain);
+        }
     }
 }

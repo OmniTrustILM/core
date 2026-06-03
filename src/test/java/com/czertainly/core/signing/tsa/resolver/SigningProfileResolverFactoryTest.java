@@ -20,6 +20,8 @@ import static org.mockito.Mockito.when;
 
 class SigningProfileResolverFactoryTest {
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static SigningProfileModel<?, ?> anyProfile() {
         ManagedTimestampingWorkflow workflow = new ManagedTimestampingWorkflow(
                 UUID.randomUUID(), List.of(), Boolean.TRUE, null,
@@ -30,7 +32,7 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void resolve_delegatesToMatchingResolver() throws TspException {
+    void delegatesToMatchingResolver() throws TspException {
         // given
         SigningProfileModel<?, ?> profile = anyProfile();
         ResolvedManagedTimestampingProfile expected = mock(ResolvedManagedTimestampingProfile.class);
@@ -49,7 +51,7 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void resolve_throwsSystemFailure_whenNoResolverSupportsProfile() {
+    void throwsSystemFailure_whenNoResolverSupportsProfile() {
         // given
         SigningProfileModel<?, ?> profile = anyProfile();
         SigningProfileResolver nonMatching = mock(SigningProfileResolver.class);
@@ -64,7 +66,7 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void resolve_throwsSystemFailure_whenResolverListIsEmpty() {
+    void throwsSystemFailure_whenResolverListIsEmpty() {
         // given
         SigningProfileResolverFactory factory = new SigningProfileResolverFactory(List.of());
 
@@ -76,7 +78,7 @@ class SigningProfileResolverFactoryTest {
     }
 
     @Test
-    void resolve_delegatesToFirstMatchingResolver_whenMultipleExist() throws TspException {
+    void delegatesToFirstMatchingResolver_whenMultipleExist() throws TspException {
         // given
         SigningProfileModel<?, ?> profile = anyProfile();
         ResolvedManagedTimestampingProfile expected = mock(ResolvedManagedTimestampingProfile.class);

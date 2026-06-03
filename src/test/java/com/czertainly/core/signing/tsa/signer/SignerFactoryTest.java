@@ -17,12 +17,14 @@ import static org.mockito.Mockito.when;
 
 class SignerFactoryTest {
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static ResolvedManagedScheme anyScheme() {
         return new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null, List.of());
     }
 
     @Test
-    void create_returnsSigner_whenCreatorSupportsScheme() throws TspException {
+    void returnsSigner_whenCreatorSupportsScheme() throws TspException {
         // given
         ResolvedManagedScheme scheme = anyScheme();
         Signer expectedSigner = mock(Signer.class);
@@ -41,7 +43,7 @@ class SignerFactoryTest {
     }
 
     @Test
-    void create_throwsSystemFailure_whenNoCreatorSupportsScheme() {
+    void throwsSystemFailure_whenNoCreatorSupportsScheme() {
         // given — no creator handles the scheme (e.g. an unsupported or misconfigured signing scheme)
         SignerCreator unsupportedCreator = mock(SignerCreator.class);
         when(unsupportedCreator.supports(anyScheme())).thenReturn(false);
@@ -56,7 +58,7 @@ class SignerFactoryTest {
     }
 
     @Test
-    void create_throwsSystemFailure_whenCreatorListIsEmpty() {
+    void throwsSystemFailure_whenCreatorListIsEmpty() {
         // given
         SignerFactory factory = new SignerFactory(List.of());
 
@@ -68,7 +70,7 @@ class SignerFactoryTest {
     }
 
     @Test
-    void create_delegatesToFirstMatchingCreator_whenMultipleCreatorsExist() throws TspException {
+    void delegatesToFirstMatchingCreator_whenMultipleCreatorsExist() throws TspException {
         // given — second creator matches but first one is checked first
         ResolvedManagedScheme scheme = anyScheme();
         Signer expectedSigner = mock(Signer.class);

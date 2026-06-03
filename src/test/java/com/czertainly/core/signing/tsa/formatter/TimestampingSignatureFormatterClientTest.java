@@ -51,7 +51,7 @@ class TimestampingSignatureFormatterClientTest {
     private static final SignatureAlgorithm SIGNATURE_ALGORITHM = SignatureAlgorithm.SHA256_WITH_RSA;
 
     @BeforeEach
-    void setUp() {
+    void wireClientAndFixtures() {
         client = new TimestampingConnectorSignatureFormatterClient();
         client.setApiClient(apiClient);
 

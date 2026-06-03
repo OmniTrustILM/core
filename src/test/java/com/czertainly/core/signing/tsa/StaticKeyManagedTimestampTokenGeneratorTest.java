@@ -27,7 +27,7 @@ import java.util.UUID;
 
 import static com.czertainly.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -56,7 +56,15 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
         validTokenBytes = TimestampTokenTestUtil.createTimestampToken().getEncoded();
     }
 
-    private ResolvedManagedTimestampingProfile aTimestampingProfile() {
+    @BeforeEach
+    void wireSigner() throws TspException {
+        lenient().when(signerFactory.create(any())).thenReturn(signer);
+        lenient().when(signer.getSignatureAlgorithm()).thenReturn(SignatureAlgorithm.SHA256_WITH_RSA);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ResolvedManagedTimestampingProfile aTimestampingProfile() {
         return new ResolvedManagedTimestampingProfile(
                 UUID.randomUUID(),
                 "test-profile",
@@ -75,14 +83,8 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
                 new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null, List.of()));
     }
 
-    @BeforeEach
-    void wireSigner() throws TspException {
-        lenient().when(signerFactory.create(any())).thenReturn(signer);
-        lenient().when(signer.getSignatureAlgorithm()).thenReturn(SignatureAlgorithm.SHA256_WITH_RSA);
-    }
-
     @Test
-    void generate_returnsTimestampToken_whenAllDependenciesSucceed() throws Exception {
+    void returnsTimestampToken_whenAllDependenciesSucceed() throws Exception {
         // given
         var request = aTspRequest().build();
         var profile = aTimestampingProfile();
@@ -106,7 +108,7 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void generate_usesSigningSchemeFromProfile_toCreateSigner() throws Exception {
+    void usesSigningSchemeFromProfile_toCreateSigner() throws Exception {
         // given — the factory must receive the scheme from the profile, not a default
         var profile = aTimestampingProfile();
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
@@ -122,7 +124,7 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void generate_passesAlgorithmFromSigner_toBothFormatterPhases() throws Exception {
+    void passesAlgorithmFromSigner_toBothFormatterPhases() throws Exception {
         // given — the formatter must receive the signer's reported algorithm in both the DTBS and signing-response phases
         when(signer.getSignatureAlgorithm()).thenReturn(SignatureAlgorithm.SHA384_WITH_ECDSA);
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
@@ -141,7 +143,7 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void generate_passesDtbsBytesToSigner_andSignatureToFormatterSigningResponse() throws Exception {
+    void passesDtbsBytesToSigner_andSignatureToFormatterSigningResponse() throws Exception {
         // given — the DTBS from phase 1 must be fed to the signer, and the resulting signature must reach phase 2
         byte[] dtbs = {10, 20, 30};
         byte[] signature = {40, 50, 60};
@@ -160,7 +162,7 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void generate_throwsTspExceptionWithSystemFailure_whenTokenBytesAreNotParseable() throws Exception {
+    void throwsSystemFailure_whenTokenBytesAreNotParseable() throws Exception {
         // given — the formatter.formatSigningResponse returns garbage bytes; BouncyCastle fails to parse them as a CMS SignedData
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenReturn(new byte[1]);
@@ -168,59 +170,54 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
                 .thenReturn(new byte[]{0x00, 0x01, 0x02, 0x03});
 
         // when / then
-        var exception = assertThrows(TspException.class,
-                () -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
-                        mock(CertificateChain.class), BigInteger.ONE, Instant.now()));
-
-        assertThat(exception.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
-        assertThat(exception.getCause()).isNotNull();
+        assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
+                mock(CertificateChain.class), BigInteger.ONE, Instant.now()))
+                .isInstanceOf(TspException.class)
+                .satisfies(ex -> {
+                    assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+                    assertThat(ex.getCause()).isNotNull();
+                });
     }
 
     @Test
-    void generate_propagatesTspException_fromSignerFactory() throws Exception {
+    void propagatesTspException_fromSignerFactory() throws Exception {
         // given — the factory cannot find a compatible signer for the profile's signing scheme
         var cause = new TspException(TspFailureInfo.SYSTEM_FAILURE, "no signer found", "system misconfigured");
         when(signerFactory.create(any())).thenThrow(cause);
 
         // when / then
-        var thrown = assertThrows(TspException.class,
-                () -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
-                        mock(CertificateChain.class), BigInteger.ONE, Instant.now()));
-
-        assertThat(thrown).isSameAs(cause);
+        assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
+                mock(CertificateChain.class), BigInteger.ONE, Instant.now()))
+                .isSameAs(cause);
     }
 
     @Test
-    void generate_propagatesTspException_fromFormatterDtbs() throws Exception {
+    void propagatesTspException_fromFormatterDtbs() throws Exception {
         // given — the formatter fails to build the DTBS (e.g. malformed certificate)
         var cause = new TspException(TspFailureInfo.BAD_REQUEST, "cannot build DTBS", "bad request");
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenThrow(cause);
 
         // when / then
-        var thrown = assertThrows(TspException.class,
-                () -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
-                        mock(CertificateChain.class), BigInteger.ONE, Instant.now()));
-
-        assertThat(thrown).isSameAs(cause);
+        assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
+                mock(CertificateChain.class), BigInteger.ONE, Instant.now()))
+                .isSameAs(cause);
     }
 
     @Test
-    void generate_propagatesTspException_fromSigner() throws Exception {
+    void propagatesTspException_fromSigner() throws Exception {
         // given — the signing connector is unavailable
         var cause = new TspException(TspFailureInfo.SYSTEM_FAILURE, "signing failed", "signing connector error");
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenThrow(cause);
 
         // when / then
-        var thrown = assertThrows(TspException.class,
-                () -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
-                        mock(CertificateChain.class), BigInteger.ONE, Instant.now()));
-
-        assertThat(thrown).isSameAs(cause);
+        assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
+                mock(CertificateChain.class), BigInteger.ONE, Instant.now()))
+                .isSameAs(cause);
     }
 
     @Test
-    void generate_propagatesTspException_fromFormatterSigningResponse() throws Exception {
+    void propagatesTspException_fromFormatterSigningResponse() throws Exception {
         // given — the formatter fails to assemble the final token from the signature
         var cause = new TspException(TspFailureInfo.SYSTEM_FAILURE, "cannot assemble token", "internal error");
         when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
@@ -228,10 +225,8 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
         when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any())).thenThrow(cause);
 
         // when / then
-        var thrown = assertThrows(TspException.class,
-                () -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
-                        mock(CertificateChain.class), BigInteger.ONE, Instant.now()));
-
-        assertThat(thrown).isSameAs(cause);
+        assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
+                mock(CertificateChain.class), BigInteger.ONE, Instant.now()))
+                .isSameAs(cause);
     }
 }

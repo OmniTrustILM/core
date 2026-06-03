@@ -9,7 +9,9 @@ import java.util.List;
 
 import static com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflowBuilder.aManagedTimestampingWorkflow;
 import static com.czertainly.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 class TspRequestValidatorTest {
@@ -19,7 +21,7 @@ class TspRequestValidatorTest {
     // ── extensions ────────────────────────────────────────────────────────────
 
     @Test
-    void validate_throwsUnacceptedExtension_whenRequestContainsExtensions() {
+    void throwsUnacceptedExtension_whenRequestContainsExtensions() {
         // given — extensions are not supported; any non-null Extensions value triggers the check
         var workflow = aManagedTimestampingWorkflow().build();
         var request = aTspRequest()
@@ -27,13 +29,14 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        var exception = assertThrows(TspRequestValidationException.class,
-                () -> validator.validate(workflow, request));
-        assertEquals(TspFailureInfo.UNACCEPTED_EXTENSION, exception.getFailureInfo());
+        assertThatThrownBy(() -> validator.validate(workflow, request))
+                .isInstanceOf(TspRequestValidationException.class)
+                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.UNACCEPTED_EXTENSION));
     }
 
     @Test
-    void validate_doesNotThrow_whenRequestHasNoExtensions() throws Exception {
+    void doesNotThrow_whenRequestHasNoExtensions() {
         // given
         var workflow = aManagedTimestampingWorkflow().build();
         var request = aTspRequest()
@@ -41,13 +44,13 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     // ── hash algorithm ────────────────────────────────────────────────────────
 
     @Test
-    void validate_throwsBadAlg_whenHashAlgorithmNotInAllowedList() {
+    void throwsBadAlg_whenHashAlgorithmNotInAllowedList() {
         // given
         var workflow = aManagedTimestampingWorkflow()
                 .allowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_512))
@@ -57,13 +60,14 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        var exception = assertThrows(TspRequestValidationException.class,
-                () -> validator.validate(workflow, request));
-        assertEquals(TspFailureInfo.BAD_ALG, exception.getFailureInfo());
+        assertThatThrownBy(() -> validator.validate(workflow, request))
+                .isInstanceOf(TspRequestValidationException.class)
+                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.BAD_ALG));
     }
 
     @Test
-    void validate_doesNotThrow_whenHashAlgorithmIsInAllowedList() {
+    void doesNotThrow_whenHashAlgorithmIsInAllowedList() {
         // given
         var workflow = aManagedTimestampingWorkflow()
                 .allowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256, DigestAlgorithm.SHA_512))
@@ -73,11 +77,11 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     @Test
-    void validate_doesNotThrow_whenAllowedAlgorithmsListIsEmpty() {
+    void doesNotThrow_whenAllowedAlgorithmsListIsEmpty() {
         // given — an empty list means no restriction; any algorithm is accepted
         var workflow = aManagedTimestampingWorkflow()
                 .allowedDigestAlgorithms(List.of())
@@ -87,13 +91,13 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     // ── policy ────────────────────────────────────────────────────────────────
 
     @Test
-    void validate_throwsUnacceptedPolicy_whenRequestedPolicyNotInAllowedList() {
+    void throwsUnacceptedPolicy_whenRequestedPolicyNotInAllowedList() {
         // given
         var workflow = aManagedTimestampingWorkflow()
                 .allowedPolicyIds(List.of("1.2.3.4.1"))
@@ -103,13 +107,14 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        var exception = assertThrows(TspRequestValidationException.class,
-                () -> validator.validate(workflow, request));
-        assertEquals(TspFailureInfo.UNACCEPTED_POLICY, exception.getFailureInfo());
+        assertThatThrownBy(() -> validator.validate(workflow, request))
+                .isInstanceOf(TspRequestValidationException.class)
+                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.UNACCEPTED_POLICY));
     }
 
     @Test
-    void validate_doesNotThrow_whenRequestedPolicyIsInAllowedList() {
+    void doesNotThrow_whenRequestedPolicyIsInAllowedList() {
         // given
         var workflow = aManagedTimestampingWorkflow()
                 .allowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.1"))
@@ -119,11 +124,11 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     @Test
-    void validate_doesNotThrow_whenRequestContainsNoPolicyAndAllowedListIsNonEmpty() {
+    void doesNotThrow_whenRequestContainsNoPolicyAndAllowedListIsNonEmpty() {
         // given — a client did not request a specific policy, so any profile policy applies
         var workflow = aManagedTimestampingWorkflow()
                 .allowedPolicyIds(List.of("1.2.3.4.5"))
@@ -132,11 +137,11 @@ class TspRequestValidatorTest {
                 .build(); // no policy → Optional.empty()
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     @Test
-    void validate_doesNotThrow_whenAllowedPolicyListIsEmpty() {
+    void doesNotThrow_whenAllowedPolicyListIsEmpty() {
         // given — an empty allowed list means no restriction; any requested policy is accepted
         var workflow = aManagedTimestampingWorkflow()
                 .allowedPolicyIds(List.of())
@@ -146,6 +151,6 @@ class TspRequestValidatorTest {
                 .build();
 
         // when / then
-        assertDoesNotThrow(() -> validator.validate(workflow, request));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 }

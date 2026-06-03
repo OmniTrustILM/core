@@ -11,6 +11,7 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.CryptographicOperationService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -34,7 +35,7 @@ class CryptographicOperationServiceSignerTest {
     private CryptographicOperationServiceSigner signer;
 
     @BeforeEach
-    void setUp() {
+    void createSigner() {
         signer = new CryptographicOperationServiceSigner(
                 cryptographicOperationService,
                 SecuredParentUUID.fromUUID(UUID.randomUUID()),
@@ -45,86 +46,99 @@ class CryptographicOperationServiceSignerTest {
                 SignatureAlgorithm.SHA256_WITH_RSA);
     }
 
-    // ── Input validation ──────────────────────────────────────────────────────
+    // ── Sign ──────────────────────────────────────────────────────────────────
 
-    @Test
-    void sign_throwsIllegalArgument_whenDtbsIsNull() {
-        assertThatThrownBy(() -> signer.sign(null))
-                .isInstanceOf(IllegalArgumentException.class);
+    @Nested
+    class Sign {
+
+        @Test
+        void throwsIllegalArgument_whenDtbsIsNull() {
+            // given — no DTBS to sign
+
+            // when / then
+            assertThatThrownBy(() -> signer.sign(null))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throwsIllegalArgument_whenDtbsIsEmpty() {
+            // given — zero-length DTBS
+
+            // when / then
+            assertThatThrownBy(() -> signer.sign(new byte[0]))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        void throwsSystemFailure_whenConnectorThrowsConnectorException() throws Exception {
+            // given — the cryptographic connector is unavailable
+            when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .thenThrow(new ConnectorException("connector unreachable"));
+
+            // when / then
+            assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
+                            .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
+        }
+
+        @Test
+        void throwsSystemFailure_whenKeyOrTokenNotFound() throws Exception {
+            // given — the key UUID or token profile has been deleted since the profile was loaded
+            when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .thenThrow(new NotFoundException("key not found"));
+
+            // when / then
+            assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
+                            .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
+        }
+
+        @Test
+        void throwsSystemFailure_whenResponseContainsNoSignatures() throws Exception {
+            // given — the connector returns a response but with an empty signatures list
+            SignDataResponseDto emptyResponse = new SignDataResponseDto(List.of());
+            when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .thenReturn(emptyResponse);
+
+            // when / then
+            assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
+                            .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
+        }
+
+        @Test
+        void returnsDecodedSignatureBytes_onSuccess() throws Exception {
+            // given
+            byte[] rawSignature = {4, 5, 6, 7};
+            SignatureResponseData responseData = new SignatureResponseData();
+            responseData.setData(Base64.getEncoder().encodeToString(rawSignature));
+            SignDataResponseDto response = new SignDataResponseDto(List.of(responseData));
+
+            when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .thenReturn(response);
+
+            // when
+            byte[] result = signer.sign(new byte[]{1, 2, 3});
+
+            // then
+            assertThat(result).isEqualTo(rawSignature);
+        }
     }
 
-    @Test
-    void sign_throwsIllegalArgument_whenDtbsIsEmpty() {
-        assertThatThrownBy(() -> signer.sign(new byte[0]))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
+    // ── GetSignatureAlgorithm ─────────────────────────────────────────────────
 
-    // ── Connector error paths ─────────────────────────────────────────────────
+    @Nested
+    class GetSignatureAlgorithm {
 
-    @Test
-    void sign_throwsSystemFailure_whenConnectorThrowsConnectorException() throws Exception {
-        // given — the cryptographic connector is unavailable
-        when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                .thenThrow(new ConnectorException("connector unreachable"));
+        @Test
+        void returnsAlgorithmPassedAtConstruction() {
+            // given — signer constructed with SHA256_WITH_RSA
 
-        // when / then
-        assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
-                .isInstanceOf(TspException.class)
-                .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
-                        .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
-    }
-
-    @Test
-    void sign_throwsSystemFailure_whenKeyOrTokenNotFound() throws Exception {
-        // given — the key UUID or token profile has been deleted since the profile was loaded
-        when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                .thenThrow(new NotFoundException("key not found"));
-
-        // when / then
-        assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
-                .isInstanceOf(TspException.class)
-                .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
-                        .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
-    }
-
-    @Test
-    void sign_throwsSystemFailure_whenResponseContainsNoSignatures() throws Exception {
-        // given — the connector returns a response but with an empty signatures list
-        SignDataResponseDto emptyResponse = new SignDataResponseDto(List.of());
-        when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                .thenReturn(emptyResponse);
-
-        // when / then
-        assertThatThrownBy(() -> signer.sign(new byte[]{1, 2, 3}))
-                .isInstanceOf(TspException.class)
-                .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
-                        .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
-    }
-
-    // ── Happy path ────────────────────────────────────────────────────────────
-
-    @Test
-    void sign_returnsDecodedSignatureBytes_onSuccess() throws Exception {
-        // given
-        byte[] rawSignature = {4, 5, 6, 7};
-        SignatureResponseData responseData = new SignatureResponseData();
-        responseData.setData(Base64.getEncoder().encodeToString(rawSignature));
-        SignDataResponseDto response = new SignDataResponseDto(List.of(responseData));
-
-        when(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                .thenReturn(response);
-
-        // when
-        byte[] result = signer.sign(new byte[]{1, 2, 3});
-
-        // then
-        assertThat(result).isEqualTo(rawSignature);
-    }
-
-    // ── getSignatureAlgorithm ─────────────────────────────────────────────────
-
-    @Test
-    void getSignatureAlgorithm_returnsAlgorithmPassedAtConstruction() {
-        assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.SHA256_WITH_RSA);
+            // when / then
+            assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.SHA256_WITH_RSA);
+        }
     }
 }

@@ -24,7 +24,7 @@ class StaticKeyManagedSigningCertificateValidatorTest {
     // ── validate() ───────────────────────────────────────────────────────────
 
     @Test
-    void validate_returnsNok_whenCertificateIsNotAcceptableForNonQualifiedTimestamping() {
+    void returnsNok_whenCertificateIsNotAcceptableForNonQualifiedTimestamping() {
         // given — a revoked certificate is not acceptable for signing
         var certificate = SigningCertificateBuilder.aSigningCertificate().state(CertificateState.REVOKED).build();
         var scheme = new ResolvedStaticKeyManagedSigning(certificate, SIGNING_KEY_ITEMS, null, List.of());
@@ -38,7 +38,7 @@ class StaticKeyManagedSigningCertificateValidatorTest {
     }
 
     @Test
-    void validate_returnsOk_whenCertificateIsAcceptableForNonQualifiedTimestamping() {
+    void returnsOk_whenCertificateIsAcceptableForNonQualifiedTimestamping() {
         // given
         var scheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), SIGNING_KEY_ITEMS, null, List.of());
 
@@ -50,7 +50,7 @@ class StaticKeyManagedSigningCertificateValidatorTest {
     }
 
     @Test
-    void validate_returnsNok_whenCertificateHasNoQcComplianceForQualifiedTimestamping() {
+    void returnsNok_whenCertificateHasNoQcComplianceForQualifiedTimestamping() {
         // given — qcCompliance is absent, which is required for qualified timestamps (ETSI EN 319 421)
         var scheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), SIGNING_KEY_ITEMS, null, List.of());
 
@@ -63,7 +63,7 @@ class StaticKeyManagedSigningCertificateValidatorTest {
     }
 
     @Test
-    void validate_returnsOk_whenCertificateIsAcceptableForQualifiedTimestamping() {
+    void returnsOk_whenCertificateIsAcceptableForQualifiedTimestamping() {
         // given
         var certificate = SigningCertificateBuilder.aSigningCertificate().qcCompliance(true).build();
         var scheme = new ResolvedStaticKeyManagedSigning(certificate, SIGNING_KEY_ITEMS, null, List.of());

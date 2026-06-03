@@ -12,7 +12,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,14 +25,14 @@ class SigningCertificateValidatorFactoryTest {
     @Mock
     SigningCertificateValidator nonSupportingProvider;
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static ResolvedManagedScheme anyScheme() {
         return new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(), List.of(), null, List.of());
     }
 
-    // ── getValidator() ─────────────────────────────────────────────────────────
-
     @Test
-    void getValidator_returnsProvider_whenProviderSupportsScheme() throws TspException {
+    void returnsProvider_whenProviderSupportsScheme() throws TspException {
         // given
         var scheme = anyScheme();
         when(nonSupportingProvider.supports(scheme)).thenReturn(false);
@@ -42,18 +43,20 @@ class SigningCertificateValidatorFactoryTest {
         SigningCertificateValidator result = factory.getValidator(scheme);
 
         // then
-        assertSame(supportingProvider, result);
+        assertThat(result).isSameAs(supportingProvider);
     }
 
     @Test
-    void getValidator_throwsTspException_whenNoProviderSupportsScheme() {
+    void throwsTspException_whenNoProviderSupportsScheme() {
         // given
         var scheme = anyScheme();
         when(nonSupportingProvider.supports(scheme)).thenReturn(false);
         var factory = new SigningCertificateValidatorFactory(List.of(nonSupportingProvider));
 
         // when / then
-        var exception = assertThrows(TspException.class, () -> factory.getValidator(scheme));
-        assertEquals(TspFailureInfo.SYSTEM_FAILURE, exception.getFailureInfo());
+        assertThatThrownBy(() -> factory.getValidator(scheme))
+                .isInstanceOf(TspException.class)
+                .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
+                        .isEqualTo(TspFailureInfo.SYSTEM_FAILURE));
     }
 }
