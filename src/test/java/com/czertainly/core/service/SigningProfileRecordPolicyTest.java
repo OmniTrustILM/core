@@ -14,6 +14,7 @@ import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -52,7 +53,7 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
         SigningRecord rec = new SigningRecord();
         rec.setSigningProfile(profile);
         rec.setSigningProfileVersion(1);
-        rec.setSigningTime(OffsetDateTime.now());
+        rec.setSigningTime(Instant.now());
         recordRepo.saveAndFlush(rec);
 
         // Update with recordSignature=true
@@ -106,7 +107,7 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
         SigningRecord rec = new SigningRecord();
         rec.setSigningProfile(profile);
         rec.setSigningProfileVersion(1);
-        rec.setSigningTime(OffsetDateTime.now());
+        rec.setSigningTime(Instant.now());
         recordRepo.saveAndFlush(rec);
 
         // Update with recordDtbs=true AND deleteAfterRetrieval=true

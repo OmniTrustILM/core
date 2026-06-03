@@ -17,16 +17,29 @@ ALTER TABLE "signing_profile"
     ADD COLUMN "record_signed_document"   BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_dtbs"              BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Optional payload columns + retrieval timestamp on signing_record
-ALTER TABLE "signing_record"
-    ADD COLUMN "request_metadata_json" JSONB NULL,
-    ADD COLUMN "signed_document"                 BYTEA        NULL,
-    ADD COLUMN "dtbs"                            BYTEA        NULL,
-    ADD COLUMN "signed_document_retrieved_at"    TIMESTAMPTZ  NULL;
+-- Signing record (maps SigningRecord extends UniquelyIdentifiedAndAudited)
+CREATE TABLE "signing_record"
+(
+    "uuid"                         UUID        NOT NULL,
+    "name"                         VARCHAR,
+    "signing_profile_uuid"         UUID,
+    "signing_profile_version"      INTEGER     NOT NULL,
+    "signing_time"                 TIMESTAMPTZ NOT NULL,
+    "signature_value"              BYTEA,
+    "request_metadata_json"        JSONB,
+    "signed_document"              BYTEA,
+    "dtbs"                         BYTEA,
+    "signed_document_retrieved_at" TIMESTAMPTZ,
+    "i_author"                     VARCHAR,
+    "i_cre"                        TIMESTAMP DEFAULT NOW(),
+    "i_upd"                        TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY ("uuid"),
+    FOREIGN KEY ("signing_profile_uuid") REFERENCES "signing_profile" ("uuid") ON DELETE RESTRICT
+);
 
--- Sweeper index
-CREATE INDEX idx_sr_profile_created
-    ON "signing_record" ("signing_profile_uuid", "created_at");
+-- Sweeper index: retention deletes filter by profile + signing_time (see SigningRecordRepository.deleteExpiredByRetention)
+CREATE INDEX idx_sr_profile_signing_time
+    ON "signing_record" ("signing_profile_uuid", "signing_time");
 
 -- Outbox staging table for DEFERRED_DURABLE
 CREATE TABLE "signing_record_outbox"
@@ -40,9 +53,12 @@ CREATE TABLE "signing_record_outbox"
     "signed_document"         BYTEA NULL,
     "dtbs"                    BYTEA NULL,
     "request_metadata_json"   JSONB NULL,
-    "created_at"              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "attempts"                INTEGER     NOT NULL DEFAULT 0,
     "last_error"              TEXT NULL
 );
 
-CREATE INDEX idx_sro_created_at ON "signing_record_outbox" ("created_at");
+CREATE INDEX idx_sro_signing_time ON "signing_record_outbox" ("signing_time");
+-- Backs the outbox.poisoned gauge (COUNT WHERE attempts >= threshold) and the
+-- attempts filter on the lag_seconds gauge; plain btree so it stays valid if the
+-- runtime poison-threshold is overridden away from its default.
+CREATE INDEX idx_sro_attempts ON "signing_record_outbox" ("attempts");

@@ -1,6 +1,7 @@
 package com.czertainly.core.mapper.signing;
 
 import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -9,6 +10,7 @@ import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.SigningRecordPolicyModel;
 import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -111,6 +113,59 @@ class SigningProfileMapperToModelTest {
                 SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
         assertNull(model.workflow().timeQualityConfigurationUuid());
+    }
+
+    @Test
+    void toManagedTimestampingModel_carriesRecordPolicy_versionFlagsAndHeaderRetention() {
+        // given — distinct values so a transposed field would surface; T/F/T/F/T disambiguates the flags
+        var retentionDays = 30;
+        var persistenceMode = SigningRecordPersistenceMode.IMMEDIATE;
+        SigningProfile header = newHeader();
+        header.setRetentionDays(retentionDays);
+        header.setDeleteAfterRetrieval(true);
+        header.setPersistenceMode(persistenceMode);
+        SigningProfileVersion version = newTimestampingVersion();
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+        version.setCertificateUuid(CERT_UUID);
+        version.setRecordMetadata(true);
+        version.setRecordRequestMetadata(false);
+        version.setRecordSignature(true);
+        version.setRecordSignedDocument(false);
+        version.setRecordDtbs(true);
+
+        // when
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
+                SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
+
+        // then
+        SigningRecordPolicyModel policy = model.recordPolicy();
+        assertTrue(policy.recordMetadata());
+        assertFalse(policy.recordRequestMetadata());
+        assertTrue(policy.recordSignature());
+        assertFalse(policy.recordSignedDocument());
+        assertTrue(policy.recordDtbs());
+        assertEquals(retentionDays, policy.retentionDays());
+        assertTrue(policy.deleteAfterRetrieval());
+        assertEquals(persistenceMode, policy.persistenceMode());
+    }
+
+    @Test
+    void toManagedTimestampingModel_carriesRecordPolicy_nullRetentionDays() {
+        // given
+        SigningProfile header = newHeader();
+        header.setRetentionDays(null);
+        SigningProfileVersion version = newTimestampingVersion();
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+        version.setCertificateUuid(CERT_UUID);
+
+        // when
+        SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
+                SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
+
+        // then
+        assertNull(model.recordPolicy().retentionDays());
     }
 
     @Test

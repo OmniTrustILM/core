@@ -4,74 +4,94 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.certificate.SearchRequestDto;
 import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.common.PaginationResponseDto;
+import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordValidationResultDto;
+import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.mapper.signing.SigningRecordMapper;
+import com.czertainly.core.mapper.workflows.PaginationResponseMapper;
+import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.util.SearchHelper;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SigningRecordService;
-import com.czertainly.core.service.model.SecuredList;
+import com.czertainly.core.signing.record.SigningRecordDeletionWriter;
+import com.czertainly.core.util.FilterPredicatesBuilder;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
+import org.apache.commons.lang3.function.TriFunction;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Slf4j
 public class SigningRecordServiceImpl implements SigningRecordService {
 
-    private SigningRecordRepository signingRecordRepository;
-    private SigningRecordServiceImpl self;
+    private final SigningRecordRepository signingRecordRepository;
+    private final SigningRecordDeletionWriter signingRecordDeletionWriter;
+    private final SigningProfileRepository signingProfileRepository;
+    private final AttributeEngine attributeEngine;
 
-    @Autowired
-    public void setSigningRecordRepository(SigningRecordRepository signingRecordRepository) {
+    public SigningRecordServiceImpl(SigningRecordRepository signingRecordRepository,
+                                    SigningRecordDeletionWriter signingRecordDeletionWriter,
+                                    SigningProfileRepository signingProfileRepository,
+                                    AttributeEngine attributeEngine) {
         this.signingRecordRepository = signingRecordRepository;
+        this.signingRecordDeletionWriter = signingRecordDeletionWriter;
+        this.signingProfileRepository = signingProfileRepository;
+        this.attributeEngine = attributeEngine;
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
     @Transactional(readOnly = true)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
-        return new ArrayList<>();
+        List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SIGNING_RECORD, false);
+        List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_NAME),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE, signingProfileRepository.findAllNames()),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_TIME),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_CREATED)
+        ));
+        fields.sort(new SearchFieldDataComparator());
+        searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fields, FilterFieldSource.PROPERTY));
+        return searchFieldDataByGroupDtos;
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
     @Transactional(readOnly = true)
     public PaginationResponseDto<SigningRecordListDto> listSigningRecords(SearchRequestDto request, SecurityFilter filter) {
-        List<SigningRecord> records = signingRecordRepository.findUsingSecurityFilter(filter);
-        List<SigningRecordListDto> dtos = records.stream()
-                .map(SigningRecordMapper::toListDto)
-                .toList();
-        PaginationResponseDto<SigningRecordListDto> response = new PaginationResponseDto<>();
-        // :TODO: this is completely wrong
-        response.setItemsPerPage(dtos.size());
-        response.setPageNumber(1);
-        response.setTotalItems(dtos.size());
-        response.setTotalPages(1);
-        response.setItems(dtos);
-        return response;
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.DETAIL)
-    @Transactional(readOnly = true)
-    public SecuredList<SigningRecord> listSigningRecordsAssociatedWithSigningProfile(SecuredUUID signingProfileUuid, SecurityFilter filter) {
-        List<SigningRecord> records = signingRecordRepository.findAllBySigningProfileUuid(signingProfileUuid.getValue());
-        return SecuredList.fromFilter(filter, records);
+        Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
+                (root, cb, cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+        List<SigningRecordListDto> dtos = signingRecordRepository.findUsingSecurityFilter(filter, List.of(), predicate, p,
+                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
+                .stream().map(SigningRecordMapper::toListDto).toList();
+        long totalItems = signingRecordRepository.countUsingSecurityFilter(filter, predicate);
+        return PaginationResponseMapper.toDto(dtos, request.getPageNumber(), request.getItemsPerPage(), totalItems);
     }
 
     @Override
@@ -92,10 +112,9 @@ public class SigningRecordServiceImpl implements SigningRecordService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DELETE)
-    @Transactional
     public void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException {
         SigningRecord signingRecord = getSigningRecordEntity(uuid);
-        signingRecordRepository.delete(signingRecord);
+        signingRecordDeletionWriter.deleteByUuid(signingRecord.getUuid());
     }
 
     @Override
@@ -106,18 +125,20 @@ public class SigningRecordServiceImpl implements SigningRecordService {
             SigningRecord signingRecord = null;
             try {
                 signingRecord = getSigningRecordEntity(uuid);
-                self.deleteInOwnTransaction(signingRecord);
+                signingRecordDeletionWriter.deleteByUuid(signingRecord.getUuid());
             } catch (Exception e) {
-                log.error("Failed to delete Time Quality Configuration {}", uuid, e);
-                messages.add(new BulkActionMessageDto(uuid.toString(), signingRecord != null ? signingRecord.getName() : "", e.getMessage()));
+                log.error("Failed to delete Signing Record {}", uuid, e);
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), signingRecord != null ?
+                        signingRecord.getName() : "", e, "Failed to signing record"));
             }
         }
         return messages;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void deleteInOwnTransaction(SigningRecord signingRecord) {
-        signingRecordRepository.delete(signingRecord);
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
+    public boolean doesSigningRecordExist(UUID uuid, int version) {
+        return signingRecordRepository.existsBySigningProfileUuidAndSigningProfileVersion(uuid, version);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -126,11 +147,5 @@ public class SigningRecordServiceImpl implements SigningRecordService {
 
     private SigningRecord getSigningRecordEntity(SecuredUUID uuid) throws NotFoundException {
         return signingRecordRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException("Signing Record not found: " + uuid));
-    }
-
-    @Lazy
-    @Autowired
-    public void setSelf(SigningRecordServiceImpl self) {
-        this.self = self;
     }
 }

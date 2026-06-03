@@ -11,10 +11,10 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -39,11 +39,7 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
     private Integer signingProfileVersion;
 
     @Column(name = "signing_time", nullable = false)
-    private OffsetDateTime signingTime;
-
-    @Column(name = "created_at")
-    @CreationTimestamp
-    private OffsetDateTime createdAt;
+    private Instant signingTime;
 
     @Column(name = "signature_value")
     private byte[] signatureValue;
@@ -59,7 +55,7 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
     private byte[] dtbs;
 
     @Column(name = "signed_document_retrieved_at")
-    private OffsetDateTime signedDocumentRetrievedAt;
+    private Instant signedDocumentRetrievedAt;
 
     public void setSigningProfile(SigningProfile signingProfile) {
         this.signingProfile = signingProfile;

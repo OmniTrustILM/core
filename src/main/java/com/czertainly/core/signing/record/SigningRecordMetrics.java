@@ -18,6 +18,14 @@ public class SigningRecordMetrics {
         return Counter.builder("signing_record.created.total").tag("mode", mode).register(registry);
     }
 
+    public Counter persistFailed(String mode) {
+        return Counter.builder("signing_record.persist.failed.total").tag("mode", mode).register(registry);
+    }
+
+    public Counter queued(String mode) {
+        return Counter.builder("signing_record.queued.total").tag("mode", mode).register(registry);
+    }
+
     public Counter skippedNoContentPolicy() {
         return Counter.builder("signing_record.skipped_no_content_policy.total").register(registry);
     }
@@ -34,16 +42,16 @@ public class SigningRecordMetrics {
         return registry.counter("signing_record.outbox.failed.total");
     }
 
-    public Counter outboxPoison() {
-        return registry.counter("signing_record.outbox.poison.total");
-    }
-
     public Counter bestEffortDropped(String reason) {
         return Counter.builder("signing_record.best_effort.dropped.total").tag("reason", reason).register(registry);
     }
 
     public Counter retentionDeleted() {
         return registry.counter("signing_record.retention.deleted.total");
+    }
+
+    public Counter retentionFailed() {
+        return registry.counter("signing_record.retention.failed.total");
     }
 
     public Counter retrievalDeleted() {
@@ -58,7 +66,15 @@ public class SigningRecordMetrics {
         return Timer.builder("signing_record.write.duration_ms").tag("mode", mode).register(registry);
     }
 
-    public MeterRegistry registry() {
-        return registry;
+    /**
+     * Runs {@code action}, recording its duration under {@link #writeDuration(String)} for {@code mode}.
+     */
+    public void timed(String mode, Runnable action) {
+        Timer.Sample sample = Timer.start(registry);
+        try {
+            action.run();
+        } finally {
+            sample.stop(writeDuration(mode));
+        }
     }
 }

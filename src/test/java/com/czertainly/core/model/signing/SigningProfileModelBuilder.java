@@ -1,5 +1,6 @@
 package com.czertainly.core.model.signing;
 
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -22,6 +23,8 @@ public final class SigningProfileModelBuilder {
             .build();
     private SigningSchemeModel signingScheme = new StaticKeyManagedSigning(
             UUID.fromString("00000000-0000-0000-0000-000000000003"), List.of());
+    private SigningRecordPolicyModel recordPolicy = new SigningRecordPolicyModel(
+            false, false, false, false, false, null, false, SigningRecordPersistenceMode.DEFERRED_DURABLE);
 
     public static SigningProfileModelBuilder aSigningProfile() {
         return new SigningProfileModelBuilder();
@@ -40,8 +43,13 @@ public final class SigningProfileModelBuilder {
     public SigningProfileModelBuilder workflow(SigningWorkflow v) { this.workflow = v; return this; }
     public SigningProfileModelBuilder signingScheme(SigningSchemeModel v) { this.signingScheme = v; return this; }
 
+    public SigningProfileModelBuilder recordPolicy(SigningRecordPolicyModel v) {
+        this.recordPolicy = v;
+        return this;
+    }
+
     @SuppressWarnings({"unchecked", "java:S119"})
     public <W extends SigningWorkflow, SM extends SigningSchemeModel> SigningProfileModel<W, SM> build() {
-        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, (W) workflow, (SM) signingScheme);
+        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, (W) workflow, (SM) signingScheme, recordPolicy);
     }
 }

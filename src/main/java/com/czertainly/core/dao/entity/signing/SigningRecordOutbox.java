@@ -10,6 +10,7 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -33,7 +34,7 @@ public class SigningRecordOutbox {
     private Integer signingProfileVersion;
 
     @Column(name = "signing_time", nullable = false)
-    private OffsetDateTime signingTime;
+    private Instant signingTime;
 
     @Column(name = "signature_value")
     private byte[] signatureValue;
@@ -48,19 +49,9 @@ public class SigningRecordOutbox {
     @JdbcTypeCode(SqlTypes.JSON)
     private String requestMetadataJson;
 
-    @Column(name = "created_at", nullable = false)
-    private OffsetDateTime createdAt;
-
     @Column(name = "attempts", nullable = false)
     private int attempts = 0;
 
-    @Column(name = "last_error")
+    @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;
-
-    @PrePersist
-    protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = OffsetDateTime.now();
-        }
-    }
 }

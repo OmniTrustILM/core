@@ -1,34 +1,40 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
-public class ImmediateSigningRecordWriter extends AbstractSigningRecordWriter {
+public class ImmediateSigningRecordWriter implements SigningRecordWriter {
 
     private final SigningRecordRepository repository;
+    private final SigningRecordMapper mapper;
+    private final SigningRecordMetrics metrics;
 
     public ImmediateSigningRecordWriter(SigningRecordRepository repository,
+                                        SigningRecordMapper mapper,
                                         SigningRecordMetrics metrics) {
-        super(metrics);
         this.repository = repository;
+        this.mapper = mapper;
+        this.metrics = metrics;
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRED)
     public void record(SigningRecordInput input) {
-        if (!hasAnyRecordableContent(input.getVersion())) {
+        if (!SigningRecordPolicy.hasAnyRecordableContent(input.getSigningProfile().recordPolicy())) {
             metrics.skippedNoContentPolicy().increment();
             return;
         }
-        timed("IMMEDIATE", () -> {
-            SigningRecord r = buildSigningRecord(input);
-            r.setSigningProfile(input.getProfile());
-            repository.save(r);
-            metrics.created("IMMEDIATE").increment();
+        metrics.timed("IMMEDIATE", () -> {
+            try {
+                repository.save(mapper.toRecord(input));
+                metrics.created("IMMEDIATE").increment();
+            } catch (RuntimeException e) {
+                metrics.persistFailed("IMMEDIATE").increment();
+                throw e;
+            }
         });
     }
 }

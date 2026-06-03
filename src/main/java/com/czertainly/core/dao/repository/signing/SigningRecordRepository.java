@@ -14,17 +14,23 @@ import java.util.UUID;
 public interface SigningRecordRepository extends SecurityFilterRepository<SigningRecord, UUID> {
     boolean existsBySigningProfileUuidAndSigningProfileVersion(UUID signingProfileUuid, int version);
 
-    List<SigningRecord> findAllBySigningProfileUuid(UUID signingProfileUuid);
+    @Modifying
+    @Query("DELETE FROM SigningRecord sr WHERE sr.uuid = :uuid")
+    int deleteByUuid(@Param("uuid") UUID uuid);
 
     @Modifying
     @Query(value = """
-            DELETE FROM {h-schema}signing_record sr
-            USING {h-schema}signing_profile sp
-            WHERE sr.signing_profile_uuid = sp.uuid
-              AND sp.retention_days IS NOT NULL
-              AND sr.created_at < NOW() - (sp.retention_days || ' days')::interval
+            DELETE FROM {h-schema}signing_record
+            WHERE ctid IN (
+                SELECT sr.ctid
+                FROM {h-schema}signing_record sr
+                JOIN {h-schema}signing_profile sp ON sr.signing_profile_uuid = sp.uuid
+                WHERE sp.retention_days IS NOT NULL
+                  AND sr.signing_time < NOW() - make_interval(days => sp.retention_days)
+                LIMIT :limit
+            )
             """, nativeQuery = true)
-    int deleteExpiredByRetention();
+    int deleteExpiredByRetention(@Param("limit") int limit);
 
     @Modifying
     @Query(value = """
@@ -35,10 +41,4 @@ public interface SigningRecordRepository extends SecurityFilterRepository<Signin
               AND sr.signed_document_retrieved_at IS NOT NULL
             """, nativeQuery = true)
     int deleteRetrievedAndFlagged();
-
-    @Query(value = "SELECT pg_try_advisory_lock(:key)", nativeQuery = true)
-    boolean tryAdvisoryLock(@Param("key") long key);
-
-    @Query(value = "SELECT pg_advisory_unlock(:key)", nativeQuery = true)
-    boolean releaseAdvisoryLock(@Param("key") long key);
 }

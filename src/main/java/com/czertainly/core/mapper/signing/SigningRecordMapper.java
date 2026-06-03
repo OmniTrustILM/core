@@ -4,7 +4,8 @@ import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 
-import java.time.ZonedDateTime;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 
 public class SigningRecordMapper {
 
@@ -15,16 +16,16 @@ public class SigningRecordMapper {
         SigningRecordDto dto = new SigningRecordDto();
         dto.setUuid(record.getUuid().toString());
         dto.setName(record.getName());
-        ZonedDateTime signingTimeZoned = record.getSigningTime() != null ? record.getSigningTime().toZonedDateTime() : null;
+        Instant signingTimeZoned = record.getSigningTime() != null ? record.getSigningTime() : null;
         dto.setSigningTime(signingTimeZoned);
-        ZonedDateTime createdAtZoned = record.getCreatedAt() != null ? record.getCreatedAt().toZonedDateTime() : null;
-        dto.setCreatedAt(createdAtZoned);
+        OffsetDateTime createdAt = record.getCreated();
+        dto.setCreatedAt(createdAt.toInstant());
         dto.setSignatureValue(record.getSignatureValue());
         dto.setSignedDocument(record.getSignedDocument());
         dto.setDtbs(record.getDtbs());
         dto.setRequestMetadataJson(record.getRequestMetadataJson());
         if (record.getSignedDocumentRetrievedAt() != null) {
-            dto.setSignedDocumentRetrievedAt(record.getSignedDocumentRetrievedAt().toZonedDateTime());
+            dto.setSignedDocumentRetrievedAt(record.getSignedDocumentRetrievedAt());
         }
         return dto;
     }
@@ -33,10 +34,10 @@ public class SigningRecordMapper {
         SigningRecordListDto dto = new SigningRecordListDto();
         dto.setUuid(record.getUuid().toString());
         dto.setName(record.getName());
-        ZonedDateTime signingTimeZoned = record.getSigningTime() != null ? record.getSigningTime().toZonedDateTime() : null;
-        dto.setSigningTime(signingTimeZoned);
-        ZonedDateTime createdAtZoned = record.getCreatedAt() != null ? record.getCreatedAt().toZonedDateTime() : null;
-        dto.setCreatedAt(createdAtZoned);
+        Instant signingTime = record.getSigningTime() != null ? record.getSigningTime() : null;
+        dto.setSigningTime(signingTime);
+        OffsetDateTime createdAtZoned = record.getCreated();
+        dto.setCreatedAt(createdAtZoned.toInstant());
         return dto;
     }
 }

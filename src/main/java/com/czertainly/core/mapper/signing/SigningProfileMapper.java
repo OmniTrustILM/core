@@ -18,6 +18,7 @@ import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.SigningRecordPolicyModel;
 import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -155,7 +156,8 @@ public class SigningProfileMapper {
                 header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), protocols,
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
-                buildManagedSchemeModel(version, signingOperationAttributes));
+                buildManagedSchemeModel(version, signingOperationAttributes),
+                buildRecordPolicyModel(header, version));
     }
 
     public static SigningProfileListDto toListDto(SigningProfile profile) {
@@ -271,6 +273,18 @@ public class SigningProfileMapper {
                     version.getCsrTemplateUuid(),
                     cacheSafeList(signingOperationAttributes));
         };
+    }
+
+    private static SigningRecordPolicyModel buildRecordPolicyModel(SigningProfile header, SigningProfileVersion version) {
+        return new SigningRecordPolicyModel(
+                version.isRecordMetadata(),
+                version.isRecordRequestMetadata(),
+                version.isRecordSignature(),
+                version.isRecordSignedDocument(),
+                version.isRecordDtbs(),
+                header.getRetentionDays(),
+                header.isDeleteAfterRetrieval(),
+                header.getPersistenceMode());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

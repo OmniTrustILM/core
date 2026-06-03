@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,16 +15,26 @@ import java.util.UUID;
 @Repository
 public interface SigningRecordOutboxRepository extends JpaRepository<SigningRecordOutbox, UUID> {
 
+    /**
+     * Returns the oldest drainable rows (attempts still below the poison threshold), oldest first. No row
+     * locking: cross-node mutual exclusion for the drain is provided by a cluster-wide advisory lock held by
+     * {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}, so a plain ordered read is
+     * enough and avoids holding row locks across the per-row drain transactions.
+     */
     @Query(value = """
             SELECT * FROM signing_record_outbox
-            ORDER BY created_at
-            FOR UPDATE SKIP LOCKED
+            WHERE attempts < :poisonThreshold
+            ORDER BY signing_time
             LIMIT :batchSize
             """, nativeQuery = true)
-    List<SigningRecordOutbox> claimBatchSkipLocked(@Param("batchSize") int batchSize);
+    List<SigningRecordOutbox> findDrainableBatch(@Param("poisonThreshold") int poisonThreshold,
+                                                 @Param("batchSize") int batchSize);
 
-    @Query("SELECT MIN(o.createdAt) FROM SigningRecordOutbox o")
-    Optional<OffsetDateTime> findOldestCreatedAt();
+    @Query("SELECT MIN(o.signingTime) FROM SigningRecordOutbox o WHERE o.attempts < :poisonThreshold")
+    Optional<Instant> findOldestSigningTimeBelowPoisonThreshold(@Param("poisonThreshold") int poisonThreshold);
+
+    @Query("SELECT COUNT(o) FROM SigningRecordOutbox o WHERE o.attempts >= :poisonThreshold")
+    long countPoisoned(@Param("poisonThreshold") int poisonThreshold);
 
     @Modifying
     @Query("UPDATE SigningRecordOutbox o SET o.attempts = o.attempts + 1, o.lastError = :err WHERE o.uuid IN :uuids")

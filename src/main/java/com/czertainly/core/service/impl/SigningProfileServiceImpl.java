@@ -45,6 +45,7 @@ import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.enums.FilterField;
+import com.czertainly.core.service.*;
 import com.czertainly.core.util.SearchHelper;
 import com.czertainly.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -72,13 +73,6 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.ConnectorService;
-import com.czertainly.core.service.CryptographicOperationService;
-import com.czertainly.core.service.RaProfileService;
-import com.czertainly.core.service.SigningProfileService;
-import com.czertainly.core.service.TokenProfileService;
-import com.czertainly.core.service.TspProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.FilterPredicatesBuilder;
@@ -116,6 +110,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private ConnectorService connectorService;
     private TokenProfileService tokenProfileService;
     private RaProfileService raProfileService;
+    private SigningRecordService signingRecordService;
+
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SigningProfileRepository signingProfileRepository;
     private SigningProfileVersionRepository signingProfileVersionRepository;
@@ -332,8 +328,9 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
         SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion()).orElse(null);
-        boolean recordsExist = signingRecordRepository.existsBySigningProfileUuidAndSigningProfileVersion(
-                profile.getUuid(), profile.getLatestVersion());
+        boolean recordsExist = signingRecordService.doesSigningRecordExist(profile.getUuid(), profile.getLatestVersion());
+        // TODO: QUESTION: Why do we want to bump if the record policy changed, but no records are present? How is the
+        // record policy different from other properties of signing profile?
         boolean policyRecordDifferent = currentVersion != null && contentPolicydDifferFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
         if (bump) {
@@ -910,6 +907,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setTimeQualityConfigurationRepository(TimeQualityConfigurationRepository timeQualityConfigurationRepository) {
         this.timeQualityConfigurationRepository = timeQualityConfigurationRepository;
+    }
+
+    @Autowired
+    public void setSigningRecordService(SigningRecordService signingRecordService) {
+        this.signingRecordService = signingRecordService;
     }
 
     @Autowired

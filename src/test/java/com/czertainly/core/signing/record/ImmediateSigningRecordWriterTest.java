@@ -1,94 +1,80 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
-import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
-import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
-import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
-import com.czertainly.core.signing.record.ImmediateSigningRecordWriter;
-import com.czertainly.core.signing.record.SigningRecordInput;
+import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
+import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.SigningRecordService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
+import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.czertainly.core.util.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
 
     @Autowired
     private ImmediateSigningRecordWriter writer;
-    @Autowired
-    private SigningProfileRepository profileRepo;
-    @Autowired
-    private SigningProfileVersionRepository versionRepo;
-    @Autowired
-    private SigningRecordRepository recordRepo;
 
-    private SigningRecordInput build(SigningProfile p, SigningProfileVersion v) {
-        return SigningRecordInput.builder()
-                .profile(p).version(v)
-                .signingTime(OffsetDateTime.now())
-                .displayName("disp")
-                .requestMetadataJson("{\"alg\":\"X\"}")
-                .signature(new byte[]{1, 2})
-                .signedDocument(new byte[]{3, 4})
-                .dtbs(new byte[]{5, 6})
-                .build();
-    }
-
-    private SigningProfileVersion seedProfileWithToggles(boolean meta, boolean reqMeta,
-                                                         boolean sig, boolean signedDoc, boolean dtbs) {
-        SigningProfile p = new SigningProfile();
-        p.setName("imm-" + System.nanoTime());
-        p.setSigningScheme(SigningScheme.MANAGED);
-        p.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
-        p.setLatestVersion(1);
-        p = profileRepo.saveAndFlush(p);
-
-        SigningProfileVersion v = new SigningProfileVersion();
-        v.setSigningProfile(p);
-        v.setVersion(1);
-        v.setSigningScheme(SigningScheme.MANAGED);
-        v.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
-        v.setRecordMetadata(meta);
-        v.setRecordRequestMetadata(reqMeta);
-        v.setRecordSignature(sig);
-        v.setRecordSignedDocument(signedDoc);
-        v.setRecordDtbs(dtbs);
-        return versionRepo.saveAndFlush(v);
-    }
+    @Autowired
+    private SigningRecordService signingRecordService;
 
     @Test
-    void writesPersistsOnlyToggledColumns() {
-        SigningProfileVersion v = seedProfileWithToggles(true, true, true, false, true);
+    void persistsAllRecordableContent_whenEveryToggleEnabled() throws NotFoundException {
+        // given
+        SigningProfileModel<?, ?> signingProfile = aSigningProfile()
+                .recordPolicy(recordingEverything().build())
+                .build();
+        SigningRecordInput input = aSigningRecordInput()
+                .signingProfile(signingProfile)
+                .requestMetadataJson("{ \"foo\": \"bar\" }")
+                .signature("the-signature".getBytes(UTF_8))
+                .signedDocument("the-signed-document".getBytes(UTF_8))
+                .dtbs("the-data-to-be-signed".getBytes(UTF_8))
+                .build();
 
-        writer.record(build(v.getSigningProfile(), v));
+        // when
+        writer.record(input);
 
-        List<SigningRecord> all = recordRepo.findAll();
+        // then
+        List<SigningRecordListDto> all = signingRecordService
+                .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
+                .getItems();
         assertEquals(1, all.size());
-        SigningRecord r = all.get(0);
-        assertNotNull(r.getName());
-        assertNotNull(r.getRequestMetadataJson());
-        assertArrayEquals(new byte[]{1, 2}, r.getSignatureValue());
-        assertNull(r.getSignedDocument()); // toggle off
-        assertArrayEquals(new byte[]{5, 6}, r.getDtbs());
+
+        SigningRecordDto record = signingRecordService
+                .getSigningRecord(SecuredUUID.fromString(all.getFirst().getUuid()));
+        assertEquals("{ \"foo\": \"bar\" }", record.getRequestMetadataJson());
+        assertEquals("the-signature", new String(record.getSignatureValue(), UTF_8));
+        assertEquals("the-signed-document", new String(record.getSignedDocument(), UTF_8));
+        assertEquals("the-data-to-be-signed", new String(record.getDtbs(), UTF_8));
     }
 
     @Test
     void noToggleEnabledIsNoOp() {
-        SigningProfileVersion v = seedProfileWithToggles(false, false, false, false, false);
+        // given
+        SigningProfileModel<?, ?> signingProfile = aSigningProfile()
+                .recordPolicy(notRecording().build())
+                .build();
+        SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
-        writer.record(build(v.getSigningProfile(), v));
+        // when
+        writer.record(input);
 
-        assertEquals(0, recordRepo.count());
+        // then
+        List<SigningRecordListDto> all = signingRecordService
+                .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
+                .getItems();
+        assertEquals(0, all.size());
     }
 }

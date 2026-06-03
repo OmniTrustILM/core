@@ -14,14 +14,13 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.model.SecuredList;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface SigningRecordService {
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecords(SearchRequestDto request, SecurityFilter filter);
-
-    SecuredList<SigningRecord> listSigningRecordsAssociatedWithSigningProfile(SecuredUUID signingProfileUuid, SecurityFilter filter);
 
     SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
@@ -30,4 +29,6 @@ public interface SigningRecordService {
     void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids);
+
+    boolean doesSigningRecordExist(UUID uuid, int version);
 }
