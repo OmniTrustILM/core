@@ -11,13 +11,13 @@ import java.util.concurrent.Callable;
 public class TransactionHandler {
 
     @Transactional(propagation = Propagation.REQUIRED)
-    public <T> T runInTransaction(Callable<T> action) throws EventException {
+    public <T> T runInTransaction(Callable<T> action) throws EventException { // NOSONAR: EventException is rethrown via multi-catch
         try {
             return action.call();
         } catch (RuntimeException | EventException e) {
             throw e;
         } catch (Exception e) {
-            throw new EventException(e.getMessage());
+            throw new RuntimeException(e); // NOSONAR: Callable.call() declares checked Exception; wrapping is intentional
         }
     }
 
