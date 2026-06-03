@@ -159,6 +159,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             } catch (Exception e) {
                 handleNotificationErrorWithErrorLog("Error in external notification with notification instance %s configured for notification profile %s in event %s: %s".formatted(notificationInstanceUUID, notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), e.toString()), message);
             }
+        } else {
+            handleNotificationErrorWithWarnLog("Notification profile %s in event %s does not have assigned notification instance, external notification cannot be sent.".formatted(notificationProfileVersion.getNotificationProfile().getName(), message.getEvent()), message);
         }
         return notificationSent;
     }
