@@ -714,6 +714,59 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testCertificateRuleEvaluatorCustomAttributeAbsent() throws AlreadyExistException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        // Create the attribute definition but do not assign any content to the certificate —
+        // mirrors the NOT EXISTS semantics of FilterPredicatesBuilder for objects missing the attribute entirely.
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("customAbsent");
+        request.setLabel("customAbsent");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        attributeService.createCustomAttribute(request);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customAbsent|STRING");
+
+        // Absent attribute has no content — EMPTY is satisfied
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // Absent attribute has no content — NOT_EMPTY is not satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists that equals/contains/matches the value — negated operators are satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists — positive operators are not satisfied
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
     void testCertificateRuleEvaluatorMeta() throws RuleException, AttributeException {
         Certificate newCertificate = new Certificate();
         certificateRepository.save(newCertificate);

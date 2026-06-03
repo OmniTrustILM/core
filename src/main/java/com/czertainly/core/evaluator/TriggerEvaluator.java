@@ -287,9 +287,8 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         String attributeName = parts[0];
         List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
         ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
-        if (attributeToCompare == null) return false;
         // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
-        return evaluateConditionOnAttribute(attributeToCompare.getContent(), attributeToCompare.getContentType(), conditionValue, operator);
+        return evaluateConditionOnAttribute(attributeToCompare == null ? null : attributeToCompare.getContent(), attributeToCompare == null ? null : attributeToCompare.getContentType(), conditionValue, operator);
     }
 
     @Override
@@ -487,7 +486,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         try {
             return AttributeContentType.valueOf(contentType);
         } catch (IllegalArgumentException e) {
-            throw new RuleException("Cannot parse content type %s from execution item: %s".formatted(contentType, e.getMessage()));
+            throw new RuleException("Cannot parse content type %s from field identifier: %s".formatted(contentType, e.getMessage()));
         }
     }
 
@@ -623,11 +622,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private boolean evaluateConditionOnAttribute(List<? extends AttributeContent> content, AttributeContentType contentType, Object conditionValue, FilterConditionOperator operator) throws RuleException {
+        boolean missingContent = content == null || content.isEmpty();
         if (operator == FilterConditionOperator.EMPTY) {
-            return content.isEmpty();
+            return missingContent;
         }
         if (operator == FilterConditionOperator.NOT_EMPTY) {
-            return !content.isEmpty();
+            return !missingContent;
         }
 
         // For negated operators, evaluate the positive counterpart across all items and negate the result:
@@ -639,6 +639,13 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             default -> operator;
         };
         boolean isNegated = effectiveOperator != operator;
+
+        // For negated operators, attributes without content also match the operator, mirroring FilterPredicatesBuilder's NOT EXISTS semantics.
+        if (isNegated && missingContent) {
+            return true;
+        }
+        // For non-negated operators, attributes without content do not match the operator.
+        if (missingContent) return false;
 
         // If the attribute is a list, iterate through each item and short-circuit on the first definitive result.
         // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
