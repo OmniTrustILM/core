@@ -24,11 +24,6 @@ public final class TspRequestBuilder {
         return new TspRequestBuilder();
     }
 
-    /** Returns a minimal valid request with sensible defaults. */
-    public static TspRequest valid() {
-        return aTspRequest().build();
-    }
-
     public TspRequestBuilder hashAlgorithm(DigestAlgorithm hashAlgorithm) {
         this.hashAlgorithm = hashAlgorithm;
         return this;
