@@ -24,6 +24,10 @@ public interface CertificateEventHistoryInternalService {
      * Records the event in the Certificate history in a separate transaction that commits independently of the caller's transaction.
      * Use for FAILED events recorded on a code path whose surrounding transaction is about to roll back — a regular {@code addEventHistory}
      * call (or an {@code AFTER_COMMIT} transactional event) would be discarded with the rollback.
+     * <p>
+     * <strong>Call this before the surrounding transaction UPDATEs or locks the certificate row.</strong> Because this runs in a
+     * separate ({@code REQUIRES_NEW}) transaction, its FK insert against the certificate would block on a row lock the suspended
+     * caller still holds — a single-thread self-deadlock.</p>
      *
      * @param certificateUuid UUID of certificate that should record the event
      * @param event Certificate event
