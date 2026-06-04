@@ -1019,7 +1019,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         }
         certificate.setState(CertificateState.ISSUED);
         certificateRepository.save(certificate);
-        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to Issued.", "");
+        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".", "");
     }
 
     /**

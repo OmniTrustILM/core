@@ -14,7 +14,6 @@ import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.SecretService;
 import com.czertainly.core.service.v2.ClientOperationService;
