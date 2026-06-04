@@ -44,12 +44,6 @@ public class ApprovalRequestedEventHandler extends EventHandler<Approval> {
     }
 
     @Override
-    protected void prefetchForFollowUp(EventContext<Approval> context) {
-        // approvalProfileVersion is already loaded by getEventData; initialize its steps collection
-        context.getResourceObjects().forEach(approval -> approval.getApprovalProfileVersion().getApprovalSteps().size());
-    }
-
-    @Override
     protected void sendFollowUpEventsNotifications(EventContext<Approval> eventContext) {
         Approval approval = eventContext.getResourceObjects().getFirst();
         ApprovalEventData eventData = (ApprovalEventData) eventContext.getResourceObjectsEventData().getFirst();
