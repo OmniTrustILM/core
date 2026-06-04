@@ -577,25 +577,193 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testCertificateRuleEvaluatorCustomAttributes() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+    void testCertificateRuleEvaluatorCustomAttributeList() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
         Certificate newCertificate = new Certificate();
         certificateRepository.save(newCertificate);
 
-        CustomAttributeCreateRequestDto customAttributeRequest = new CustomAttributeCreateRequestDto();
-        customAttributeRequest.setName("custom");
-        customAttributeRequest.setLabel("custom");
-        customAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
-        customAttributeRequest.setContentType(AttributeContentType.STRING);
+        CustomAttributeCreateRequestDto listAttributeRequest = new CustomAttributeCreateRequestDto();
+        listAttributeRequest.setName("customList");
+        listAttributeRequest.setLabel("customList");
+        listAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        listAttributeRequest.setContentType(AttributeContentType.STRING);
+        listAttributeRequest.setList(true);
 
-        CustomAttributeDefinitionDetailDto customAttribute = attributeService.createCustomAttribute(customAttributeRequest);
-        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, customAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data1"), new StringAttributeContentV3("ref", "data")));
+        CustomAttributeDefinitionDetailDto listAttribute = attributeService.createCustomAttribute(listAttributeRequest);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, listAttribute.getName(),
+                List.of(new StringAttributeContentV3("ref", "data1"), new StringAttributeContentV3("ref", "data")));
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
-        newCondition.setFieldIdentifier("custom");
+        newCondition.setFieldIdentifier("customList|STRING");
+
+        // EQUALS: true if any item equals the value
         newCondition.setOperator(FilterConditionOperator.EQUALS);
         newCondition.setValue("data");
         Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_EQUALS: true only if no item equals the value — "data" is present so NOT_EQUALS "data" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // CONTAINS: true if any item contains the substring
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_CONTAINS: true only if no item contains the substring — both "data1" and "data" contain "at", so NOT_CONTAINS "at" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_MATCHES: true only if no item matches the pattern — "data" matches "^dat.$", so NOT_MATCHES "^dat.$" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — neither "data1" nor "data" matches
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character — matches "data"
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeSingleString() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto singleAttributeRequest = new CustomAttributeCreateRequestDto();
+        singleAttributeRequest.setName("customSingle");
+        singleAttributeRequest.setLabel("customSingle");
+        singleAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        singleAttributeRequest.setContentType(AttributeContentType.STRING);
+        singleAttributeRequest.setList(false);
+
+        CustomAttributeDefinitionDetailDto singleAttribute = attributeService.createCustomAttribute(singleAttributeRequest);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, singleAttribute.getName(),
+                List.of(new StringAttributeContentV3("ref", "data")));
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customSingle|STRING");
+
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.STARTS_WITH);
+        newCondition.setValue("da");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.ENDS_WITH);
+        newCondition.setValue("ta");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches "data"
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data"
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data", so NOT_MATCHES is true
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches "data", so NOT_MATCHES is false
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeAbsent() throws AlreadyExistException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        // Create the attribute definition but do not assign any content to the certificate —
+        // mirrors the NOT EXISTS semantics of FilterPredicatesBuilder for objects missing the attribute entirely.
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("customAbsent");
+        request.setLabel("customAbsent");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        attributeService.createCustomAttribute(request);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customAbsent");
+
+        // Absent attribute has no content — EMPTY is satisfied
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // Absent attribute has no content — NOT_EMPTY is not satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists that equals/contains/matches the value — negated operators are satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists — positive operators are not satisfied
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
     }
 
     @Test
