@@ -1449,7 +1449,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testGetResourceObjects() {
+    void testListResourceObjects() {
         Certificate notNullCommonName = createCertificateEntity("notNullCommonName", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
         Certificate blankCommonName = createCertificateEntity("", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
         Certificate nullSerialNumber = new Certificate();
