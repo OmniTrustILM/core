@@ -55,13 +55,18 @@ public class LoggingHelper {
         if (actor == null) {
             return new ActorRecord(ActorType.CORE, AuthMethod.NONE, null, null);
         } else {
+            String authMethod = MDC.get(LOG_ACTOR_AUTH_METHOD);
             return ActorRecord.builder()
                     .type(ActorType.valueOf(actor))
-                    .authMethod(AuthMethod.valueOf(MDC.get(LOG_ACTOR_AUTH_METHOD)))
+                    .authMethod(authMethod == null ? AuthMethod.NONE : AuthMethod.valueOf(authMethod))
                     .uuid(NullUtil.parseUuidOrNull(MDC.get(LOG_ACTOR_UUID)))
                     .name(MDC.get(LOG_ACTOR_NAME))
                     .build();
         }
+    }
+
+    public static boolean hasActorInfo() {
+        return MDC.get(LOG_ACTOR_TYPE) != null;
     }
 
     public static ActorType getActorType() {
