@@ -308,6 +308,14 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetInfoV1() {
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        SecuredUUID securedUuid = connector.getSecuredUuid();
+        Assertions.assertThrows(NotSupportedException.class, () -> connectorService.getInfo(securedUuid));
+    }
+
+    @Test
     void testApproveConnector() throws NotFoundException {
         Connector waitingConnector = new Connector();
         waitingConnector.setName("waitingConnector");
