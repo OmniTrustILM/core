@@ -1,5 +1,6 @@
 package com.czertainly.core.security.authn.client;
 
+import com.czertainly.api.model.core.logging.enums.ActorType;
 import com.czertainly.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.api.model.core.logging.records.ActorRecord;
 import com.czertainly.core.logging.LoggingHelper;
@@ -350,22 +351,23 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
     }
 
     @Test
-    void authenticateSystemUser_cacheHit_doesNotClobberExistingActorMdc() {
-        // given - cache primed, then the MDC carries a different actor (e.g. an enclosing internal call)
+    void authenticateSystemUser_cacheHit_matchesCacheMissActorMdc() {
+        // given - cache primed; the miss path overwrote the MDC actor to the authenticated USER identity
         setUpSuccessfulAuthenticationResponse();
         czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        // a later request reuses the thread with a different enclosing actor (e.g. an internal proxy call)
         MDC.clear();
-        LoggingHelper.putActorInfoWhenNull(com.czertainly.api.model.core.logging.enums.ActorType.CORE, "b2c3d4e5-0000-0000-0000-000000000002", "existingActor");
+        LoggingHelper.putActorInfoWhenNull(ActorType.CORE, "b2c3d4e5-0000-0000-0000-000000000002", "existingActor");
 
-        // when - cache hit on a thread that already has an actor
+        // when - cache hit must reproduce the miss path's actor, not preserve the enclosing one
         czertainlyAuthenticationClient.authenticateSystemUser("acme");
 
-        // then - the existing actor identity stands; only the missing auth method is filled in
+        // then - actor is the authenticated USER identity, identical to what a cache miss produces
         assertEquals(1, authServiceMock.getRequestCount());
         ActorRecord actor = LoggingHelper.getActorInfo();
-        assertEquals(com.czertainly.api.model.core.logging.enums.ActorType.CORE, actor.type());
-        assertEquals("existingActor", actor.name());
-        assertEquals(UUID.fromString("b2c3d4e5-0000-0000-0000-000000000002"), actor.uuid());
+        assertEquals(ActorType.USER, actor.type());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
         assertEquals(AuthMethod.USER_PROXY, actor.authMethod());
     }
 
@@ -385,7 +387,7 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
         // then - the loader's anonymous MDC put stands; restoreActorMdc must not overwrite it
         Assertions.assertTrue(info.isAnonymous());
         ActorRecord actor = LoggingHelper.getActorInfo();
-        assertEquals(com.czertainly.api.model.core.logging.enums.ActorType.ANONYMOUS, actor.type());
+        assertEquals(ActorType.ANONYMOUS, actor.type());
         assertEquals("anonymousUser", actor.name());
         Assertions.assertNull(actor.uuid());
     }
