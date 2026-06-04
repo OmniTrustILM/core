@@ -108,6 +108,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
+    private CertificateEventHistoryRepository certificateEventHistoryRepository;
+    @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -1046,6 +1048,69 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void bulkUpdateRaProfileFailureIsRecordedInEventHistory() throws NotFoundException, NotSupportedException {
+        // The authority of the new RA profile does not identify the certificate,
+        // so switching the RA profile fails for every selected certificate.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();
+        request.setCertificateUuids(List.of(certificate.getUuid().toString()));
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        UUID originalRaProfileUuid = certificate.getRaProfileUuid();
+        certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
+
+        // The per-certificate transaction rolled back: the RA profile must be unchanged.
+        Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(originalRaProfileUuid, reloaded.getRaProfileUuid());
+
+        // The failed bulk attempt must be recorded in the certificate event history.
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed bulk RA profile override must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void updateRaProfileFailureIsRecordedInEventHistory() {
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        CertificateUpdateObjectsDto request = new CertificateUpdateObjectsDto();
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificateSecuredUuid, request));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed RA profile update must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void deleteCertificateUsedByUserFailureIsRecordedInEventHistory() {
+        certificate.setUserUuid(UUID.randomUUID());
+        certificateRepository.save(certificate);
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.deleteCertificate(certificateSecuredUuid));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.DELETE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Refused certificate deletion must produce a FAILED DELETE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
     void testGetSearchableFieldInformation() {
         mockServer = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
         mockServer.start();
@@ -1383,6 +1448,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(certificate.getSerialNumber(), nameAndUuidDto.getName());
     }
 
+    @Test
+    void testListResourceObjects() {
+        Certificate notNullCommonName = createCertificateEntity("notNullCommonName", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate blankCommonName = createCertificateEntity("", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate nullSerialNumber = new Certificate();
+        nullSerialNumber.setCommonName("nullSerialNumber");
+        nullSerialNumber.setSerialNumber(null);
+        nullSerialNumber.setState(CertificateState.ISSUED);
+        nullSerialNumber.setValidationStatus(CertificateValidationStatus.VALID);
+        nullSerialNumber.setArchived(false);
+        certificateRepository.save(nullSerialNumber);
+        List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
+        Assertions.assertFalse(resourceObjects.isEmpty());
+        Assertions.assertEquals(4, resourceObjects.size());
+        String name = "%s (%s)";
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued"))));
+    }
+
 
     @ParameterizedTest
     @MethodSource("com.czertainly.core.util.CertificateTestData#provideScepCaCertificateTestData")
@@ -1431,7 +1517,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cryptographicKeyRepository.save(key);
     }
 
-    private void createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
+    private Certificate createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
         Certificate cert = new Certificate();
         cert.setCommonName(commonName);
         String serialNumber = commonName.toLowerCase().replace(" ", "-") + "-serial" + UUID.randomUUID();
@@ -1442,6 +1528,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cert.setValidationStatus(validationStatus);
         cert.setArchived(archived);
         certificateRepository.save(cert);
+        return cert;
     }
 
     @NotNull

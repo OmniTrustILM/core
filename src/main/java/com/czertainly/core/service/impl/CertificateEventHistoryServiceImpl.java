@@ -65,6 +65,12 @@ public class CertificateEventHistoryServiceImpl implements CertificateEventHisto
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void addEventHistorySurvivingRollback(UUID certificateUuid, CertificateEvent event, CertificateEventStatus status, String message, String additionalInformation) {
+        addEventHistory(certificateUuid, event, status, message, additionalInformation);
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     public List<CertificateEventHistoryDto> getCertificateEventHistory(UUID uuid) throws NotFoundException {
         Certificate certificate = certificateRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
