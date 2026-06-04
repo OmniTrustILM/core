@@ -1,5 +1,6 @@
 package com.czertainly.core.events;
 
+import com.czertainly.api.exception.EventException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.discovery.DiscoveryStatus;
 import com.czertainly.api.model.core.other.ResourceEvent;
@@ -52,7 +53,7 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
      * Propagation.NOT_SUPPORTED, and each repository save commits its own small transaction.
      */
     @Test
-    void testEventHistoryVisibleAfterFollowUpNotificationFailure() {
+    void testEventHistoryVisibleAfterFollowUpNotificationFailure() throws EventException {
         Mockito.doThrow(new RuntimeException("JMS broker unavailable"))
                 .when(notificationProducer).produceMessage(Mockito.any(NotificationMessage.class));
 
@@ -83,13 +84,7 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
         EventMessage eventMessage = DiscoveryFinishedEventHandler.constructEventMessage(
                 discoveryUuid, null, null,
                 new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test"));
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () ->
-                discoveryFinishedEventHandler.handleEvent(
-                        eventMessage));
-        Assertions.assertTrue(
-                exception.getMessage() != null && exception.getMessage().contains("JMS broker unavailable"),
-                "Expected exception to come from mocked follow-up notification failure");
-
+        discoveryFinishedEventHandler.handleEvent(eventMessage);
         // Trigger processing succeeded before the notification throws, EventHistory must be FINISHED,
         // not lost because handleEvent runs without an ambient transaction.
         List<EventHistory> eventHistories = eventHistoryRepository.findAll();

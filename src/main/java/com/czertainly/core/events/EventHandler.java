@@ -26,9 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -113,8 +111,7 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         EventContext<T> eventContext;
         eventContext = prepareContext(eventMessage);
         processAllTriggers(eventContext);
-        // send follow-up notifications
-        applicationEventPublisher.publishEvent(eventContext);
+        sendFollowUpEventsNotifications(eventContext);
         logger.debug("Event '{}' successfully handled", eventMessage.getEvent().getLabel());
     }
 
@@ -128,8 +125,6 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         return eventHistoryRepository.save(eventHistory);
     }
 
-    @TransactionalEventListener
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     protected void sendFollowUpEventsNotifications(EventContext<T> eventContext) {
         // No follow-up events or internal notifications are sent by default
     }

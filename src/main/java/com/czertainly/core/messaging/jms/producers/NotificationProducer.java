@@ -12,6 +12,7 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,6 +38,11 @@ public class NotificationProducer {
                     });
             return null;
         });
+    }
+
+    @TransactionalEventListener
+    public void onNotificationMessage(NotificationMessage notificationMessage) {
+        produceMessage(notificationMessage);
     }
 
     public void produceMessage(@NonNull final NotificationMessage notificationMessage) {

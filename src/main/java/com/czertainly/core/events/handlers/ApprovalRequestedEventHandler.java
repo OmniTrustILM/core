@@ -50,7 +50,7 @@ public class ApprovalRequestedEventHandler extends EventHandler<Approval> {
 
         List<NotificationRecipient> recipients = List.of(new NotificationRecipient(eventData.getRecipientType(), eventData.getRecipientUuid()));
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.APPROVAL, approval.getUuid(), null, recipients, eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
 
         // produce only for certificates for now until refactoring and uniting of event history for all resources
         if (approval.getResource() == Resource.CERTIFICATE) {

@@ -42,7 +42,7 @@ public class ScheduledJobFinishedEventHandler extends EventHandler<ScheduledJob>
             final Object eventData = eventContext.getResourceObjectsEventData().getFirst();
 
             NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.SCHEDULED_JOB, scheduledJob.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(scheduledJob.getUserUuid()), eventData);
-            notificationProducer.produceMessage(notificationMessage);
+            applicationEventPublisher.publishEvent(notificationMessage);
         }
     }
 
