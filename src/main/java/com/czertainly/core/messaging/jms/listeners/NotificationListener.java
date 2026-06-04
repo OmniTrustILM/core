@@ -117,6 +117,12 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             notificationProfileVersion = notificationProfileVersionRepository.findTopByNotificationProfileUuidOrderByVersionDesc(notificationProfileUuid).orElseThrow(() -> new NotFoundException(NotificationProfile.class, notificationProfileUuid));
         }
 
+        boolean sendInternalNotifications = notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring());
+        if (!sendInternalNotifications && notificationProfileVersion.getNotificationInstanceRefUuid() == null) {
+            handleNotificationErrorWithWarnLog("Notification profile %s in event %s does not have assigned notification instance and internal notification is not enabled, notification cannot be sent.".formatted(notificationProfileVersion.getNotificationProfile().getName(), message.getEvent()), message);
+            return;
+        }
+
         if (!proceedWithNotifying(notificationProfileVersion, pendingNotification)) {
             logger.debug("Notification suppressed for {} with UUID {} by configuration of notification profile {} for event {}. Notification sent last time at {} and was repeated {} times.", pendingNotification.getResource().getLabel(), pendingNotification.getObjectUuid(), notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(), pendingNotification.getLastSentAt(), pendingNotification.getRepetitions());
             return;
@@ -128,7 +134,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         boolean notificationSent = sendExternalNotificationsForProfile(message, notificationProfileVersion, recipients);
 
         // send internal notification when not Default recipient type. Default internal notifications for events are sent in corresponding event handlers
-        if (notificationProfileVersion.isInternalNotification() && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT || message.getEvent().isMonitoring())) {
+        if (sendInternalNotifications) {
             try {
                 sendInternalNotifications(recipients, getInternalNotificationData(message), message.getResource(), message.getObjectUuid());
                 notificationSent = true;
