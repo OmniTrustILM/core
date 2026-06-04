@@ -1448,6 +1448,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(certificate.getSerialNumber(), nameAndUuidDto.getName());
     }
 
+    @Test
+    void testListResourceObjects() {
+        Certificate notNullCommonName = createCertificateEntity("notNullCommonName", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate blankCommonName = createCertificateEntity("", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate nullSerialNumber = new Certificate();
+        nullSerialNumber.setCommonName("nullSerialNumber");
+        nullSerialNumber.setSerialNumber(null);
+        nullSerialNumber.setState(CertificateState.ISSUED);
+        nullSerialNumber.setValidationStatus(CertificateValidationStatus.VALID);
+        nullSerialNumber.setArchived(false);
+        certificateRepository.save(nullSerialNumber);
+        List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
+        Assertions.assertFalse(resourceObjects.isEmpty());
+        Assertions.assertEquals(4, resourceObjects.size());
+        String name = "%s (%s)";
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued"))));
+    }
+
 
     @ParameterizedTest
     @MethodSource("com.czertainly.core.util.CertificateTestData#provideScepCaCertificateTestData")
@@ -1496,7 +1517,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cryptographicKeyRepository.save(key);
     }
 
-    private void createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
+    private Certificate createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
         Certificate cert = new Certificate();
         cert.setCommonName(commonName);
         String serialNumber = commonName.toLowerCase().replace(" ", "-") + "-serial" + UUID.randomUUID();
@@ -1507,6 +1528,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cert.setValidationStatus(validationStatus);
         cert.setArchived(archived);
         certificateRepository.save(cert);
+        return cert;
     }
 
     @NotNull
