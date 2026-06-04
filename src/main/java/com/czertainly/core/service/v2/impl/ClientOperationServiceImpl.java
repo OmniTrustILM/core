@@ -1010,6 +1010,18 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         logger.debug("Certificate revoked: {}", certificate);
     }
 
+    @Override
+    public void revokeCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
+        final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (certificate.getState() != CertificateState.PENDING_APPROVAL) {
+            logger.debug("Certificate {} is in state {}, not PENDING_APPROVAL; skipping revoke-rejection state restore", certificateUuid, certificate.getState().getLabel());
+            return;
+        }
+        certificate.setState(CertificateState.ISSUED);
+        certificateRepository.save(certificate);
+        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to Issued.", "");
+    }
+
     /**
      * Transitions the certificate to {@code PENDING_REVOKE} and preserves the parameters needed to
      * finalize the revocation later (destroy-key flag, revoke attributes). Key destruction is
