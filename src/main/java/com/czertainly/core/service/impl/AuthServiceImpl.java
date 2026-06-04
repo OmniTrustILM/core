@@ -84,6 +84,8 @@ public class AuthServiceImpl implements AuthExternalService {
         return userManagementService.updateUserInternal(userProfileDto.getUser().getUuid(), request, certificateUuid, certificateFingerprint);
     }
 
+    private static final List<Resource> DEFAULT_ALLOWED_LISTINGS = List.of(Resource.DASHBOARD, Resource.APPROVAL);
+
     private List<Resource> getAllowedResourceListings(UserProfileDto userProfileDto) {
         List<Resource> allowedListings;
         List<Resource> allListings = contextRefreshListener.getResources().stream()
@@ -91,7 +93,7 @@ public class AuthServiceImpl implements AuthExternalService {
                 .map(syncResource -> Resource.findByCode(syncResource.getName().getCode())).sorted(Comparator.comparing(Resource::getCode)).toList();
 
         if (Boolean.TRUE.equals(userProfileDto.getPermissions().getAllowAllResources())) {
-            return allListings;
+            return withDefaultListings(allListings);
         }
 
         Map<Resource, ResourcePermissionsDto> mappedUserPermissions = userProfileDto.getPermissions().getResources().stream().collect(Collectors.toMap(resource -> Resource.findByCode(resource.getName()), resource -> resource));
@@ -116,7 +118,17 @@ public class AuthServiceImpl implements AuthExternalService {
                 allowedListings.add(resource);
             }
         }
-        return allowedListings;
+        return withDefaultListings(allowedListings);
+    }
+
+    private List<Resource> withDefaultListings(List<Resource> listings) {
+        List<Resource> result = new ArrayList<>(listings);
+        for (Resource defaultListing : DEFAULT_ALLOWED_LISTINGS) {
+            if (!result.contains(defaultListing)) {
+                result.add(defaultListing);
+            }
+        }
+        return result;
     }
 
 }

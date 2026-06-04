@@ -88,7 +88,7 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
+    @SelfPrincipalEndpoint
     public ApprovalResponseDto listUserApprovals(final SecurityFilter securityFilter, final boolean withHistory, final PaginationRequestDto paginationRequestDto) {
         final UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
