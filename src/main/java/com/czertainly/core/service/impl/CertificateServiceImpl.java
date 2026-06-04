@@ -1429,7 +1429,18 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
         final TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = getAdditionalWhereClause(filters, false);
-        return certificateRepository.listResourceObjects(filter, Certificate_.commonName, additionalWhereClause, pagination);
+        return certificateRepository.listResourceObjects(
+                filter,
+                // Creates the name as "{commonName} (SN: {serialNumber})", if the common name is empty or null, it will be replaced with "<empty>"
+                (root, cb) -> {
+                    Expression<String> displayName = cb.coalesce(
+                            cb.nullif(cb.trim(root.get(Certificate_.commonName)), ""),
+                            CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+                    return cb.concat(displayName,
+                            cb.concat(" (SN: ", cb.concat(root.get(Certificate_.serialNumber), ")")));
+                },
+                additionalWhereClause,
+                pagination);
     }
 
     @Override
