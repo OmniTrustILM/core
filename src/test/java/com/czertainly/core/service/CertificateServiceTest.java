@@ -108,6 +108,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
+    private CertificateEventHistoryRepository certificateEventHistoryRepository;
+    @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -1043,6 +1045,69 @@ class CertificateServiceTest extends BaseSpringBootTest {
         CertificateDetailDto detailDto = certificateService.getCertificate(certificateNew.getSecuredUuid());
         Assertions.assertEquals(1, detailDto.getGroups().size());
         Assertions.assertEquals(group.getUuid().toString(), detailDto.getGroups().getFirst().getUuid());
+    }
+
+    @Test
+    void bulkUpdateRaProfileFailureIsRecordedInEventHistory() throws NotFoundException, NotSupportedException {
+        // The authority of the new RA profile does not identify the certificate,
+        // so switching the RA profile fails for every selected certificate.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();
+        request.setCertificateUuids(List.of(certificate.getUuid().toString()));
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        UUID originalRaProfileUuid = certificate.getRaProfileUuid();
+        certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
+
+        // The per-certificate transaction rolled back: the RA profile must be unchanged.
+        Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(originalRaProfileUuid, reloaded.getRaProfileUuid());
+
+        // The failed bulk attempt must be recorded in the certificate event history.
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed bulk RA profile override must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void updateRaProfileFailureIsRecordedInEventHistory() {
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        CertificateUpdateObjectsDto request = new CertificateUpdateObjectsDto();
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificateSecuredUuid, request));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed RA profile update must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void deleteCertificateUsedByUserFailureIsRecordedInEventHistory() {
+        certificate.setUserUuid(UUID.randomUUID());
+        certificateRepository.save(certificate);
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.deleteCertificate(certificateSecuredUuid));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.DELETE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Refused certificate deletion must produce a FAILED DELETE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
     }
 
     @Test
