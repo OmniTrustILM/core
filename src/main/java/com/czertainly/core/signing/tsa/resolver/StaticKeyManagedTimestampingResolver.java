@@ -20,7 +20,6 @@ import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.CryptographicKeyService;
 import com.czertainly.core.service.TimeQualityConfigurationService;
 import com.czertainly.core.service.v2.ConnectorService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.security.cert.CertificateException;
@@ -41,10 +40,20 @@ import java.util.UUID;
 @Component
 public class StaticKeyManagedTimestampingResolver implements SigningProfileResolver {
 
-    private CertificateService certificateService;
-    private CryptographicKeyService cryptographicKeyService;
-    private TimeQualityConfigurationService timeQualityConfigurationService;
-    private ConnectorService connectorService;
+    private final CertificateService certificateService;
+    private final CryptographicKeyService cryptographicKeyService;
+    private final TimeQualityConfigurationService timeQualityConfigurationService;
+    private final ConnectorService connectorService;
+
+    public StaticKeyManagedTimestampingResolver(CertificateService certificateService,
+                                                CryptographicKeyService cryptographicKeyService,
+                                                TimeQualityConfigurationService timeQualityConfigurationService,
+                                                ConnectorService connectorService) {
+        this.certificateService = certificateService;
+        this.cryptographicKeyService = cryptographicKeyService;
+        this.timeQualityConfigurationService = timeQualityConfigurationService;
+        this.connectorService = connectorService;
+    }
 
     @Override
     public boolean supports(SigningProfileModel<?, ?> profile) {
@@ -157,23 +166,4 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
         }
     }
 
-    @Autowired
-    public void setCertificateService(CertificateService certificateService) {
-        this.certificateService = certificateService;
-    }
-
-    @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
-        this.cryptographicKeyService = cryptographicKeyService;
-    }
-
-    @Autowired
-    public void setTimeQualityConfigurationService(TimeQualityConfigurationService timeQualityConfigurationService) {
-        this.timeQualityConfigurationService = timeQualityConfigurationService;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
-        this.connectorService = connectorService;
-    }
 }

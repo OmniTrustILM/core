@@ -6,9 +6,14 @@ import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.interfaces.core.tsp.error.TspException;
 import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.czertainly.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.connector.signatures.formatter.FormatDtbsResponseDto;
 import com.czertainly.api.model.connector.signatures.formatter.FormattedResponseDto;
+import com.czertainly.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
+import com.czertainly.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
 import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
+import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.model.signing.SigningCertificateBuilder;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -19,10 +24,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigInteger;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -113,6 +120,27 @@ class TimestampingSignatureFormatterClientTest {
             // then
             assertThat(result).isEqualTo(expectedDtbs);
         }
+
+        @Test
+        void passesRawDerCertificateChain() throws Exception {
+            // given — a real certificate; Jackson Base64-encodes byte[] on the wire,
+            // so the DTO must carry raw DER, not pre-encoded Base64
+            X509Certificate cert = CertificateTestUtil.createTimestampingCertificate(
+                    CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null));
+            FormatDtbsResponseDto responseDto = new FormatDtbsResponseDto();
+            responseDto.setDtbs(new byte[]{1});
+            ArgumentCaptor<TimestampingFormatDtbsRequestDto> captor =
+                    ArgumentCaptor.forClass(TimestampingFormatDtbsRequestDto.class);
+            when(apiClient.formatDtbs(any(), captor.capture())).thenReturn(responseDto);
+
+            // when
+            client.formatDtbs(request, profile, serialNumber, genTime,
+                    CertificateChain.of(List.of(cert)), SIGNATURE_ALGORITHM);
+
+            // then
+            assertThat(captor.getValue().getCertificateChain())
+                    .containsExactly(cert.getEncoded());
+        }
     }
 
     // ── formatSigningResponse ─────────────────────────────────────────────────
@@ -152,6 +180,26 @@ class TimestampingSignatureFormatterClientTest {
 
             // then
             assertThat(result).isEqualTo(expectedToken);
+        }
+
+        @Test
+        void passesRawDerCertificateChain() throws Exception {
+            // given
+            X509Certificate cert = CertificateTestUtil.createTimestampingCertificate(
+                    CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null));
+            FormattedResponseDto responseDto = new FormattedResponseDto();
+            responseDto.setResponse(new byte[]{1});
+            ArgumentCaptor<TimestampingFormatResponseRequestDto> captor =
+                    ArgumentCaptor.forClass(TimestampingFormatResponseRequestDto.class);
+            when(apiClient.formatSigningResponse(any(), captor.capture())).thenReturn(responseDto);
+
+            // when
+            client.formatSigningResponse(request, profile, serialNumber, genTime,
+                    CertificateChain.of(List.of(cert)), dtbs, signature, SIGNATURE_ALGORITHM);
+
+            // then
+            assertThat(captor.getValue().getCertificateChain())
+                    .containsExactly(cert.getEncoded());
         }
     }
 }

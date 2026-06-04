@@ -59,7 +59,7 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
         requestDto.setSigningTime(genTime);
         requestDto.setAccuracy(timestampingProfile.timeQualityConfiguration().getAccuracy().orElse(null));
         requestDto.setSignatureAlgorithm(signatureAlgorithm);
-        requestDto.setCertificateChain(encodeBase64DerChain(certificateChain));
+        requestDto.setCertificateChain(encodeDerChain(certificateChain));
         requestDto.setFormatAttributes(timestampingProfile.signatureFormatterConnectorAttributes());
 
         try {
@@ -84,7 +84,7 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
         TimestampingFormatResponseRequestDto requestDto = new TimestampingFormatResponseRequestDto();
         requestDto.setDtbs(dtbs);
         requestDto.setSignature(signature);
-        requestDto.setCertificateChain(encodeBase64DerChain(certificateChain));
+        requestDto.setCertificateChain(encodeDerChain(certificateChain));
         requestDto.setFormatAttributes(timestampingProfile.signatureFormatterConnectorAttributes());
         requestDto.setData(request.hashedMessage());
         requestDto.setHashAlgorithm(request.hashAlgorithm());
@@ -122,11 +122,11 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
         }
     }
 
-    private static List<byte[]> encodeBase64DerChain(CertificateChain certificateChain) throws TspException {
+    private static List<byte[]> encodeDerChain(CertificateChain certificateChain) throws TspException {
         List<byte[]> result = new ArrayList<>();
         for (X509Certificate certificate : certificateChain.chain()) {
             try {
-                result.add(Base64.getEncoder().encode(certificate.getEncoded()));
+                result.add(certificate.getEncoded());
             } catch (CertificateEncodingException e) {
                 throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Failed to encode certificate chain: " + e.getMessage(), e, "Internal error encoding certificate chain");
             }
