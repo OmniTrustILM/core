@@ -129,8 +129,13 @@ public class OAuth2Util {
         }
 
         Map<String, Object> claims = mergeClaims(accessTokenClaims, idToken == null ? null : idToken.getClaims(), userInfoClaims);
-        if (!claims.containsKey(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME)) {
-            String message = "The username claim could not be retrieved from the Access Token, User Info Endpoint, or ID Token claims for user authenticating with Access Token. Claims %s, Token: %s".formatted(StringUtils.join(claims), accessTokenValue);
+        // Use configurable username claim name from provider settings, with fallback to default
+        String usernameClaimName = providerSettings != null && providerSettings.getUsernameClaim() != null && !providerSettings.getUsernameClaim().isEmpty()
+                ? providerSettings.getUsernameClaim()
+                : OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME;
+
+        if (!claims.containsKey(usernameClaimName)) {
+            String message = "The username claim '%s' could not be retrieved from the Access Token, User Info Endpoint, or ID Token claims for user authenticating with Access Token. Claims %s, Token: %s".formatted(usernameClaimName, StringUtils.join(claims), accessTokenValue);
             throw new CzertainlyAuthenticationException(message);
         }
 

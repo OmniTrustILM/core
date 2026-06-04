@@ -11,8 +11,8 @@ import com.czertainly.api.model.core.auth.UserProfileDetailDto;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
-import com.czertainly.core.service.AuthService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.AuthExternalService;
+import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -25,16 +25,16 @@ import java.util.List;
 @RestController
 public class AuthControllerImpl implements AuthController {
 
-    private AuthService authService;
-    private ResourceService resourceService;
+    private AuthExternalService authService;
+    private ResourceExternalService resourceService;
 
     @Autowired
-    public void setAuthService(AuthService authService) {
+    public void setAuthService(AuthExternalService authService) {
         this.authService = authService;
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 

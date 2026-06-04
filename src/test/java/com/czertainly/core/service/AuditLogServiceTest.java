@@ -19,7 +19,8 @@ import com.czertainly.api.model.core.settings.logging.ResourceLoggingSettingsDto
 import com.czertainly.core.dao.entity.AuditLog;
 import com.czertainly.core.dao.repository.AuditLogRepository;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.messaging.listeners.AuditLogsListener;
+import com.czertainly.core.messaging.jms.listeners.AuditLogsListener;
+import com.czertainly.core.messaging.jms.producers.AuditLogsProducer;
 import com.czertainly.core.messaging.model.AuditLogMessage;
 import com.czertainly.core.model.auth.Resource;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -40,7 +41,10 @@ import java.util.UUID;
 class AuditLogServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private AuditLogService auditLogService;
+    private AuditLogExternalService auditLogService;
+
+    @Autowired
+    private AuditLogInternalService auditLogInternalService;
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -125,11 +129,11 @@ class AuditLogServiceTest extends BaseSpringBootTest {
                 .operation(Operation.LOGOUT)
                 .operationResult(OperationResult.SUCCESS)
                 .build();
-        Assertions.assertDoesNotThrow(() -> auditLogService.log(logRecord, null));
-        Assertions.assertDoesNotThrow(() -> auditLogService.log(logRecord, AuditLogOutput.CONSOLE));
-        Assertions.assertDoesNotThrow(() -> auditLogService.log(logRecord, AuditLogOutput.DATABASE));
-        Assertions.assertDoesNotThrow(() -> auditLogService.log(logRecord, AuditLogOutput.ALL));
-        Assertions.assertDoesNotThrow(() -> auditLogService.log(logRecord, AuditLogOutput.NONE));
+        Assertions.assertDoesNotThrow(() -> auditLogInternalService.log(logRecord, null));
+        Assertions.assertDoesNotThrow(() -> auditLogInternalService.log(logRecord, AuditLogOutput.CONSOLE));
+        Assertions.assertDoesNotThrow(() -> auditLogInternalService.log(logRecord, AuditLogOutput.DATABASE));
+        Assertions.assertDoesNotThrow(() -> auditLogInternalService.log(logRecord, AuditLogOutput.ALL));
+        Assertions.assertDoesNotThrow(() -> auditLogInternalService.log(logRecord, AuditLogOutput.NONE));
     }
 
     @Test

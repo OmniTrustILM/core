@@ -14,22 +14,28 @@
     <name>CZERTAINLY-Core</name>
 
     <properties>
+        <archunit.version>1.4.2</archunit.version>
         <log-schema.version>1.1</log-schema.version>
         <querydsl.version>5.1.0</querydsl.version>
         <hsqldb.version>2.7.3</hsqldb.version>
         <nimbus-jose-jwt.version>10.8</nimbus-jose-jwt.version>
         <mockwebserver.version>5.3.2</mockwebserver.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
-        <testcontainers-postgresql.version>1.21.4</testcontainers-postgresql.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
+        <archunit.version>1.4.2</archunit.version>
         <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
         <java.version>21</java.version>
+        <!-- Temporary override for CVE-2026-41293 and CVE-2026-43512.
+          Remove after the parent com.czertainly:dependencies upgrades to a Spring Boot release that ships Tomcat 10.1.55+
+          (expected with Spring Boot 3.5.15). Then delete this override. -->
+        <tomcat.version>10.1.55</tomcat.version>
 
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.organization>ilm</sonar.organization>
         <sonar.projectKey>ilm_core</sonar.projectKey>
         <sonar.sources>src/main/java</sonar.sources>
         <sonar.cpd.exclusions>src/main/java/com/czertainly/core/dao/entity/**</sonar.cpd.exclusions>
-        <sonar.coverage.exclusions>src/main/java/com/czertainly/core/dao/entity/**,src/main/java/com/czertainly/core/api/**</sonar.coverage.exclusions>
+        <sonar.coverage.exclusions>src/main/java/com/czertainly/core/dao/entity/**,src/main/java/com/czertainly/core/api/**,src/main/java/com/czertainly/core/util/converter/**</sonar.coverage.exclusions>
     </properties>
 
     <dependencyManagement>
@@ -52,7 +58,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>${testcontainers-postgresql.version}</version>
+                <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -89,21 +95,53 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-amqp</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
 
         <!-- OpenTelemetry -->
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
             <artifactId>opentelemetry-spring-boot-starter</artifactId>
+        </dependency>
+        <!-- MESSAGING -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jms</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.jms</groupId>
+            <artifactId>jakarta.jms-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.qpid</groupId>
+            <artifactId>qpid-jms-client</artifactId>
+            <version>2.9.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <version>1.18.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.messaginghub</groupId>
+            <artifactId>pooled-jms</artifactId>
+            <version>3.2.2</version>
         </dependency>
 
         <!-- Conditional processing of logback-spring.xml -->
@@ -237,12 +275,45 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
-            <version>${testcontainers-postgresql.version}</version>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>toxiproxy</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.rekawek.toxiproxy</groupId>
+            <artifactId>toxiproxy-java</artifactId>
+            <version>2.1.11</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
 
@@ -296,7 +367,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine}</argLine>
+                    <argLine>@{argLine} -Dspring.test.context.cache.maxSize=128</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -386,7 +457,7 @@
     <repositories>
         <repository>
             <id>github</id>
-            <url>https://maven.pkg.github.com/czertainly/*</url>
+            <url>https://maven.pkg.github.com/omnitrustilm/*</url>
             <snapshots>
                 <enabled>true</enabled>
             </snapshots>
@@ -396,5 +467,83 @@
             <url>https://central.sonatype.com/repository/maven-snapshots/</url>
         </repository>
     </repositories>
+
+    <profiles>
+        <!-- Run only service/** tests (used by CI test-services job) -->
+        <profile>
+            <id>test-services</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/service/**/*Test.java</include>
+                                <include>**/service/**/*Tests.java</include>
+                                <include>**/service/**/*ITest.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Run all tests except service/** (used by CI test-non-services job) -->
+        <profile>
+            <id>test-non-services</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/service/**/*Test.java</exclude>
+                                <exclude>**/service/**/*Tests.java</exclude>
+                                <exclude>**/service/**/*ITest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Merge partial jacoco .exec files produced by the two test jobs, then report.
+             Place partial files in jacoco-partial/ before invoking this profile.
+             The parent BOM's jacoco:report execution (bound to package phase) picks up
+             the merged target/jacoco.exec automatically. -->
+        <profile>
+            <id>merge-coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>merge-results</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>merge</goal>
+                                </goals>
+                                <configuration>
+                                    <fileSets>
+                                        <fileSet>
+                                            <directory>${project.basedir}/jacoco-partial</directory>
+                                            <includes>
+                                                <include>*.exec</include>
+                                            </includes>
+                                        </fileSet>
+                                    </fileSets>
+                                    <destFile>${project.build.directory}/jacoco.exec</destFile>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

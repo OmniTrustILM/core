@@ -42,7 +42,7 @@ class AuthServiceTest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     @Autowired
-    private AuthService authService;
+    private AuthExternalService authService;
 
     @Autowired
     private ContextRefreshListener contextRefreshListener;
@@ -660,6 +660,34 @@ class AuthServiceTest extends BaseSpringBootTest {
                             }
                         ]
                     },
+                    {
+                        "uuid": "df7604bb-1cfb-45cb-a948-e2faa78722c6",
+                        "name": "proxies",
+                        "displayName": "Proxies",
+                        "listObjectsEndpoint": "/v1/proxies",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "53421445-5d6e-4257-b59d-235aaf26e61e",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "f3f2f6e1-6c8b-4f7c-9a9b-4d6e9b5c3e2a",
+                        "name": "trustedCertificates",
+                        "displayName": "Trusted Certificates",
+                        "listObjectsEndpoint": "/v1/trustedCertificates",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "53421445-5d6e-4257-b59d-235aaf26e61e",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
                      {
                         "uuid": "84388678-2bc8-422d-b374-fdbc3cc91115",
                         "name": "cboms",
@@ -704,6 +732,58 @@ class AuthServiceTest extends BaseSpringBootTest {
                         "name": "secrets",
                         "displayName": "Secrets",
                         "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "d1c8e5b4-9c3a-4c8e-9b0c-1f2a5e6f7895",
+                        "name": "signingProfiles",
+                        "displayName": "Signing Profile",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                        "name": "timeQualityConfigurations",
+                        "displayName": "Time Quality Configurations",
+                        "objectAccess": false,
+                        "actions": [
+                            {
+                                "uuid": "53421445-5d6e-4257-b59d-235aaf26e61e",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "d1c8e5b4-9c3a-4c8e-9b0c-1f2a5e6f7897",
+                        "name": "tspProfiles",
+                        "displayName": "TSP Profile",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "b67f7e68-293e-4ac1-baeb-26dbdc4c1369",
+                        "name": "resourceEvents",
+                        "displayName": "Resource Events",
+                        "objectAccess": false,
                         "actions": [
                             {
                                 "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",

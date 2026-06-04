@@ -72,6 +72,7 @@ public class EventDataBuilder {
     public static CertificateActionPerformedEventData getCertificateActionPerformedEventData(Certificate certificate, ResourceAction action) {
         CertificateActionPerformedEventData eventData = new CertificateActionPerformedEventData();
         eventData.setAction(action.getCode());
+        eventData.setState(certificate.getState());
         setCertificateEventData(eventData, certificate);
         setCertificateAuthorityData(eventData, certificate);
         return eventData;
@@ -119,6 +120,12 @@ public class EventDataBuilder {
         CertificateNotCompliantEventData eventData = new CertificateNotCompliantEventData();
         setCertificateEventData(eventData, certificate);
         eventData.setComplianceCheckResultDto(checkResultDto);
+        return eventData;
+    }
+
+    public static CertificateEventData getCertificateUploadedEventData(Certificate certificate) {
+        CertificateEventData eventData = new CertificateEventData();
+        setCertificateEventData(eventData, certificate);
         return eventData;
     }
 

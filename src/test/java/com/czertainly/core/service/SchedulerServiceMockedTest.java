@@ -16,7 +16,7 @@ import com.czertainly.core.dao.entity.ScheduledJobHistory;
 import com.czertainly.core.dao.repository.ScheduledJobHistoryRepository;
 import com.czertainly.core.dao.repository.ScheduledJobsRepository;
 import com.czertainly.core.events.transaction.ScheduledJobFinishedEvent;
-import com.czertainly.core.messaging.producers.EventProducer;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;

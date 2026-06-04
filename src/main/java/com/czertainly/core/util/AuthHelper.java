@@ -7,7 +7,6 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserDetailDto;
 import com.czertainly.api.model.core.auth.UserProfileDto;
 import com.czertainly.api.model.core.logging.enums.ActorType;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.logging.enums.OperationResult;
 import com.czertainly.core.logging.LoggingHelper;
@@ -23,7 +22,7 @@ import com.czertainly.core.security.authz.opa.OpaClient;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestDetails;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -90,7 +89,7 @@ public class AuthHelper {
         ActorType actorType = protocolUsers.contains(username) ? ActorType.PROTOCOL : ActorType.CORE;
         LoggingHelper.putActorInfoWhenNull(actorType, null, username);
 
-        AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticate(AuthMethod.USER_PROXY, username,false);
+        AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticateSystemUser(username);
         CzertainlyUserDetails userDetails = new CzertainlyUserDetails(authUserInfo);
         SecurityContext securityContext = SecurityContextHolder.getContext();
         securityContext.setAuthentication(new CzertainlyAuthenticationToken(userDetails));
@@ -101,7 +100,7 @@ public class AuthHelper {
         // update MDC for actor logging
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, userUuid.toString(), null);
 
-        AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticate(AuthMethod.USER_PROXY, userUuid, false);
+        AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
         SecurityContext securityContext = SecurityContextHolder.getContext();
         securityContext.setAuthentication(new CzertainlyAuthenticationToken(new CzertainlyUserDetails(authUserInfo)));
         logger.debug("User with username '{}' has been successfully authenticated as user proxy.", authUserInfo.getUsername());
@@ -223,7 +222,7 @@ public class AuthHelper {
         }
     }
 
-    public static void logAndAuditAuthFailure(Logger logger, AuditLogService auditLogService, String message, String authData) {
+    public static void logAndAuditAuthFailure(Logger logger, AuditLogInternalService auditLogService, String message, String authData) {
         if (logger.isDebugEnabled()) {
             logger.debug("{}: {}", message, authData);
         } else {

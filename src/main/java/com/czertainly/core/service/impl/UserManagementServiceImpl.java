@@ -7,6 +7,7 @@ import com.czertainly.api.model.client.auth.UserIdentificationRequestDto;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
 import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.core.auth.*;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.api.model.core.certificate.CertificateState;
@@ -25,10 +26,11 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.logging.LoggerWrapper;
 import com.czertainly.core.logging.LoggingHelper;
+import com.czertainly.core.messaging.jms.producers.AuditLogsProducer;
 import com.czertainly.core.messaging.model.AuditLogMessage;
-import com.czertainly.core.messaging.producers.AuditLogsProducer;
 import com.czertainly.core.model.auth.AuthenticationRequestDto;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -47,8 +49,8 @@ import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 
 import java.security.NoSuchAlgorithmException;
-import java.security.cert.*;
 import java.security.cert.CertificateException;
+import java.security.cert.*;
 import java.text.ParseException;
 import java.time.OffsetDateTime;
 import java.util.*;
@@ -64,6 +66,7 @@ public class UserManagementServiceImpl implements UserManagementService {
     private UserManagementApiClient userManagementApiClient;
 
     private CertificateService certificateService;
+    private CertificateUploadService certificateUploadService;
     private GroupService groupService;
     private ResourceObjectAssociationService objectAssociationService;
     private AuditLogsProducer auditLogsProducer;
@@ -71,6 +74,18 @@ public class UserManagementServiceImpl implements UserManagementService {
     private AttributeEngine attributeEngine;
 
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
+
+    private AuthenticationCache authenticationCache;
+
+    @Autowired
+    public void setCertificateUploadService(CertificateUploadService certificateUploadService) {
+        this.certificateUploadService = certificateUploadService;
+    }
+
+    @Autowired
+    public void setAuthenticationCache(AuthenticationCache authenticationCache) {
+        this.authenticationCache = authenticationCache;
+    }
 
     @Autowired
     public void setAuditLogsProducer(AuditLogsProducer auditLogsProducer) {
@@ -166,20 +181,22 @@ public class UserManagementServiceImpl implements UserManagementService {
         attributeEngine.validateCustomAttributesContent(Resource.USER, request.getCustomAttributes());
         UserDetailDto dto = getUserUpdateRequestPayload(userUuid, request, "", "");
         dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.USER, UUID.fromString(userUuid), request.getCustomAttributes()));
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
         return dto;
     }
 
     @Override
     //Internal Use Only -- For Auth Profile Update API
     public UserDetailDto updateUserInternal(String userUuid, UpdateUserRequestDto request, String certificateUuid, String certificateFingerprint) throws NotFoundException, CertificateException {
-        return getUserUpdateRequestPayload(userUuid, request, certificateUuid, certificateFingerprint);
+        UserDetailDto dto = getUserUpdateRequestPayload(userUuid, request, certificateUuid, certificateFingerprint);
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+        return dto;
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.USER, action = ResourceAction.DELETE)
     public void deleteUser(String userUuid) {
         userManagementApiClient.removeUser(userUuid);
-
         UUID uuid = UUID.fromString(userUuid);
         certificateService.removeCertificateUser(uuid);
         objectAssociationService.removeOwnerAssociations(uuid);
@@ -188,6 +205,8 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     private void clearAuthenticationData(String userUuid, String actionName) {
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+
         Map<String, ? extends Session> userSessions =
                 sessionRepository.findByPrincipalName(userUuid);
 
@@ -215,13 +234,17 @@ public class UserManagementServiceImpl implements UserManagementService {
     @Override
     @ExternalAuthorization(resource = Resource.USER, action = ResourceAction.UPDATE)
     public UserDetailDto updateRoles(String userUuid, List<String> roleUuids) {
-        return userManagementApiClient.updateRoles(userUuid, roleUuids);
+        UserDetailDto result = userManagementApiClient.updateRoles(userUuid, roleUuids);
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+        return result;
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.USER, action = ResourceAction.UPDATE)
     public UserDetailDto updateRole(String userUuid, String roleUuid) {
-        return userManagementApiClient.updateRole(userUuid, roleUuid);
+        UserDetailDto result = userManagementApiClient.updateRole(userUuid, roleUuid);
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+        return result;
     }
 
     @Override
@@ -253,7 +276,9 @@ public class UserManagementServiceImpl implements UserManagementService {
     @Override
     @ExternalAuthorization(resource = Resource.USER, action = ResourceAction.UPDATE)
     public UserDetailDto removeRole(String userUuid, String roleUuid) {
-        return userManagementApiClient.removeRole(userUuid, roleUuid);
+        UserDetailDto result = userManagementApiClient.removeRole(userUuid, roleUuid);
+        authenticationCache.evictByUserUuid(UUID.fromString(userUuid));
+        return result;
     }
 
     @Override
@@ -327,10 +352,8 @@ public class UserManagementServiceImpl implements UserManagementService {
 
         if (uploadCertificate) {
             try {
-                UploadCertificateRequestDto uploadRequest = new UploadCertificateRequestDto();
-                uploadRequest.setCertificate(certificateData);
-                CertificateDetailDto certificateDetailDto = certificateService.upload(uploadRequest, true);
-                certificate = certificateService.getCertificateEntityByFingerprint(certificateDetailDto.getFingerprint());
+                String fingerprint = certificateUploadService.upload(certificateData, null, true);
+                certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
                 logger.getLogger().debug("New Certificate uploaded for the user");
             } catch (Exception e) {
                 throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());

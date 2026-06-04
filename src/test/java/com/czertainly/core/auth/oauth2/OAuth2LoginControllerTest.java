@@ -5,13 +5,16 @@ import com.czertainly.api.model.core.logging.enums.OperationResult;
 import com.czertainly.api.model.core.settings.SettingsSection;
 import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogExternalService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
+import com.czertainly.core.util.SessionTableHelper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +39,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OAuth2LoginControllerTest {
 
     private static WireMockServer mockServer;
@@ -56,7 +60,10 @@ class OAuth2LoginControllerTest {
     private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
-    AuditLogService auditLogService;
+    AuditLogInternalService auditLogService;
+
+    @MockitoBean
+    AuditLogExternalService auditLogExternalService;
 
     private HttpClient http;
 
@@ -69,38 +76,9 @@ class OAuth2LoginControllerTest {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
 
-        setupSessionTables();
+        SessionTableHelper.createSessionTables(jdbcTemplate);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
         reset(auditLogService);
-    }
-
-    private void setupSessionTables() {
-        jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS core;");
-
-        // Create spring_session table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS core.spring_session (
-                        PRIMARY_ID CHAR(36) NOT NULL,
-                        SESSION_ID CHAR(36) NOT NULL,
-                        CREATION_TIME BIGINT NOT NULL,
-                        LAST_ACCESS_TIME BIGINT NOT NULL,
-                        MAX_INACTIVE_INTERVAL INT NOT NULL,
-                        EXPIRY_TIME BIGINT NOT NULL,
-                        PRINCIPAL_NAME VARCHAR(100),
-                        CONSTRAINT spring_session_pkey PRIMARY KEY(PRIMARY_ID)
-                    );
-                """);
-
-        // Create spring_session_attributes table
-        jdbcTemplate.execute("""
-                    CREATE TABLE IF NOT EXISTS core.spring_session_attributes (
-                        SESSION_PRIMARY_ID CHAR(36) NOT NULL,
-                        ATTRIBUTE_NAME VARCHAR(200) NOT NULL,
-                        ATTRIBUTE_BYTES JSONB,
-                        CONSTRAINT spring_session_attributes_pkey PRIMARY KEY(SESSION_PRIMARY_ID, ATTRIBUTE_NAME),
-                        CONSTRAINT fk_session FOREIGN KEY(SESSION_PRIMARY_ID) REFERENCES core.spring_session(PRIMARY_ID) ON DELETE CASCADE
-                    );
-                """);
     }
 
     @AfterEach
@@ -109,6 +87,7 @@ class OAuth2LoginControllerTest {
         if (mockServer != null) {
             mockServer.stop();
         }
+        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     @ParameterizedTest
@@ -198,7 +177,7 @@ class OAuth2LoginControllerTest {
 
         // controller does sendRedirect("oauth2/authorization/{provider}") => 302
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
-        Assertions.assertEquals("http://localhost:8080/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
 
         // We can’t directly introspect server-side session here; instead, verify session cookie exists.
         Assertions.assertNotNull(extractSessionCookie(res.headers()));
@@ -222,7 +201,51 @@ class OAuth2LoginControllerTest {
         );
 
         Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
-        Assertions.assertEquals("/oauth2/authorization/test", res.headers().firstValue("Location").orElse(null));
+        String location = res.headers().firstValue("Location").orElse("");
+        Assertions.assertTrue(location.endsWith("/oauth2/authorization/test"),
+                "Expected Location to end with '/oauth2/authorization/test' but was: " + location);
+    }
+
+    @Test
+    void loginShouldSucceedWithTypicalQueryParameter() throws Exception {
+        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
+        Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
+        providers.put("only", validProvider("only", 321));
+        settings.setOAuth2Providers(providers);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, settings);
+
+        // Typical query parameter: redirect=%2Fadministrator%2F (which is /administrator/)
+        HttpResponse<String> res = http.send(
+                HttpRequest.newBuilder(uri("/login?redirect=%2Fadministrator%2F"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
+        // The Location should NOT contain the redirect anymore
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
+    }
+
+    @Test
+    void loginShouldSucceedWithQueryAndFragment() throws Exception {
+        AuthenticationSettingsDto settings = new AuthenticationSettingsDto();
+        Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
+        providers.put("only", validProvider("only", 321));
+        settings.setOAuth2Providers(providers);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, settings);
+
+        // redirect=/administrator/?foo=bar#baz
+        // Encoded: /login?redirect=%2Fadministrator%2F%3Ffoo%3Dbar%23baz
+        HttpResponse<String> res = http.send(
+                HttpRequest.newBuilder(uri("/login?redirect=%2Fadministrator%2F%3Ffoo%3Dbar%23baz"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        Assertions.assertTrue(res.statusCode() >= 300 && res.statusCode() < 400);
+        Assertions.assertEquals("http://localhost:" + port + "/oauth2/authorization/only", res.headers().firstValue("Location").orElse(null));
     }
 
     @ParameterizedTest

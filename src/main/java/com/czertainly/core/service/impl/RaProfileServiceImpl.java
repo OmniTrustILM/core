@@ -1,6 +1,7 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.AuthorityInstanceApiClient;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDto;
 import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRelationDto;
@@ -15,7 +16,6 @@ import com.czertainly.api.model.connector.authority.CaCertificatesResponseDto;
 import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.raprofile.RaProfileDto;
 import com.czertainly.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
@@ -33,9 +33,10 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalProfileService;
+import com.czertainly.core.service.ApprovalProfileExternalService;
 import com.czertainly.core.service.v2.ComplianceProfileService;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceInternalService;
+import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.model.SecuredList;
@@ -65,11 +66,12 @@ public class RaProfileServiceImpl implements RaProfileService {
 
     private RaProfileRepository raProfileRepository;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    private AuthorityInstanceApiClient authorityInstanceApiClient;
+    private ConnectorApiFactory connectorApiFactory;
+    private ConnectorService connectorService;
     private CertificateRepository certificateRepository;
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
     private ComplianceProfileService complianceProfileService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
@@ -78,7 +80,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     private CmpProfileRepository cmpProfileRepository;
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     private CertificateContentRepository certificateContentRepository;
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.LIST)
@@ -546,7 +548,9 @@ public class RaProfileServiceImpl implements RaProfileService {
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(RaProfile.class, objectUuid.getValue()));
-        permissionEvaluator.authorityInstance(raProfile.getAuthorityInstanceReference().getSecuredUuid());
+        if (raProfile.getAuthorityInstanceReference() != null) {
+            permissionEvaluator.authorityInstance(raProfile.getAuthorityInstanceReference().getSecuredUuid());
+        }
         return new NameAndUuidDto(String.valueOf(objectUuid), raProfile.getName());
     }
 
@@ -615,7 +619,8 @@ public class RaProfileServiceImpl implements RaProfileService {
                 .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, authorityUuid));
 
         List<RequestAttribute> requestAttributes = attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(authorityInstanceReference.getConnectorUuid()).build());
-        CaCertificatesResponseDto caCertificatesResponseDto = authorityInstanceApiClient.getCaCertificates(authorityInstanceReference.getConnector().mapToDto(), authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceReference.getConnectorUuid());
+        CaCertificatesResponseDto caCertificatesResponseDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getCaCertificates(connectorDto, authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
         List<CertificateDataResponseDto> certificateDataResponseDtos = caCertificatesResponseDto.getCertificates();
         List<CertificateDetailDto> certificateDetailDtos = new ArrayList<>();
         for (CertificateDataResponseDto certificateDataResponseDto : certificateDataResponseDtos) {
@@ -652,21 +657,21 @@ public class RaProfileServiceImpl implements RaProfileService {
         return certificateDetailDtos;
     }
 
-    private void mergeAndValidateAttributes(AuthorityInstanceReference authorityInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException {
+    private void mergeAndValidateAttributes(AuthorityInstanceReference authorityInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         logger.debug("Merging and validating attributes on authority instance {}. Request Attributes are: {}", authorityInstanceRef, attributes);
         if (authorityInstanceRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
 
-        ConnectorDto connectorDto = authorityInstanceRef.getConnector().mapToDto();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         // validate first by connector
-        if (Boolean.FALSE.equals(authorityInstanceApiClient.validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {
+        if (Boolean.FALSE.equals(connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {
             throw new ValidationException(ValidationError.create("RA profile attributes validation failed."));
         }
 
         // list definitions
-        List<BaseAttribute> definitions = authorityInstanceApiClient.listRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
+        List<BaseAttribute> definitions = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).listRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
 
         // validate and update definitions with attribute engine
         attributeEngine.validateUpdateDataAttributes(authorityInstanceRef.getConnectorUuid(), null, definitions, attributes);
@@ -738,8 +743,13 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setAuthorityInstanceApiClient(AuthorityInstanceApiClient authorityInstanceApiClient) {
-        this.authorityInstanceApiClient = authorityInstanceApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setConnectorService(ConnectorService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -759,7 +769,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
@@ -804,7 +814,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setApprovalProfileService(ApprovalProfileService approvalProfileService) {
+    public void setApprovalProfileService(ApprovalProfileExternalService approvalProfileService) {
         this.approvalProfileService = approvalProfileService;
     }
 }

@@ -106,7 +106,7 @@ class EntityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(entityInstance.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(entityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(entityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -137,7 +137,7 @@ class EntityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(entityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(entityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test

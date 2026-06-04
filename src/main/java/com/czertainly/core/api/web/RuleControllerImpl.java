@@ -9,7 +9,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.RuleService;
+import com.czertainly.core.service.RuleExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -21,10 +21,10 @@ import java.util.List;
 @RestController
 public class RuleControllerImpl implements RuleController {
 
-    private RuleService ruleService;
+    private RuleExternalService ruleService;
 
     @Autowired
-    public void setRuleService(RuleService ruleService) {
+    public void setRuleService(RuleExternalService ruleService) {
         this.ruleService = ruleService;
     }
 
@@ -53,7 +53,7 @@ public class RuleControllerImpl implements RuleController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.CONDITION, operation = Operation.UPDATE)
-    public ConditionDto updateCondition(@LogResource(uuid = true) String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException {
+    public ConditionDto updateCondition(@LogResource(uuid = true) String conditionUuid, UpdateConditionRequestDto request) throws NotFoundException, AlreadyExistException {
         return ruleService.updateCondition(conditionUuid, request);
     }
 
@@ -83,7 +83,7 @@ public class RuleControllerImpl implements RuleController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.RULE, operation = Operation.UPDATE)
-    public RuleDetailDto updateRule(@LogResource(uuid = true) String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException {
+    public RuleDetailDto updateRule(@LogResource(uuid = true) String ruleUuid, UpdateRuleRequestDto request) throws NotFoundException, AlreadyExistException {
         return ruleService.updateRule(ruleUuid, request);
     }
 

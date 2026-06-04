@@ -46,7 +46,7 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     @Autowired
-    private NotificationInstanceService notificationInstanceService;
+    private NotificationInstanceExternalService notificationInstanceService;
 
     private static final String TEST_CONNECTOR_KIND = "testKind";
     private static final String EXISTING_NIR_NAME = "TestNotificationInstance";

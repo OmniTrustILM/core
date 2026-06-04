@@ -48,6 +48,15 @@ import java.util.*;
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
+
+    /**
+     * RFC 4210 §5.3.22 {@code checkAfter} (seconds). Tells the CMP client how long to wait
+     * before retrying the {@code pollReq} when the authority provider connector accepted the
+     * operation asynchronously. 60 s balances "client doesn't hammer the server" against
+     * "operator doesn't wait too long for state to propagate".
+     */
+    private static final long POLL_REP_CHECK_AFTER_SECONDS = 60L;
+
     private static final List<Integer> ALLOWED_TYPES = List.of(
             PKIBody.TYPE_INIT_REQ,          // ir       [0]  CertReqMessages,       --Initialization Req
             PKIBody.TYPE_CERT_REQ,          // cr       [2]  CertReqMessages,       --Certification Req
@@ -180,9 +189,9 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     "certificate was not provided");
         }
         // -- polling against the database
-        Certificate polledCert;
+        PollResult pollResult;
         try {
-            polledCert = pollFeature.pollCertificate(tid,
+            pollResult = pollFeature.pollCertificate(tid,
                     serialNumber == null ? null : serialNumber.getValue().toString(16), requestedCert.getUuid(),
                     CertificateState.ISSUED);
         } catch (CmpProcessingException e) {
@@ -190,23 +199,29 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     e.getMessage());
         }
 
+        if (pollResult instanceof PollResult.StillPending) {
+            return handleAsynchronousAcceptance(tid, request, configuration, msgBodyType, requestedCert, crmf);
+        }
+        if (pollResult instanceof PollResult.Diverted(CertificateState currentState)) {
+            throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
+                    "certificate diverted to " + currentState
+                            + " while waiting for ISSUED — operation no longer in progress");
+        }
+        Certificate polledCert = ((PollResult.Reached) pollResult).certificate();
+
         // -- parse polled certificate (as X509)
         X509Certificate parsedCert = parseCertificate(tid, bodyType, polledCert);
         // -- field: caPubs
         List<CMPCertificate> listOfCaCerts = createListCaPubs(tid, bodyType, polledCert);
 
         // -- store as transaction (tid+uuid of cert)
-        CmpTransactionState trxState = switch (request.getBody().getType()) {
-            case PKIBody.TYPE_INIT_REQ, PKIBody.TYPE_CERT_REQ -> crmfIrCrMessageHandler.getTransactionState();
-            case PKIBody.TYPE_KEY_UPDATE_REQ -> kurMessageHandler.getTransactionState();
-            default -> throw new CmpProcessingException(tid, PKIFailureInfo.badRequest,
-                    "CRMF message cannot be handled - type is not supported, type=" + msgBodyType);
-        };
+        CmpTransactionState trxState = transactionStateForRequestBodyType(tid, msgBodyType, request.getBody().getType());
         cmpTransactionService.save(cmpTransactionService.createTransactionEntity(
                 tid.toString(),
                 configuration.getCmpProfile(),
                 polledCert.getUuid().toString(),
-                trxState));
+                trxState,
+                request.getBody().getType()));
 
         // -- create cert response
         try {
@@ -248,6 +263,49 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.badDataFormat,
                     "CRMF message cannot be build, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
         }
+    }
+
+    /**
+     * Connector accepted the operation asynchronously (HTTP 202): persist the transaction
+     * so a subsequent {@code pollReq} can be correlated back to the in-flight cert, then
+     * emit a CMP {@code pollRep} so the client knows to retry later (RFC 4210 §5.2.6).
+     */
+    private PKIMessage handleAsynchronousAcceptance(ASN1OctetString tid, PKIMessage request,
+                                                    ConfigurationContext configuration, String msgBodyType,
+                                                    ClientCertificateDataResponseDto requestedCert, CertRequest crmf) throws CmpBaseException {
+        CmpTransactionState trxState = transactionStateForRequestBodyType(tid, msgBodyType, request.getBody().getType());
+        cmpTransactionService.save(cmpTransactionService.createTransactionEntity(
+                tid.toString(),
+                configuration.getCmpProfile(),
+                requestedCert.getUuid(),
+                trxState,
+                request.getBody().getType()));
+        try {
+            LOG.info("TID={} | CRMF {} accepted asynchronously (cert {}); returning pollRep",
+                    tid, msgBodyType, requestedCert.getUuid());
+            return new PkiMessageBuilder(configuration)
+                    .addHeader(PkiMessageBuilder.buildBasicHeaderTemplate(request))
+                    .addBody(PkiMessageBuilder.createPollRepBody(
+                            crmf.getCertReqId(),
+                            POLL_REP_CHECK_AFTER_SECONDS,
+                            "Awaiting asynchronous completion"))
+                    .addExtraCerts(null)
+                    .build();
+        } catch (Exception e) {
+            LOG.error("TID={} | CRMF pollRep message cannot be built (type={})", tid, msgBodyType, e);
+            throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.systemFailure,
+                    "CRMF pollRep cannot be built, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
+        }
+    }
+
+    private CmpTransactionState transactionStateForRequestBodyType(ASN1OctetString tid, String msgBodyType, int requestBodyType)
+            throws CmpProcessingException {
+        return switch (requestBodyType) {
+            case PKIBody.TYPE_INIT_REQ, PKIBody.TYPE_CERT_REQ -> crmfIrCrMessageHandler.getTransactionState();
+            case PKIBody.TYPE_KEY_UPDATE_REQ -> kurMessageHandler.getTransactionState();
+            default -> throw new CmpProcessingException(tid, PKIFailureInfo.badRequest,
+                    "CRMF message cannot be handled - type is not supported, type=" + msgBodyType);
+        };
     }
 
     /**

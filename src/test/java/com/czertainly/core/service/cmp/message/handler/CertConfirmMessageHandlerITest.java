@@ -25,6 +25,7 @@ import org.bouncycastle.asn1.cmp.*;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigInteger;
 import java.security.*;
@@ -32,7 +33,7 @@ import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@Disabled
+@Transactional
 public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
 
     @Autowired
@@ -89,12 +90,17 @@ public class CertConfirmMessageHandlerITest extends BaseSpringBootTest {
         KeyPair kp = CmpTestUtil.generateKeyPairEC();
         x509certificate = CmpTestUtil.makeV3Certificate(serialNumber, kp, "CN=Test", kp, "CN=Test");
         // -- create issued certificate - db entity (which must be confirmed - via tested handler)
+        // Real base64 cert content is required so CertConfirmMessageHandler.getFingerprint can
+        // re-parse the X.509 certificate and compute its hash.
+        String certBase64 = java.util.Base64.getEncoder().encodeToString(x509certificate.getEncoded());
         Certificate issuedCertificate = certificateRepository.save(CmpEntityUtil.createCertificate(
                         CmpTestUtil.createMessageDigest(x509certificate),
                         serialNumber,
                         CertificateState.ISSUED,
                         certificateContentRepository.save(
-                                CmpEntityUtil.createEmptyCertContent())
+                                CmpEntityUtil.createCertContent(
+                                        new DEROctetString(CmpTestUtil.createMessageDigest(x509certificate).getDigest()).toString().substring(1),
+                                        certBase64))
                 )
         );
         // -- transaction related to issued certificate - db entity

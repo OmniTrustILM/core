@@ -4,9 +4,12 @@ import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
+import com.czertainly.api.model.common.NameAndIdDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.core.authority.AuthorityInstanceDto;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.UUID;
 
 class AuthorityInstanceServiceTest extends BaseSpringBootTest {
 
@@ -117,7 +121,7 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(authorityInstance.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(authorityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(authorityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -148,7 +152,7 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(authorityInstance.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(authorityInstance.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -260,5 +264,89 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(authorityInstance.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(authorityInstance.getName(), nameAndUuidDto.getName());
 
+    }
+
+    @Test
+    void testListCertificateProfiles() throws ConnectorException, NotFoundException {
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/endEntityProfiles/[0-9]+/certificateprofiles"))
+                .willReturn(WireMock.okJson("[{\"id\":1,\"name\":\"profileA\"},{\"id\":2,\"name\":\"profileB\"}]")));
+
+        List<NameAndIdDto> profiles = authorityInstanceService.listCertificateProfiles(authorityInstance.getSecuredUuid(), 42);
+
+        Assertions.assertNotNull(profiles);
+        Assertions.assertEquals(2, profiles.size());
+        Assertions.assertEquals(1, profiles.get(0).getId());
+        Assertions.assertEquals("profileA", profiles.get(0).getName());
+        Assertions.assertEquals(2, profiles.get(1).getId());
+        Assertions.assertEquals("profileB", profiles.get(1).getName());
+    }
+
+    @Test
+    void testListCertificateProfiles_notFound() {
+        Assertions.assertThrows(NotFoundException.class, () -> authorityInstanceService.listCertificateProfiles(
+                SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"), 42));
+    }
+
+    @Test
+    void testListCAsInProfile() throws ConnectorException, NotFoundException {
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/endEntityProfiles/[0-9]+/cas"))
+                .willReturn(WireMock.okJson("[{\"id\":10,\"name\":\"RootCA\"},{\"id\":11,\"name\":\"IssuingCA\"}]")));
+
+        List<NameAndIdDto> cas = authorityInstanceService.listCAsInProfile(authorityInstance.getSecuredUuid(), 42);
+
+        Assertions.assertNotNull(cas);
+        Assertions.assertEquals(2, cas.size());
+        Assertions.assertEquals(10, cas.get(0).getId());
+        Assertions.assertEquals("RootCA", cas.get(0).getName());
+        Assertions.assertEquals(11, cas.get(1).getId());
+        Assertions.assertEquals("IssuingCA", cas.get(1).getName());
+    }
+
+    @Test
+    void testListCAsInProfile_notFound() {
+        Assertions.assertThrows(NotFoundException.class, () -> authorityInstanceService.listCAsInProfile(
+                SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"), 42));
+    }
+
+    @Test
+    void testBulkDeleteAuthorityInstance_connectorError_returnsErrorMessage() throws ValidationException, ConnectorException {
+        mockServer.stubFor(WireMock.delete(WireMock.anyUrl())
+                .willReturn(WireMock.aResponse().withStatus(500).withBody("Simulated connector error")));
+
+        List<BulkActionMessageDto> messages = authorityInstanceService
+                .bulkDeleteAuthorityInstance(List.of(authorityInstance.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(authorityInstance.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+        Assertions.assertTrue(authorityInstanceReferenceRepository.findByUuid(authorityInstance.getUuid()).isPresent(),
+                "Entity should remain in DB because delete failed");
+    }
+
+    @Test
+    void testForceDeleteAuthorityInstance_nonExistentUuid_returnsErrorMessage() throws ValidationException, NotFoundException {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = authorityInstanceService.forceDeleteAuthorityInstance(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testForceDeleteAuthorityInstance_connectorError_returnsErrorWithEntityName() throws ValidationException, NotFoundException {
+        mockServer.stubFor(WireMock.delete(WireMock.anyUrl())
+                .willReturn(WireMock.aResponse().withStatus(500).withBody("Connector error")));
+
+        List<BulkActionMessageDto> messages = authorityInstanceService
+                .forceDeleteAuthorityInstance(List.of(authorityInstance.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(authorityInstance.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(authorityInstance.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

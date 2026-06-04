@@ -20,6 +20,7 @@ public enum Resource {
     ATTRIBUTE("attributes"),
     SCHEDULED_JOB("jobs"),
     OID("oids"),
+    PROXY("proxies"),
 
     // AUTH
     USER("users"),
@@ -64,6 +65,10 @@ public enum Resource {
     RULE("rules"),
     ACTION("actions"),
     TRIGGER("triggers"),
+    EVENT("resourceEvents"),
+
+    // SAAS
+    TRUSTED_CERTIFICATE("trustedCertificates"),
 
     // SECRETS
     VAULT("vaults"),
@@ -71,7 +76,12 @@ public enum Resource {
     SECRET("secrets"),
 
     // CBOMS
-    CBOM("cboms")
+    CBOM("cboms"),
+
+    // SIGNING
+    TIME_QUALITY_CONFIGURATION("timeQualityConfigurations"),
+    TSP_PROFILE("tspProfiles"),
+    SIGNING_PROFILE("signingProfiles"),
     ;
 
     @Schema(description = "Resource Name",

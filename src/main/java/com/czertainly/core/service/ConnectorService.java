@@ -1,5 +1,6 @@
 package com.czertainly.core.service;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.connector.ConnectDto;
@@ -12,12 +13,14 @@ import com.czertainly.api.model.common.attribute.common.BaseAttribute;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface ConnectorService extends ResourceExtensionService {
 
@@ -26,6 +29,8 @@ public interface ConnectorService extends ResourceExtensionService {
     List<ConnectorDto> listConnectors(SecurityFilter filter, Optional<FunctionGroupCode> functionGroup, Optional<String> kind, Optional<ConnectorStatus> status) throws NotFoundException;
 
     ConnectorDto getConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException;
+
+    Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException;
 
     ConnectorDto createConnector(ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
 
@@ -54,4 +59,6 @@ public interface ConnectorService extends ResourceExtensionService {
     List<BulkActionMessageDto> bulkDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
 
     List<BulkActionMessageDto> forceDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
+
+    ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException;
 }

@@ -1,0 +1,4 @@
+#
+#Fri May 22 18:45:57 CEST 2026
+methods\ that\ are\ annotated\ with\ @Modifying\ should\ only\ be\ called\ from\ classes\ in\ ..service.writer..=73ede010-447b-4223-95de-15077e7d1715
+no\ methods\ that\ are\ declared\ in\ classes\ that\ implement\ an\ *ExternalService\ interface\ should\ be\ annotated\ with\ @ExternalAuthorizationMissing=dc319b8f-4aa8-4995-960d-775b2144f2a2

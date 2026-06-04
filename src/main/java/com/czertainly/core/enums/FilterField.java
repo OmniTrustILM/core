@@ -3,6 +3,9 @@ package com.czertainly.core.enums;
 import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
+import com.czertainly.api.model.client.connector.v2.FeatureFlag;
+import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
@@ -30,6 +33,9 @@ import com.czertainly.core.dao.entity.cmp.CmpProfile_;
 import com.czertainly.core.dao.entity.oid.CustomOidEntry_;
 import com.czertainly.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry_;
 import com.czertainly.core.dao.entity.scep.ScepProfile_;
+import com.czertainly.core.dao.entity.signing.SigningProfile_;
+import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration_;
+import com.czertainly.core.dao.entity.signing.TspProfile_;
 import com.czertainly.core.model.auth.ResourceAction;
 import jakarta.persistence.metamodel.Attribute;
 import lombok.Getter;
@@ -125,7 +131,7 @@ public enum FilterField {
     // Location
     LOCATION_NAME(Resource.LOCATION, null, null, Location_.name, "Name", SearchFieldTypeEnum.STRING),
     LOCATION_ENTITY_INSTANCE(Resource.LOCATION, null, null, Location_.entityInstanceName, "Entity instance", SearchFieldTypeEnum.LIST),
-    LOCATION_ENABLED(Resource.LOCATION, null, null, Location_.enabled, "Enabled", SearchFieldTypeEnum.BOOLEAN),
+    LOCATION_ENABLED(Resource.LOCATION, null, null, Location_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     LOCATION_SUPPORT_MULTIPLE_ENTRIES(Resource.LOCATION, null, null, Location_.supportMultipleEntries, "Support multiple entries", SearchFieldTypeEnum.BOOLEAN),
     LOCATION_SUPPORT_KEY_MANAGEMENT(Resource.LOCATION, null, null, Location_.supportKeyManagement, "Support key management", SearchFieldTypeEnum.BOOLEAN),
 
@@ -136,6 +142,7 @@ public enum FilterField {
     CONNECTOR_AUTH_TYPE(Resource.CONNECTOR, null, null, Connector_.authType, "Auth type", SearchFieldTypeEnum.LIST, AuthType.class),
     CONNECTOR_STATUS(Resource.CONNECTOR, null, null, Connector_.status, "Status", SearchFieldTypeEnum.LIST, ConnectorStatus.class),
     CONNECTOR_INTERFACE(Resource.CONNECTOR, null, List.of(Connector_.interfaces), ConnectorInterfaceEntity_.interfaceCode, "Interface", SearchFieldTypeEnum.LIST, ConnectorInterface.class),
+    CONNECTOR_FEATURES(Resource.CONNECTOR, null, List.of(Connector_.interfaces), ConnectorInterfaceEntity_.features, "Features", SearchFieldTypeEnum.NATIVE_ARRAY, FeatureFlag.class, null, false, null),
     CONNECTOR_FUNCTION_GROUP(Resource.CONNECTOR, null, List.of(Connector_.functionGroups, Connector2FunctionGroup_.functionGroup), FunctionGroup_.code, "Function group", SearchFieldTypeEnum.LIST, FunctionGroupCode.class),
 
     // Audit Logs
@@ -176,6 +183,7 @@ public enum FilterField {
     OID_ENTRY_DISPLAY_NAME(Resource.OID, null, null, CustomOidEntry_.displayName, "Display Name", SearchFieldTypeEnum.STRING),
     OID_ENTRY_CATEGORY(Resource.OID, null, null, CustomOidEntry_.category, "Category", SearchFieldTypeEnum.LIST, OidCategory.class),
     OID_ENTRY_CODE(Resource.OID, null, null, RdnAttributeTypeCustomOidEntry_.code, "Code", SearchFieldTypeEnum.STRING),
+    OID_ENTRY_ALT_CODES(Resource.OID, null, null, RdnAttributeTypeCustomOidEntry_.altCodes, "Alt Codes", SearchFieldTypeEnum.NATIVE_ARRAY),
 
     // Vault Instance
     VAULT_INSTANCE_NAME(Resource.VAULT, null, null, VaultInstance_.name, "Name", SearchFieldTypeEnum.STRING),
@@ -189,7 +197,7 @@ public enum FilterField {
     SECRET_NAME(Resource.SECRET, null, null, Secret_.name, "Name", SearchFieldTypeEnum.STRING),
     SECRET_TYPE(Resource.SECRET, null, null, Secret_.type, "Type", SearchFieldTypeEnum.LIST, SecretType.class),
     SECRET_STATE(Resource.SECRET, null, null, Secret_.state, Constants.STATE, SearchFieldTypeEnum.LIST, SecretState.class),
-    SECRET_ENABLED(Resource.SECRET, null, null, Secret_.enabled, "Enabled", SearchFieldTypeEnum.BOOLEAN),
+    SECRET_ENABLED(Resource.SECRET, null, null, Secret_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     SECRET_GROUP_NAME(Resource.SECRET, Resource.GROUP, List.of(Secret_.groups), Group_.name, "Groups", SearchFieldTypeEnum.LIST, null, null, true, null),
     SECRET_OWNER(Resource.SECRET, Resource.USER, List.of(Secret_.owner), OwnerAssociation_.ownerUsername, "Owner", SearchFieldTypeEnum.LIST, null, null, true, null),
     SECRET_COMPLIANCE_STATUS(Resource.SECRET, null, null, Secret_.complianceStatus, "Compliance Status", SearchFieldTypeEnum.LIST, ComplianceStatus.class),
@@ -205,7 +213,27 @@ public enum FilterField {
     CBOM_CERTIFICATES_COUNT(Resource.CBOM, null, null, Cbom_.certificatesCount, "Certificates Count", SearchFieldTypeEnum.NUMBER),
     CBOM_PROTOCOLS_COUNT(Resource.CBOM, null, null, Cbom_.protocolsCount, "Protocols Count", SearchFieldTypeEnum.NUMBER),
     CBOM_CRYPTO_MATERIAL_COUNT(Resource.CBOM, null, null, Cbom_.cryptoMaterialCount, "Crypto Material Count", SearchFieldTypeEnum.NUMBER),
-    CBOM_TOTAL_ASSETS_COUNT(Resource.CBOM, null, null, Cbom_.totalAssetsCount, "Total Assets Count", SearchFieldTypeEnum.NUMBER)
+    CBOM_TOTAL_ASSETS_COUNT(Resource.CBOM, null, null, Cbom_.totalAssetsCount, "Total Assets Count", SearchFieldTypeEnum.NUMBER),
+
+    // Signing Profile
+    SIGNING_PROFILE_NAME(Resource.SIGNING_PROFILE, null, null, SigningProfile_.name, "Name", SearchFieldTypeEnum.STRING),
+    SIGNING_PROFILE_ENABLED(Resource.SIGNING_PROFILE, null, null, SigningProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
+    SIGNING_PROFILE_SIGNING_SCHEME(Resource.SIGNING_PROFILE, null, null, SigningProfile_.signingScheme, "Signing Scheme", SearchFieldTypeEnum.LIST, SigningScheme.class),
+    SIGNING_PROFILE_WORKFLOW_TYPE(Resource.SIGNING_PROFILE, null, null, SigningProfile_.workflowType, "Workflow Type", SearchFieldTypeEnum.LIST, SigningWorkflowType.class),
+    SIGNING_PROFILE_TSP_PROFILE(Resource.SIGNING_PROFILE, Resource.TSP_PROFILE, List.of(SigningProfile_.tspProfile), TspProfile_.name, "TSP Profile", SearchFieldTypeEnum.LIST),
+    SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION(Resource.SIGNING_PROFILE, Resource.TIME_QUALITY_CONFIGURATION, List.of(SigningProfile_.timeQualityConfiguration), TimeQualityConfiguration_.name, "Time Quality Configuration", SearchFieldTypeEnum.LIST),
+
+    // Time Quality Configuration
+    TIME_QUALITY_CONFIGURATION_NAME(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.name, "Name", SearchFieldTypeEnum.STRING),
+    TIME_QUALITY_CONFIGURATION_LEAP_SECOND_GUARD(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.leapSecondGuard, "Leap Second Guard", SearchFieldTypeEnum.BOOLEAN),
+    TIME_QUALITY_CONFIGURATION_NTP_SERVERS_MIN_REACHABLE(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpServersMinReachable, "NTP Servers Min Reachable", SearchFieldTypeEnum.NUMBER),
+    TIME_QUALITY_CONFIGURATION_NTP_SAMPLES_PER_SERVER(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpSamplesPerServer, "NTP Samples Per Server", SearchFieldTypeEnum.NUMBER),
+    TIME_QUALITY_CONFIGURATION_NTP_SERVERS(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.ntpServers, "NTP Servers", SearchFieldTypeEnum.NATIVE_ARRAY),
+
+    // TSP Profile
+    TSP_PROFILE_NAME(Resource.TSP_PROFILE, null, null, TspProfile_.name, "Name", SearchFieldTypeEnum.STRING),
+    TSP_PROFILE_ENABLED(Resource.TSP_PROFILE, null, null, TspProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
+    TSP_PROFILE_DEFAULT_SIGNING_PROFILE(Resource.TSP_PROFILE, Resource.SIGNING_PROFILE, List.of(TspProfile_.defaultSigningProfile), SigningProfile_.name, "Default Signing Profile", SearchFieldTypeEnum.LIST),
     ;
 
     private static final FilterField[] VALUES;
@@ -250,6 +278,10 @@ public enum FilterField {
         this.expectedValue = expectedValue;
     }
 
+    public boolean isNativeArrayField() {
+        return this.type == SearchFieldTypeEnum.NATIVE_ARRAY;
+    }
+
     public static List<FilterField> getEnumsForResource(Resource resource) {
         return Arrays.stream(VALUES).filter(filterField -> filterField.rootResource == resource).toList();
     }
@@ -257,6 +289,7 @@ public enum FilterField {
     private static class Constants {
         private static final String RESOURCE_OBJECTS_ARRAY = "objects[*]";
         public static final String STATE = "State";
+        public static final String ENABLED = "Enabled";
     }
 
 }

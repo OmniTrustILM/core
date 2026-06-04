@@ -1,6 +1,5 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.clients.v2.ComplianceApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.RuleException;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
@@ -9,11 +8,12 @@ import com.czertainly.api.model.connector.compliance.v2.ComplianceResponseRuleDt
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
 import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.ComplianceProfile;
 import com.czertainly.core.dao.entity.ComplianceProfileRule;
 import com.czertainly.core.dao.entity.ComplianceSubject;
 import com.czertainly.core.events.handlers.CertificateNotCompliantEventHandler;
-import com.czertainly.core.messaging.producers.EventProducer;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.service.handler.ComplianceProfileRuleHandler;
 import com.czertainly.core.service.handler.ComplianceSubjectHandler;
 import lombok.Getter;
@@ -33,21 +33,19 @@ public class ComplianceCheckContext {
     private final ComplianceProfileRuleHandler ruleHandler;
     private final Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> subjectHandlers;
 
-    private final ComplianceApiClient complianceApiClient;
-    private final com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
+    private final ConnectorApiFactory connectorApiFactory;
 
     private final Map<UUID, ComplianceCheckProfileContext> profilesContextMap = new HashMap<>();
     private final Map<String, ComplianceCheckProviderContext> providersContextMap = new HashMap<>();
 
     private final EventProducer eventProducer;
 
-    public ComplianceCheckContext(Resource resource, IPlatformEnum typeEnum, ComplianceProfileRuleHandler ruleHandler, Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> subjectHandlers, ComplianceApiClient complianceApiClient, com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1, EventProducer eventProducer) {
+    public ComplianceCheckContext(Resource resource, IPlatformEnum typeEnum, ComplianceProfileRuleHandler ruleHandler, Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> subjectHandlers, ConnectorApiFactory connectorApiFactory, EventProducer eventProducer) {
         this.resource = resource;
         this.typeEnum = typeEnum;
         this.ruleHandler = ruleHandler;
         this.subjectHandlers = subjectHandlers;
-        this.complianceApiClient = complianceApiClient;
-        this.complianceApiClientV1 = complianceApiClientV1;
+        this.connectorApiFactory = connectorApiFactory;
         this.eventProducer = eventProducer;
     }
 
@@ -67,7 +65,7 @@ public class ComplianceCheckContext {
             profileContext.addProfileRule(providerKey, profileRule);
             // load compliance providers context
             if (providerKey != null) {
-                ComplianceCheckProviderContext providerContext = providersContextMap.computeIfAbsent(providerKey, k -> new ComplianceCheckProviderContext(profileRule.getConnector(), profileRule.getKind(), ruleHandler, complianceApiClient, complianceApiClientV1));
+                ComplianceCheckProviderContext providerContext = providersContextMap.computeIfAbsent(providerKey, k -> new ComplianceCheckProviderContext(profileRule.getConnector(), profileRule.getKind(), ruleHandler, connectorApiFactory));
                 if (profileRule.getComplianceRuleUuid() != null) {
                     providerContext.getRulesBatchRequestDto().getRuleUuids().add(profileRule.getComplianceRuleUuid());
                 } else {

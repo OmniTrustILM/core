@@ -1,7 +1,7 @@
 package com.czertainly.core.provider;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.czertainly.api.exception.ConnectorException;
+import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.RsaSignatureScheme;
@@ -24,11 +24,11 @@ public class CzertainlySignatureService {
 
     private static final Logger log = LoggerFactory.getLogger(CzertainlySignatureService.class);
 
-    private final CryptographicOperationsApiClient apiClient;
+    private final CryptographicOperationsSyncApiClient apiClient;
     private final List<RequestAttribute> signatureAttributes;
     private final String algorithm;
 
-    public CzertainlySignatureService(CryptographicOperationsApiClient apiClient, String algorithm) {
+    public CzertainlySignatureService(CryptographicOperationsSyncApiClient apiClient, String algorithm) {
         this.apiClient = apiClient;
         this.signatureAttributes = mapSignatureAttributesFromSignatureAlgorithm(algorithm);
         this.algorithm = algorithm;

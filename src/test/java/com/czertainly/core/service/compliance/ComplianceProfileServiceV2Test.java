@@ -16,16 +16,24 @@ import com.czertainly.api.model.core.search.FilterConditionOperator;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.*;
+import com.czertainly.core.dao.repository.ComplianceProfileRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import org.junit.jupiter.api.*;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 class ComplianceProfileServiceV2Test extends BaseComplianceTest {
+
+    @MockitoSpyBean
+    private ComplianceProfileRepository complianceProfileRepositorySpy;
 
     @Test
     void testResourceObjectsHandling() throws NotFoundException {
@@ -449,6 +457,27 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
     }
 
     @Test
+    void associateComplianceProfileRaProfileWithoutAuthorityRefSucceeds() throws AlreadyExistException, AttributeException, NotFoundException, ConnectorException {
+        // External Authority "without CA" scenario: the RA Profile has no authorityInstanceReference.
+        RaProfile externalRaProfile = new RaProfile();
+        externalRaProfile.setName("ExternalWithoutCaRaProfile");
+        externalRaProfile = raProfileRepository.save(externalRaProfile);
+
+        ComplianceProfileRequestDto requestDto = new ComplianceProfileRequestDto();
+        requestDto.setName("ExternalAuthorityComplianceProfile");
+        ComplianceProfileDto profileDto = complianceProfileService.createComplianceProfile(requestDto);
+        SecuredUUID profileUuid = SecuredUUID.fromUUID(profileDto.getUuid());
+
+        UUID externalRaProfileUuid = externalRaProfile.getUuid();
+        Assertions.assertDoesNotThrow(() -> complianceProfileService.associateComplianceProfile(profileUuid, Resource.RA_PROFILE, externalRaProfileUuid));
+
+        var associations = complianceProfileService.getAssociations(profileUuid);
+        Assertions.assertEquals(1, associations.size());
+        Assertions.assertEquals(Resource.RA_PROFILE, associations.getFirst().getResource());
+        Assertions.assertEquals(externalRaProfile.getUuid(), associations.getFirst().getObjectUuid());
+    }
+
+    @Test
     void associateRaProfile() throws NotFoundException, AlreadyExistException {
         Assertions.assertThrows(AlreadyExistException.class, () -> complianceProfileService.associateComplianceProfile(SecuredUUID.fromUUID(complianceProfile.getUuid()), Resource.RA_PROFILE, associatedRaProfileUuid));
         complianceProfileService.associateComplianceProfile(SecuredUUID.fromUUID(complianceProfile.getUuid()), Resource.RA_PROFILE, unassociatedRaProfileUuid);
@@ -526,5 +555,55 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
     void getComplianceGroupRulesTest() throws ConnectorException, NotFoundException {
         var groups = complianceProfileService.getComplianceGroupRules(complianceV2Group2Uuid, connectorV2.getUuid(), KIND_V2);
         Assertions.assertEquals(1, groups.size());
+    }
+
+    @Test
+    void testForceDeleteComplianceProfiles_nonExistentUuid_returnsErrorMessage() {
+        SecuredUUID nonExistent = SecuredUUID.fromUUID(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        List<BulkActionMessageDto> messages = complianceProfileService.forceDeleteComplianceProfiles(List.of(nonExistent));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals("00000000-0000-0000-0000-000000000001", messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testBulkDeleteComplianceProfiles_withAssociation_returnsErrorWithProfileName() {
+        ComplianceProfile profile = new ComplianceProfile();
+        profile.setName("profileWithAssoc");
+        complianceProfileRepository.save(profile);
+
+        ComplianceProfileAssociation assoc = new ComplianceProfileAssociation();
+        assoc.setComplianceProfileUuid(profile.getUuid());
+        assoc.setResource(Resource.RA_PROFILE);
+        assoc.setObjectUuid(UUID.randomUUID());
+        complianceProfileAssociationRepository.save(assoc);
+
+        List<BulkActionMessageDto> messages = complianceProfileService.bulkDeleteComplianceProfiles(
+                List.of(profile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(profile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(profile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testForceDeleteComplianceProfiles_deleteFailure_returnsErrorWithProfileName() {
+        ComplianceProfile profile = new ComplianceProfile();
+        profile.setName("forceDeleteProfile");
+        complianceProfileRepository.save(profile);
+
+        doThrow(new RuntimeException("DB delete error"))
+                .when(complianceProfileRepositorySpy).delete(any());
+
+        List<BulkActionMessageDto> messages = complianceProfileService.forceDeleteComplianceProfiles(
+                List.of(profile.getSecuredUuid()));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(profile.getUuid().toString(), messages.getFirst().getUuid());
+        Assertions.assertEquals(profile.getName(), messages.getFirst().getName());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
     }
 }

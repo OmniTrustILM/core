@@ -2,6 +2,7 @@ package com.czertainly.core.search;
 
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.certificate.DiscoveryResponseDto;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -312,6 +313,32 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
         filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM, "attributeCustom1|TEXT", FilterConditionOperator.CONTAINS, "-custom-"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // NumberFormatException → ValidationException on NUMBER property filters
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void filterByTotalCertDiscovered_invalidStringValue_throwsValidationException() {
+        List<SearchFilterRequestDto> filters = List.of(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
+                        FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED.name(),
+                        FilterConditionOperator.EQUALS, "not-a-number"));
+        Assertions.assertThrows(ValidationException.class,
+                () -> retrieveTheDiscoveriesBySearch(filters),
+                "Non-numeric value for a NUMBER filter field must throw ValidationException, not NumberFormatException");
+    }
+
+    @Test
+    void filterByTotalCertDiscovered_invalidStringValue_forGreaterThanOperator_throwsValidationException() {
+        List<SearchFilterRequestDto> filters = List.of(
+                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
+                        FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED.name(),
+                        FilterConditionOperator.GREATER, "xyz"));
+        Assertions.assertThrows(ValidationException.class,
+                () -> retrieveTheDiscoveriesBySearch(filters),
+                "Non-numeric value for GREATER on a NUMBER field must throw ValidationException");
     }
 
     private DiscoveryResponseDto retrieveTheDiscoveriesBySearch(final List<SearchFilterRequestDto> filters) {

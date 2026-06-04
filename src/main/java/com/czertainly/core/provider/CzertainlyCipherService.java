@@ -1,7 +1,7 @@
 package com.czertainly.core.provider;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.czertainly.api.exception.ConnectorException;
+import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto;
@@ -19,11 +19,11 @@ import java.util.List;
 public class CzertainlyCipherService {
 
     private static final Logger log = LoggerFactory.getLogger(CzertainlyCipherService.class);
-    private final CryptographicOperationsApiClient apiClient;
+    private final CryptographicOperationsSyncApiClient apiClient;
     private final List<RequestAttribute> cipherAttributes;
     private final String algorithm;
 
-    public CzertainlyCipherService(CryptographicOperationsApiClient apiClient, String algorithm) {
+    public CzertainlyCipherService(CryptographicOperationsSyncApiClient apiClient, String algorithm) {
         this.apiClient = apiClient;
         this.cipherAttributes = mapCipherAttributesFromCipherAlgorithm(algorithm);
         this.algorithm = algorithm;

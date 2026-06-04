@@ -1,6 +1,8 @@
 package com.czertainly.core.evaluator;
 
 import com.czertainly.api.exception.*;
+import com.czertainly.api.model.client.attribute.RequestAttributeV2;
+import com.czertainly.api.model.client.attribute.RequestAttributeV3;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
 import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
 import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
@@ -11,10 +13,14 @@ import com.czertainly.api.model.client.notification.NotificationProfileRequestDt
 import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
+import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
 import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
+import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
 import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.czertainly.api.model.common.enums.BitMaskEnum;
 import com.czertainly.api.model.core.auth.Resource;
@@ -84,7 +90,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     private AttributeService attributeService;
 
     @Autowired
-    private TriggerService triggerService;
+    private TriggerInternalService triggerService;
 
     @Autowired
     private TriggerRepository triggerRepository;
@@ -116,7 +122,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     private CertificateTriggerEvaluator certificateTriggerEvaluator;
 
     @Autowired
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     @Autowired
     private ResourceObjectAssociationService associationService;
@@ -703,7 +709,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         executionItem.setFieldIdentifier(FilterField.RA_PROFILE_NAME.toString());
         executionItem.setData(raProfile.getUuid());
 
-        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null);
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
 
         CertificateDetailDto certificateDetailDto = certificateService.getCertificate(certificate.getSecuredUuid());
@@ -757,9 +763,196 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         executionItem.setNotificationProfileUuid(UUID.fromString(notificationProfileDetailDto.getUuid()));
         executionItemRepository.save(executionItem);
 
-        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null);
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
         Assertions.assertEquals(0, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMetadata() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("metaSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2("ref", "copiedValue")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("metaSource");
+        metaAttr.setProperties(props);
+        attributeEngine.updateMetadataAttributes(List.of(metaAttr),
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                        .connector(connector.getUuid()).build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("metaSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget")).findFirst().orElseThrow();
+        Assertions.assertEquals("copiedValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromCustomAttribute() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        CustomAttributeCreateRequestDto sourceDto = new CustomAttributeCreateRequestDto();
+        sourceDto.setName("customSource");
+        sourceDto.setContentType(AttributeContentType.STRING);
+        sourceDto.setLabel("customSource");
+        sourceDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(sourceDto);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null,
+                "customSource", List.of(new StringAttributeContentV3("ref", "sourceValue")));
+
+        CustomAttributeCreateRequestDto targetDto = new CustomAttributeCreateRequestDto();
+        targetDto.setName("customTarget2");
+        targetDto.setContentType(AttributeContentType.STRING);
+        targetDto.setLabel("customTarget2");
+        targetDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(targetDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget2|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setSourceFieldIdentifier("customSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget2")).findFirst().orElseThrow();
+        Assertions.assertEquals("sourceValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMissingSourceDoesNotSetAttribute() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget3");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget3");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget3|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("nonExistentMeta|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertTrue(result.stream().noneMatch(a -> a.getName().equals("customTarget3")));
+        Assertions.assertEquals(1, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttribute() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        DataAttributeV3 dataAttribute = new DataAttributeV3();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSource");
+        dataAttribute.setType(AttributeType.DATA);
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSource");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(dataAttribute));
+
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "dataValue")));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                        .connector(connector.getUuid()).build(),
+                List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget4");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget4");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget4|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget4")).findFirst().orElseThrow();
+        Assertions.assertEquals("dataValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttributeV2() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        DataAttributeV2 dataAttribute = new DataAttributeV2();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSourceV2");
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSourceV2");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(dataAttribute));
+
+        // RequestAttributeV2 content must use BaseAttributeContentV2, not StringAttributeContentV2,
+        // because the V2 format has no type discriminator and won't round-trip through JSON as the
+        // concrete subtype.
+        BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        content.setReference("ref");
+        content.setData("dataValueV2");
+        RequestAttributeV2 requestAttribute = new RequestAttributeV2();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(content));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(),
+                List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget5");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget5");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget5|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSourceV2|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget5")).findFirst().orElseThrow();
+        Assertions.assertEquals("dataValueV2", attr.getContent().getFirst().getData().toString());
     }
 
 }

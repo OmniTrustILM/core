@@ -29,7 +29,7 @@ RUN $JAVA_HOME/bin/jlink \
   --output /javaruntime
 
 # Package stage
-FROM alpine:latest
+FROM alpine:3.23
 
 ENV JAVA_HOME=/opt/jre
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
@@ -57,8 +57,11 @@ ENV DB_SCHEMA=core
 ENV PORT=8080
 ENV HEADER_NAME=ssl-client-cert
 ENV SCHEDULED_TASKS_ENABLED=true
-ENV RABBITMQ_PORT=5672
-ENV RABBITMQ_VHOST=czertainly
+ENV BROKER_HOST=
+ENV BROKER_PORT=5672
+ENV BROKER_VIRTUAL_HOST=czertainly
+ENV PROVISIONING_API_URL=http://localhost:8080
+ENV PROVISIONING_API_KEY=
 
 USER 10001
 

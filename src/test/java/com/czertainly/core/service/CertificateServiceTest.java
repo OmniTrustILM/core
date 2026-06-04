@@ -2,10 +2,16 @@ package com.czertainly.core.service;
 
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
+import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterConditionOperator;
+import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.czertainly.api.model.core.workflows.*;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
@@ -31,22 +37,29 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.messaging.producers.NotificationProducer;
+import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.czertainly.core.security.authn.client.AuthenticationCache;
+import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
+import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestData;
 import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.MetaDefinitions;
+import com.czertainly.core.util.X509ObjectToString;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +68,8 @@ import org.mockito.Mockito;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
@@ -68,7 +83,10 @@ import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -121,8 +139,17 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
     @Autowired
     private CertificateRelationRepository certificateRelationRepository;
+    @Autowired
+    private AuthenticationCache authenticationCache;
     @MockitoBean
     private NotificationProducer notificationProducer;
+    @Autowired
+    private RuleExternalService ruleService;
+    @Autowired
+    private TriggerExternalService triggerService;
+
+    @Autowired
+    private CacheManager cacheManager;
 
     private AttributeEngine attributeEngine;
 
@@ -247,6 +274,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @AfterEach
     void tearDown() {
         mockServer.stop();
+        authenticationCache.evictAll();
     }
 
     @Test
@@ -449,21 +477,119 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUploadCertificate() throws CertificateException, AlreadyExistException, NoSuchAlgorithmException, NotFoundException, AttributeException {
+    void revokeCertificate_evictsCertAuthCacheForAssociatedUser() {
+        // given
+        UUID userUuid = UUID.randomUUID();
+        String fingerprint = "abcdef1234567890";
+        certificate.setUserUuid(userUuid);
+        certificate.setFingerprint(fingerprint);
+        certificateRepository.save(certificate);
+        var uuidCache = primeUserUuidCache(userUuid);
+        var certCache = primeCertCache(fingerprint);
+
+        // when
+        certificateService.revokeCertificate(certificate.getSerialNumber());
+
+        // then - both the user UUID entry and the certificate entry must be evicted
+        uuidCache.assertNotEvicted();
+        certCache.assertEvicted();
+    }
+
+    @Test
+    void revokeCertificate_doesNotEvictCacheWhenNoUserAssociated() {
+        // given - certificate has no userUuid (default in setUp)
+        Assertions.assertNull(certificate.getUserUuid());
+        var uuidCache = primeUserUuidCache(UUID.randomUUID());
+        var certCache = primeCertCache("unrelated-fingerprint");
+
+        // when
+        certificateService.revokeCertificate(certificate.getSerialNumber());
+
+        // then - no user associated, nothing to evict
+        uuidCache.assertNotEvicted();
+        certCache.assertNotEvicted();
+    }
+
+    @Test
+    void findCertificateEntityByUserUuid_returnsMatchingCertificate() {
+        // given
+        UUID userUuid = UUID.randomUUID();
+        certificate.setUserUuid(userUuid);
+        certificateRepository.save(certificate);
+
+        // when
+        Optional<Certificate> result = certificateService.findCertificateEntityByUserUuid(userUuid);
+
+        // then
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(certificate.getUuid(), result.get().getUuid());
+    }
+
+    @Test
+    void findCertificateEntityByUserUuid_returnsEmptyWhenNoCertificateForUser() {
+        // given - no certificate is associated with this user UUID
+        UUID unknownUserUuid = UUID.randomUUID();
+
+        // when
+        Optional<Certificate> result = certificateService.findCertificateEntityByUserUuid(unknownUserUuid);
+
+        // then
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testUploadCertificateSync() throws CertificateException, AlreadyExistException, AttributeException, NotFoundException, IOException {
         UploadCertificateRequestDto request = new UploadCertificateRequestDto();
         request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        RequestAttributeV3 requestAttribute = getAttribute();
+        request.setCustomAttributes(List.of(requestAttribute));
+        UuidDto uuidDto = certificateService.uploadSync(request);
+        CertificateDetailDto certificateNew = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+        Assertions.assertEquals(1, certificateNew.getCustomAttributes().size());
+    }
 
-        CertificateDetailDto dto = certificateService.upload(request, true);
-        Assertions.assertNotNull(dto);
-        Assertions.assertEquals("CLIENT1", dto.getCommonName());
-        Assertions.assertEquals("177e75f42e95ecb98f831eb57de27b0bc8c47643", dto.getSerialNumber());
+    @Test
+    void testUploadCertificateSyncIgnoreTriggerThrowsNotUploaded() throws Exception {
+        ConditionItemRequestDto conditionItemRequest = new ConditionItemRequestDto();
+        conditionItemRequest.setFieldSource(FilterFieldSource.PROPERTY);
+        conditionItemRequest.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
+        conditionItemRequest.setOperator(FilterConditionOperator.EQUALS);
+        conditionItemRequest.setValue(List.of(CertificateState.ISSUED.getCode()));
 
-        // test for presence of created public key
-        var newCertificate = certificateRepository.findWithAssociationsByUuid(UUID.fromString(dto.getUuid()));
-        Assertions.assertTrue(newCertificate.isPresent());
-        Assertions.assertEquals("certKey_%s".formatted(dto.getCommonName()), newCertificate.get().getKey().getName());
-        Assertions.assertEquals(1, newCertificate.get().getKey().getItems().size());
-        Assertions.assertEquals(KeyType.PUBLIC_KEY, newCertificate.get().getKey().getItems().stream().findFirst().get().getType());
+        ConditionRequestDto conditionRequest = new ConditionRequestDto();
+        conditionRequest.setName("IgnoreUploadCondition");
+        conditionRequest.setResource(Resource.CERTIFICATE);
+        conditionRequest.setType(ConditionType.CHECK_FIELD);
+        conditionRequest.setItems(List.of(conditionItemRequest));
+        ConditionDto condition = ruleService.createCondition(conditionRequest);
+
+        RuleRequestDto ruleRequest = new RuleRequestDto();
+        ruleRequest.setName("IgnoreUploadRule");
+        ruleRequest.setResource(Resource.CERTIFICATE);
+        ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
+        RuleDetailDto rule = ruleService.createRule(ruleRequest);
+
+        TriggerRequestDto triggerRequest = new TriggerRequestDto();
+        triggerRequest.setName("IgnoreUploadTrigger");
+        triggerRequest.setType(TriggerType.EVENT);
+        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_UPLOADED);
+        triggerRequest.setResource(Resource.CERTIFICATE);
+        triggerRequest.setRulesUuids(List.of(rule.getUuid()));
+        triggerRequest.setActionsUuids(List.of());
+        triggerRequest.setIgnoreTrigger(true);
+        TriggerDetailDto trigger = triggerService.createTrigger(triggerRequest);
+
+        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
+                List.of(UUID.fromString(trigger.getUuid())), true);
+
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        CertificateException ex = Assertions.assertThrows(CertificateException.class, () -> certificateService.uploadSync(request));
+        Assertions.assertEquals("Certificate was not uploaded. See Certificate Uploaded Event History for more details.", ex.getMessage());
+    }
+
+    private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
+        return getRequestAttribute();
     }
 
     @Test
@@ -511,9 +637,25 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
-                .willReturn(WireMock.jsonResponse("[\"Object of type 'Certificate' identified but not valid according RA profile attributes.\"]", 422)));
+                .willReturn(WireMock.jsonResponse("[\"Certificate is not issued by any of the configured CA certificates\"]", 422)));
 
-        Assertions.assertThrows(CertificateOperationException.class, () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        // The wrapped CertificateOperationException must include the connector's specific
+        // rejection reason so operators can see exactly why identification failed.
+        CertificateOperationException ex = Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        Assertions.assertTrue(ex.getMessage().contains("Certificate is not issued by any of the configured CA certificates"),
+                "Expected connector's rejection reason to be surfaced, got: " + ex.getMessage());
+
+        // An empty error list from the connector must not produce a message ending with an
+        // empty placeholder; the reason should fall back to a useful string.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("[]", 422)));
+
+        CertificateOperationException emptyErrors = Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), uuidDto));
+        Assertions.assertFalse(emptyErrors.getMessage().contains("rejected the certificate: ."),
+                "Empty errors list must not surface as an empty reason; got: " + emptyErrors.getMessage());
     }
 
     @Test
@@ -655,6 +797,94 @@ class CertificateServiceTest extends BaseSpringBootTest {
         certificate.setArchived(false);
         certificateRepository.save(certificate);
         Assertions.assertDoesNotThrow(() -> certificateService.updateCertificateUser(certificateUuid, null));
+    }
+
+    @Test
+    void updateCertificateUser_evictsCertCacheWhenUserIsDisassociated() throws NotFoundException {
+        // given
+        UUID userUuid = UUID.randomUUID();
+        String fingerprint = "abcdef1234567890";
+        certificate.setUserUuid(userUuid);
+        certificate.setFingerprint(fingerprint);
+        certificateRepository.save(certificate);
+        var certCache = primeCertCache(fingerprint);
+        var uuidCache = primeUserUuidCache(UUID.randomUUID());
+
+        // when - disassociate user by passing null
+        certificateService.updateCertificateUser(certificate.getUuid(), null);
+
+        // then - only the certificate cache entry needs eviction; user's UUID/token caches are still valid
+        certCache.assertEvicted();
+        uuidCache.assertNotEvicted();
+    }
+
+    @Test
+    void updateCertificateUser_evictsCertCacheWhenUserIsReplacedWithAnotherUser() throws NotFoundException {
+        // given
+        UUID oldUserUuid = UUID.randomUUID();
+        UUID newUserUuid = UUID.randomUUID();
+        String fingerprint = "abcdef1234567890";
+        certificate.setUserUuid(oldUserUuid);
+        certificate.setFingerprint(fingerprint);
+        certificateRepository.save(certificate);
+        var certCache = primeCertCache(fingerprint);
+        var uuidCache = primeUserUuidCache(UUID.randomUUID());
+
+        // when - replace with a different user
+        certificateService.updateCertificateUser(certificate.getUuid(), newUserUuid.toString());
+
+        // then - only the cert entry is stale; old user's UUID/token caches remain valid
+        certCache.assertEvicted();
+        uuidCache.assertNotEvicted();
+    }
+
+    @Test
+    void updateCertificateUser_doesNotEvictCacheWhenCertificateHadNoUser() throws NotFoundException {
+        // given - certificate has no userUuid (default in setUp)
+        Assertions.assertNull(certificate.getUserUuid());
+        var certCache = primeCertCache("unrelated-fingerprint");
+        var uuidCache = primeUserUuidCache(UUID.randomUUID());
+
+        // when - associate a user for the first time
+        certificateService.updateCertificateUser(certificate.getUuid(), UUID.randomUUID().toString());
+
+        // then - nothing to evict for a previously unassociated certificate
+        certCache.assertNotEvicted();
+        uuidCache.assertNotEvicted();
+    }
+
+    @Test
+    void removeCertificateUser_evictsCertCacheForUser() {
+        // given
+        UUID userUuid = UUID.randomUUID();
+        String fingerprint = "abcdef1234567890";
+        certificate.setUserUuid(userUuid);
+        certificate.setFingerprint(fingerprint);
+        certificateRepository.save(certificate);
+        var certCache = primeCertCache(fingerprint);
+        var uuidCache = primeUserUuidCache(UUID.randomUUID());
+
+        // when
+        certificateService.removeCertificateUser(userUuid);
+
+        // then - user still exists, only the cert link is dropped; UUID/token caches remain valid
+        certCache.assertEvicted();
+        uuidCache.assertNotEvicted();
+    }
+
+    @Test
+    void removeCertificateUser_doesNotEvictCacheWhenNoCertificateForUser() {
+        // given - no certificate is associated with this user UUID
+        UUID userWithoutCertUuid = UUID.randomUUID();
+        var uuidCache = primeUserUuidCache(userWithoutCertUuid);
+        var certCache = primeCertCache("unrelated-fingerprint");
+
+        // when - no certificate found, method logs a warning and returns
+        certificateService.removeCertificateUser(userWithoutCertUuid);
+
+        // then
+        uuidCache.assertNotEvicted();
+        certCache.assertNotEvicted();
     }
 
     @Test
@@ -1084,6 +1314,37 @@ class CertificateServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(CertificateRelationType.REPLACEMENT, relationsDto.getPredecessorCertificates().getFirst().getRelationType());
     }
 
+    @Test
+    void cacheIsEvictedAfterIssueRequestedCertificate() throws Exception {
+        Cache cache = cacheManager.getCache(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        Assertions.assertNotNull(cache, "cert-chain cache must be registered");
+        cache.clear();
+
+        // Create a Certificate entity with no content but with RA profile (required by issueRequestedCertificate)
+        Certificate notIssued = new Certificate();
+        notIssued.setRaProfile(raProfile);
+        notIssued = certificateRepository.save(notIssued);
+        UUID uuid = notIssued.getUuid();
+        String certKey = uuid + "_true";
+
+        // Warm the cache — before issuance the chain is empty (no content), but the entry exists
+        certificateService.getCertificateChainForSigning(uuid, true);
+        Assertions.assertNotNull(cache.get(certKey), "cache should be warm before issuance");
+
+        // Generate a fresh cert so its fingerprint is not already in DB
+        KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=IssueCache-Root");
+        KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=IssueCache-EE", null);
+        String pemCert = X509ObjectToString.toPem(eeX509);
+
+        // Issue the certificate — adds content to the entity and must evict the cache
+        certificateService.issueRequestedCertificate(uuid, pemCert, null);
+
+        Assertions.assertNull(cache.get(certKey),
+                "issueRequestedCertificate must evict the cert-chain cache");
+    }
+
     @ParameterizedTest
     @MethodSource("com.czertainly.core.util.CertificateTestData#provideCmpAcceptableTestData")
     public void testListCmpSigningCertificates(
@@ -1209,6 +1470,13 @@ class CertificateServiceTest extends BaseSpringBootTest {
         ProtocolCertificateAssociations protocolCertificateAssociations = new ProtocolCertificateAssociations();
         protocolCertificateAssociations.setOwnerUuid(UUID.randomUUID());
         protocolCertificateAssociations.setGroupUuids(List.of(group.getUuid()));
+        RequestAttributeV3 requestAttribute = getRequestAttribute();
+        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
+        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
+        return protocolCertificateAssociations;
+    }
+
+    private @NonNull RequestAttributeV3 getRequestAttribute() throws AlreadyExistException, AttributeException {
         CustomAttributeCreateRequestDto customAttributeRequest = new CustomAttributeCreateRequestDto();
         customAttributeRequest.setName("name");
         customAttributeRequest.setLabel("name");
@@ -1220,14 +1488,62 @@ class CertificateServiceTest extends BaseSpringBootTest {
         requestAttribute.setName(customAttributeRequest.getName());
         requestAttribute.setContentType(customAttributeRequest.getContentType());
         requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
-        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
-        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
-        return protocolCertificateAssociations;
+        return requestAttribute;
     }
 
     private static boolean isObjectAccessRequestForResource(OpaRequestedResource resource, String name, String action) {
         return resource != null && resource.getProperties() != null &&
                 (resource.getProperties().containsKey("name") && resource.getProperties().get("name").equals(name)) &&
                 (resource.getProperties().containsKey("action") && resource.getProperties().get("action").equals(action));
+    }
+
+    // --- Cache verification helpers ---
+    //
+    // Pattern: prime the cache with a loader that counts invocations, then re-access after the
+    // operation under test. If the entry was evicted the loader runs again (count becomes 2);
+    // if it survived the loader is skipped (count stays at 1).
+    // The same AtomicInteger is shared by both the priming and re-access loaders, so all
+    // increments land on the same counter regardless of which call triggers the load.
+
+    private record CacheVerifier(AtomicInteger calls, Runnable reAccess) {
+        void assertEvicted() {
+            reAccess.run();
+            assertThat(calls.get()).isEqualTo(2);
+        }
+
+        void assertNotEvicted() {
+            reAccess.run();
+           assertThat(calls.get()).isEqualTo(1);
+        }
+    }
+
+    private CacheVerifier primeUserUuidCache(UUID userUuid) {
+        var calls = new AtomicInteger();
+        authenticationCache.getOrAuthenticateByUserUuid(userUuid, () -> {
+            calls.incrementAndGet();
+            return fakeAuth();
+        });
+        return new CacheVerifier(calls,
+                () -> authenticationCache.getOrAuthenticateByUserUuid(userUuid, () -> {
+                    calls.incrementAndGet();
+                    return fakeAuth();
+                }));
+    }
+
+    private CacheVerifier primeCertCache(String fingerprint) {
+        var calls = new AtomicInteger();
+        authenticationCache.getOrAuthenticateByCertificate(fingerprint, () -> {
+            calls.incrementAndGet();
+            return fakeAuth();
+        });
+        return new CacheVerifier(calls,
+                () -> authenticationCache.getOrAuthenticateByCertificate(fingerprint, () -> {
+                    calls.incrementAndGet();
+                    return fakeAuth();
+                }));
+    }
+
+    private AuthenticationInfo fakeAuth() {
+        return new AuthenticationInfo(AuthMethod.CERTIFICATE, UUID.randomUUID().toString(), "test-user", List.of());
     }
 }

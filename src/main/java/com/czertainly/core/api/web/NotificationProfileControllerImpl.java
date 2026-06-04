@@ -13,7 +13,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.NotificationProfileService;
+import com.czertainly.core.service.NotificationProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -25,10 +25,10 @@ import java.net.URI;
 @RestController
 public class NotificationProfileControllerImpl implements NotificationProfileController {
 
-    private NotificationProfileService notificationProfileService;
+    private NotificationProfileExternalService notificationProfileService;
 
     @Autowired
-    public void setNotificationProfileService(NotificationProfileService notificationProfileService) {
+    public void setNotificationProfileService(NotificationProfileExternalService notificationProfileService) {
         this.notificationProfileService = notificationProfileService;
     }
 

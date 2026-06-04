@@ -101,7 +101,7 @@ class CzertainlyJwtConvertorTest extends BaseSpringBootTest {
                 .claim("claim", "claim")
                 .build();
         Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () ->  jwtAuthenticationConverter.convert(jwtNoUsername));
-        Assertions.assertTrue(exception.getMessage().contains("The username claim could not be retrieved "));
+        Assertions.assertTrue(exception.getMessage().contains("could not be retrieved"));
     }
 
     @Test

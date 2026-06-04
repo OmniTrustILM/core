@@ -49,7 +49,7 @@ class RaProfileServiceTest extends ApprovalProfileData {
     private com.czertainly.core.service.RaProfileService raProfileService;
 
     @Autowired
-    private ApprovalProfileService approvalProfileService;
+    private ApprovalProfileExternalService approvalProfileService;
 
     @Autowired
     private RaProfileRepository raProfileRepository;

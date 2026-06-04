@@ -30,10 +30,10 @@ import com.czertainly.api.model.core.secret.*;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.messaging.listeners.ActionListener;
+import com.czertainly.core.messaging.jms.listeners.ActionsListener;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.SecretActionData;
-import com.czertainly.core.messaging.producers.ActionProducer;
+import com.czertainly.core.messaging.jms.producers.ActionProducer;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -98,7 +98,7 @@ class SecretServiceTest extends BaseSpringBootTest {
     @Autowired
     private ConnectorRepository connectorRepository;
     @Autowired
-    private ActionListener actionListener;
+    private ActionsListener actionListener;
     @MockitoBean
     private ActionProducer actionProducer;
     @MockitoBean

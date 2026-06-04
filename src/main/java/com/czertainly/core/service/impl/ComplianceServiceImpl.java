@@ -1,6 +1,5 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.v2.ComplianceApiClient;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.common.enums.IPlatformEnum;
@@ -9,15 +8,18 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
 import com.czertainly.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.evaluator.TriggerEvaluator;
-import com.czertainly.core.messaging.producers.EventProducer;
-import com.czertainly.core.model.compliance.*;
+import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.model.compliance.*;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.service.handler.ComplianceProfileRuleHandler;
 import com.czertainly.core.service.handler.ComplianceSubjectHandler;
 import org.slf4j.Logger;
@@ -33,13 +35,12 @@ import java.util.*;
 
 @Service
 @Transactional
-public class ComplianceServiceImpl implements ComplianceService {
+public class ComplianceServiceImpl implements ComplianceExternalService, ComplianceInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceServiceImpl.class);
     private static final String COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE = "Cannot check compliance for resource %s. Resource does not support compliance check";
 
-    private ComplianceApiClient complianceApiClient;
-    private com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1;
+    private ConnectorApiFactory connectorApiFactory;
 
     private ComplianceProfileRepository complianceProfileRepository;
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
@@ -72,13 +73,8 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Autowired
-    public void setComplianceApiClient(ComplianceApiClient complianceApiClient) {
-        this.complianceApiClient = complianceApiClient;
-    }
-
-    @Autowired
-    public void setComplianceApiClientV1(com.czertainly.api.clients.ComplianceApiClient complianceApiClientV1) {
-        this.complianceApiClientV1 = complianceApiClientV1;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -143,6 +139,7 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public ComplianceCheckResultDto getComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException {
         logger.debug("Get Compliance Check Result called for resource={} uuid={}", resource.getLabel(), objectUuid);
         if (!resource.complianceSubject() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM) {
@@ -259,7 +256,7 @@ public class ComplianceServiceImpl implements ComplianceService {
         }
 
         // load compliance profiles
-        ComplianceCheckContext context = new ComplianceCheckContext(resource, typeEnum, ruleHandler, getSubjectHandlers(true), complianceApiClient, complianceApiClientV1, eventProducer);
+        ComplianceCheckContext context = new ComplianceCheckContext(resource, typeEnum, ruleHandler, getSubjectHandlers(true), connectorApiFactory, eventProducer);
         List<ComplianceProfile> complianceProfiles = complianceProfileRepository.findWithAssociationsByUuidIn(uuids.stream().map(SecuredUUID::getValue).toList()).stream()
                 .filter(p -> !p.getAssociations().isEmpty() && !p.getComplianceRules().isEmpty()).toList();
         logger.debug("Loaded {} compliance profiles to be checked", complianceProfiles.size());
@@ -291,6 +288,7 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void checkResourceObjectsComplianceValidation(Resource resource, List<UUID> objectUuids) throws ValidationException, NotFoundException {
         if (resource == Resource.CERTIFICATE_REQUEST || (!resource.complianceSubject() && !resource.hasComplianceProfiles() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM)) {
             throw new ValidationException("Cannot check compliance for resource %s. Resource does not support compliance check or does not allow association of compliance profiles".formatted(resource.getLabel()));
@@ -352,7 +350,7 @@ public class ComplianceServiceImpl implements ComplianceService {
         Map<UUID, Map<Resource, Set<ComplianceSubject>>> complianceProfileSubjectsMap = new HashMap<>();
         loadComplianceProfilesFromComplianceSubjects(resource, objectUuids, complianceProfilesMap, complianceProfileSubjectsMap);
 
-        ComplianceCheckContext context = new ComplianceCheckContext(null, null, ruleHandler, getSubjectHandlers(false), complianceApiClient, complianceApiClientV1, eventProducer);
+        ComplianceCheckContext context = new ComplianceCheckContext(null, null, ruleHandler, getSubjectHandlers(false), connectorApiFactory, eventProducer);
         for (ComplianceProfile profile : complianceProfilesMap.values()) {
             context.addComplianceProfile(profile, complianceProfileSubjectsMap.get(profile.getUuid()));
         }

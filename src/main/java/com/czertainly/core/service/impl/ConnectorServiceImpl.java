@@ -1,7 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.AttributeApiClient;
-import com.czertainly.api.clients.HealthApiClient;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -18,6 +17,7 @@ import com.czertainly.api.model.core.connector.v2.ConnectInfoV1;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.model.auth.ResourceAction;
@@ -38,8 +38,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     private com.czertainly.core.service.v2.ConnectorService connectorServiceV2;
 
     private ConnectorRepository connectorRepository;
-    private AttributeApiClient attributeApiClient;
-    private HealthApiClient healthApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
 
     @Autowired
@@ -53,13 +52,8 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Autowired
-    public void setAttributeApiClient(AttributeApiClient attributeApiClient) {
-        this.attributeApiClient = attributeApiClient;
-    }
-
-    @Autowired
-    public void setHealthApiClient(HealthApiClient healthApiClient) {
-        this.healthApiClient = healthApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -90,6 +84,12 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    public Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException {
+        return connectorRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
+    }
+
+    @Override
     public ConnectorDto createConnector(ConnectorRequestDto request) throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         var requestV2 = new com.czertainly.api.model.core.connector.v2.ConnectorRequestDto();
         requestV2.setName(request.getName());
@@ -98,8 +98,11 @@ public class ConnectorServiceImpl implements ConnectorService {
         requestV2.setAuthType(request.getAuthType());
         requestV2.setAuthAttributes(request.getAuthAttributes());
         requestV2.setCustomAttributes(request.getCustomAttributes());
+        requestV2.setProxyUuid(request.getProxyUuid());
+        requestV2.setProxyCode(request.getProxyCode());
 
-        return convertToDtoV1(connectorServiceV2.createConnector(requestV2));
+        ConnectorDetailDto detailDto = connectorServiceV2.createConnector(requestV2);
+        return convertToDtoV1(detailDto);
     }
 
     @Override
@@ -109,8 +112,10 @@ public class ConnectorServiceImpl implements ConnectorService {
         requestV2.setAuthType(request.getAuthType());
         requestV2.setAuthAttributes(request.getAuthAttributes());
         requestV2.setCustomAttributes(request.getCustomAttributes());
+        requestV2.setProxyUuid(request.getProxyUuid());
 
-        return convertToDtoV1(connectorServiceV2.editConnector(uuid, requestV2));
+        ConnectorDetailDto detailDto = connectorServiceV2.editConnector(uuid, requestV2);
+        return convertToDtoV1(detailDto);
     }
 
     @Override
@@ -191,10 +196,8 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     @Override
     public HealthDto checkHealth(SecuredUUID uuid) throws ConnectorException, NotFoundException {
-        Connector connector = connectorRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
-
-        return healthApiClient.checkHealth(connector.mapToDto());
+        ApiClientConnectorInfo connectorDto = getConnectorForApiClient(uuid.getValue());
+        return connectorApiFactory.getHealthApiClient(connectorDto).checkHealth(connectorDto);
     }
 
     @Override
@@ -205,7 +208,8 @@ public class ConnectorServiceImpl implements ConnectorService {
 
         validateFunctionGroup(connector, functionGroup);
 
-        return attributeApiClient.listAttributeDefinitions(connector.mapToDto(), functionGroup, functionGroupType);
+        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        return connectorApiFactory.getAttributeApiClient(connectorDto).listAttributeDefinitions(connectorDto, functionGroup, functionGroupType);
     }
 
     @Override
@@ -219,7 +223,8 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     private void validateAttributes(Connector connector, FunctionGroupCode functionGroup, List<RequestAttribute> attributes, String functionGroupType) throws ValidationException, ConnectorException {
         validateFunctionGroup(connector, functionGroup);
-        attributeApiClient.validateAttributes(connector.mapToDto(), functionGroup, attributes, functionGroupType);
+        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        connectorApiFactory.getAttributeApiClient(connectorDto).validateAttributes(connectorDto, functionGroup, attributes, functionGroupType);
     }
 
     @Override
@@ -232,7 +237,8 @@ public class ConnectorServiceImpl implements ConnectorService {
         validateAttributes(connector, functionGroup, requestAttributes, functionGroupType);
 
         // get definitions from connector
-        List<BaseAttribute> definitions = attributeApiClient.listAttributeDefinitions(connector.mapToDto(), functionGroup, functionGroupType);
+        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        List<BaseAttribute> definitions = connectorApiFactory.getAttributeApiClient(connectorDto).listAttributeDefinitions(connectorDto, functionGroup, functionGroupType);
 
         // validate and update definitions with attribute engine
         attributeEngine.validateUpdateDataAttributes(connector.getUuid(), null, definitions, requestAttributes);
@@ -244,15 +250,21 @@ public class ConnectorServiceImpl implements ConnectorService {
         Connector connector = connectorRepository.findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
 
+        ConnectorDto connectorDto = connector.mapToDto();
         Map<FunctionGroupCode, Map<String, List<BaseAttribute>>> attributes = new EnumMap<>(FunctionGroupCode.class);
-        for (FunctionGroupDto fg : connector.mapToDto().getFunctionGroups()) {
+        for (FunctionGroupDto fg : connectorDto.getFunctionGroups()) {
             Map<String, List<BaseAttribute>> kindsAttribute = new HashMap<>();
             for (String kind : fg.getKinds()) {
-                kindsAttribute.put(kind, attributeApiClient.listAttributeDefinitions(connector.mapToDto(), fg.getFunctionGroupCode(), kind));
+                kindsAttribute.put(kind, connectorApiFactory.getAttributeApiClient(connectorDto).listAttributeDefinitions(connectorDto, fg.getFunctionGroupCode(), kind));
             }
             attributes.put(fg.getFunctionGroupCode(), kindsAttribute);
         }
         return attributes;
+    }
+
+    @Override
+    public ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException {
+        return connectorServiceV2.getConnectorForApiClient(connectorUuid);
     }
 
     @Override
@@ -340,6 +352,7 @@ public class ConnectorServiceImpl implements ConnectorService {
         dto.setAuthAttributes(connectorDetailDto.getAuthAttributes());
         dto.setFunctionGroups(connectorDetailDto.getFunctionGroups());
         dto.setCustomAttributes(connectorDetailDto.getCustomAttributes());
+        dto.setProxy(connectorDetailDto.getProxy());
 
         return dto;
     }

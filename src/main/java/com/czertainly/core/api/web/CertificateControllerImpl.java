@@ -18,8 +18,8 @@ import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalService;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.ApprovalExternalService;
+import com.czertainly.core.service.CertificateEventHistoryExternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.converter.CertificateFormatConverter;
@@ -46,11 +46,11 @@ public class CertificateControllerImpl implements CertificateController {
 
     private CertificateService certificateService;
 
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
 
     private ClientOperationService clientOperationService;
 
-    private ApprovalService approvalService;
+    private ApprovalExternalService approvalService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -100,9 +100,15 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
+    public FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws AlreadyExistException, CertificateException {
+        return certificateService.uploadAsync(request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
     public ResponseEntity<UuidDto> upload(@RequestBody UploadCertificateRequestDto request)
             throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException, AttributeException {
-        CertificateDetailDto dto = certificateService.upload(request, false);
+        UuidDto dto = certificateService.uploadSync(request);
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{uuid}")
@@ -243,7 +249,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryExternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -253,7 +259,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
     }
 }

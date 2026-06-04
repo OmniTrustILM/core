@@ -35,7 +35,7 @@ public class OAuth2TestUtil {
         return signedJWT.serialize();
     }
 
-    public static AuthenticationSettingsDto getAuthenticationSettings(String userInfoUrl, int port, List<String> audiences) {
+    public static AuthenticationSettingsDto getAuthenticationSettings(String userInfoUrl, int port, List<String> audiences, String issuerUrl) {
         OAuth2ProviderSettingsDto providerSettingsDto = new OAuth2ProviderSettingsDto();
         providerSettingsDto.setName("test");
         providerSettingsDto.setClientId("client");
@@ -45,6 +45,7 @@ public class OAuth2TestUtil {
         providerSettingsDto.setSkew(0);
         providerSettingsDto.setUserInfoUrl(userInfoUrl);
         providerSettingsDto.setAudiences(audiences);
+        providerSettingsDto.setIssuerUrl(issuerUrl);
         providerSettingsDto.setClientSecret(SecretsUtil.encryptAndEncodeSecretString("secret", SecretEncodingVersion.V1));
         AuthenticationSettingsDto authenticationSettingsDto = new AuthenticationSettingsDto();
         Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();

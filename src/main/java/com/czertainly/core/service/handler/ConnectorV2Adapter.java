@@ -1,14 +1,13 @@
 package com.czertainly.core.service.handler;
 
 import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.clients.v2.HealthApiClient;
-import com.czertainly.api.clients.v2.InfoApiClient;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.connector.v2.*;
 import com.czertainly.api.model.core.connector.v2.ConnectInfo;
 import com.czertainly.api.model.core.connector.v2.ConnectInfoV2;
+import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.ConnectorInterfaceEntity;
 import com.czertainly.core.dao.repository.ConnectorInterfaceRepository;
@@ -26,18 +25,12 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
 
     private static final Logger logger = LoggerFactory.getLogger(ConnectorV2Adapter.class);
 
-    private InfoApiClient infoApiClient;
-    private HealthApiClient healthApiClient;
+    private ConnectorApiFactory connectorApiFactory;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
 
     @Autowired
-    public void setInfoApiClient(InfoApiClient infoApiClient) {
-        this.infoApiClient = infoApiClient;
-    }
-
-    @Autowired
-    public void setHealthApiClient(HealthApiClient healthApiClient) {
-        this.healthApiClient = healthApiClient;
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -52,17 +45,17 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
 
     @Override
     public ConnectorInfo getInfo(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        return infoApiClient.getConnectorInfo(connectorInfo).getConnector();
+        return connectorApiFactory.getInfoApiClientV2(connectorInfo).getConnectorInfo(connectorInfo).getConnector();
     }
 
     @Override
     public HealthInfo checkHealth(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        return healthApiClient.checkHealth(connectorInfo);
+        return connectorApiFactory.getHealthApiClientV2(connectorInfo).checkHealth(connectorInfo);
     }
 
     @Override
     public ConnectInfoV2 checkConnection(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        InfoResponse infoResponse = infoApiClient.getConnectorInfo(connectorInfo);
+        InfoResponse infoResponse = connectorApiFactory.getInfoApiClientV2(connectorInfo).getConnectorInfo(connectorInfo);
 
         ConnectInfoV2 connectInfo = new ConnectInfoV2();
         connectInfo.setConnectorUuid(NullUtil.parseUuidOrNull(connectorInfo.getUuid()));

@@ -110,7 +110,7 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReference.setConnectorUuid(connector.getUuid());
         tokenInstanceReference.setKind("sample");
-        tokenInstanceReference.setTokenInstanceUuid("1l");
+        tokenInstanceReference.setTokenInstanceUuid("11111111-1111-1111-1111-111111111111");
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
         tokenProfile = new TokenProfile();
@@ -320,6 +320,31 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testEncrypt_CorrectTokenInstanceUuidInUrl() {
+        CipherRequestData data = new CipherRequestData();
+        data.setIdentifier("identifier");
+        data.setData(Base64.getEncoder().encodeToString("Hello World!".getBytes(StandardCharsets.UTF_8)));
+
+        CipherDataRequestDto requestDto = new CipherDataRequestDto();
+        requestDto.setCipherData(List.of(data));
+        requestDto.setCipherAttributes(List.of());
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathEqualTo(
+                        "/v1/cryptographyProvider/tokens/%s/keys/%s/encrypt"
+                                .formatted(tokenInstanceReference.getTokenInstanceUuid(), content1.getKeyReferenceUuid())))
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertDoesNotThrow(() -> cryptographicOperationService.encryptData(
+                tokenInstanceReference.getSecuredParentUuid(),
+                tokenProfile.getSecuredUuid(),
+                key.getUuid(),
+                content1.getUuid(),
+                requestDto
+        ));
+    }
+
+    @Test
     void testEncrypt_NotFound() {
         Assertions.assertThrows(
                 NotFoundException.class,
@@ -363,6 +388,31 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
                                 "/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/decrypt"
                         )
                 )
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertDoesNotThrow(() -> cryptographicOperationService.decryptData(
+                tokenInstanceReference.getSecuredParentUuid(),
+                tokenProfile.getSecuredUuid(),
+                key.getUuid(),
+                content1.getUuid(),
+                requestDto
+        ));
+    }
+
+    @Test
+    void testDecrypt_CorrectTokenInstanceUuidInUrl() {
+        CipherRequestData data = new CipherRequestData();
+        data.setIdentifier("identifier");
+        data.setData(Base64.getEncoder().encodeToString("Hello World!".getBytes(StandardCharsets.UTF_8)));
+
+        CipherDataRequestDto requestDto = new CipherDataRequestDto();
+        requestDto.setCipherData(List.of(data));
+        requestDto.setCipherAttributes(List.of());
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathEqualTo(
+                        "/v1/cryptographyProvider/tokens/%s/keys/%s/decrypt"
+                                .formatted(tokenInstanceReference.getTokenInstanceUuid(), content1.getKeyReferenceUuid())))
                 .willReturn(WireMock.okJson("{}")));
 
         Assertions.assertDoesNotThrow(() -> cryptographicOperationService.decryptData(
@@ -566,6 +616,39 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testSign_CorrectTokenInstanceUuidInUrl() {
+        SignatureRequestData data = new SignatureRequestData();
+        data.setIdentifier("identifier");
+        data.setData(Base64.getEncoder().encodeToString("Hello World!".getBytes(StandardCharsets.UTF_8)));
+
+        RequestAttributeV3 reqDto1 = new RequestAttributeV3();
+        reqDto1.setName("data_rsaSigScheme");
+        reqDto1.setContent(List.of(new StringAttributeContentV3("PSS")));
+
+        RequestAttributeV3 reqDto2 = new RequestAttributeV3();
+        reqDto2.setName("data_sigDigest");
+        reqDto2.setContent(List.of(new StringAttributeContentV3("SHA-256")));
+
+        SignDataRequestDto requestDto = new SignDataRequestDto();
+        requestDto.setData(List.of(data));
+        requestDto.setSignatureAttributes(List.of(reqDto1, reqDto2));
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathEqualTo(
+                        "/v1/cryptographyProvider/tokens/%s/keys/%s/sign"
+                                .formatted(tokenInstanceReference.getTokenInstanceUuid(), content1.getKeyReferenceUuid())))
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertDoesNotThrow(() -> cryptographicOperationService.signData(
+                tokenInstanceReference.getSecuredParentUuid(),
+                tokenProfile.getSecuredUuid(),
+                key.getUuid(),
+                content1.getUuid(),
+                requestDto
+        ));
+    }
+
+    @Test
     void testSign_NotFound() {
         Assertions.assertThrows(
                 NotFoundException.class,
@@ -624,6 +707,40 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
                 content1.getUuid(),
                 requestDto
         );
+    }
+
+    @Test
+    void testVerify_CorrectTokenInstanceUuidInUrl() throws ConnectorException, NotFoundException {
+        SignatureRequestData data = new SignatureRequestData();
+        data.setIdentifier("identifier");
+        data.setData(Base64.getEncoder().encodeToString("Hello World!".getBytes(StandardCharsets.UTF_8)));
+
+        RequestAttributeV3 reqDto1 = new RequestAttributeV3();
+        reqDto1.setName("data_rsaSigScheme");
+        reqDto1.setContent(List.of(new StringAttributeContentV3("PSS")));
+
+        RequestAttributeV3 reqDto2 = new RequestAttributeV3();
+        reqDto2.setName("data_sigDigest");
+        reqDto2.setContent(List.of(new StringAttributeContentV3("SHA-256")));
+
+        VerifyDataRequestDto requestDto = new VerifyDataRequestDto();
+        requestDto.setData(List.of(data));
+        requestDto.setSignatures(List.of(data));
+        requestDto.setSignatureAttributes(List.of(reqDto1, reqDto2));
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathEqualTo(
+                        "/v1/cryptographyProvider/tokens/%s/keys/%s/verify"
+                                .formatted(tokenInstanceReference.getTokenInstanceUuid(), content1.getKeyReferenceUuid())))
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertDoesNotThrow(() -> cryptographicOperationService.verifyData(
+                tokenInstanceReference.getSecuredParentUuid(),
+                tokenProfile.getSecuredUuid(),
+                key.getUuid(),
+                content1.getUuid(),
+                requestDto
+        ));
     }
 
     @Test
@@ -714,7 +831,7 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
 
     private void mockSignResponse(String keyUuid, String signature) {
         mockServer.stubFor(WireMock
-                .post(WireMock.urlPathEqualTo("/v1/cryptographyProvider/tokens/%s/keys/%s/sign".formatted(tokenInstanceReference.getUuid().toString(), keyUuid)))
+                .post(WireMock.urlPathEqualTo("/v1/cryptographyProvider/tokens/%s/keys/%s/sign".formatted(tokenInstanceReference.getTokenInstanceUuid(), keyUuid)))
                 .willReturn(WireMock.okJson("""
                         {
                             "signatures" : [

@@ -24,8 +24,10 @@ import java.util.List;
 
 public class CryptographyUtil {
     public static AlgorithmIdentifier prepareSignatureAlgorithm(KeyAlgorithm keyAlgorithm, String publicKey, List<RequestAttribute> signatureAttributes) {
-        String signatureAlgorithm;
+        return getAlgorithmIdentifierInstance(resolveSignatureAlgorithmName(keyAlgorithm, publicKey, signatureAttributes));
+    }
 
+    public static String resolveSignatureAlgorithmName(KeyAlgorithm keyAlgorithm, String publicKey, List<? extends RequestAttribute> signatureAttributes) {
         switch (keyAlgorithm) {
             case RSA -> {
                 final RsaSignatureScheme scheme = RsaSignatureScheme.findByCode(
@@ -39,12 +41,11 @@ public class CryptographyUtil {
                                 .getData()
                 );
 
-                signatureAlgorithm = digest.getProviderName() + "WITHRSA";
+                String name = digest.getProviderName() + "WITHRSA";
                 if (scheme == RsaSignatureScheme.PSS) {
-                    signatureAlgorithm += "ANDMGF1";
+                    name += "ANDMGF1";
                 }
-
-                return getAlgorithmIdentifierInstance(signatureAlgorithm);
+                return name;
             }
             case ECDSA -> {
                 final DigestAlgorithm digest = DigestAlgorithm.findByCode(
@@ -52,75 +53,66 @@ public class CryptographyUtil {
                                         EcdsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST, signatureAttributes, StringAttributeContentV2.class)
                                 .getData()
                 );
-
-                signatureAlgorithm = digest.getProviderName() + "WITHECDSA";
-
-                return getAlgorithmIdentifierInstance(signatureAlgorithm);
+                return digest.getProviderName() + "WITHECDSA";
             }
+            case FALCON, MLDSA, SLHDSA -> {
+                return resolvePqcParameterSpecName(keyAlgorithm, publicKey);
+            }
+            default -> throw new ValidationException(
+                    ValidationError.create("Cryptographic algorithm not supported"));
+        }
+    }
+
+    /**
+     * Resolves the post-quantum signature parameter-spec name for FALCON / ML-DSA / SLH-DSA public keys, and returns
+     * {@code null} for every other algorithm. The name is derived solely from the public key.
+     *
+     * @param keyAlgorithm the key algorithm
+     * @param publicKey    Base64-encoded {@code SubjectPublicKeyInfo}; read only for PQC algorithms
+     * @return the parameter-spec name for FALCON/ML-DSA/SLH-DSA, {@code null} otherwise
+     * @throws ValidationException if a PQC public key cannot be parsed
+     */
+    public static String resolvePqcParameterSpecName(KeyAlgorithm keyAlgorithm, String publicKey) {
+        if (publicKey == null) {
+            return switch (keyAlgorithm) {
+                case FALCON, MLDSA, SLHDSA -> throw new ValidationException(
+                        ValidationError.create("PQC algorithm requires a public key to derive the parameter-spec name"));
+                default -> null;
+            };
+        }
+        // IOException is declared by each BC constructor but not triggered by any known input —
+        // caught defensively in case a future BC version starts throwing it for malformed payloads.
+        switch (keyAlgorithm) {
             case FALCON -> {
                 try {
-                    String algorithmName = new BCFalconPublicKey(
-                            SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
-                            .getParameterSpec()
-                            .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
-                    throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                    return new BCFalconPublicKey(
+                            SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
+                            .getParameterSpec().getName();
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
-
-
             }
             case MLDSA -> {
                 try {
-                    String algorithmName = new BCMLDSAPublicKey(
-                            SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
-                            .getParameterSpec()
-                            .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
-                    throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                    return new BCMLDSAPublicKey(
+                            SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
+                            .getParameterSpec().getName();
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
             }
             case SLHDSA -> {
                 try {
-                    String algorithmName = new BCSLHDSAPublicKey(
-                            SubjectPublicKeyInfo.getInstance(
-                                    Base64.getDecoder().decode(
-                                            publicKey
-                                    )
-                            ))
-                            .getParameterSpec()
-                            .getName();
-                    return getAlgorithmIdentifierInstance(algorithmName);
-                } catch (IOException e) {
-                    throw new ValidationException(
-                            ValidationError.create(
-                                    "Failed obtaining signature algorithm"
-                            )
-                    );
+                    return new BCSLHDSAPublicKey(
+                            SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
+                            .getParameterSpec().getName();
+                } catch (IOException | IllegalArgumentException | ClassCastException e) {
+                    throw new ValidationException(ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
                 }
             }
-            default -> throw new ValidationException(
-                    ValidationError.create(
-                            "Cryptographic algorithm not supported"
-                    )
-            );
+            default -> {
+                return null;
+            }
         }
     }
 

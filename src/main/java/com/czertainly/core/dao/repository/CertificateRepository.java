@@ -1,13 +1,16 @@
 package com.czertainly.core.dao.repository;
 
 import com.czertainly.api.model.core.certificate.CertificateDto;
+import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.repository.custom.CustomCertificateRepository;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,8 +21,22 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Spring Data repository for {@link Certificate} entities.
+ *
+ * <p><strong>Cache eviction:</strong>
+ * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts mutations on this
+ * bean and evicts both the certificate-chain cache and the signing-certificate cache automatically —
+ * callers do not need to evict manually.
+ *
+ * <p>The naming convention is the contract: any new mutating method must begin with one of the verb
+ * prefixes matched by the aspect's pointcut. Over-matching a read-only method is harmless; under-matching
+ * a mutation leaves stale entries cached for up to the TTL.
+ */
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
+
+    List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 
     @EntityGraph(attributePaths = {"certificateContent"})
     Optional<Certificate> findByUuid(UUID uuid);
@@ -32,6 +49,18 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
     Optional<Certificate> findWithAssociationsByUuid(UUID uuid);
 
+    /**
+     * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven
+     * pending-state endpoints (manuallyIssueCertificate, manuallyConfirmRevoke,
+     * cancelPendingCertificateOperation). Issues {@code SELECT ... FOR UPDATE} on the
+     * certificate row so concurrent operator actions on the same pending certificate
+     * serialize. Must be called inside an active transaction, otherwise the lock is
+     * released immediately on query completion.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
+    Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
+
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
     List<Certificate> findWithAssociationsByUuidInOrderByCreatedDesc(List<UUID> uuids);
 
@@ -42,6 +71,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     /** Batch variant used when preloading a list of chain ancestors in one round-trip for {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
+
+    @EntityGraph(attributePaths = {"key", "key.items"})
+    Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
@@ -157,6 +189,72 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @Query("UPDATE Certificate c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
 
+    /**
+     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
+     * refreshing {@code i_upd} explicitly.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateIssuerReference(@Param("uuid") UUID uuid,
+                               @Param("serial") String serial,
+                               @Param("issuerUuid") UUID issuerUuid);
+
+    /**
+     * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = NULL, c.issuerCertificateUuid = NULL, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void clearIssuerReference(@Param("uuid") UUID uuid);
+
+    /**
+     * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.validationStatus = :status, " +
+            "    c.statusValidationTimestamp = :timestamp, " +
+            "    c.certificateValidationResult = :result, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateValidationResult(@Param("uuid") UUID uuid,
+                                @Param("status") CertificateValidationStatus status,
+                                @Param("timestamp") OffsetDateTime timestamp,
+                                @Param("result") String result);
+
+    /**
+     * Conditionally transitions a single certificate row from {@code ISSUED} to {@code REVOKED}.
+     * Returns the number of affected rows:
+     * <ul>
+     *     <li>1 if the transition was successful</li>
+     *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
+     * </ul>
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).REVOKED}, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid " +
+            "  AND c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}")
+    int transitionIssuedToRevoked(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the current {@code state} of a certificate row by UUID.
+     */
+    @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
+
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}certificate (
@@ -167,7 +265,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             extended_key_usage,fingerprint,issuer_common_name,issuer_dn,issuer_dn_normalized,
             issuer_serial_number,key_size,key_usage,key_uuid,public_key_algorithm,
             public_key_fingerprint,serial_number,signature_algorithm,subject_alternative_names,
-            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint)
+            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint,
+            qc_compliance,extended_key_usage_critical,qc_sscd,qc_type,qc_cc_legislation)
             VALUES (
             :#{#cert.uuid}, :#{#cert.author}, :#{#cert.created}, :#{#cert.updated}, :#{#cert.raProfileUuid}, :#{#cert.certificateContentId},
             :#{#cert.certificateRequestUuid}, :#{#cert.issuerCertificateUuid}, :#{#cert.certificateType.name()},
@@ -177,7 +276,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             :#{#cert.issuerSerialNumber}, :#{#cert.keySize}, :#{#cert.keyUsageBitMask}, :#{#cert.keyUuid}, :#{#cert.publicKeyAlgorithm},
             :#{#cert.publicKeyFingerprint}, :#{#cert.serialNumber}, :#{#cert.signatureAlgorithm}, :#{#cert.subjectAlternativeNames},
             :#{#cert.subjectDn}, :#{#cert.subjectDnNormalized}, :#{#cert.subjectType.name()}, :#{#cert.trustedCa}, :#{#cert.userUuid},
-            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint}
+            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint},
+            :#{#cert.qcCompliance}, :#{#cert.extendedKeyUsageCritical}, :#{#cert.qcSscd}, :#{#cert.qcType}, :#{#cert.qcCcLegislation}
             )
             ON CONFLICT (fingerprint)
             DO NOTHING
@@ -233,24 +333,54 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * @param maxDepth  maximum number of hops to follow (safety cap against circular references)
      * @return ordered list of UUID strings (depth 0 = start cert, depth N = root)
      */
-    // NOTE: PostgreSQL 14+ supports a cleaner native cycle-detection syntax via the CYCLE clause.
     @Query(value = """
             WITH RECURSIVE chain AS (
-                SELECT uuid, issuer_certificate_uuid, 0 AS depth, ARRAY[uuid] AS path
+                SELECT uuid, issuer_certificate_uuid, 0 AS depth
                 FROM {h-schema}certificate
                 WHERE uuid = :startUuid
 
                 UNION ALL
 
-                SELECT c.uuid, c.issuer_certificate_uuid, chain.depth + 1, chain.path || c.uuid
+                SELECT c.uuid, c.issuer_certificate_uuid, chain.depth + 1
                 FROM {h-schema}certificate c
                 INNER JOIN chain ON chain.issuer_certificate_uuid = c.uuid
                 WHERE chain.depth < :maxDepth
-                  AND NOT (c.uuid = ANY(chain.path))
             )
-            SELECT uuid::text FROM chain ORDER BY depth ASC
+            CYCLE uuid SET is_cycle USING cycle_path
+            SELECT uuid::text FROM chain WHERE NOT is_cycle ORDER BY depth ASC
             """, nativeQuery = true)
     List<String> findCertificateChainUuids(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
+
+    /**
+     * Fetches the base64-encoded DER contents of an entire certificate ancestor chain in a single recursive CTE query.
+     * The returned list is ordered by traversal depth ascending (index 0 = start certificate). Certificates whose
+     * {@code certificate_content_id} is {@code null} are excluded by the inner join.
+     *
+     * @param startUuid the UUID of the certificate whose chain is requested
+     * @param maxDepth  maximum number of hops to follow (safety cap against circular references)
+     * @return ordered list of base64-encoded DER contents (depth 0 = start cert, depth N = root)
+     */
+    @Query(value = """
+            WITH RECURSIVE chain AS (
+                SELECT uuid, issuer_certificate_uuid, certificate_content_id, 0 AS depth
+                FROM {h-schema}certificate
+                WHERE uuid = :startUuid
+
+                UNION ALL
+
+                SELECT c.uuid, c.issuer_certificate_uuid, c.certificate_content_id, chain.depth + 1
+                FROM {h-schema}certificate c
+                INNER JOIN chain ON chain.issuer_certificate_uuid = c.uuid
+                WHERE chain.depth < :maxDepth
+            )
+            CYCLE uuid SET is_cycle USING cycle_path
+            SELECT cc.content
+            FROM chain
+            JOIN {h-schema}certificate_content cc ON cc.id = chain.certificate_content_id
+            WHERE NOT chain.is_cycle
+            ORDER BY chain.depth ASC
+            """, nativeQuery = true)
+    List<String> findCertificateChainContents(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
 
     @Query(
             value = """

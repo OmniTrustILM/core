@@ -8,6 +8,7 @@ import lombok.*;
 @Setter
 @ToString
 @AllArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class AuditLogMessage {
 
     private LogRecord logRecord;

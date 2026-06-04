@@ -8,7 +8,8 @@ import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
 import com.czertainly.api.model.core.connector.v2.ConnectorRequestDto;
-import com.czertainly.core.service.ConnectorRegistrationService;
+import com.czertainly.core.security.authz.UnauthenticatedEndpoint;
+import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import com.czertainly.core.service.v2.ConnectorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +20,7 @@ import jakarta.transaction.Transactional;
 
 @Service
 @Transactional
-public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationService {
+public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationExternalService {
     private static final Logger logger = LoggerFactory.getLogger(ConnectorRegistrationServiceImpl.class);
 
     private ConnectorService connectorService;
@@ -30,6 +31,7 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationSe
     }
 
     @Override
+    @UnauthenticatedEndpoint
     public UuidDto registerConnector(com.czertainly.api.model.client.connector.ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         ConnectorRequestDto requestV2 = new ConnectorRequestDto();
         requestV2.setName(request.getName());
@@ -38,6 +40,8 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationSe
         requestV2.setAuthType(request.getAuthType());
         requestV2.setAuthAttributes(request.getAuthAttributes());
         requestV2.setCustomAttributes(request.getCustomAttributes());
+        requestV2.setProxyCode(request.getProxyCode());
+        requestV2.setProxyUuid(request.getProxyUuid());
 
         ConnectorDetailDto connectorDto = connectorService.createNewWaitingConnector(requestV2);
         logger.info("Connector {} registered and is waiting for approval.", request.getName());
@@ -48,6 +52,7 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationSe
     }
 
     @Override
+    @UnauthenticatedEndpoint
     public ConnectorDetailDto registerConnectorV2(ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         return connectorService.createNewWaitingConnector(request);
     }

@@ -4,6 +4,8 @@ import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
@@ -128,7 +130,7 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(tokenInstanceReference.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -168,7 +170,31 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
+    }
+
+    @Test
+    void testAddTokenInstance_invalidUuidFromConnector() {
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/cryptographyProvider/[^/]+/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/cryptographyProvider/[^/]+/attributes/validate"))
+                .willReturn(WireMock.okJson("true")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens"))
+                .willReturn(WireMock.okJson("{ \"uuid\": \"not-a-valid-uuid\" }")));
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/status"))
+                .willReturn(WireMock.okJson("{}")));
+
+        TokenInstanceRequestDto request = new TokenInstanceRequestDto();
+        request.setName("testTokenInstance3");
+        request.setConnectorUuid(connector.getUuid().toString());
+        request.setAttributes(List.of());
+        request.setKind("Soft");
+
+        Assertions.assertThrows(ValidationException.class, () -> tokenInstanceService.createTokenInstance(request));
     }
 
     @Test
@@ -300,5 +326,17 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = tokenInstanceService.getResourceObjectExternal(tokenInstanceReference.getSecuredUuid());
         Assertions.assertEquals(tokenInstanceReference.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(tokenInstanceReference.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testDeleteTokenInstance_connectorError_entityNotDeleted() {
+        mockServer.stubFor(WireMock.delete(WireMock.anyUrl())
+                .willReturn(WireMock.aResponse().withStatus(500).withBody("Simulated connector error")));
+
+        tokenInstanceService.deleteTokenInstance(List.of(tokenInstanceReference.getSecuredUuid()));
+
+        Assertions.assertTrue(
+                tokenInstanceReferenceRepository.findById(tokenInstanceReference.getUuid()).isPresent(),
+                "Entity must remain in DB because the connector returned 500 and the catch block absorbed the error");
     }
 }

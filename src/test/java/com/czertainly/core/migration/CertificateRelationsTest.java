@@ -9,7 +9,6 @@ import com.czertainly.core.dao.entity.CertificateRelationId;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRelationRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
-import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestUtil;
 import db.migration.V202508130940__CertificateRelations;
 import org.flywaydb.core.api.migration.Context;
@@ -19,8 +18,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
-
 import javax.sql.DataSource;
 import java.sql.Statement;
 import java.util.Base64;
@@ -29,8 +26,7 @@ import java.util.List;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class CertificateRelationsTest extends BaseSpringBootTest {
+class CertificateRelationsTest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

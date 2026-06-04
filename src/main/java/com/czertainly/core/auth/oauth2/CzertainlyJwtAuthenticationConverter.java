@@ -1,6 +1,5 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.api.model.core.logging.enums.OperationResult;
 import com.czertainly.api.model.core.settings.SettingsSection;
@@ -11,7 +10,7 @@ import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authn.client.CzertainlyAuthenticationClient;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.OAuth2Util;
 import jakarta.annotation.Nullable;
@@ -33,10 +32,10 @@ public class CzertainlyJwtAuthenticationConverter implements Converter<Jwt, Abst
 
     private CzertainlyAuthenticationClient authenticationClient;
 
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 
@@ -62,7 +61,7 @@ public class CzertainlyJwtAuthenticationConverter implements Converter<Jwt, Abst
             throw e;
         }
 
-        AuthenticationInfo authInfo = authenticationClient.authenticate(AuthMethod.TOKEN, claims, false);
+        AuthenticationInfo authInfo = authenticationClient.authenticateByToken(claims);
         CzertainlyUserDetails userDetails = new CzertainlyUserDetails(authInfo);
         // Provider settings will not be null, otherwise converter would not have been reached from decoder
         logger.debug("User '{}' has been authenticated using JWT from OAuth2 Provider '{}'.", userDetails.getUsername(), providerSettings == null ? " " : providerSettings.getName());

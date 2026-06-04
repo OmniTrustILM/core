@@ -10,7 +10,7 @@ import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authn.client.CzertainlyAuthenticationClient;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.OAuth2Constants;
 import com.czertainly.core.util.OAuth2Util;
@@ -52,10 +52,10 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
     private CzertainlyClientRegistrationRepository clientRegistrationRepository;
     private OAuth2AuthorizedClientProvider authorizedClientProvider;
 
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 
@@ -94,7 +94,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
             // If the access token is expired, try to refresh it
             if (expiresAt != null && expiresAt.isBefore(now.plus(skew, ChronoUnit.SECONDS))) {
                 try {
-                    authorizedClient = refreshToken(oauthToken, authorizedClient, request.getSession(), clientRegistration);
+                    authorizedClient = refreshToken(oauthToken, authorizedClient, request.getSession(), clientRegistration, providerSettings);
                     oauth2AccessToken = authorizedClient.getAccessToken();
                 } catch (ClientAuthorizationException | CzertainlyAuthenticationException e) {
                     request.getSession().invalidate();
@@ -139,7 +139,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
     private void authenticate(HttpServletRequest request, Map<String, Object> claims, ClientRegistration clientRegistration) {
         AuthenticationInfo authInfo;
         try {
-            authInfo = authenticationClient.authenticate(AuthMethod.TOKEN, claims, false);
+            authInfo = authenticationClient.authenticateByToken(claims);
             CzertainlyAuthenticationToken authenticationToken = new CzertainlyAuthenticationToken(new CzertainlyUserDetails(authInfo));
             SecurityContextHolder.getContext().setAuthentication(authenticationToken);
             LOGGER.debug("Session of user '{}' logged using OAuth2 Provider '{}' has been successfully validated.", authenticationToken.getPrincipal().getUsername(), clientRegistration.getRegistrationId());
@@ -155,7 +155,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
         }
     }
 
-    private OAuth2AuthorizedClient refreshToken(OAuth2AuthenticationToken oauthToken, OAuth2AuthorizedClient authorizedClient, HttpSession session, ClientRegistration clientRegistration) {
+    private OAuth2AuthorizedClient refreshToken(OAuth2AuthenticationToken oauthToken, OAuth2AuthorizedClient authorizedClient, HttpSession session, ClientRegistration clientRegistration, OAuth2ProviderSettingsDto providerSettings) {
         if (authorizedClient.getRefreshToken() != null) {
             // Refresh the token
             OAuth2AuthorizationContext context = OAuth2AuthorizationContext.withAuthorizedClient(authorizedClient)
@@ -167,9 +167,15 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
 
             // Save the refreshed authorized client with refreshed access token
             if (authorizedClient != null) {
-                Object usernameClaim = oauthToken.getPrincipal().getAttribute(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME);
+
+                // Use configurable username claim name from provider settings, with fallback to default
+                String usernameClaimName = providerSettings.getUsernameClaim() != null && !providerSettings.getUsernameClaim().isEmpty()
+                        ? providerSettings.getUsernameClaim()
+                        : OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME;
+
+                Object usernameClaim = oauthToken.getPrincipal().getAttribute(usernameClaimName);
                 if (usernameClaim == null) {
-                    throw new CzertainlyAuthenticationException("Missing username claim in token attributes.");
+                    throw new CzertainlyAuthenticationException("Missing username claim '%s' in token attributes.".formatted(usernameClaimName));
                 }
 
                 LOGGER.debug("OAuth2 Access Token has been refreshed for user {}.", usernameClaim);

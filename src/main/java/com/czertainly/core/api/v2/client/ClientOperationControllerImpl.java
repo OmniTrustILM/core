@@ -118,4 +118,43 @@ public class ClientOperationControllerImpl implements ClientOperationController 
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         clientOperationService.validateRevokeCertificateAttributes(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), attributes);
     }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.FINALIZE_ISSUE)
+    public com.czertainly.api.model.core.certificate.CertificateDetailDto manuallyIssueCertificate(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid,
+            @LogResource(uuid = true) String certificateUuid,
+            com.czertainly.api.model.client.certificate.UploadCertificateRequestDto request)
+            throws NotFoundException, CertificateException, AlreadyExistException, ConnectorException, AttributeException {
+        return clientOperationService.manuallyIssueCertificate(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid),
+                certificateUuid, request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.CONFIRM_REVOKE)
+    public void manuallyConfirmRevoke(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid,
+            @LogResource(uuid = true) String certificateUuid) throws NotFoundException {
+        clientOperationService.manuallyConfirmRevoke(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid),
+                certificateUuid);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.CANCEL)
+    public com.czertainly.api.model.core.certificate.CertificateDetailDto cancelPendingCertificateOperation(
+            String authorityUuid,
+            @LogResource(uuid = true, affiliated = true) String raProfileUuid,
+            @LogResource(uuid = true) String certificateUuid,
+            com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto request) throws NotFoundException {
+        return clientOperationService.cancelPendingCertificateOperation(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid),
+                certificateUuid, request);
+    }
 }

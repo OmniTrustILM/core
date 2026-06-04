@@ -1,7 +1,7 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.czertainly.api.exception.ConnectorException;
+import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.czertainly.api.exception.ValidationError;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
@@ -11,7 +11,7 @@ import com.czertainly.api.model.connector.cryptography.operations.SignDataRespon
 import com.czertainly.api.model.connector.cryptography.operations.VerifyDataRequestDto;
 import com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto;
 import com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDto;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.util.CryptographyUtil;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.operator.ContentSigner;
@@ -31,8 +31,8 @@ public class TokenContentSigner implements ContentSigner {
 
     private static final Logger logger = LoggerFactory.getLogger(TokenContentSigner.class);
 
-    private final CryptographicOperationsApiClient apiClient;
-    private final ConnectorApiClientDto connector;
+    private final CryptographicOperationsSyncApiClient apiClient;
+    private final ApiClientConnectorInfo connector;
     private final UUID privateKeyUuid;
     private final UUID publicKeyUuid;
     //Used to determine the signature algorithm for the PQC Items
@@ -44,8 +44,8 @@ public class TokenContentSigner implements ContentSigner {
 
     private final ByteArrayOutputStream outputStream;
 
-    public TokenContentSigner(CryptographicOperationsApiClient apiClient,
-                              ConnectorApiClientDto connector,
+    public TokenContentSigner(CryptographicOperationsSyncApiClient apiClient,
+                              ApiClientConnectorInfo connector,
                               UUID tokenInstanceUuid,
                               UUID privateKeyUuid,
                               UUID publicKeyUuid,
