@@ -1462,11 +1462,11 @@ class CertificateServiceTest extends BaseSpringBootTest {
         List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
         Assertions.assertFalse(resourceObjects.isEmpty());
         Assertions.assertEquals(4, resourceObjects.size());
-        String name = "%s (SN: %s)";
+        String name = "%s (%s)";
         Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber()))));
         Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber()))));
         Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber()))));
-        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(nullSerialNumber.getCommonName())));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued"))));
     }
 
 

@@ -1436,8 +1436,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                             cb.nullif(cb.trim(root.get(Certificate_.commonName)), ""),
                             CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
                     Expression<String> snSuffix = cb.coalesce(
-                            cb.concat(" (SN: ", cb.concat(root.get(Certificate_.serialNumber), ")")),
-                            "");
+                            cb.concat(" (", cb.concat(root.get(Certificate_.serialNumber), ")")),
+                            " (Not Issued)");
                     return cb.concat(displayName, snSuffix);
                 },
                 additionalWhereClause,
