@@ -155,7 +155,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
         certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPLOAD, CertificateEventStatus.SUCCESS, "Certificate uploaded", "");
         applicationEventPublisher.publishEvent(new CertificateValidationEvent(certificate.getUuid()));
-        applicationEventPublisher.publishEvent(context);
+        sendFollowUpEventsNotifications(context);
     }
 
     private void saveCertificate(Certificate certificate, String fingerprint, X509Certificate x509Certificate) {

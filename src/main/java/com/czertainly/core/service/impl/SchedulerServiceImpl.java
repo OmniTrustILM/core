@@ -279,7 +279,7 @@ public class SchedulerServiceImpl implements SchedulerExternalService, Scheduler
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleScheduledJobFinishedEvent(ScheduledJobFinishedEvent event) throws NotFoundException {
         logger.debug("ScheduledJobFinished event handler: {}", event.scheduledJobInfo().jobUuid());
         final ScheduledJob scheduledJob = scheduledJobsRepository.findByUuid(SecuredUUID.fromUUID(event.scheduledJobInfo().jobUuid())).orElseThrow(() -> new NotFoundException(ScheduledJob.class, event.scheduledJobInfo().jobUuid()));
