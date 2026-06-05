@@ -35,6 +35,13 @@ CREATE TABLE "signing_record"
 CREATE INDEX idx_sr_profile_signing_time
     ON "signing_record" ("signing_profile_uuid", "signing_time");
 
+-- Fallback sweep index: delete-after-retrieval deletes filter on retrieved-but-not-yet-deleted
+-- records (see SigningRecordRepository.deleteRetrievedAndFlagged). Partial so it only indexes the
+-- small set of retrieved rows still pending deletion, not the full table.
+CREATE INDEX idx_sr_retrieved_at
+    ON "signing_record" ("signed_document_retrieved_at")
+    WHERE "signed_document_retrieved_at" IS NOT NULL;
+
 -- Outbox staging table for DEFERRED_DURABLE
 CREATE TABLE "signing_record_outbox"
 (
