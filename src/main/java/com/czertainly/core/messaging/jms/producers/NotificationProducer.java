@@ -12,6 +12,7 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
@@ -40,7 +41,7 @@ public class NotificationProducer {
         });
     }
 
-    @TransactionalEventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onNotificationMessage(NotificationMessage notificationMessage) {
         produceMessage(notificationMessage);
     }
