@@ -219,7 +219,7 @@ class ActionsListenerTest {
     }
 
     @Test
-    void processMessage_certificateRevoke_rejected_doesNotCallAnyOperation() throws Exception {
+    void processMessage_certificateRevoke_rejected_callsRevokeCertificateRejectedAction() throws Exception {
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.REVOKE, resourceUuid, userUuid,
@@ -227,7 +227,8 @@ class ActionsListenerTest {
 
         listener.processMessage(msg);
 
-        // REVOKE is not in the rejected-action allowlist (ISSUE/RENEW/REKEY only) — it logs and returns.
+        verify(clientOperationService).revokeCertificateRejectedAction(resourceUuid);
+        // A rejected REVOKE must not run the issue-rejection path nor the actual revoke.
         verify(clientOperationService, never()).issueCertificateRejectedAction(any());
         verify(clientOperationService, never()).revokeCertificateAction(any(), any(), anyBoolean());
     }
