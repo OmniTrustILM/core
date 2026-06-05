@@ -54,12 +54,6 @@ public class SigningRecordControllerImpl implements SigningRecordController {
     }
 
     @Override
-    @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_RECORD, operation = Operation.DETAIL)
-    public SigningRecordValidationResultDto validateSigningRecord(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return signingRecordService.validateSigningRecord(SecuredUUID.fromUUID(uuid));
-    }
-
-    @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_RECORD, operation = Operation.DELETE)
     public void deleteSigningRecord(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
         signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(uuid));

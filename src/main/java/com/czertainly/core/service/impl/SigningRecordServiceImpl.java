@@ -10,7 +10,6 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
-import com.czertainly.api.model.core.signing.signingrecord.SigningRecordValidationResultDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
@@ -100,14 +99,6 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     public SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException {
         SigningRecord record = getSigningRecordEntity(uuid);
         return SigningRecordMapper.toDto(record);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DETAIL)
-    @Transactional(readOnly = true)
-    public SigningRecordValidationResultDto validateSigningRecord(SecuredUUID uuid) throws NotFoundException {
-        getSigningRecord(uuid);
-        throw new UnsupportedOperationException("Signing record validation not yet implemented");
     }
 
     @Override

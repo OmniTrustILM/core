@@ -24,8 +24,6 @@ public interface SigningRecordService {
 
     SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
-    SigningRecordValidationResultDto validateSigningRecord(SecuredUUID uuid) throws NotFoundException;
-
     void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids);
