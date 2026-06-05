@@ -180,8 +180,8 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
                 List.of(UUID.fromString(profile.getUuid())),
                 List.of(), null);
 
-        // Processing must not throw — the ValidationException from getMappedAttributes() is
-        // caught by the per-recipient catch (Exception e) block, the recipient is skipped
+        // Processing must not throw — the ValidationException raised while resolving mapped
+        // attributes is caught by the per-recipient exception handler, so the recipient is skipped
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
         // Connector is still called with an empty recipients list — same observable result as
