@@ -1,11 +1,11 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.mapper.signing;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.model.signing.SigningRecordPolicyModel;
+import com.czertainly.core.signing.record.SigningRecordInput;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -14,7 +14,7 @@ import java.util.function.Consumer;
  * per-field {@code record*} toggles of the profile's {@link SigningRecordPolicyModel} in one shared place.
  */
 @Component
-public class SigningRecordMapper {
+public class SigningRecordInputMapper {
 
     /**
      * Builds a fully populated {@link SigningRecord}, including its signing-profile UUID.

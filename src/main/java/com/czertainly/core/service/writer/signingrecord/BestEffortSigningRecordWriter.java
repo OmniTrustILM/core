@@ -2,6 +2,7 @@ package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,7 +17,7 @@ import java.util.List;
 public class BestEffortSigningRecordWriter implements SigningRecordWriter {
 
     private final SigningRecordRepository repository;
-    private final SigningRecordMapper mapper;
+    private final SigningRecordInputMapper mapper;
     private final SigningRecordMetrics metrics;
     private final TransactionTemplate tx;
     private final BestEffortBackpressurePolicy policy;
@@ -25,7 +26,7 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
 
     public BestEffortSigningRecordWriter(
             SigningRecordRepository repository,
-            SigningRecordMapper mapper,
+            SigningRecordInputMapper mapper,
             SigningRecordMetrics metrics,
             PlatformTransactionManager txm,
             BestEffortSigningRecordQueue queue,

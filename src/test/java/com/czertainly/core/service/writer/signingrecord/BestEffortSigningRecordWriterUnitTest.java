@@ -2,6 +2,7 @@ package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -196,7 +197,7 @@ class BestEffortSigningRecordWriterUnitTest {
     }
 
     private BestEffortSigningRecordWriter createWriter(BestEffortBackpressurePolicy policy) {
-        return new BestEffortSigningRecordWriter(repository, new SigningRecordMapper(), metrics, txm, queue, policy, MAX_BATCH_SIZE);
+        return new BestEffortSigningRecordWriter(repository, new SigningRecordInputMapper(), metrics, txm, queue, policy, MAX_BATCH_SIZE);
     }
 
     private SigningRecordInput recordableInput() {

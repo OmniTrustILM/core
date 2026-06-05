@@ -1,9 +1,10 @@
-package com.czertainly.core.signing.record;
+package com.czertainly.core.mapper.signing;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.model.signing.SigningRecordPolicyModel;
+import com.czertainly.core.signing.record.SigningRecordInput;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -14,9 +15,9 @@ import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.*;
 
-class SigningRecordMapperTest {
+class SigningRecordInputMapperTest {
 
-    private final SigningRecordMapper mapper = new SigningRecordMapper();
+    private final SigningRecordInputMapper mapper = new SigningRecordInputMapper();
 
     @Test
     void toRecord_copiesScalarFields() {

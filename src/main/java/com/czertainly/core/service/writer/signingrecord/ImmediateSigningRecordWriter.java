@@ -1,6 +1,7 @@
 package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -10,11 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ImmediateSigningRecordWriter implements SigningRecordWriter {
 
     private final SigningRecordRepository repository;
-    private final SigningRecordMapper mapper;
+    private final SigningRecordInputMapper mapper;
     private final SigningRecordMetrics metrics;
 
     public ImmediateSigningRecordWriter(SigningRecordRepository repository,
-                                        SigningRecordMapper mapper,
+                                        SigningRecordInputMapper mapper,
                                         SigningRecordMetrics metrics) {
         this.repository = repository;
         this.mapper = mapper;

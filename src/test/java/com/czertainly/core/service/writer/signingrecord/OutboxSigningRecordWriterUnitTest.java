@@ -3,8 +3,8 @@ package com.czertainly.core.service.writer.signingrecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.SigningRecordInput;
-import com.czertainly.core.signing.record.SigningRecordMapper;
 import com.czertainly.core.signing.record.SigningRecordMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -47,7 +47,7 @@ class OutboxSigningRecordWriterUnitTest {
         registry = new SimpleMeterRegistry();
         repository = mock(SigningRecordOutboxRepository.class);
         writer = new OutboxSigningRecordWriter(repository, mock(SigningRecordRepository.class),
-                new SigningRecordMapper(), new SigningRecordMetrics(registry));
+                new SigningRecordInputMapper(), new SigningRecordMetrics(registry));
     }
 
     @Test

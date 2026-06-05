@@ -4,6 +4,7 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,12 +36,12 @@ public class OutboxSigningRecordWriter implements SigningRecordWriter {
 
     private final SigningRecordOutboxRepository outboxRepository;
     private final SigningRecordRepository recordRepository;
-    private final SigningRecordMapper mapper;
+    private final SigningRecordInputMapper mapper;
     private final SigningRecordMetrics metrics;
 
     public OutboxSigningRecordWriter(SigningRecordOutboxRepository outboxRepository,
                                      SigningRecordRepository recordRepository,
-                                     SigningRecordMapper mapper,
+                                     SigningRecordInputMapper mapper,
                                      SigningRecordMetrics metrics) {
         this.outboxRepository = outboxRepository;
         this.recordRepository = recordRepository;

@@ -2,8 +2,8 @@ package com.czertainly.core.service.writer.signingrecord;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.signing.record.SigningRecordInput;
-import com.czertainly.core.signing.record.SigningRecordMapper;
 import com.czertainly.core.signing.record.SigningRecordMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -38,7 +38,7 @@ class ImmediateSigningRecordWriterUnitTest {
     void setUp() {
         registry = new SimpleMeterRegistry();
         repository = mock(SigningRecordRepository.class);
-        writer = new ImmediateSigningRecordWriter(repository, new SigningRecordMapper(), new SigningRecordMetrics(registry));
+        writer = new ImmediateSigningRecordWriter(repository, new SigningRecordInputMapper(), new SigningRecordMetrics(registry));
     }
 
     @Test
