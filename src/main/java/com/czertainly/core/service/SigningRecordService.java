@@ -7,11 +7,8 @@ import com.czertainly.api.model.common.PaginationResponseDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
-import com.czertainly.api.model.core.signing.signingrecord.SigningRecordValidationResultDto;
-import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.model.SecuredList;
 
 import java.util.List;
 import java.util.UUID;
