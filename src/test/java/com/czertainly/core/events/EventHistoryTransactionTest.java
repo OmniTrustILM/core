@@ -16,7 +16,6 @@ import com.czertainly.core.dao.repository.workflows.TriggerAssociationRepository
 import com.czertainly.core.dao.repository.workflows.TriggerRepository;
 import com.czertainly.core.events.data.DiscoveryResult;
 import com.czertainly.core.events.handlers.DiscoveryFinishedEventHandler;
-import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -24,15 +23,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+
 class EventHistoryTransactionTest extends BaseSpringBootTest {
 
     @MockitoBean
-    NotificationProducer notificationProducer;
+    JmsTemplate jmsTemplate;
 
     @Autowired
     private EventHistoryRepository eventHistoryRepository;
@@ -47,15 +49,13 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
     private TriggerAssociationRepository triggerAssociationRepository;
 
     /**
-     * Verifies the end-to-end fix: when sendFollowUpEventsNotifications throws after successful
-     * trigger processing, the EventHistory row must still be visible and carry FINISHED status —
-     * not rolled back with the enclosing handleEvent invocation, because handleEvent runs with
-     * Propagation.NOT_SUPPORTED, and each repository save commits its own small transaction.
+     * Verifies that after handleEvent completes: EventHistory is committed with FINISHED status
+     * and the notification JMS message is dispatched via the post-commit TransactionalEventListener.
      */
     @Test
     void testEventHistoryVisibleAfterFollowUpNotificationFailure() throws EventException {
         Mockito.doThrow(new RuntimeException("JMS broker unavailable"))
-                .when(notificationProducer).produceMessage(Mockito.any(NotificationMessage.class));
+                .when(jmsTemplate).convertAndSend(any(String.class), any(NotificationMessage.class), any());
 
         DiscoveryHistory discovery = new DiscoveryHistory();
         discovery.setName("TestDiscovery");
@@ -82,9 +82,10 @@ class EventHistoryTransactionTest extends BaseSpringBootTest {
 
         final UUID discoveryUuid = discovery.getUuid();
         EventMessage eventMessage = DiscoveryFinishedEventHandler.constructEventMessage(
-                discoveryUuid, null, null,
+                discoveryUuid, UUID.randomUUID(), null,
                 new DiscoveryResult(DiscoveryStatus.COMPLETED, "Test"));
         discoveryFinishedEventHandler.handleEvent(eventMessage);
+        Mockito.verify(jmsTemplate).convertAndSend(any(String.class), any(NotificationMessage.class), any());
         // Trigger processing succeeded before the notification throws, EventHistory must be FINISHED,
         // not lost because handleEvent runs without an ambient transaction.
         List<EventHistory> eventHistories = eventHistoryRepository.findAll();
