@@ -34,11 +34,15 @@ public interface SigningRecordRepository extends SecurityFilterRepository<Signin
 
     @Modifying
     @Query(value = """
-            DELETE FROM {h-schema}signing_record sr
-            USING {h-schema}signing_profile sp
-            WHERE sr.signing_profile_uuid = sp.uuid
-              AND sp.delete_after_retrieval = true
-              AND sr.signed_document_retrieved_at IS NOT NULL
+            DELETE FROM {h-schema}signing_record
+            WHERE ctid IN (
+                SELECT sr.ctid
+                FROM {h-schema}signing_record sr
+                JOIN {h-schema}signing_profile sp ON sr.signing_profile_uuid = sp.uuid
+                WHERE sp.delete_after_retrieval = true
+                  AND sr.signed_document_retrieved_at IS NOT NULL
+                LIMIT :limit
+            )
             """, nativeQuery = true)
-    int deleteRetrievedAndFlagged();
+    int deleteRetrievedAndFlagged(@Param("limit") int limit);
 }

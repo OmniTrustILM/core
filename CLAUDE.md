@@ -100,6 +100,22 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
+## New `@Value` parameters belong in application.yml
+
+Whenever you introduce a `@Value("${some.property:default}")` injection, add the matching key to
+`src/main/resources/application.yml`. Don't rely on the inline default alone — the yml is the discoverable, documented
+surface for operators, and every sibling parameter is declared there with an env-var override. Mirror the existing
+convention for the surrounding block: `key: ${ENV_VAR_NAME:default}`, with the same default as the code annotation and
+an `UPPER_SNAKE_CASE` env override named after the property path. Place the key under the property's existing
+namespace (e.g. a new `signing-record.delete-after-retrieval.*` key goes in that block, not at the root).
+
+When the new yml key introduces an env-var override (`${ENV_VAR_NAME:default}`), that env var also has to be wired into
+the Helm charts (separate repo) — otherwise operators can't configure it through the chart. The Core repo can't make
+that change itself, so **warn the user** that the chart needs updating and hand them a ready-to-run prompt they can
+paste into a Claude Code session in the Helm chart repo. The prompt should name the env var, its default, and the source
+property, and ask the agent to add it following the chart's existing convention for the matching deployment. Don't
+assume the chart's structure from here — let the agent in that repo discover it.
+
 ## Don't leak runtime details to the wire
 
 Never forward raw `Exception.getMessage()` to a client / protocol response / external API. Runtime exceptions can carry SQL fragments (`DataIntegrityViolationException`), stack-frame class names, internal table or column identifiers, or upstream error detail that should not be exposed.

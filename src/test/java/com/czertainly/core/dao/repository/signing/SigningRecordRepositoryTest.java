@@ -147,7 +147,7 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         SigningRecord retrieved = insertRecord(profile, 1, retrievedAt);
 
         // when
-        int deleted = doInTransaction(repository::deleteRetrievedAndFlagged);
+        int deleted = doInTransaction(() -> repository.deleteRetrievedAndFlagged(BATCH_LIMIT_LARGER_THAN_FIXTURES));
 
         // then
         assertEquals(1, deleted);
@@ -163,7 +163,7 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         SigningRecord retrieved = insertRecord(profile, 1, retrievedAt);
 
         // when
-        int deleted = doInTransaction(repository::deleteRetrievedAndFlagged);
+        int deleted = doInTransaction(() -> repository.deleteRetrievedAndFlagged(BATCH_LIMIT_LARGER_THAN_FIXTURES));
 
         // then
         assertEquals(0, deleted);
@@ -179,7 +179,7 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         SigningRecord pending = insertRecord(profile, 1, notRetrieved);
 
         // when
-        int deleted = doInTransaction(repository::deleteRetrievedAndFlagged);
+        int deleted = doInTransaction(() -> repository.deleteRetrievedAndFlagged(BATCH_LIMIT_LARGER_THAN_FIXTURES));
 
         // then
         assertEquals(0, deleted);
