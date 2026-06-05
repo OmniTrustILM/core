@@ -1,7 +1,6 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
-import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
@@ -86,7 +85,7 @@ public class SigningRecordOutboxDrainer {
         int batchesRun = 0;
         int drained;
         do {
-            List<SigningRecordOutbox> batch = outboxRepo.findDrainableBatch(poisonThreshold, batchSize);
+            List<UUID> batch = outboxRepo.findDrainableBatch(poisonThreshold, batchSize);
             drained = drainRows(batch);
             if (drained > 0) {
                 metrics.outboxDrained().increment(drained);
@@ -100,10 +99,10 @@ public class SigningRecordOutboxDrainer {
         }
     }
 
-    private int drainRows(List<SigningRecordOutbox> outboxRecordsToDrain) {
+    private int drainRows(List<UUID> outboxRowUuids) {
         int drained = 0;
-        for (SigningRecordOutbox outboxRecord : outboxRecordsToDrain) {
-            if (attemptDrain(outboxRecord)) {
+        for (UUID uuid : outboxRowUuids) {
+            if (attemptDrain(uuid)) {
                 drained++;
             }
         }
@@ -117,13 +116,13 @@ public class SigningRecordOutboxDrainer {
      * {@code signing_record} (crash recovery) is reconciled by the writer's idempotent merge copy and counts
      * as drained.
      */
-    private boolean attemptDrain(SigningRecordOutbox outboxRecord) {
+    private boolean attemptDrain(UUID uuid) {
         try {
-            return writer.drainRow(outboxRecord.getUuid());
+            return writer.drainRow(uuid);
         } catch (RuntimeException drainError) {
             metrics.outboxFailed().increment();
-            log.warn("Failed to drain outbox row {}", outboxRecord.getUuid(), drainError);
-            recordFailure(outboxRecord.getUuid(), drainError.getMessage());
+            log.warn("Failed to drain outbox row {}", uuid, drainError);
+            recordFailure(uuid, drainError.getMessage());
             return false;
         }
     }

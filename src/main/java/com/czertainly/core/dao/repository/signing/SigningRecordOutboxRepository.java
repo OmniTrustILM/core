@@ -20,15 +20,19 @@ public interface SigningRecordOutboxRepository extends JpaRepository<SigningReco
      * locking: cross-node mutual exclusion for the drain is provided by a cluster-wide advisory lock held by
      * {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}, so a plain ordered read is
      * enough and avoids holding row locks across the per-row drain transactions.
+     *
+     * <p>Only the {@code uuid} is projected: the drainer re-fetches each row as a managed entity inside its own
+     * per-row transaction, so materializing the multi-MB {@code signed_document}/{@code dtbs}/
+     * {@code signature_value} BYTEA columns for the whole batch here would be wasted I/O on the hot path.
      */
     @Query(value = """
-            SELECT * FROM signing_record_outbox
+            SELECT uuid FROM signing_record_outbox
             WHERE attempts < :poisonThreshold
             ORDER BY signing_time
             LIMIT :batchSize
             """, nativeQuery = true)
-    List<SigningRecordOutbox> findDrainableBatch(@Param("poisonThreshold") int poisonThreshold,
-                                                 @Param("batchSize") int batchSize);
+    List<UUID> findDrainableBatch(@Param("poisonThreshold") int poisonThreshold,
+                                  @Param("batchSize") int batchSize);
 
     @Query("SELECT MIN(o.signingTime) FROM SigningRecordOutbox o WHERE o.attempts < :poisonThreshold")
     Optional<Instant> findOldestSigningTimeBelowPoisonThreshold(@Param("poisonThreshold") int poisonThreshold);

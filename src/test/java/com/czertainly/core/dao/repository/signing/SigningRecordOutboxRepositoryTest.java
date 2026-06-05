@@ -48,16 +48,15 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         var oldest = now.minus(Duration.ofHours(2));
         var middle = now.minus(Duration.ofHours(1));
         var newest = now;
-        insertOutbox(middle);
-        insertOutbox(newest);
-        insertOutbox(oldest);
+        SigningRecordOutbox middleRow = insertOutbox(middle);
+        SigningRecordOutbox newestRow = insertOutbox(newest);
+        SigningRecordOutbox oldestRow = insertOutbox(oldest);
 
         // when
-        List<SigningRecordOutbox> drainable = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
+        List<UUID> drainable = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
 
         // then
-        assertEquals(List.of(oldest, middle, newest),
-                drainable.stream().map(SigningRecordOutbox::getSigningTime).toList());
+        assertEquals(List.of(oldestRow.getUuid(), middleRow.getUuid(), newestRow.getUuid()), drainable);
     }
 
     @Test
@@ -68,16 +67,15 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         var oldest = now.minus(Duration.ofHours(2));
         var middle = now.minus(Duration.ofHours(1));
         var newest = now;
-        insertOutbox(oldest);
-        insertOutbox(middle);
+        SigningRecordOutbox oldestRow = insertOutbox(oldest);
+        SigningRecordOutbox middleRow = insertOutbox(middle);
         insertOutbox(newest);
 
         // when
-        List<SigningRecordOutbox> drainable = repository.findDrainableBatch(POISON_THRESHOLD, batchSize);
+        List<UUID> drainable = repository.findDrainableBatch(POISON_THRESHOLD, batchSize);
 
         // then
-        assertEquals(List.of(oldest, middle),
-                drainable.stream().map(SigningRecordOutbox::getSigningTime).toList());
+        assertEquals(List.of(oldestRow.getUuid(), middleRow.getUuid()), drainable);
     }
 
     @Test
@@ -87,13 +85,13 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         var drainable = now.minus(Duration.ofHours(1));
         insertOutbox(now.minus(Duration.ofHours(3)), POISON_THRESHOLD);       // poisoned, oldest
         insertOutbox(now.minus(Duration.ofHours(2)), POISON_THRESHOLD + 1);   // poisoned, older
-        insertOutbox(drainable, POISON_THRESHOLD - 1);                        // still drainable
+        SigningRecordOutbox drainableRow = insertOutbox(drainable, POISON_THRESHOLD - 1);  // still drainable
 
         // when
-        List<SigningRecordOutbox> found = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
+        List<UUID> found = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
 
         // then only the below-threshold row is returned, even though poisoned rows are older
-        assertEquals(List.of(drainable), found.stream().map(SigningRecordOutbox::getSigningTime).toList());
+        assertEquals(List.of(drainableRow.getUuid()), found);
     }
 
     @Test
@@ -102,7 +100,7 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         // no outbox rows
 
         // when
-        List<SigningRecordOutbox> drainable = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
+        List<UUID> drainable = repository.findDrainableBatch(POISON_THRESHOLD, BATCH_LARGER_THAN_FIXTURES);
 
         // then
         assertTrue(drainable.isEmpty());
