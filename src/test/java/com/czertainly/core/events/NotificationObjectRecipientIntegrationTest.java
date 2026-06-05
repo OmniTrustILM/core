@@ -14,13 +14,18 @@ import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
 import com.czertainly.api.model.core.notification.RecipientType;
 import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.workflows.TriggerType;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceMappedAttributes;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceReference;
+import com.czertainly.core.dao.entity.workflows.Trigger;
+import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceMappedAttributeRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
+import com.czertainly.core.dao.repository.workflows.TriggerHistoryRepository;
+import com.czertainly.core.dao.repository.workflows.TriggerRepository;
 import com.czertainly.core.messaging.jms.listeners.NotificationListener;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.service.AttributeService;
@@ -36,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -56,6 +62,8 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
     @Autowired private AttributeService attributeService;
     @Autowired private AttributeEngine attributeEngine;
     @Autowired private ConnectorRepository connectorRepository;
+    @Autowired private TriggerRepository triggerRepository;
+    @Autowired private TriggerHistoryRepository triggerHistoryRepository;
 
     private WireMockServer mockServer;
     private CustomAttributeDefinitionDetailDto customAttr;
@@ -188,5 +196,62 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
         // required: false, but reached via the exception path rather than the isEmpty() guard
         mockServer.verify(1, WireMock.postRequestedFor(
                 WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify")));
+    }
+
+    @Test
+    void testNotificationError_setsActionsPerformedFalseOnTriggerHistory() throws AttributeException, NotFoundException {
+        // Notify endpoint returns 500 → sendNotification throws ConnectorException →
+        // handleNotificationErrorWithErrorLog → setTriggerHistoryActionsPerformedFalse.
+        // The custom attribute must be set so getMappedAttributes() succeeds and produces a
+        // non-empty recipientsDto — only then is the notify call made and the 500 reached.
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify"))
+                .willReturn(WireMock.serverError().withBody("Internal Server Error")));
+
+        UUID certificateUuid = UUID.randomUUID();
+        attributeEngine.updateObjectCustomAttributeContent(
+                Resource.CERTIFICATE, certificateUuid,
+                UUID.fromString(customAttr.getUuid()), customAttr.getName(),
+                List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+
+        Trigger trigger = new Trigger();
+        trigger.setName("testActionsTrigger");
+        trigger.setType(TriggerType.EVENT);
+        trigger.setResource(Resource.CERTIFICATE);
+        trigger.setEvent(ResourceEvent.CERTIFICATE_STATUS_CHANGED);
+        trigger.setIgnoreTrigger(false);
+        trigger = triggerRepository.save(trigger);
+
+        TriggerHistory triggerHistory = new TriggerHistory();
+        triggerHistory.setTriggerUuid(trigger.getUuid());
+        triggerHistory.setActionsPerformed(true);
+        triggerHistory.setConditionsMatched(true);
+        triggerHistory.setTriggeredAt(OffsetDateTime.parse("2024-01-01T00:00:00Z"));
+        triggerHistory = triggerHistoryRepository.save(triggerHistory);
+
+        NotificationMessage message = new NotificationMessage(
+                ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.CERTIFICATE,
+                certificateUuid,
+                List.of(UUID.fromString(profile.getUuid())),
+                List.of(), null,
+                triggerHistory.getUuid(), null);
+
+        Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
+
+        TriggerHistory updated = triggerHistoryRepository.findById(triggerHistory.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated.isActionsPerformed(), "actionsPerformed must be false after notification error");
+
+        // Test path for the warn log
+        mockServer.resetMappings();
+        NotificationInstanceReference instanceReference = notificationInstanceReferenceRepository.findAll().getFirst();
+        instanceReference.setConnectorUuid(null);
+        notificationInstanceReferenceRepository.save(instanceReference);
+        connectorRepository.deleteAll();
+        triggerHistory.setActionsPerformed(true);
+        triggerHistoryRepository.save(triggerHistory);
+        Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
+
+        TriggerHistory updated2 = triggerHistoryRepository.findById(triggerHistory.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated2.isActionsPerformed(), "actionsPerformed must be false after warning log");
+
     }
 }
