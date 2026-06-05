@@ -22,6 +22,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @Transactional
@@ -122,15 +123,12 @@ public class AuthServiceImpl implements AuthExternalService {
     }
 
     private List<Resource> withDefaultListings(List<Resource> listings) {
-        List<Resource> result = new ArrayList<>(listings);
-        for (Resource defaultListing : DEFAULT_ALLOWED_LISTINGS) {
-            if (!result.contains(defaultListing)) {
-                result.add(defaultListing);
-            }
-        }
-        // keep deterministic by-code order after merging defaults
-        result.sort(Comparator.comparing(Resource::getCode));
-        return result;
+        // append the missing defaults, then keep deterministic by-code order
+        return Stream.concat(
+                        listings.stream(),
+                        DEFAULT_ALLOWED_LISTINGS.stream().filter(defaultListing -> !listings.contains(defaultListing)))
+                .sorted(Comparator.comparing(Resource::getCode))
+                .toList();
     }
 
 }
