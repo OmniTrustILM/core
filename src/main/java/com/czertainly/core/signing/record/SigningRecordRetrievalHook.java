@@ -107,16 +107,21 @@ public class SigningRecordRetrievalHook {
             return;
         }
         int total = 0;
-        int batchesRun = 0;
-        int deleted;
-        do {
-            deleted = deletionWriter.deleteRetrievedAndFlaggedBatch(batchSize);
-            total += deleted;
-            batchesRun++;
-        } while (deleted == batchSize && batchesRun < maxBatchesPerSweep);
-        if (deleted == batchSize) {
-            log.debug("Delete-after-retrieval fallback sweep stopped at the per-sweep cap of {} batch(es); remaining flagged records clear on the next sweep",
-                    maxBatchesPerSweep);
+        try {
+            int batchesRun = 0;
+            int deleted;
+            do {
+                deleted = deletionWriter.deleteRetrievedAndFlaggedBatch(batchSize);
+                total += deleted;
+                batchesRun++;
+            } while (deleted == batchSize && batchesRun < maxBatchesPerSweep);
+            if (deleted == batchSize) {
+                log.debug("Delete-after-retrieval fallback sweep stopped at the per-sweep cap of {} batch(es); remaining flagged records clear on the next sweep",
+                        maxBatchesPerSweep);
+            }
+        } catch (RuntimeException e) {
+            metrics.retrievalFallbackFailed().increment();
+            log.warn("Delete-after-retrieval fallback sweep aborted after deleting {} record(s); will retry next interval", total, e);
         }
         if (total > 0) {
             metrics.retrievalDeleted().increment(total);

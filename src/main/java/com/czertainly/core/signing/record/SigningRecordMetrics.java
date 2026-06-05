@@ -62,6 +62,10 @@ public class SigningRecordMetrics {
         return registry.counter("signing_record.delete_after_retrieval.failed.total");
     }
 
+    public Counter retrievalFallbackFailed() {
+        return registry.counter("signing_record.delete_after_retrieval_fallback.failed.total");
+    }
+
     public Timer writeDuration(String mode) {
         return Timer.builder("signing_record.write.duration_ms").tag("mode", mode).register(registry);
     }
