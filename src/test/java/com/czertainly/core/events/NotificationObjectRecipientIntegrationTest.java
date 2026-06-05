@@ -95,14 +95,14 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
 
         // Connector and notification instance
         Connector connector = new Connector();
-        connector.setName("testMappedContactConnector");
+        connector.setName("testObjectRecipientConnector");
         connector.setUrl("http://localhost:" + mockServer.port());
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
         NotificationInstanceReference instance = new NotificationInstanceReference();
-        instance.setName("testMappedContactInstance");
+        instance.setName("testObjectRecipientInstance");
         instance.setKind("EMAIL");
         instance.setConnectorUuid(connector.getUuid());
         instance.setNotificationInstanceUuid(UUID.randomUUID());
@@ -115,9 +115,9 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
         mapping.setNotificationInstanceRefUuid(instance.getUuid());
         notificationInstanceMappedAttributeRepository.save(mapping);
 
-        // Notification profile with mapped_CONTACT
+        // Notification profile with OBJECT recipient type
         NotificationProfileRequestDto profileRequest = new NotificationProfileRequestDto();
-        profileRequest.setName("mappedContactProfile");
+        profileRequest.setName("objectRecipientProfile");
         profileRequest.setRecipientType(RecipientType.OBJECT);
         profileRequest.setInternalNotification(false);
         profileRequest.setNotificationInstanceUuid(instance.getUuid());
@@ -130,7 +130,7 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMappedContact_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
+    void testObjectRecipient_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
         UUID certificateUuid = UUID.randomUUID();
         attributeEngine.updateObjectCustomAttributeContent(
                 Resource.CERTIFICATE, certificateUuid,
@@ -150,7 +150,7 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMappedContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
+    void testObjectRecipient_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
         // No updateObjectCustomAttributeContent call — this certificate has no attribute value set
         UUID certificateWithoutAttribute = UUID.randomUUID();
 
@@ -169,7 +169,7 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMappedContact_requiredMappingAttributeMissingOnCertificate_connectorCalledWithEmptyRecipients() {
+    void testObjectRecipient_requiredMappingAttributeMissingOnCertificate_connectorCalledWithEmptyRecipients() {
         // Override the @BeforeEach stub: the connector now declares the attribute as required.
         // WireMock matches stubs in reverse registration order, so this takes precedence.
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/notificationProvider/[^/]+/attributes/mapping"))
