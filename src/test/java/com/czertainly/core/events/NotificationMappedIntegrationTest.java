@@ -225,7 +225,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         triggerHistory.setTriggerUuid(trigger.getUuid());
         triggerHistory.setActionsPerformed(true);
         triggerHistory.setConditionsMatched(true);
-        triggerHistory.setTriggeredAt(OffsetDateTime.now());
+        triggerHistory.setTriggeredAt(OffsetDateTime.parse("2024-01-01T00:00:00Z"));
         triggerHistory = triggerHistoryRepository.save(triggerHistory);
 
         NotificationMessage message = new NotificationMessage(
