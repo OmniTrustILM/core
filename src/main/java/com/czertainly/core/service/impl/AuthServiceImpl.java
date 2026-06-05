@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
 @Transactional
 public class AuthServiceImpl implements AuthExternalService {
 
+    private static final List<Resource> DEFAULT_ALLOWED_LISTINGS = List.of(Resource.DASHBOARD, Resource.APPROVAL);
+
     private UserManagementApiClient userManagementApiClient;
     private ResourceApiClient resourceApiClient;
     private UserManagementService userManagementService;
@@ -84,8 +86,6 @@ public class AuthServiceImpl implements AuthExternalService {
         return userManagementService.updateUserInternal(userProfileDto.getUser().getUuid(), request, certificateUuid, certificateFingerprint);
     }
 
-    private static final List<Resource> DEFAULT_ALLOWED_LISTINGS = List.of(Resource.DASHBOARD, Resource.APPROVAL);
-
     private List<Resource> getAllowedResourceListings(UserProfileDto userProfileDto) {
         List<Resource> allowedListings;
         List<Resource> allListings = contextRefreshListener.getResources().stream()
@@ -128,6 +128,8 @@ public class AuthServiceImpl implements AuthExternalService {
                 result.add(defaultListing);
             }
         }
+        // keep deterministic by-code order after merging defaults
+        result.sort(Comparator.comparing(Resource::getCode));
         return result;
     }
 
