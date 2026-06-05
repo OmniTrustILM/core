@@ -4,6 +4,7 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 
 import java.util.List;
@@ -14,12 +15,15 @@ public interface ComplianceExternalService {
     /**
      * Get the latest compliance check result for the specified resource object
      *
-     * @param resource Resource of the object
+     * @param authorizableResource Resource used as the authorization subject (mapped owning resource)
+     * @param authorizableObjectUuid SecuredUUID of the object used as the object-level authorization subject, or
+     *                               {@code null} to authorize at resource level only (no per-object scoping)
+     * @param resource Resource of the object (used for repository dispatch)
      * @param objectUuid UUID of the object
      * @return ComplianceCheckResultDto containing the result of the latest compliance check
      * @throws NotFoundException if the resource object is not found
      */
-    ComplianceCheckResultDto getComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException;
+    ComplianceCheckResultDto getComplianceCheckResult(SecuredResource authorizableResource, SecuredUUID authorizableObjectUuid, Resource resource, UUID objectUuid) throws NotFoundException;
 
     /**
      * Validate Check compliance request for specified compliance profiles

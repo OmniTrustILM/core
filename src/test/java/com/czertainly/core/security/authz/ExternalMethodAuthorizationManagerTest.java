@@ -1,7 +1,9 @@
 package com.czertainly.core.security.authz;
 
+import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.config.OpaSecuredAnnotationMetadataExtractor;
+import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
@@ -50,6 +52,7 @@ class ExternalMethodAuthorizationManagerTest {
     ExternalMethodAuthorizationManager manager;
 
     CzertainlyAuthenticationToken authentication = createCzertainlyAuthentication();
+    TestClass target = new TestClass();
 
     @Test
     void accessIsGrantedWhenOpaAuthorizesIt() throws NoSuchMethodException {
@@ -208,6 +211,45 @@ class ExternalMethodAuthorizationManagerTest {
         assertEquals(principal, om.writeValueAsString(new AnonymousPrincipal("anonymousUser")));
     }
 
+    @Test
+    void resolvesResourceFromSecuredResourceArgumentForDynamicAnnotation() throws NoSuchMethodException {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenReturn(accessGranted());
+        when(metadataExtractor.extractAttributes(any(ExternalAuthorizationDynamic.class), any(Resource.class)))
+                .thenReturn(List.of(
+                        new ExternalAuthorizationConfigAttribute("name", Resource.RA_PROFILE.getCode()),
+                        new ExternalAuthorizationConfigAttribute("action", ResourceAction.LIST.getCode()),
+                        new ExternalAuthorizationConfigAttribute("parentName", Resource.NONE.getCode()),
+                        new ExternalAuthorizationConfigAttribute("parentAction", ResourceAction.NONE.getCode())));
+
+        MethodInvocation invocation = new SimpleMethodInvocation(
+                target,
+                target.getClass().getMethod("dynamicListMethod", SecuredResource.class),
+                SecuredResource.fromResource(Resource.RA_PROFILE));
+
+        // when
+        AuthorizationDecision result = manager.check(() -> authentication, invocation);
+
+        // then
+        Assertions.assertTrue(result.isGranted());
+    }
+
+    @Test
+    void accessIsDeniedWhenDynamicResourceCannotBeResolved() throws NoSuchMethodException {
+        // given: a dynamic-annotated method invoked with no resolvable SecuredResource marker
+        // (a (SecuredResource) null argument means fromArguments finds zero markers and throws)
+        MethodInvocation invocation = new SimpleMethodInvocation(
+                target,
+                target.getClass().getMethod("dynamicListMethod", SecuredResource.class),
+                (SecuredResource) null);
+
+        // when
+        AuthorizationDecision result = manager.check(() -> authentication, invocation);
+
+        // then
+        assertFalse(result.isGranted());
+    }
+
     CzertainlyAuthenticationToken createCzertainlyAuthentication() {
         return new CzertainlyAuthenticationToken(
                 new CzertainlyUserDetails(
@@ -250,18 +292,27 @@ class ExternalMethodAuthorizationManagerTest {
 
     static class TestClass {
 
+        @ExternalAuthorization(resource = Resource.NONE, action = ResourceAction.NONE)
         public void ordinaryMethod() {
             // Test method
         }
 
+        @ExternalAuthorization(resource = Resource.NONE, action = ResourceAction.NONE)
         @SuppressWarnings("unused")
         public void methodWithSecuredUUID(SecuredUUID uuid) {
             // Test method
         }
 
+        @ExternalAuthorization(resource = Resource.NONE, action = ResourceAction.NONE)
         @SuppressWarnings("unused")
         public void methodWithListOfSecuredUUIDs(List<SecuredUUID> uuids) {
             // Test method
+        }
+
+        @ExternalAuthorizationDynamic(action = ResourceAction.LIST)
+        @SuppressWarnings("unused")
+        public void dynamicListMethod(SecuredResource resource) {
+            // test target only
         }
     }
 
