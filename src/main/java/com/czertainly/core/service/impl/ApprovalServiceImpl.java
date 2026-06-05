@@ -88,8 +88,8 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.APPROVAL, action = ResourceAction.LIST)
-    public ApprovalResponseDto listUserApprovals(final SecurityFilter securityFilter, final boolean withHistory, final PaginationRequestDto paginationRequestDto) {
+    @SelfPrincipalEndpoint
+    public ApprovalResponseDto listUserApprovals(final boolean withHistory, final PaginationRequestDto paginationRequestDto) {
         final UserProfileDto userProfileDto = AuthHelper.getUserProfile();
         final TriFunction<Root<Approval>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> {
             final Join joinApprovalRecipient = root.join("approvalRecipients", JoinType.LEFT);
@@ -99,7 +99,8 @@ public class ApprovalServiceImpl implements ApprovalExternalService, ApprovalInt
             final Predicate groupUuidPredicate = joinApprovalRecipient.get("approvalStep").get("groupUuid").in(userProfileDto.getUser().getGroups().stream().map(dto -> UUID.fromString(dto.getUuid())).toList());
             return cb.and(statusPredicate, cb.or(userUuidPredicate, roleUuidPredicate, groupUuidPredicate));
         };
-        return listOfApprovals(securityFilter, additionalWhereClause, paginationRequestDto);
+        // @SelfPrincipalEndpoint populates no object filter; scoping is via the predicate above.
+        return listOfApprovals(SecurityFilter.create(), additionalWhereClause, paginationRequestDto);
     }
 
     private List<ApprovalStatusEnum> prepareApprovalRecipientStatuses(final boolean withHistory) {
