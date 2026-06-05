@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.aSigningRecordPolicy;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Named.named;
 
 class SigningRecordPolicyTest {
 
@@ -29,17 +30,17 @@ class SigningRecordPolicyTest {
 
     private static Stream<Arguments> singleRecordFlagPolicies() {
         return Stream.of(
-                Arguments.of("recordMetadata", aSigningRecordPolicy().recordMetadata(true).build()),
-                Arguments.of("recordRequestMetadata", aSigningRecordPolicy().recordRequestMetadata(true).build()),
-                Arguments.of("recordSignature", aSigningRecordPolicy().recordSignature(true).build()),
-                Arguments.of("recordSignedDocument", aSigningRecordPolicy().recordSignedDocument(true).build()),
-                Arguments.of("recordDtbs", aSigningRecordPolicy().recordDtbs(true).build()));
+                Arguments.of(named("recordMetadata", aSigningRecordPolicy().recordMetadata(true).build())),
+                Arguments.of(named("recordRequestMetadata", aSigningRecordPolicy().recordRequestMetadata(true).build())),
+                Arguments.of(named("recordSignature", aSigningRecordPolicy().recordSignature(true).build())),
+                Arguments.of(named("recordSignedDocument", aSigningRecordPolicy().recordSignedDocument(true).build())),
+                Arguments.of(named("recordDtbs", aSigningRecordPolicy().recordDtbs(true).build())));
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("singleRecordFlagPolicies")
     void hasAnyRecordableContent_returnsTrue_whenAnySingleRecordFlagIsSet(
-            String flagName, SigningRecordPolicyModel policyWithSingleFlag) {
+            SigningRecordPolicyModel policyWithSingleFlag) {
         // when
         boolean hasRecordableContent = SigningRecordPolicy.hasAnyRecordableContent(policyWithSingleFlag);
 
