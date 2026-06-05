@@ -239,5 +239,19 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
 
         TriggerHistory updated = triggerHistoryRepository.findById(triggerHistory.getUuid()).orElseThrow();
         Assertions.assertFalse(updated.isActionsPerformed(), "actionsPerformed must be false after notification error");
+
+        // Test path for the warn log
+        mockServer.resetMappings();
+        NotificationInstanceReference instanceReference = notificationInstanceReferenceRepository.findAll().getFirst();
+        instanceReference.setConnectorUuid(null);
+        notificationInstanceReferenceRepository.save(instanceReference);
+        connectorRepository.deleteAll();
+        triggerHistory.setActionsPerformed(true);
+        triggerHistoryRepository.save(triggerHistory);
+        Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
+
+        TriggerHistory updated2 = triggerHistoryRepository.findById(triggerHistory.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated2.isActionsPerformed(), "actionsPerformed must be false after warning log");
+
     }
 }
