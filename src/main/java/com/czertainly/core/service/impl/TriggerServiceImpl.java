@@ -418,6 +418,14 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
         return triggerHistoryRecord;
     }
 
+    @Override
+    public void setTriggerHistoryActionsPerformedFalse(UUID triggerHistoryUuid) {
+        Optional<TriggerHistory> triggerHistory = triggerHistoryRepository.findById(triggerHistoryUuid);
+        if (triggerHistory.isEmpty()) return;
+        triggerHistory.get().setActionsPerformed(false);
+        triggerHistoryRepository.save(triggerHistory.get());
+    }
+
     //endregion
 
     private void validateTriggerRequest(TriggerType type, ResourceEvent event, boolean ignoreTrigger, Resource resource, List<String> actionsUuids) {
