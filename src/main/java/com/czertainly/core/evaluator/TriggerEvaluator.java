@@ -24,7 +24,6 @@ import com.czertainly.core.dao.entity.UniquelyIdentifiedObject;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.ResourceToClass;
-import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
@@ -34,10 +33,9 @@ import org.apache.commons.beanutils.PropertyUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
@@ -60,7 +58,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     private AttributeEngine attributeEngine;
 
     private TriggerInternalService triggerService;
-    private NotificationProducer notificationProducer;
+    private ApplicationEventPublisher applicationEventPublisher;
+
+    @Autowired
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
+    }
 
     @Autowired
     public void setTriggerService(TriggerInternalService triggerService) {
@@ -70,11 +73,6 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
-    }
-
-    @Autowired
-    public void setNotificationProducer(NotificationProducer notificationProducer) {
-        this.notificationProducer = notificationProducer;
     }
 
     @Override
@@ -436,18 +434,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         NotificationMessage message = new NotificationMessage(event, resource, object.getUuid(), notificationProfileUuids, null, data, triggerHistory.getUuid(), execution.getUuid());
-        // Delay publish until after the current transaction commits so TriggerHistory is
+        // Delay publication until after the current transaction commits, so TriggerHistory is
         // visible to the NotificationListener when it creates TriggerHistoryRecords.
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    notificationProducer.produceMessage(message);
-                }
-            });
-        } else {
-            notificationProducer.produceMessage(message);
-        }
+        applicationEventPublisher.publishEvent(message);
     }
 
     private Object getPropertyValue(Object object, List<Attribute> joinAttributes, Attribute fieldAttribute) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException {
