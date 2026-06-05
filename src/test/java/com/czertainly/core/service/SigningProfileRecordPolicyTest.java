@@ -69,7 +69,7 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
 
         // Insert a signing record under version 1
         var profile = profileRepo.findById(profileUuid).orElseThrow();
-        var v1 = versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 1).orElseThrow();
+        versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 1).orElseThrow();
         SigningRecord rec = new SigningRecord();
         rec.setSigningProfile(profile);
         rec.setSigningProfileVersion(1);
