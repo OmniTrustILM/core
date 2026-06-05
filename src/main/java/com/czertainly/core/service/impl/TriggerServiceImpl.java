@@ -420,10 +420,12 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
 
     @Override
     public void setTriggerHistoryActionsPerformedFalse(UUID triggerHistoryUuid) {
-        Optional<TriggerHistory> triggerHistory = triggerHistoryRepository.findById(triggerHistoryUuid);
-        if (triggerHistory.isEmpty()) return;
-        triggerHistory.get().setActionsPerformed(false);
-        triggerHistoryRepository.save(triggerHistory.get());
+        triggerHistoryRepository.findById(triggerHistoryUuid).ifPresent(th -> {
+            if (th.isActionsPerformed()) {
+                th.setActionsPerformed(false);
+                triggerHistoryRepository.save(th);
+            }
+        });
     }
 
     //endregion
