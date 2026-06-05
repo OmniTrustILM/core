@@ -45,7 +45,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-class NotificationMappedIntegrationTest extends BaseSpringBootTest {
+class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
 
     private static final String MAPPING_ATTRIBUTE_UUID = "1e5657af-423b-4b4b-a9f7-b1150c584a4a";
     private static final String CONTACT_VALUE = "alice@example.com";
@@ -95,14 +95,14 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
 
         // Connector and notification instance
         Connector connector = new Connector();
-        connector.setName("testMappedContactConnector");
+        connector.setName("testObjectRecipientConnector");
         connector.setUrl("http://localhost:" + mockServer.port());
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
 
         NotificationInstanceReference instance = new NotificationInstanceReference();
-        instance.setName("testMappedContactInstance");
+        instance.setName("testObjectRecipientInstance");
         instance.setKind("EMAIL");
         instance.setConnectorUuid(connector.getUuid());
         instance.setNotificationInstanceUuid(UUID.randomUUID());
@@ -115,10 +115,10 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         mapping.setNotificationInstanceRefUuid(instance.getUuid());
         notificationInstanceMappedAttributeRepository.save(mapping);
 
-        // Notification profile with mapped_CONTACT
+        // Notification profile with OBJECT recipient type
         NotificationProfileRequestDto profileRequest = new NotificationProfileRequestDto();
-        profileRequest.setName("mappedContactProfile");
-        profileRequest.setRecipientType(RecipientType.MAPPED);
+        profileRequest.setName("objectRecipientProfile");
+        profileRequest.setRecipientType(RecipientType.OBJECT);
         profileRequest.setInternalNotification(false);
         profileRequest.setNotificationInstanceUuid(instance.getUuid());
         profile = notificationProfileService.createNotificationProfile(profileRequest);
@@ -130,7 +130,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMappedContact_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
+    void testObjectRecipient_mappedAttributeFromCertificateSentToConnector() throws AttributeException, NotFoundException {
         UUID certificateUuid = UUID.randomUUID();
         attributeEngine.updateObjectCustomAttributeContent(
                 Resource.CERTIFICATE, certificateUuid,
@@ -150,7 +150,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testMappedContact_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
+    void testObjectRecipient_certificateWithoutCustomAttribute_connectorCalledWithoutMappedAttribute() {
         // No updateObjectCustomAttributeContent call — this certificate has no attribute value set
         UUID certificateWithoutAttribute = UUID.randomUUID();
 
@@ -163,14 +163,13 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         // Processing must not throw — missing attribute is handled gracefully
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
-        // Connector is still called — the notification is not dropped, but the recipient
-        // carries no mapped attributes (required: false means the missing value is silently skipped)
+        // Connector is still called — the notification is not dropped, but the recipient carries no mapped attributes (required: false means the missing value is silently skipped)
         mockServer.verify(1, WireMock.postRequestedFor(
                 WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify")));
     }
 
     @Test
-    void testMappedContact_requiredMappingAttributeMissingOnCertificate_connectorCalledWithEmptyRecipients() {
+    void testObjectRecipient_requiredMappingAttributeMissingOnCertificate_connectorCalledWithEmptyRecipients() {
         // Override the @BeforeEach stub: the connector now declares the attribute as required.
         // WireMock matches stubs in reverse registration order, so this takes precedence.
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/notificationProvider/[^/]+/attributes/mapping"))
@@ -188,8 +187,8 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
                 List.of(UUID.fromString(profile.getUuid())),
                 List.of(), null);
 
-        // Processing must not throw — the ValidationException from getMappedAttributes() is
-        // caught by the per-recipient catch (Exception e) block, the recipient is skipped
+        // Processing must not throw — the ValidationException raised while resolving mapped
+        // attributes is caught by the per-recipient exception handler, so the recipient is skipped
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
         // Connector is still called with an empty recipients list — same observable result as
