@@ -91,9 +91,8 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
         profile.setSigningScheme(SigningScheme.DELEGATED);
         profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
         profile.setLatestVersion(1);
-        profile.setRetentionDays(retentionDays);
         profile = profileRepository.saveAndFlush(profile);
-        insertProfileVersion(profile, 1);
+        insertProfileVersion(profile, 1, retentionDays);
         return profile;
     }
 
@@ -118,12 +117,13 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
      * fixtures stay valid should the {@code (signing_profile_uuid, signing_profile_version)} reference ever
      * become a hard FK.
      */
-    private void insertProfileVersion(SigningProfile profile, int version) {
+    private void insertProfileVersion(SigningProfile profile, int version, Integer retentionDays) {
         SigningProfileVersion profileVersion = new SigningProfileVersion();
         profileVersion.setSigningProfile(profile);
         profileVersion.setVersion(version);
         profileVersion.setSigningScheme(SigningScheme.DELEGATED);
         profileVersion.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profileVersion.setRetentionDays(retentionDays);
         profileVersionRepository.saveAndFlush(profileVersion);
     }
 }

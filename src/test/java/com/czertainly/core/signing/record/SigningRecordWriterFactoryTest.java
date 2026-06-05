@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import com.czertainly.core.service.writer.signingrecord.ImmediateSigningRecordWriter;
 import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
@@ -19,24 +19,24 @@ class SigningRecordWriterFactoryTest {
     private final SigningRecordWriterFactory factory =
             new SigningRecordWriterFactory(immediate, outbox, bestEffort);
 
-    private SigningProfile profile(SigningRecordPersistenceMode mode) {
-        SigningProfile p = new SigningProfile();
-        p.setPersistenceMode(mode);
-        return p;
+    private SigningProfileVersion version(SigningRecordPersistenceMode mode) {
+        SigningProfileVersion v = new SigningProfileVersion();
+        v.setPersistenceMode(mode);
+        return v;
     }
 
     @Test
     void returnsImmediateForImmediateMode() {
-        assertSame(immediate, factory.writerFor(profile(SigningRecordPersistenceMode.IMMEDIATE)));
+        assertSame(immediate, factory.writerFor(version(SigningRecordPersistenceMode.IMMEDIATE)));
     }
 
     @Test
     void returnsOutboxForDeferredDurableMode() {
-        assertSame(outbox, factory.writerFor(profile(SigningRecordPersistenceMode.DEFERRED_DURABLE)));
+        assertSame(outbox, factory.writerFor(version(SigningRecordPersistenceMode.DEFERRED_DURABLE)));
     }
 
     @Test
     void returnsBestEffortForBestEffortMode() {
-        assertSame(bestEffort, factory.writerFor(profile(SigningRecordPersistenceMode.BEST_EFFORT)));
+        assertSame(bestEffort, factory.writerFor(version(SigningRecordPersistenceMode.BEST_EFFORT)));
     }
 }

@@ -1,21 +1,15 @@
--- Versioned content-policy fields on signing_profile_version
+-- Versioned record-policy fields on signing_profile_version: each SigningRecord carries the version it was
+-- created under, so its retention / delete-after-retrieval / persistence behaviour is fixed at signing time and
+-- a later policy change applies only to records created afterwards.
 ALTER TABLE "signing_profile_version"
     ADD COLUMN "record_metadata" BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_request_metadata"  BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signature"         BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signed_document"   BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "record_dtbs"              BOOLEAN NOT NULL DEFAULT FALSE;
-
--- Non-versioned operational policy + denormalized cache fields on signing_profile
-ALTER TABLE "signing_profile"
-    ADD COLUMN "retention_days" INTEGER NULL,
+    ADD COLUMN "record_dtbs"      BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN "retention_days"   INTEGER NULL,
     ADD COLUMN "delete_after_retrieval"   BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "persistence_mode"         VARCHAR NOT NULL DEFAULT 'DEFERRED_DURABLE',
-    ADD COLUMN "record_metadata"          BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "record_request_metadata"  BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "record_signature"         BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "record_signed_document"   BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN "record_dtbs"              BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN "persistence_mode" VARCHAR NOT NULL DEFAULT 'DEFERRED_DURABLE';
 
 -- Signing record (maps SigningRecord extends UniquelyIdentifiedAndAudited)
 CREATE TABLE "signing_record"

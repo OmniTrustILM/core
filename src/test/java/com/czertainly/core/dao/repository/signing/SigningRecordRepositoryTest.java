@@ -92,8 +92,8 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         // given
         var retentionDays = 7;
         var beforeRetentionWindow = Instant.now().minus(Duration.ofDays(10));
-        SigningProfile profile = insertProfileWithRetention("retention-expired", retentionDays);
-        insertProfileVersion(profile, 1);
+        SigningProfile profile = insertProfile("retention-expired");
+        insertProfileVersion(profile, 1, retentionDays, false);
         SigningRecord expired = insertRecordSignedAt(profile, 1, beforeRetentionWindow);
 
         // when
@@ -109,8 +109,8 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         // given
         var retentionDays = 30;
         var withinRetentionWindow = Instant.now().minus(Duration.ofDays(5));
-        SigningProfile profile = insertProfileWithRetention("retention-within", retentionDays);
-        insertProfileVersion(profile, 1);
+        SigningProfile profile = insertProfile("retention-within");
+        insertProfileVersion(profile, 1, retentionDays, false);
         SigningRecord fresh = insertRecordSignedAt(profile, 1, withinRetentionWindow);
 
         // when
@@ -126,8 +126,8 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         // given
         var noRetention = (Integer) null;
         var createdLongAgo = Instant.now().minus(Duration.ofDays(1000));
-        SigningProfile profile = insertProfile("retention-disabled", noRetention, false);
-        insertProfileVersion(profile, 1);
+        SigningProfile profile = insertProfile("retention-disabled");
+        insertProfileVersion(profile, 1, noRetention, false);
         SigningRecord old = insertRecordSignedAt(profile, 1, createdLongAgo);
 
         // when
@@ -142,8 +142,8 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
     void deleteRetrievedAndFlagged_deletesRetrievedRecordsOfFlaggedProfiles() {
         // given
         var retrievedAt = Instant.now();
-        SigningProfile profile = insertProfileWithDeleteAfterRetrieval("flagged-retrieved");
-        insertProfileVersion(profile, 1);
+        SigningProfile profile = insertProfile("flagged-retrieved");
+        insertProfileVersion(profile, 1, null, true);
         SigningRecord retrieved = insertRecord(profile, 1, retrievedAt);
 
         // when
@@ -174,8 +174,8 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
     void deleteRetrievedAndFlagged_keepsNotYetRetrievedRecordsOfFlaggedProfiles() {
         // given
         var notRetrieved = (Instant) null;
-        SigningProfile profile = insertProfileWithDeleteAfterRetrieval("flagged-not-retrieved");
-        insertProfileVersion(profile, 1);
+        SigningProfile profile = insertProfile("flagged-not-retrieved");
+        insertProfileVersion(profile, 1, null, true);
         SigningRecord pending = insertRecord(profile, 1, notRetrieved);
 
         // when
@@ -187,26 +187,12 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
     }
 
     private SigningProfile insertProfile(String name) {
-        return insertProfile(name, null, false);
-    }
-
-    private SigningProfile insertProfileWithRetention(String name, int retentionDays) {
-        return insertProfile(name, retentionDays, false);
-    }
-
-    private SigningProfile insertProfileWithDeleteAfterRetrieval(String name) {
-        return insertProfile(name, null, true);
-    }
-
-    private SigningProfile insertProfile(String name, Integer retentionDays, boolean deleteAfterRetrieval) {
         SigningProfile profile = new SigningProfile();
         profile.setName(name);
         profile.setEnabled(false);
         profile.setSigningScheme(SigningScheme.DELEGATED);
         profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
         profile.setLatestVersion(1);
-        profile.setRetentionDays(retentionDays);
-        profile.setDeleteAfterRetrieval(deleteAfterRetrieval);
         return signingProfileRepository.saveAndFlush(profile);
     }
 
@@ -232,16 +218,23 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         return repository.saveAndFlush(record);
     }
 
+    private void insertProfileVersion(SigningProfile profile, int version) {
+        insertProfileVersion(profile, version, null, false);
+    }
+
     /**
-     * Persists the version row a record references by int, so the fixtures stay valid should the
+     * Persists the version row a record references by int, carrying the versioned retention / delete-after-retrieval
+     * policy the sweep queries now join on, so the fixtures stay valid should the
      * {@code (signing_profile_uuid, signing_profile_version)} reference ever become a hard FK.
      */
-    private void insertProfileVersion(SigningProfile profile, int version) {
+    private void insertProfileVersion(SigningProfile profile, int version, Integer retentionDays, boolean deleteAfterRetrieval) {
         SigningProfileVersion profileVersion = new SigningProfileVersion();
         profileVersion.setSigningProfile(profile);
         profileVersion.setVersion(version);
         profileVersion.setSigningScheme(SigningScheme.DELEGATED);
         profileVersion.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profileVersion.setRetentionDays(retentionDays);
+        profileVersion.setDeleteAfterRetrieval(deleteAfterRetrieval);
         signingProfileVersionRepository.saveAndFlush(profileVersion);
     }
 }

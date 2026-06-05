@@ -94,15 +94,15 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
     }
 
     @Test
-    void operationalFieldsArePersistedWithoutBumpWhenNoRecordsExist() throws Exception {
+    void operationalChangeBumpsVersionAndPersistsOnNewVersion() throws Exception {
         SigningProfileRequestDto createReq = buildRequest("operational-test-" + System.nanoTime());
         var dto = service.createSigningProfile(createReq);
         UUID profileUuid = UUID.fromString(dto.getUuid());
 
-        // No signing records are inserted — operational-only change should not bump version
         var profile = profileRepo.findById(profileUuid).orElseThrow();
 
-        // Update with retentionDays=14 only (no toggle changes, no records)
+        // Update with retentionDays=14 only. retentionDays is now versioned, so the change must create a new
+        // version — records signed under version 1 keep their (null) retention, version 2 carries the new value.
         SigningProfileRequestDto updateReq = buildRequest(profile.getName());
         SigningRecordPolicyRequestDto policy = new SigningRecordPolicyRequestDto();
         policy.setRetentionDays(14);
@@ -110,10 +110,13 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
         service.updateSigningProfile(SecuredUUID.fromUUID(profileUuid), updateReq);
 
         profile = profileRepo.findById(profileUuid).orElseThrow();
-        // No records and no toggle change — version must not bump
-        assertEquals(1, profile.getLatestVersion());
-        // Operational field must be persisted on the profile header
-        assertEquals(14, profile.getRetentionDays());
+        assertEquals(2, profile.getLatestVersion());
+
+        var v2 = versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 2).orElseThrow();
+        assertEquals(14, v2.getRetentionDays());
+
+        var v1 = versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 1).orElseThrow();
+        assertNull(v1.getRetentionDays());
     }
 
     @Test
@@ -140,10 +143,10 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
 
         profile = profileRepo.findById(profileUuid).orElseThrow();
         assertEquals(2, profile.getLatestVersion());
-        assertTrue(profile.isDeleteAfterRetrieval());
 
         var v2 = versionRepo.findBySigningProfileUuidAndVersion(profileUuid, 2).orElseThrow();
         assertTrue(v2.isRecordDtbs());
+        assertTrue(v2.isDeleteAfterRetrieval());
 
         long versionCount = versionRepo.findAll().stream()
                 .filter(v -> v.getSigningProfileUuid().equals(profileUuid))

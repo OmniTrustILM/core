@@ -4,8 +4,10 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,8 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
     private SigningRecordRetrievalHook hook;
     @Autowired
     private SigningProfileRepository profileRepo;
+    @Autowired
+    private SigningProfileVersionRepository versionRepo;
     @Autowired
     private SigningRecordRepository recordRepo;
     @Autowired
@@ -159,8 +163,17 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
         profile.setSigningScheme(SigningScheme.MANAGED);
         profile.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
         profile.setLatestVersion(1);
-        profile.setDeleteAfterRetrieval(deleteAfterRetrieval);
-        return profileRepo.saveAndFlush(profile);
+        profile = profileRepo.saveAndFlush(profile);
+
+        // delete-after-retrieval is versioned; the hook reads it from the record's version row (version 1 here)
+        SigningProfileVersion version = new SigningProfileVersion();
+        version.setSigningProfile(profile);
+        version.setVersion(1);
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
+        version.setDeleteAfterRetrieval(deleteAfterRetrieval);
+        versionRepo.saveAndFlush(version);
+        return profile;
     }
 
     private SigningRecord insertRecord(SigningProfile profile) {

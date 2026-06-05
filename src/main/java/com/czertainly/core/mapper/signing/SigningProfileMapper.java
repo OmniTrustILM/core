@@ -105,21 +105,21 @@ public class SigningProfileMapper {
             dto.getEnabledProtocols().add(SigningProtocol.TSP);
         }
 
-        SigningRecordPolicyDto policy = getSigningRecordPolicyDto(header, version);
+        SigningRecordPolicyDto policy = getSigningRecordPolicyDto(version);
         dto.setRecordPolicy(policy);
         return dto;
     }
 
-    private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfile header, SigningProfileVersion version) {
+    private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfileVersion version) {
         SigningRecordPolicyDto policy = new SigningRecordPolicyDto();
         policy.setRecordMetadata(version.isRecordMetadata());
         policy.setRecordRequestMetadata(version.isRecordRequestMetadata());
         policy.setRecordSignature(version.isRecordSignature());
         policy.setRecordSignedDocument(version.isRecordSignedDocument());
         policy.setRecordDtbs(version.isRecordDtbs());
-        policy.setRetentionDays(header.getRetentionDays());
-        policy.setDeleteAfterRetrieval(header.isDeleteAfterRetrieval());
-        policy.setPersistenceMode(header.getPersistenceMode());
+        policy.setRetentionDays(version.getRetentionDays());
+        policy.setDeleteAfterRetrieval(version.isDeleteAfterRetrieval());
+        policy.setPersistenceMode(version.getPersistenceMode());
         return policy;
     }
 
@@ -157,7 +157,7 @@ public class SigningProfileMapper {
                 version.getVersion(), header.isEnabled(), protocols,
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes),
-                buildRecordPolicyModel(header, version));
+                buildRecordPolicyModel(version));
     }
 
     public static SigningProfileListDto toListDto(SigningProfile profile) {
@@ -275,16 +275,16 @@ public class SigningProfileMapper {
         };
     }
 
-    private static SigningRecordPolicyModel buildRecordPolicyModel(SigningProfile header, SigningProfileVersion version) {
+    private static SigningRecordPolicyModel buildRecordPolicyModel(SigningProfileVersion version) {
         return new SigningRecordPolicyModel(
                 version.isRecordMetadata(),
                 version.isRecordRequestMetadata(),
                 version.isRecordSignature(),
                 version.isRecordSignedDocument(),
                 version.isRecordDtbs(),
-                header.getRetentionDays(),
-                header.isDeleteAfterRetrieval(),
-                header.getPersistenceMode());
+                version.getRetentionDays(),
+                version.isDeleteAfterRetrieval(),
+                version.getPersistenceMode());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

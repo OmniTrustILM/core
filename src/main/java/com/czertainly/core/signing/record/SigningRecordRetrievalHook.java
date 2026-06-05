@@ -2,8 +2,9 @@ package com.czertainly.core.signing.record;
 
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import java.util.UUID;
 public class SigningRecordRetrievalHook {
 
     private final SigningRecordRepository repository;
+    private final SigningProfileVersionRepository versionRepository;
     private final SigningRecordDeletionWriter deletionWriter;
     private final SigningRecordMetrics metrics;
     private final ClusterOperationSynchronizer clusterSynchronizer;
@@ -29,12 +31,14 @@ public class SigningRecordRetrievalHook {
     private final int maxBatchesPerSweep;
 
     public SigningRecordRetrievalHook(SigningRecordRepository repository,
+                                      SigningProfileVersionRepository versionRepository,
                                       SigningRecordDeletionWriter deletionWriter,
                                       SigningRecordMetrics metrics,
                                       ClusterOperationSynchronizer clusterSynchronizer,
                                       @Value("${signing-record.delete-after-retrieval.batch-size:1000}") int batchSize,
                                       @Value("${signing-record.delete-after-retrieval.max-batches-per-sweep:10}") int maxBatchesPerSweep) {
         this.repository = repository;
+        this.versionRepository = versionRepository;
         this.deletionWriter = deletionWriter;
         this.metrics = metrics;
         this.clusterSynchronizer = clusterSynchronizer;
@@ -53,8 +57,7 @@ public class SigningRecordRetrievalHook {
     }
 
     private void planSigningRecordDeletion(SigningRecord r) {
-        SigningProfile profile = r.getSigningProfile();
-        if (profile == null || !profile.isDeleteAfterRetrieval()) {
+        if (r.getSigningProfileUuid() == null || !isDeleteAfterRetrieval(r)) {
             return;
         }
 
@@ -65,6 +68,13 @@ public class SigningRecordRetrievalHook {
                 deleteRecordInTransaction(toDelete);
             }
         });
+    }
+
+    private boolean isDeleteAfterRetrieval(SigningRecord r) {
+        return versionRepository
+                .findBySigningProfileUuidAndVersion(r.getSigningProfileUuid(), r.getSigningProfileVersion())
+                .map(SigningProfileVersion::isDeleteAfterRetrieval)
+                .orElse(false);
     }
 
     private void deleteRecordInTransaction(UUID toDelete) {

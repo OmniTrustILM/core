@@ -116,18 +116,18 @@ class SigningProfileMapperToModelTest {
     }
 
     @Test
-    void toManagedTimestampingModel_carriesRecordPolicy_versionFlagsAndHeaderRetention() {
+    void toManagedTimestampingModel_carriesRecordPolicy_allFieldsFromVersion() {
         // given — distinct values so a transposed field would surface; T/F/T/F/T disambiguates the flags
         var retentionDays = 30;
         var persistenceMode = SigningRecordPersistenceMode.IMMEDIATE;
         SigningProfile header = newHeader();
-        header.setRetentionDays(retentionDays);
-        header.setDeleteAfterRetrieval(true);
-        header.setPersistenceMode(persistenceMode);
         SigningProfileVersion version = newTimestampingVersion();
         version.setSigningScheme(SigningScheme.MANAGED);
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setCertificateUuid(CERT_UUID);
+        version.setRetentionDays(retentionDays);
+        version.setDeleteAfterRetrieval(true);
+        version.setPersistenceMode(persistenceMode);
         version.setRecordMetadata(true);
         version.setRecordRequestMetadata(false);
         version.setRecordSignature(true);
@@ -154,11 +154,11 @@ class SigningProfileMapperToModelTest {
     void toManagedTimestampingModel_carriesRecordPolicy_nullRetentionDays() {
         // given
         SigningProfile header = newHeader();
-        header.setRetentionDays(null);
         SigningProfileVersion version = newTimestampingVersion();
         version.setSigningScheme(SigningScheme.MANAGED);
         version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
         version.setCertificateUuid(CERT_UUID);
+        version.setRetentionDays(null);
 
         // when
         SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =

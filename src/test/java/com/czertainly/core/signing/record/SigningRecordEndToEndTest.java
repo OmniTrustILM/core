@@ -7,8 +7,10 @@ import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowT
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
@@ -60,6 +62,8 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     @Autowired
     private SigningProfileRepository profileRepo;
     @Autowired
+    private SigningProfileVersionRepository versionRepo;
+    @Autowired
     private SigningRecordOutboxRepository outboxRepo;
     @Autowired
     private SigningRecordRepository recordRepo;
@@ -73,16 +77,16 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
             throws NotFoundException {
         // given a profile whose persistence mode routes writes through the durable outbox
         var deferredDurable = SigningRecordPersistenceMode.DEFERRED_DURABLE;
-        SigningProfile profile = insertSigningProfile(deferredDurable);
+        SigningProfileVersion version = insertSigningProfile(deferredDurable);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(profile.getUuid())
+                .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
         double createdBefore = counterValue("signing_record.created.total", "mode", deferredDurable.name());
         double drainedBefore = counterValue("signing_record.outbox.drained.total");
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(profile).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is staged in the outbox for that profile, not yet visible through the service
         assertRecordInOutbox();
@@ -104,15 +108,15 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
             throws NotFoundException {
         // given a profile whose persistence mode persists writes synchronously
         var immediate = SigningRecordPersistenceMode.IMMEDIATE;
-        SigningProfile profile = insertSigningProfile(immediate);
+        SigningProfileVersion version = insertSigningProfile(immediate);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(profile.getUuid())
+                .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
         double createdBefore = counterValue("signing_record.created.total", "mode", immediate.name());
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(profile).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is selectable through the service straight away, never staged in the outbox, and the counter advanced
         assertRecordExists();
@@ -125,16 +129,16 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
             throws NotFoundException {
         // given a profile whose persistence mode routes writes through the in-memory best-effort queue
         var bestEffort = SigningRecordPersistenceMode.BEST_EFFORT;
-        SigningProfile profile = insertSigningProfile(bestEffort);
+        SigningProfileVersion version = insertSigningProfile(bestEffort);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(profile.getUuid())
+                .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
         double queuedBefore = counterValue("signing_record.queued.total", "mode", bestEffort.name());
         double createdBefore = counterValue("signing_record.created.total", "mode", bestEffort.name());
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(profile).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is admitted to the queue straight away, before any persistence
         assertEquals(queuedBefore + 1, counterValue("signing_record.queued.total", "mode", bestEffort.name()));
@@ -179,16 +183,25 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     }
 
     /**
-     * Persists the {@code signing_profile} the drained record's FK points at. Only the persistence mode drives
-     * this test (it selects the writer), so the scheme and workflow columns get unremarkable valid values.
+     * Persists the {@code signing_profile} the drained record's FK points at, plus its version-1 row carrying
+     * the persistence mode (now a versioned field). Only the persistence mode drives this test (it selects the
+     * writer), so the scheme and workflow columns get unremarkable valid values. Returns the version, which the
+     * factory now routes on.
      */
-    private SigningProfile insertSigningProfile(SigningRecordPersistenceMode persistenceMode) {
+    private SigningProfileVersion insertSigningProfile(SigningRecordPersistenceMode persistenceMode) {
         SigningProfile profile = new SigningProfile();
         profile.setName("e2e-" + persistenceMode.name());
         profile.setSigningScheme(SigningScheme.MANAGED);
         profile.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
         profile.setLatestVersion(1);
-        profile.setPersistenceMode(persistenceMode);
-        return profileRepo.saveAndFlush(profile);
+        profile = profileRepo.saveAndFlush(profile);
+
+        SigningProfileVersion version = new SigningProfileVersion();
+        version.setSigningProfile(profile);
+        version.setVersion(1);
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
+        version.setPersistenceMode(persistenceMode);
+        return versionRepo.saveAndFlush(version);
     }
 }

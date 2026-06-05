@@ -1,5 +1,6 @@
 package com.czertainly.core.dao.entity.signing;
 
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -122,6 +123,18 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
 
     @Column(name = "record_dtbs", nullable = false)
     private boolean recordDtbs = false;
+
+    // ── Operational policy (authoritative, versioned) ───────────────────────
+
+    @Column(name = "retention_days")
+    private Integer retentionDays;
+
+    @Column(name = "delete_after_retrieval", nullable = false)
+    private boolean deleteAfterRetrieval = false;
+
+    @Column(name = "persistence_mode", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private SigningRecordPersistenceMode persistenceMode = SigningRecordPersistenceMode.DEFERRED_DURABLE;
 
     // ── Setter helpers ──────────────────────────────────────────────────────
 

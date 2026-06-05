@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import com.czertainly.core.service.writer.signingrecord.ImmediateSigningRecordWriter;
 import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
@@ -22,9 +22,9 @@ public class SigningRecordWriterFactory {
         this.bestEffort = bestEffort;
     }
 
-    public SigningRecordWriter writerFor(SigningProfile profile) {
-        SigningRecordPersistenceMode mode = profile.getPersistenceMode() != null
-                ? profile.getPersistenceMode()
+    public SigningRecordWriter writerFor(SigningProfileVersion version) {
+        SigningRecordPersistenceMode mode = version.getPersistenceMode() != null
+                ? version.getPersistenceMode()
                 : SigningRecordPersistenceMode.DEFERRED_DURABLE;
         return switch (mode) {
             case IMMEDIATE -> immediate;

@@ -332,9 +332,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         v1.setVersion(1);
         applyWorkflow(profile, v1, request.getWorkflow());
         applyScheme(profile, v1, request.getSigningScheme());
-        applyContentPolicyRecordToVersion(v1, request.getRecordPolicy());
-        applyOperationalPolicyToProfile(profile, request.getRecordPolicy());
-        mirrorContentPolicyRecordToProfileCache(profile, v1);
+        applyRecordPolicyToVersion(v1, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         v1.setSigningProfile(profile);
         signingProfileVersionRepository.save(v1);
@@ -381,7 +379,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
         SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion()).orElse(null);
         boolean recordsExist = signingRecordService.doesSigningRecordExist(profile.getUuid(), profile.getLatestVersion());
-        boolean policyRecordDifferent = currentVersion != null && contentPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
+        boolean policyRecordDifferent = currentVersion != null && recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
         if (bump) {
             profile.setLatestVersion(profile.getLatestVersion() + 1);
@@ -405,9 +403,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         applyWorkflow(profile, version, request.getWorkflow());
         applyScheme(profile, version, request.getSigningScheme());
-        applyContentPolicyRecordToVersion(version, request.getRecordPolicy());
-        applyOperationalPolicyToProfile(profile, request.getRecordPolicy());
-        mirrorContentPolicyRecordToProfileCache(profile, version);
+        applyRecordPolicyToVersion(version, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
 
@@ -713,17 +709,20 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         }
     }
 
-    private boolean contentPolicyDiffersFromVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
+    private boolean recordPolicyDiffersFromVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
         if (p == null)
             return false;
         return v.isRecordMetadata() != p.isRecordMetadata()
                 || v.isRecordRequestMetadata() != p.isRecordRequestMetadata()
                 || v.isRecordSignature() != p.isRecordSignature()
                 || v.isRecordSignedDocument() != p.isRecordSignedDocument()
-                || v.isRecordDtbs() != p.isRecordDtbs();
+                || v.isRecordDtbs() != p.isRecordDtbs()
+                || !Objects.equals(v.getRetentionDays(), p.getRetentionDays())
+                || v.isDeleteAfterRetrieval() != p.isDeleteAfterRetrieval()
+                || resolvePersistenceMode(p) != v.getPersistenceMode();
     }
 
-    private void applyContentPolicyRecordToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
+    private void applyRecordPolicyToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
         if (p == null)
             return;
         v.setRecordMetadata(p.isRecordMetadata());
@@ -731,22 +730,13 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         v.setRecordSignature(p.isRecordSignature());
         v.setRecordSignedDocument(p.isRecordSignedDocument());
         v.setRecordDtbs(p.isRecordDtbs());
+        v.setRetentionDays(p.getRetentionDays());
+        v.setDeleteAfterRetrieval(p.isDeleteAfterRetrieval());
+        v.setPersistenceMode(resolvePersistenceMode(p));
     }
 
-    private void applyOperationalPolicyToProfile(SigningProfile sp, SigningRecordPolicyRequestDto p) {
-        if (p == null)
-            return;
-        sp.setRetentionDays(p.getRetentionDays());
-        sp.setDeleteAfterRetrieval(p.isDeleteAfterRetrieval());
-        sp.setPersistenceMode(p.getPersistenceMode() != null ? p.getPersistenceMode() : SigningRecordPersistenceMode.DEFERRED_DURABLE);
-    }
-
-    private void mirrorContentPolicyRecordToProfileCache(SigningProfile sp, SigningProfileVersion v) {
-        sp.setRecordMetadata(v.isRecordMetadata());
-        sp.setRecordRequestMetadata(v.isRecordRequestMetadata());
-        sp.setRecordSignature(v.isRecordSignature());
-        sp.setRecordSignedDocument(v.isRecordSignedDocument());
-        sp.setRecordDtbs(v.isRecordDtbs());
+    private SigningRecordPersistenceMode resolvePersistenceMode(SigningRecordPolicyRequestDto p) {
+        return p.getPersistenceMode() != null ? p.getPersistenceMode() : SigningRecordPersistenceMode.DEFERRED_DURABLE;
     }
 
     private void validateFormatterConnectorFeature(Connector connector, FeatureFlag requiredFeature, SigningWorkflowType workflowType) {
