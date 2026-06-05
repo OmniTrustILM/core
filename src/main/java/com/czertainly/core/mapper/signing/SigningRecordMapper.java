@@ -16,8 +16,8 @@ public class SigningRecordMapper {
         SigningRecordDto dto = new SigningRecordDto();
         dto.setUuid(record.getUuid().toString());
         dto.setName(record.getName());
-        Instant signingTimeZoned = record.getSigningTime() != null ? record.getSigningTime() : null;
-        dto.setSigningTime(signingTimeZoned);
+        Instant signingTime = record.getSigningTime();
+        dto.setSigningTime(signingTime);
         OffsetDateTime createdAt = record.getCreated();
         dto.setCreatedAt(createdAt.toInstant());
         dto.setSignatureValue(record.getSignatureValue());
@@ -34,7 +34,7 @@ public class SigningRecordMapper {
         SigningRecordListDto dto = new SigningRecordListDto();
         dto.setUuid(record.getUuid().toString());
         dto.setName(record.getName());
-        Instant signingTime = record.getSigningTime() != null ? record.getSigningTime() : null;
+        Instant signingTime = record.getSigningTime();
         dto.setSigningTime(signingTime);
         OffsetDateTime createdAtZoned = record.getCreated();
         dto.setCreatedAt(createdAtZoned.toInstant());
