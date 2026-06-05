@@ -112,7 +112,7 @@ class CoreCallbackServiceTest extends BaseSpringBootTest {
         List<ResourceObjectContent> result = coreCallbackService.coreGetResources(requestAttributeCallback, AttributeResource.CERTIFICATE);
         Assertions.assertEquals(1, result.size());
         Assertions.assertEquals(certificate1.getUuid().toString(), result.getFirst().getData().getUuid());
-        Assertions.assertEquals(certificate1.getCommonName(), result.getFirst().getData().getName());
+        Assertions.assertEquals(certificate1.getCommonName() + " (Not Issued)", result.getFirst().getData().getName());
 
         String invalidFilter = "xxx";
         requestAttributeCallback.setFilter(Map.of(invalidFilter, CertificateState.ISSUED));

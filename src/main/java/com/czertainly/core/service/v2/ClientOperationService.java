@@ -96,6 +96,8 @@ public interface ClientOperationService {
             boolean isApproved
     ) throws NotFoundException, CertificateOperationException;
 
+    void revokeCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
+
     List<BaseAttribute> listRevokeCertificateAttributes(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException;

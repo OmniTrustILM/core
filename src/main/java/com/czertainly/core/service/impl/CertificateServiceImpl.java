@@ -54,7 +54,6 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.handlers.CertificateExpiringEventHandler;
 import com.czertainly.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
-import com.czertainly.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.czertainly.core.mapper.certificate.SigningCertificateMapper;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
@@ -533,7 +532,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     public void deleteCertificate(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntity(uuid);
         if (certificate.getUserUuid() != null) {
-            applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.DELETE, CertificateEventStatus.FAILED, "Certificate is currently used by some user", null));
+            certificateEventHistoryService.addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE, CertificateEventStatus.FAILED, "Certificate is currently used by some user", null);
             throw new ValidationException("Could not delete certificate %s with UUID %s: Certificate is used by some user.".formatted(certificate.getCommonName(), certificate.getUuid().toString()));
         }
 
@@ -1429,7 +1428,20 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
         final TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = getAdditionalWhereClause(filters, false);
-        return certificateRepository.listResourceObjects(filter, Certificate_.commonName, additionalWhereClause, pagination);
+        return certificateRepository.listResourceObjects(
+                filter,
+                // Creates the name as "{commonName} (SN: {serialNumber})", if the common name is empty or null, it will be replaced with "<empty>"
+                (root, cb) -> {
+                    Expression<String> displayName = cb.coalesce(
+                            cb.nullif(cb.trim(root.get(Certificate_.commonName)), ""),
+                            CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
+                    Expression<String> snSuffix = cb.coalesce(
+                            cb.concat(" (", cb.concat(root.get(Certificate_.serialNumber), ")")),
+                            " (Not Issued)");
+                    return cb.concat(displayName, snSuffix);
+                },
+                additionalWhereClause,
+                pagination);
     }
 
     @Override
@@ -1986,14 +1998,14 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(newRaProfile.getAuthorityInstanceReference().getConnectorUuid());
                 response = connectorApiFactory.getCertificateApiClientV2(connectorDto).identifyCertificate(connectorDto, newRaProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), requestDto);
             } catch (ConnectorException e) {
-                applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.", newRaProfile.getName()), null));
+                certificateEventHistoryService.addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.", newRaProfile.getName()), null);
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Certificate not identified by authority of new RA profile %s. Certificate: %s", newRaProfile.getName(), certificate.toStringShort()));
             } catch (ValidationException e) {
                 // A connector may reject identification for any policy it implements: trust
                 // anchor mismatch, validity, key usage, RA-profile attribute violation, etc.
                 // Forward the connector's own reason so the operator sees the specific cause.
                 String reason = identifyRejectionReason(e);
-                applicationEventPublisher.publishEvent(new UpdateCertificateHistoryEvent(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Identification by authority of new RA profile %s rejected the certificate: %s", newRaProfile.getName(), reason), null));
+                certificateEventHistoryService.addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Identification by authority of new RA profile %s rejected the certificate: %s", newRaProfile.getName(), reason), null);
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Identification by authority of new RA profile %s rejected the certificate: %s. Certificate: %s", newRaProfile.getName(), reason, certificate.toStringShort()));
             }
         }

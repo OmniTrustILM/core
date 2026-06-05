@@ -16,14 +16,18 @@ import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.repository.ApprovalRepository;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.security.authz.SelfPrincipalEndpoint;
+import com.czertainly.core.service.impl.ApprovalServiceImpl;
 import com.czertainly.core.util.AuthHelper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,9 +74,51 @@ class ApprovalServiceTest extends ApprovalProfileData {
         ApprovalProfile approvalProfile1 = approvalProfileService.createApprovalProfile(approvalProfileUpdateRequestDto);
 
         approvalInternalService.createApproval(approvalProfile1.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.fromString(userProfileDto.getUser().getUuid()), null);
-        ApprovalResponseDto responseDto = approvalService.listUserApprovals(SecurityFilter.create(), true, new PaginationRequestDto());
+        ApprovalResponseDto responseDto = approvalService.listUserApprovals(true, new PaginationRequestDto());
         Assertions.assertEquals(1, responseDto.getApprovals().size());
 
+    }
+
+    @Test
+    void testListUserApprovalsReturnsOnlyOwnApprovals() throws NotFoundException, AlreadyExistException {
+        final UserProfileDto userProfileDto = AuthHelper.getUserProfile();
+
+        ApprovalProfileRequestDto ownProfileRequest = new ApprovalProfileRequestDto();
+        ownProfileRequest.setName("own-approval-profile");
+        ApprovalStepDto ownStep = new ApprovalStepDto();
+        ownStep.setOrder(1);
+        ownStep.setUserUuid(UUID.fromString(userProfileDto.getUser().getUuid()));
+        ownStep.setRequiredApprovals(1);
+        ownProfileRequest.getApprovalSteps().add(ownStep);
+        ApprovalProfile ownProfile = approvalProfileService.createApprovalProfile(ownProfileRequest);
+
+        ApprovalProfileRequestDto otherProfileRequest = new ApprovalProfileRequestDto();
+        otherProfileRequest.setName("other-approval-profile");
+        ApprovalStepDto otherStep = new ApprovalStepDto();
+        otherStep.setOrder(1);
+        otherStep.setUserUuid(UUID.randomUUID());
+        otherStep.setRequiredApprovals(1);
+        otherProfileRequest.getApprovalSteps().add(otherStep);
+        ApprovalProfile otherProfile = approvalProfileService.createApprovalProfile(otherProfileRequest);
+
+        Approval ownApproval = approvalInternalService.createApproval(ownProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.fromString(userProfileDto.getUser().getUuid()), null);
+        approvalInternalService.createApproval(otherProfile.getTheLatestApprovalProfileVersion(), Resource.CERTIFICATE, ResourceAction.CREATE, UUID.randomUUID(), UUID.randomUUID(), null);
+
+        ApprovalResponseDto responseDto = approvalService.listUserApprovals(true, new PaginationRequestDto());
+
+        Assertions.assertEquals(1, responseDto.getApprovals().size(),
+                "listUserApprovals must not leak approvals whose steps target another principal");
+        Assertions.assertEquals(ownApproval.getUuid().toString(), responseDto.getApprovals().getFirst().getApprovalUuid());
+    }
+
+    @Test
+    void testListUserApprovalsIsSelfPrincipalEndpoint() throws NoSuchMethodException {
+        Method method = ApprovalServiceImpl.class.getMethod("listUserApprovals", boolean.class, PaginationRequestDto.class);
+
+        Assertions.assertTrue(method.isAnnotationPresent(SelfPrincipalEndpoint.class),
+                "listUserApprovals must stay a @SelfPrincipalEndpoint so users can list their own approvals without an APPROVAL/LIST grant");
+        Assertions.assertFalse(method.isAnnotationPresent(ExternalAuthorization.class),
+                "listUserApprovals must not be gated by @ExternalAuthorization again");
     }
 
     @Test

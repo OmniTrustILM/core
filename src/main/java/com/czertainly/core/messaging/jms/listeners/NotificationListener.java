@@ -173,6 +173,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         logger.error(errorMessage);
         if (message.getTriggerHistoryUuid() != null) {
             triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
+            triggerService.setTriggerHistoryActionsPerformedFalse(message.getTriggerHistoryUuid());
         }
     }
 
@@ -180,6 +181,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         logger.warn(errorMessage);
         if (message.getTriggerHistoryUuid() != null) {
             triggerService.createTriggerHistoryRecord(message.getTriggerHistoryUuid(), null, message.getExecutionUuid(), errorMessage);
+            triggerService.setTriggerHistoryActionsPerformedFalse(message.getTriggerHistoryUuid());
         }
     }
 

@@ -19,4 +19,6 @@ public interface TriggerInternalService {
 
     TriggerHistory createTriggerHistory(UUID triggerUuid, TriggerAssociation triggerAssociation, UUID objectUuid, UUID referenceObjectUuid, EventHistory eventHistory, Resource objectResource);
     TriggerHistoryRecord createTriggerHistoryRecord(UUID triggerHistoryUuid, UUID conditionUuid, UUID executionUuid, String message);
+
+    void setTriggerHistoryActionsPerformedFalse(UUID triggerHistoryUuid);
 }

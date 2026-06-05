@@ -264,31 +264,29 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     private boolean evaluateMetaAttributeConditionItem(Resource resource, String fieldIdentifier, UUID objectUuid, Object conditionValue, FilterConditionOperator operator) throws RuleException {
         // If the Field Source is Meta Attribute, we expect Field Identifier to be formatted as follows 'name|contentType', since there can be multiple Meta Attributes with the same name, the Content Type must be specified
-        String[] split = fieldIdentifier.split("\\|");
-        if (split.length < 2) throw new RuleException("Field identifier is not in correct format.");
-        AttributeContentType fieldAttributeContentType = AttributeContentType.valueOf(split[1]);
-        String fieldIdentifierName = split[0];
-        // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying attribute, otherwise continue wit next
+        String[] parts = parseNameAndContentType(fieldIdentifier);
+        AttributeContentType fieldAttributeContentType = parseAttributeContentType(parts[1]);
+        String fieldIdentifierName = parts[0];
+        // From all Metadata of the object, find those with matching Name and Content Type and evaluate condition on these, return true for the first satisfying entry, otherwise continue with next.
+        // Note: negated operators are evaluated per entry (true if any entry satisfies them), which diverges from FilterPredicatesBuilder's NOT EXISTS semantics when the same meta attribute is contributed by multiple connectors.
         List<MetadataResponseDto> metadata = attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(resource, objectUuid).build());
         for (List<ResponseMetadata> responseMetadata : metadata.stream().map(MetadataResponseDto::getItems).toList()) {
             for (ResponseMetadata responseAttributeDto : responseMetadata) {
-                // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
                 if (Objects.equals(responseAttributeDto.getName(), fieldIdentifierName) && fieldAttributeContentType == responseAttributeDto.getContentType() && evaluateConditionOnAttribute(responseAttributeDto.getContent(), responseAttributeDto.getContentType(), conditionValue, operator))
                         return true;
-
             }
         }
-        // If no attribute has been evaluated as satisfying, the condition is not satisfied as whole
+        // If no entry has been evaluated as satisfying, the condition is not satisfied as a whole
         return false;
     }
 
     private boolean evaluateCustomAttributeConditionItem(Resource resource, UUID objectUuid, String fieldIdentifier, Object conditionValue, FilterConditionOperator operator) throws RuleException {
-        // If source is Custom Attribute, retrieve custom attributes of this object and find the attribute which has Name equal to Field Identifier
+        // If source is Custom Attribute, Field Identifier is either formatted as 'name|contentType', or only as `name` since the content type is not needed
+        String attributeName = fieldIdentifier.contains("|") ? parseNameAndContentType(fieldIdentifier)[0] : fieldIdentifier;
         List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
-        ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), fieldIdentifier)).findFirst().orElse(null);
-        if (attributeToCompare == null) return false;
+        ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
         // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
-        return evaluateConditionOnAttribute(attributeToCompare.getContent(), attributeToCompare.getContentType(), conditionValue, operator);
+        return evaluateConditionOnAttribute(attributeToCompare == null ? null : attributeToCompare.getContent(), attributeToCompare == null ? null : attributeToCompare.getContentType(), conditionValue, operator);
     }
 
     @Override
@@ -338,18 +336,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         final String sourceName;
-        final AttributeContentType sourceContentType;
-        String sourceId = executionItem.getSourceFieldIdentifier();
-        String[] sourceParts = sourceId.split("\\|", -1);
-        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
-            throw new RuleException("fieldIdentifier must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
-        }
-        sourceName = sourceId.substring(0, sourceId.indexOf("|"));
-        try {
-            sourceContentType = AttributeContentType.valueOf(sourceId.substring(sourceId.indexOf("|") + 1));
-        } catch (IllegalArgumentException e) {
-            throw new RuleException("Cannot parse source field identifier %s from execution item: %s".formatted(executionItem.getSourceFieldIdentifier(), e.getMessage()));
-        }
+        String[] sourceParts = parseNameAndContentType(executionItem.getSourceFieldIdentifier());
+        sourceName = sourceParts[0];
+        final AttributeContentType sourceContentType = parseAttributeContentType(sourceParts[1]);
         FilterFieldSource sourceFieldSource = executionItem.getSourceFieldSource();
 
         List<BaseAttributeContentV3<?>> content = switch (sourceFieldSource) {
@@ -437,7 +426,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             throw new RuleException("Cannot set custom attributes for an object not in database.");
         }
         attributeEngine.updateObjectCustomAttributeContent(resource, objectUuid, null,
-                fieldIdentifier.substring(0, fieldIdentifier.indexOf("|")), attributeContents);
+                parseNameAndContentType(fieldIdentifier)[0], attributeContents);
     }
 
     protected void performSendNotificationAction(Resource resource, ResourceEvent event, Execution execution, T object, Object data, TriggerHistory triggerHistory) {
@@ -481,6 +470,22 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             return false;
         }
         return true;
+    }
+
+    private static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
+        String[] parts = fieldIdentifier.split("\\|", 2);
+        if (parts.length < 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
+            throw new RuleException("Field identifier is not in correct format 'name|contentType', got: " + fieldIdentifier);
+        }
+        return parts;
+    }
+
+    private static AttributeContentType parseAttributeContentType(String contentType) throws RuleException {
+        try {
+            return AttributeContentType.valueOf(contentType);
+        } catch (IllegalArgumentException e) {
+            throw new RuleException("Cannot parse content type %s from field identifier: %s".formatted(contentType, e.getMessage()));
+        }
     }
 
     private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> commonOperatorFunctionMap;
@@ -615,22 +620,52 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     private boolean evaluateConditionOnAttribute(List<? extends AttributeContent> content, AttributeContentType contentType, Object conditionValue, FilterConditionOperator operator) throws RuleException {
+        boolean missingContent = content == null || content.isEmpty();
+        if (operator == FilterConditionOperator.EMPTY) {
+            return missingContent;
+        }
+        if (operator == FilterConditionOperator.NOT_EMPTY) {
+            return !missingContent;
+        }
+
+        // For negated operators, evaluate the positive counterpart across all items and negate the result:
+        // "none of the items satisfies EQUALS/CONTAINS/MATCHES" — mirrors FilterPredicatesBuilder's NOT EXISTS semantics.
+        FilterConditionOperator effectiveOperator = switch (operator) {
+            case NOT_EQUALS -> FilterConditionOperator.EQUALS;
+            case NOT_CONTAINS -> FilterConditionOperator.CONTAINS;
+            case NOT_MATCHES -> FilterConditionOperator.MATCHES;
+            default -> operator;
+        };
+        boolean isNegated = effectiveOperator != operator;
+
+        // For negated operators, attributes without content also match the operator, mirroring FilterPredicatesBuilder's NOT EXISTS semantics.
+        if (isNegated && missingContent) {
+            return true;
+        }
+        // For non-negated operators, attributes without content do not match the operator.
+        if (missingContent) return false;
+
+        // If the attribute is a list, iterate through each item and short-circuit on the first definitive result.
+        // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
         for (AttributeContent attributeContent : content) {
             Object attributeValue = contentType.isFilterByData() ? attributeContent.getData() : attributeContent.getReference();
             try {
-                if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(operator).apply(attributeValue, conditionValue)))
-                    return true;
+                if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValue)))
+                    // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
+                    return !isNegated;
             } catch (Exception e) {
-                throw new RuleException("Invalid condition.");
+                throw new RuleException("Cannot evaluate operator %s with condition value '%s' (contentType: %s): %s"
+                        .formatted(operator, conditionValue, contentType, e.getMessage()));
             }
         }
-        return false;
+        // No positive match found: for non-negated ops return false, for negated ops return true
+        return isNegated;
     }
 
 
     private FilterFieldType contentTypeToFieldType(AttributeContentType contentType) {
         switch (contentType) {
-            case STRING, TEXT, CODEBLOCK, SECRET, FILE, CREDENTIAL, OBJECT -> {
+            case STRING, TEXT, CODEBLOCK, SECRET, FILE, CREDENTIAL, OBJECT, RESOURCE -> {
                 return FilterFieldType.STRING;
             }
             case INTEGER, FLOAT -> {
