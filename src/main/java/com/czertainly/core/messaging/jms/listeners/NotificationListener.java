@@ -206,8 +206,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     }
 
     private List<NotificationRecipient> getRecipients(RecipientType recipientType, List<UUID> recipientUuids, ResourceEvent event, Object data, Resource resource, UUID objectUuid) {
-        if (recipientType == RecipientType.MAPPED) {
-            return List.of(new NotificationRecipient(RecipientType.MAPPED, objectUuid));
+        if (recipientType == RecipientType.OBJECT) {
+            return List.of(new NotificationRecipient(RecipientType.OBJECT, objectUuid));
         }
 
         if (recipientType != RecipientType.OWNER && recipientType != RecipientType.DEFAULT) {
@@ -295,15 +295,15 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                     continue;
                 }
 
-                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.MAPPED
+                Resource customAttributeResource = recipient.getRecipientType() == RecipientType.OBJECT
                         ? resource
                         : recipient.getRecipientType().getRecipientResource();
                 // Unauthenticated lookup is correct here, since the access to the custom attributes has been resolved when defining mapping attributes.
                 List<ResponseAttribute> recipientCustomAttributes = attributeEngine.getObjectCustomAttributesContentForSystemContext(customAttributeResource, recipient.getRecipientUuid());
                 // prepare mapped attributes
                 List<RequestAttribute> mappedAttributes = getMappedAttributes(notificationInstanceReference, mappingAttributes, recipientCustomAttributes);
-                if (recipient.getRecipientType() == RecipientType.MAPPED && mappedAttributes.isEmpty()) {
-                    logger.warn("Notification recipient with MAPPED type does not have any mapped attributes resolved, notification cannot be sent for recipient mapped to {} object with UUID {}.", customAttributeResource, recipient.getRecipientUuid());
+                if (recipient.getRecipientType() == RecipientType.OBJECT && mappedAttributes.isEmpty()) {
+                    logger.warn("Notification recipient with OBJECT type does not have any mapped attributes resolved, notification cannot be sent for recipient mapped to {} object with UUID {}.", customAttributeResource, recipient.getRecipientUuid());
                     continue;
                 }
                 recipientDto.setMappedAttributes(mappedAttributes);
@@ -367,10 +367,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
                 recipientDto = null;
             }
-            case MAPPED -> {
+            case OBJECT -> {
                 // The connector resolves contact details via mapped attributes — no email to set here
                 recipientDto = new NotificationRecipientDto();
-                recipientDto.setName("Mapped recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));
+                recipientDto.setName("Object recipient for %s with object UUID %s".formatted(resource.getLabel(), recipient.getRecipientUuid()));
             }
             default ->
                     throw new NotSupportedException("Notification recipient type %s is not supported".formatted(recipient.getRecipientType().getLabel()));

@@ -39,7 +39,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.util.List;
 import java.util.UUID;
 
-class NotificationMappedIntegrationTest extends BaseSpringBootTest {
+class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
 
     private static final String MAPPING_ATTRIBUTE_UUID = "1e5657af-423b-4b4b-a9f7-b1150c584a4a";
     private static final String CONTACT_VALUE = "alice@example.com";
@@ -110,7 +110,7 @@ class NotificationMappedIntegrationTest extends BaseSpringBootTest {
         // Notification profile with mapped_CONTACT
         NotificationProfileRequestDto profileRequest = new NotificationProfileRequestDto();
         profileRequest.setName("mappedContactProfile");
-        profileRequest.setRecipientType(RecipientType.MAPPED);
+        profileRequest.setRecipientType(RecipientType.OBJECT);
         profileRequest.setInternalNotification(false);
         profileRequest.setNotificationInstanceUuid(instance.getUuid());
         profile = notificationProfileService.createNotificationProfile(profileRequest);
