@@ -972,6 +972,37 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
     }
 
+    @Test
+    void testRevokeCertificateRejectedAction_revertsPendingApprovalToIssued() throws NotFoundException {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificate = certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+
+        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, certificate.getState());
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.REVOKE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "expected a REVOKE/FAILED event in cert history after revocation approval was rejected");
+    }
+
+    @Test
+    void testRevokeCertificateRejectedAction_leavesNonPendingApprovalStateUntouched() throws NotFoundException {
+        certificate.setState(CertificateState.REVOKED);
+        certificate = certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+
+        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, certificate.getState());
+    }
+
     /**
      * Sets the certificate to REQUESTED with a CSR ready for issuance, then returns its UUID.
      */
