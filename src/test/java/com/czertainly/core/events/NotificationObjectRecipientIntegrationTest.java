@@ -163,8 +163,7 @@ class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
         // Processing must not throw — missing attribute is handled gracefully
         Assertions.assertDoesNotThrow(() -> notificationListener.processMessage(message));
 
-        // Connector is still called — the notification is not dropped, but the recipient
-        // carries no mapped attributes (required: false means the missing value is silently skipped)
+        // Connector is still called — the notification is not dropped, but the recipient carries no mapped attributes (required: false means the missing value is silently skipped)
         mockServer.verify(1, WireMock.postRequestedFor(
                 WireMock.urlPathMatching("/v1/notificationProvider/notifications/[^/]+/notify")));
     }
