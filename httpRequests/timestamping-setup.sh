@@ -25,7 +25,15 @@ set -euo pipefail
 
 # --- Defaults -----------------------------------------------------------------
 ILM_HOST="http://localhost:8080"
-CLIENT_CERT_PEM=""
+
+# Authentication mode:
+#   header - send the admin certificate in the ssl-client-cert header (local instances).
+#   mtls   - present an admin PKCS12 as a real TLS client certificate (remote HTTPS instances).
+AUTH_MODE="header"
+CLIENT_CERT_PEM=""          # header mode: admin client certificate PEM
+CLIENT_P12_BUNDLE=""        # mtls mode:   admin client PKCS12 bundle
+CLIENT_P12_PASSPHRASE=""
+INSECURE_TLS="false"        # mtls mode:   skip server TLS verification (curl -k)
 
 CONNECTOR_HOST="localhost"
 PORT_CRED_PROVIDER="8200"
@@ -60,7 +68,7 @@ POLICY_ID_QUALIFIED="1.2.3.4.5.7"
 
 # Time Quality configuration (used by the qualified signing profile)
 TIME_QUALITY_CONFIG_NAME="time-quality"
-TIME_QUALITY_NTP_SERVERS="localhost"       # comma-separated list, e.g. "pool.ntp.org,time.cloudflare.com"
+TIME_QUALITY_NTP_SERVERS="ntp"       # comma-separated list, e.g. "pool.ntp.org,time.cloudflare.com"
 TIME_QUALITY_ACCURACY="PT1S"
 TIME_QUALITY_NTP_CHECK_INTERVAL="PT0.5S"
 TIME_QUALITY_NTP_CHECK_TIMEOUT="PT0.3S"
@@ -74,6 +82,9 @@ CERT_POLL_INTERVAL=1   # seconds between poll attempts
 
 # --- Result variables (populated by setup functions) --------------------------
 CLIENT_CERT_HEADER_VAL=""
+CURL_AUTH_ARGS=()           # curl auth arguments, built by configure_authentication
+MTLS_CERT_PEM=""            # mtls mode: temp file holding client cert extracted from PKCS12 (OpenSSL curl only)
+MTLS_KEY_PEM=""             # mtls mode: temp file holding client key extracted from PKCS12 (OpenSSL curl only)
 CRED_CONN_UUID=""
 EJBCA_CONN_UUID=""
 CRYPTO_CONN_UUID=""
@@ -108,10 +119,10 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Required:
-  --client-cert-pem FILE      ILM admin client certificate PEM
   --pkcs12-bundle FILE        Path to PKCS12 bundle with EJBCA client credentials
   --certificate-dn PREFIX     DN prefix for TSA certificates.
                               Actual CNs will be <PREFIX>-non-qualified and <PREFIX>-qualified.
+  Plus the admin credential for the chosen --auth-mode (see "ILM API auth").
 
 Connector options (defaults: localhost, ports 8200/8210/8230/8270):
   --connector-host HOST       Hostname for connectors as seen from ILM server
@@ -128,7 +139,13 @@ Credential/token options:
 
 ILM API auth:
   --ilm-host HOST             URL of ILM API                (default: http://localhost:8080)
-  --client-cert-pem FILE      Admin client certificate PEM  (required)
+                              For a remote instance use the API origin, e.g.
+                              https://semik7.3key.company (NOT the /administrator/ FE path).
+  --auth-mode MODE            header | mtls                 (default: header)
+  --client-cert-pem FILE      Admin client certificate PEM  (required for --auth-mode header)
+  --client-p12-bundle FILE    Admin client PKCS12 bundle    (required for --auth-mode mtls)
+  --client-p12-password PASS  Admin PKCS12 password
+  --insecure-tls              Skip server TLS verification  (mtls only; for untrusted/demo certs)
 
 EJBCA options:
   --ejbca-url URL             EJBCA WSDL URL                     (default https://ejbca.3key.company/ejbca/ejbcaws/ejbcaws?wsdl)
@@ -154,13 +171,13 @@ Certificate polling:
 
 Time Quality configuration (used by the qualified signing profile):
   --time-quality-name NAME                    (default: time-quality)
-  --time-quality-ntp-servers SERVERS          Comma-separated NTP server list (default: localhost)
+  --time-quality-ntp-servers SERVERS          Comma-separated NTP server list (default: ntp)
   --time-quality-accuracy DURATION            ISO-8601 duration (default: PT1S)
-  --time-quality-ntp-check-interval DURATION  ISO-8601 duration (default: PT10S)
-  --time-quality-ntp-check-timeout DURATION   ISO-8601 duration (default: PT5S)
-  --time-quality-ntp-samples-per-server N     (default: 4)
+  --time-quality-ntp-check-interval DURATION  ISO-8601 duration (default: PT0.5S)
+  --time-quality-ntp-check-timeout DURATION   ISO-8601 duration (default: PT0.3S)
+  --time-quality-ntp-samples-per-server N     (default: 3)
   --time-quality-ntp-servers-min-reachable N  (default: 1)
-  --time-quality-max-clock-drift DURATION     ISO-8601 duration (default: PT1S)
+  --time-quality-max-clock-drift DURATION     ISO-8601 duration (default: PT0.8S)
   --time-quality-leap-second-guard BOOL       true|false (default: true)
 EOF
   exit 1
@@ -177,14 +194,19 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 ilm_curl() {
   local method="$1"; shift
   local path="$1"; shift
-  local tmp http_code response
-  tmp=$(mktemp)
-  http_code=$(curl -s -o "$tmp" -w "%{http_code}" -X "$method" \
-    -H "ssl-client-cert: ${CLIENT_CERT_HEADER_VAL}" \
+  local tmp err http_code response curl_err
+  tmp=$(mktemp); err=$(mktemp)
+  # Why `|| true`? On a connection/TLS failure curl exits non-zero and `set -e` would abort before the status check below.
+  # Swallow curl's exit so the http_code check (000 on connection failure) produces the shaped error message instead.
+  http_code=$(curl -s --show-error -o "$tmp" -w "%{http_code}" -X "$method" \
+    "${CURL_AUTH_ARGS[@]}" \
     -H "content-type: application/json" \
     "${ILM_HOST}/api${path}" \
-    "$@")
-  response=$(<"$tmp"); rm -f "$tmp"
+    "$@" 2>"$err" || true)
+  response=$(<"$tmp"); curl_err=$(<"$err"); rm -f "$tmp" "$err"
+  if [[ "$http_code" == "000" ]]; then
+    die "Could not reach ILM at ${ILM_HOST} (${method} /api${path}): ${curl_err:-connection failed}"
+  fi
   if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
     die "HTTP ${http_code} on ${method} /api${path}: ${response}"
   fi
@@ -236,6 +258,17 @@ group_uuid() {
   echo "$uuid"
 }
 
+# --- Idempotent reuse helpers -------------------------------------------------
+# find_named_item <json_array> <name> -> compact JSON of the first element whose .name equals <name>, or empty.
+find_named_item() {
+  echo "$1" | jq -c --arg n "$2" 'first(.[] | select(.name==$n)) // empty'
+}
+
+# list_paginated <path> -> JSON array of .items for POST .../list endpoints
+list_paginated() {
+  ilm_curl POST "$1" -d '{"itemsPerPage":1000,"pageNumber":1,"filters":[]}' | jq '.items // []'
+}
+
 # --- Argument parsing ---------------------------------------------------------
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -252,7 +285,11 @@ parse_args() {
       --port-formatter)                         PORT_FORMATTER="$2";                         shift 2 ;;
       --formatter-connector-name)               FORMATTER_CONNECTOR_NAME="$2";               shift 2 ;;
       --ilm-host)                               ILM_HOST="$2";                               shift 2 ;;
+      --auth-mode)                              AUTH_MODE="$2";                              shift 2 ;;
       --client-cert-pem)                        CLIENT_CERT_PEM="$2";                        shift 2 ;;
+      --client-p12-bundle)                      CLIENT_P12_BUNDLE="$2";                      shift 2 ;;
+      --client-p12-password)                    CLIENT_P12_PASSPHRASE="$2";                  shift 2 ;;
+      --insecure-tls)                           INSECURE_TLS="true";                         shift   ;;
       --ejbca-ee-profile)                       EJBCA_EE_PROFILE="$2";                       shift 2 ;;
       --ejbca-cert-profile)                     EJBCA_CERT_PROFILE="$2";                     shift 2 ;;
       --ejbca-cert-profile-qualified)           EJBCA_CERT_PROFILE_QUALIFIED="$2";           shift 2 ;;
@@ -287,11 +324,14 @@ validate() {
   local errors=0
   [[ -z "$PKCS12_BUNDLE" ]]    && { echo "ERROR: --pkcs12-bundle is required";    errors=$((errors+1)); }
   [[ -z "$CERTIFICATE_DN" ]]   && { echo "ERROR: --certificate-dn is required";   errors=$((errors+1)); }
-  [[ -z "$CLIENT_CERT_PEM" ]]  && { echo "ERROR: --client-cert-pem is required";  errors=$((errors+1)); }
+  case "$AUTH_MODE" in
+    header) [[ -z "$CLIENT_CERT_PEM" ]]   && { echo "ERROR: --client-cert-pem is required for --auth-mode header"; errors=$((errors+1)); } ;;
+    mtls)   [[ -z "$CLIENT_P12_BUNDLE" ]] && { echo "ERROR: --client-p12-bundle is required for --auth-mode mtls"; errors=$((errors+1)); } ;;
+    *)      echo "ERROR: --auth-mode must be 'header' or 'mtls' (got '$AUTH_MODE')";                               errors=$((errors+1)) ;;
+  esac
   [[ $errors -gt 0 ]] && usage
 
   [[ ! -f "$PKCS12_BUNDLE" ]]   && { echo "ERROR: PKCS12 bundle not found: $PKCS12_BUNDLE"; exit 1; }
-  [[ ! -f "$CLIENT_CERT_PEM" ]] && { echo "ERROR: Client cert PEM not found: $CLIENT_CERT_PEM"; exit 1; }
 
   command -v jq     &>/dev/null || { echo "ERROR: jq is required but not installed";     exit 1; }
   command -v curl   &>/dev/null || { echo "ERROR: curl is required but not installed";   exit 1; }
@@ -299,47 +339,198 @@ validate() {
 
   [[ -z "$TOKEN_PASSWORD" ]] && TOKEN_PASSWORD="$PKCS12_PASSWORD"
 
-  # Build the ssl-client-cert header value: extract only the base64 body between
-  # BEGIN/END CERTIFICATE markers (ignoring any human-readable dump before them),
-  # then URL-encode the result (only +, / and = require encoding).
-  local _cert_b64
-  _cert_b64=$(sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' "$CLIENT_CERT_PEM" \
-    | grep -v "^-----" | tr -d '\n\r')
-  CLIENT_CERT_HEADER_VAL=$(printf '%s' "$_cert_b64" | sed 's/+/%2B/g; s|/|%2F|g; s/=/%3D/g')
+  configure_authentication
+}
+
+# Populates CURL_AUTH_ARGS according to AUTH_MODE.
+configure_authentication() {
+  if [[ "$AUTH_MODE" == "header" ]]; then
+    [[ ! -f "$CLIENT_CERT_PEM" ]] && { echo "ERROR: Client cert PEM not found: $CLIENT_CERT_PEM"; exit 1; }
+    # Extract only the base64 body between BEGIN/END CERTIFICATE markers, then URL-encode it.
+    local _cert_b64
+    _cert_b64=$(sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' "$CLIENT_CERT_PEM" \
+      | grep -v "^-----" | tr -d '\n\r')
+    CLIENT_CERT_HEADER_VAL=$(printf '%s' "$_cert_b64" | sed 's/+/%2B/g; s|/|%2F|g; s/=/%3D/g')
+    CURL_AUTH_ARGS=(-H "ssl-client-cert: ${CLIENT_CERT_HEADER_VAL}")
+    return
+  fi
+
+  # mtls: present the admin PKCS12 as a real TLS client certificate.
+  [[ ! -f "$CLIENT_P12_BUNDLE" ]] && { echo "ERROR: Admin PKCS12 not found: $CLIENT_P12_BUNDLE"; exit 1; }
+  command -v openssl &>/dev/null || { echo "ERROR: openssl is required for --auth-mode mtls"; exit 1; }
+
+  if curl -V | grep -qi "securetransport"; then
+    # SecureTransport curl ignores PEM client certs - it needs a modern PKCS12 bundle (non-legacy PBE).
+    if openssl pkcs12 -in "$CLIENT_P12_BUNDLE" -passin "pass:${CLIENT_P12_PASSPHRASE}" \
+         -nokeys -clcerts -out /dev/null 2>/dev/null; then
+      CURL_AUTH_ARGS=(--cert-type P12 --cert "$CLIENT_P12_BUNDLE" --pass "$CLIENT_P12_PASSPHRASE")
+    elif openssl pkcs12 -legacy -in "$CLIENT_P12_BUNDLE" -passin "pass:${CLIENT_P12_PASSPHRASE}" \
+         -nokeys -clcerts -out /dev/null 2>/dev/null; then
+      die_unsupported_pkcs12 "$CLIENT_P12_BUNDLE" "$CLIENT_P12_PASSPHRASE"
+    else
+      die "Cannot read admin PKCS12 ${CLIENT_P12_BUNDLE} (wrong --client-p12-password or corrupt bundle?)"
+    fi
+  else
+    # OpenSSL-backed curl loads PEM client certs directly: extract cert + key from the bundle.
+    MTLS_CERT_PEM=$(mktemp)
+    MTLS_KEY_PEM=$(mktemp)
+    chmod 600 "$MTLS_CERT_PEM" "$MTLS_KEY_PEM"
+    trap 'rm -f "$MTLS_CERT_PEM" "$MTLS_KEY_PEM"' EXIT
+    extract_p12_pem "$CLIENT_P12_BUNDLE" "$CLIENT_P12_PASSPHRASE" "$MTLS_CERT_PEM" "$MTLS_KEY_PEM"
+    CURL_AUTH_ARGS=(--cert "$MTLS_CERT_PEM" --key "$MTLS_KEY_PEM")
+  fi
+  [[ "$INSECURE_TLS" == "true" ]] && CURL_AUTH_ARGS+=(--insecure)
+}
+
+# The admin PKCS12 uses a legacy PBE that SecureTransport curl cannot load.
+die_unsupported_pkcs12() {
+  local p12="$1" pass="$2" modern="${1%.p12}-modern.p12"
+  cat >&2 <<EOF
+ERROR: Admin PKCS12 '${p12}' uses a legacy encryption format that SecureTransport curl cannot load.
+
+Convert it once to a modern PKCS12, then re-run with the converted bundle:
+
+  openssl pkcs12 -legacy -in '${p12}' -passin 'pass:${pass}' -nodes -out /tmp/admin-mtls.pem
+  openssl pkcs12 -export -in /tmp/admin-mtls.pem -passout 'pass:${pass}' -out '${modern}'
+  rm -f /tmp/admin-mtls.pem
+
+Then re-run with:  --client-p12-bundle '${modern}'  (keep the same --client-p12-password)
+EOF
+  exit 1
+}
+
+# extract_p12_pem <p12> <password> <out_cert_pem> <out_key_pem>
+# Splits a PKCS12 into a client-cert PEM and an unencrypted key PEM. Retries with
+# -legacy for bundles using legacy PBE algorithms unsupported by OpenSSL 3 defaults.
+extract_p12_pem() {
+  local p12="$1" pass="$2" out_cert="$3" out_key="$4" legacy=""
+  if ! openssl pkcs12 -in "$p12" -passin "pass:${pass}" -clcerts -nokeys -out "$out_cert" 2>/dev/null; then
+    legacy="-legacy"
+    openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -clcerts -nokeys -out "$out_cert" 2>/dev/null \
+      || die "Failed to extract client certificate from ${p12} (wrong password or unsupported format?)"
+  fi
+  openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -nocerts -nodes -out "$out_key" 2>/dev/null \
+    || die "Failed to extract private key from ${p12} (wrong password or unsupported format?)"
 }
 
 # --- Step 1: Connectors -------------------------------------------------------
-setup_connectors() {
-  local _resp
+# On a fresh local instance the connectors don't exist yet and are created.
+# On a pre-provisioned instance they're already registered, in WAITING_FOR_APPROVAL status.
+# v1 connectors are matched by function group + kind;
+# v2 connectors are matched by provided interface and feature flag.
+CONNECTORS_V1_JSON=""
+CONNECTORS_V2_JSON=""
 
+load_existing_connectors() {
+  log "Listing existing connectors..."
+  CONNECTORS_V1_JSON=$(ilm_curl GET /v1/connectors)
+  CONNECTORS_V2_JSON=$(ilm_curl POST /v2/connectors/list -d \
+    '{"itemsPerPage":1000,"pageNumber":1,"filters":[]}' | jq '.items // []')
+}
+
+# find_connector <connectors_json> <select_filter>
+# Prints "<uuid> <statusCode>" for the first matching connector, or nothing.
+find_connector() {
+  echo "$1" | jq -r "first(.[] | select($2)) // empty | \"\(.uuid) \(.status)\""
+}
+
+# approve_connector <uuid> -- approves a WAITING_FOR_APPROVAL connector and waits until it reaches CONNECTED.
+approve_connector() {
+  local uuid="$1" attempt status details
+  log "  Approving connector ${uuid}..."
+  ilm_curl PATCH "/v2/connectors/${uuid}/approve" >/dev/null
+  for (( attempt=1; attempt<=20; attempt++ )); do
+    details=$(ilm_curl GET "/v1/connectors/${uuid}")
+    status=$(echo "$details" | jq -r '.status // empty')
+    [[ "$status" == "connected" ]] && { ok "  connector ${uuid} connected"; return 0; }
+    sleep 0.5
+  done
+  die "Connector ${uuid} did not reach 'connected' after approval (last status: '${status}')"
+}
+
+# discover_or_create_connector <out_var> <desc> <connectors_json> <filter> <create_fn>
+discover_or_create_connector() {
+  local out_var="$1" desc="$2" connectors_json="$3" filter="$4" create_fn="$5"
+  local match uuid status
+  match=$(find_connector "$connectors_json" "$filter")
+  if [[ -n "$match" ]]; then
+    uuid="${match%% *}"; status="${match##* }"
+    log "Found pre-registered ${desc} connector ${uuid} (status=${status})"
+    [[ "$status" == "waitingForApproval" ]] && approve_connector "$uuid"
+  else
+    log "No pre-registered ${desc} connector found; creating it..."
+    uuid=$("$create_fn")
+  fi
+  printf -v "$out_var" '%s' "$uuid"
+}
+
+setup_connectors() {
+  load_existing_connectors
+
+  discover_or_create_connector CRED_CONN_UUID "credential-provider" "$CONNECTORS_V1_JSON" \
+    '(.functionGroups // []) | any(.functionGroupCode=="credentialProvider" and ((.kinds // []) | index("SoftKeyStore")))' \
+    create_cred_connector
+  ok "common-credential-provider  $CRED_CONN_UUID"
+
+  discover_or_create_connector EJBCA_CONN_UUID "authority (EJBCA)" "$CONNECTORS_V1_JSON" \
+    '(.functionGroups // []) | any(.functionGroupCode=="authorityProvider" and ((.kinds // []) | index("EJBCA")))' \
+    create_ejbca_connector
+  ok "ejbca-ng-connector           $EJBCA_CONN_UUID"
+
+  discover_or_create_connector CRYPTO_CONN_UUID "cryptography-provider" "$CONNECTORS_V1_JSON" \
+    '(.functionGroups // []) | any(.functionGroupCode=="cryptographyProvider" and ((.kinds // []) | index("SOFT")))' \
+    create_crypto_connector
+  ok "software-cryptography-provider  $CRYPTO_CONN_UUID"
+
+  discover_or_create_connector FORMATTER_CONN_UUID "signature-formatter" "$CONNECTORS_V2_JSON" \
+    '(.interfaces // []) | any(.code=="signatureFormatting" and ((.features // []) | index("timestamping")))' \
+    create_formatter_connector
+  ok "signature-formatter  $FORMATTER_CONN_UUID"
+}
+
+create_cred_connector() {
+  local _resp
   log "Creating credential-provider connector (port ${PORT_CRED_PROVIDER})..."
   _resp=$(ilm_curl POST /v2/connectors -d \
     "{\"name\":\"common-credential-provider\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_CRED_PROVIDER}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v1\"}")
-  CRED_CONN_UUID=$(require_uuid "$_resp" "common-credential-provider connector")
-  ok "common-credential-provider  $CRED_CONN_UUID"
+  require_uuid "$_resp" "common-credential-provider connector"
+}
 
+create_ejbca_connector() {
+  local _resp
   log "Creating ejbca-ng connector (port ${PORT_EJBCA})..."
   _resp=$(ilm_curl POST /v2/connectors -d \
     "{\"name\":\"ejbca-ng-connector\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_EJBCA}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v1\"}")
-  EJBCA_CONN_UUID=$(require_uuid "$_resp" "ejbca-ng-connector connector")
-  ok "ejbca-ng-connector           $EJBCA_CONN_UUID"
+  require_uuid "$_resp" "ejbca-ng-connector connector"
+}
 
+create_crypto_connector() {
+  local _resp
   log "Creating software-cryptography-provider connector (port ${PORT_CRYPTO_PROVIDER})..."
   _resp=$(ilm_curl POST /v2/connectors -d \
     "{\"name\":\"software-cryptography-provider\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_CRYPTO_PROVIDER}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v1\"}")
-  CRYPTO_CONN_UUID=$(require_uuid "$_resp" "software-cryptography-provider connector")
-  ok "software-cryptography-provider  $CRYPTO_CONN_UUID"
+  require_uuid "$_resp" "software-cryptography-provider connector"
+}
 
+create_formatter_connector() {
+  local _resp
   log "Creating signature-formatter connector (port ${PORT_FORMATTER})..."
   _resp=$(ilm_curl POST /v2/connectors -d \
     "{\"name\":\"${FORMATTER_CONNECTOR_NAME}\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_FORMATTER}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v2\"}")
-  FORMATTER_CONN_UUID=$(require_uuid "$_resp" "signature-formatter connector")
-  ok "signature-formatter  $FORMATTER_CONN_UUID"
+  require_uuid "$_resp" "signature-formatter connector"
 }
 
 # --- Step 2: Credential -------------------------------------------------------
 setup_credential() {
-  local _resp cred_attr_defs ks_type_uuid ks_pass_uuid ks_file_uuid pkcs12_b64 pkcs12_filename
+  local _resp cred_attr_defs ks_type_uuid ks_pass_uuid ks_file_uuid pkcs12_b64 pkcs12_filename _existing _list
+
+  _list=$(ilm_curl GET /v1/credentials)
+  _existing=$(find_named_item "$_list" "$CREDENTIAL_NAME")
+  if [[ -n "$_existing" ]]; then
+    CRED_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing credential '${CREDENTIAL_NAME}'  $CRED_UUID"
+    return 0
+  fi
 
   log "Fetching SoftKeyStore credential attribute definitions..."
   cred_attr_defs=$(ilm_curl GET \
@@ -397,7 +588,15 @@ setup_credential() {
 
 # --- Step 3: Authority --------------------------------------------------------
 setup_authority() {
-  local _resp auth_attr_defs auth_url_uuid auth_cred_uuid
+  local _resp auth_attr_defs auth_url_uuid auth_cred_uuid _existing _list
+
+  _list=$(ilm_curl GET /v1/authorities)
+  _existing=$(find_named_item "$_list" "$AUTHORITY_NAME")
+  if [[ -n "$_existing" ]]; then
+    AUTH_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing authority '${AUTHORITY_NAME}'  $AUTH_UUID"
+    return 0
+  fi
 
   log "Fetching EJBCA authority attribute definitions..."
   auth_attr_defs=$(ilm_curl GET \
@@ -443,14 +642,45 @@ setup_authority() {
 
 # --- Step 4: Token ------------------------------------------------------------
 setup_token() {
-  local _resp token_attr_defs tok_action_uuid tok_name_uuid tok_code_uuid
+  local _resp token_attr_defs tok_action_uuid tok_name_uuid tok_code_uuid _existing
+  local opts_uuid create_attrs options_attr_json load_group_uuid _list
+
+  _list=$(ilm_curl GET /v1/tokens)
+  _existing=$(find_named_item "$_list" "$TOKEN_NAME")
+  if [[ -n "$_existing" ]]; then
+    TOKEN_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing token '${TOKEN_NAME}'  $TOKEN_UUID"
+    return 0
+  fi
 
   log "Fetching SOFT token attribute definitions..."
   token_attr_defs=$(ilm_curl GET \
     "/v1/connectors/${CRYPTO_CONN_UUID}/attributes/cryptographyProvider/SOFT")
-  tok_action_uuid=$(attr_uuid "$token_attr_defs" "data_createTokenAction" "string")
-  tok_name_uuid=$(attr_uuid   "$token_attr_defs" "data_newTokenName"      "string")
-  tok_code_uuid=$(attr_uuid   "$token_attr_defs" "data_tokenCode"         "secret")
+
+  # The SOFT crypto connector returns two different attribute schemas depending on whether it already has any token
+  # instances:
+  #   - empty connector  -> data_createTokenAction/newTokenName/tokenCode at top level
+  #   - has token(s)     -> a 'data_options' selector whose 'group_loadToken' callback (option=new) yields the real create attributes
+  # This script may run against either state, so it must handle both.
+  opts_uuid=$(echo "$token_attr_defs" | jq -r \
+    'first(.[] | select(.name=="data_options" and .type=="data") | .uuid) // empty')
+
+  if [[ -n "$opts_uuid" ]]; then
+    load_group_uuid=$(group_uuid "$token_attr_defs" "group_loadToken")
+    log "Resolving 'new token' attributes via connector callback..."
+    create_attrs=$(ilm_curl POST \
+      "/v1/connectors/${CRYPTO_CONN_UUID}/cryptographyProvider/SOFT/callback" -d \
+      "$(jq -n --arg uuid "$load_group_uuid" \
+        '{uuid:$uuid,name:"group_loadToken",pathVariable:{option:"new"},requestParameter:{},body:{}}')")
+    options_attr_json=$(jq -nc --arg optsUuid "$opts_uuid" \
+      '{name:"data_options",content:[{reference:"Create new Token",data:"new"}],contentType:"string",uuid:$optsUuid,version:"v2"}')
+  else
+    create_attrs="$token_attr_defs"
+    options_attr_json=""
+  fi
+  tok_action_uuid=$(attr_uuid "$create_attrs" "data_createTokenAction" "string")
+  tok_name_uuid=$(attr_uuid   "$create_attrs" "data_newTokenName"      "string")
+  tok_code_uuid=$(attr_uuid   "$create_attrs" "data_tokenCode"         "secret")
 
   log "Creating soft token '${TOKEN_NAME}'..."
   _resp=$(ilm_curl POST /v1/tokens -d \
@@ -461,33 +691,19 @@ setup_token() {
       --arg tokActionUuid "$tok_action_uuid" \
       --arg tokNameUuid   "$tok_name_uuid" \
       --arg tokCodeUuid   "$tok_code_uuid" \
+      --argjson optionsAttr "${options_attr_json:-null}" \
       '{
         name: $name,
         connectorUuid: $connUuid,
         kind: "SOFT",
-        attributes: [
-          {
-            name: "data_createTokenAction",
-            content: [{data: "new"}],
-            contentType: "string",
-            uuid: $tokActionUuid,
-            version: "v2"
-          },
-          {
-            name: "data_newTokenName",
-            content: [{data: $name}],
-            contentType: "string",
-            uuid: $tokNameUuid,
-            version: "v2"
-          },
-          {
-            name: "data_tokenCode",
-            content: [{data: {secret: $pin}}],
-            contentType: "secret",
-            uuid: $tokCodeUuid,
-            version: "v2"
-          }
-        ],
+        attributes: (
+          [
+            {name: "data_createTokenAction", content: [{reference: "new", data: "new"}], contentType: "string", uuid: $tokActionUuid, version: "v2"},
+            {name: "data_newTokenName",      content: [{data: $name}],                   contentType: "string", uuid: $tokNameUuid,   version: "v2"},
+            {name: "data_tokenCode",         content: [{data: {secret: $pin}}],          contentType: "secret", uuid: $tokCodeUuid,   version: "v2"}
+          ]
+          + (if $optionsAttr == null then [] else [$optionsAttr] end)
+        ),
         customAttributes: []
       }')")
   TOKEN_UUID=$(require_uuid "$_resp" "soft token '${TOKEN_NAME}'")
@@ -496,7 +712,18 @@ setup_token() {
 
 # --- Step 5: Token profile ----------------------------------------------------
 setup_token_profile() {
-  local _resp
+  local _resp _existing _list
+
+  _list=$(ilm_curl GET /v1/tokenProfiles)
+  _existing=$(find_named_item "$_list" "$TOKEN_PROFILE_NAME")
+  if [[ -n "$_existing" ]]; then
+    TOKEN_PROFILE_UUID=$(echo "$_existing" | jq -r '.uuid')
+    if [[ "$(echo "$_existing" | jq -r '.enabled // false')" != "true" ]]; then
+      ilm_curl PATCH "/v1/tokens/${TOKEN_UUID}/tokenProfiles/${TOKEN_PROFILE_UUID}/enable" >/dev/null
+    fi
+    ok "reusing existing token profile '${TOKEN_PROFILE_NAME}'  $TOKEN_PROFILE_UUID"
+    return 0
+  fi
 
   log "Creating token profile '${TOKEN_PROFILE_NAME}'..."
   _resp=$(ilm_curl POST /v1/tokens/${TOKEN_UUID}/tokenProfiles -d \
@@ -514,7 +741,15 @@ setup_token_profile() {
 
 # --- Step 6: Time Quality configuration --------------------------------------
 setup_time_quality_config() {
-  local _resp ntp_servers_json
+  local _resp ntp_servers_json _existing _list
+
+  _list=$(list_paginated /v1/timeQualityConfigurations/list)
+  _existing=$(find_named_item "$_list" "$TIME_QUALITY_CONFIG_NAME")
+  if [[ -n "$_existing" ]]; then
+    TIME_QUALITY_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing Time Quality configuration '${TIME_QUALITY_CONFIG_NAME}'  $TIME_QUALITY_UUID"
+    return 0
+  fi
 
   # Convert comma-separated NTP server list to a JSON array
   ntp_servers_json=$(echo "$TIME_QUALITY_NTP_SERVERS" | \
@@ -553,7 +788,22 @@ setup_time_quality_config() {
 setup_key_pair() {
   local key_name="$1" out_key_uuid="$2" out_priv_item_uuid="$3"
   local _resp keypair_attr_defs key_alias_uuid key_alg_uuid key_spec_group_uuid
-  local key_spec_attrs rsa_key_size_uuid key_details _key_uuid _priv_uuid
+  local key_spec_attrs rsa_key_size_uuid key_details _key_uuid _priv_uuid _existing _list
+
+  _list=$(ilm_curl GET /v1/keys/pairs)
+  _existing=$(find_named_item "$_list" "$key_name")
+  if [[ -n "$_existing" ]]; then
+    _key_uuid=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing key '${key_name}'  $_key_uuid"
+    key_details=$(ilm_curl GET "/v1/keys/${_key_uuid}")
+    _priv_uuid=$(echo "$key_details" | jq -r \
+      'first(.items[] | select(.type == "Private") | .uuid) // empty')
+    [[ -z "$_priv_uuid" ]] && die "Reused key ${_key_uuid} has no Private key item"
+    ok "private key item  $_priv_uuid"
+    printf -v "$out_key_uuid"       '%s' "$_key_uuid"
+    printf -v "$out_priv_item_uuid" '%s' "$_priv_uuid"
+    return 0
+  fi
 
   log "Fetching key pair attribute definitions..."
   keypair_attr_defs=$(ilm_curl GET \
@@ -635,7 +885,19 @@ setup_ra_profile() {
   local _resp ra_attrs ee_profile_attr_uuid cert_profile_attr_uuid ca_attr_uuid
   local send_notif_attr_uuid key_recover_attr_uuid username_gen_attr_uuid
   local ejbca_authority_id ee_profile_id cert_profiles cert_profile_id ca_list ejbca_ca_id
-  local _ra_uuid
+  local _ra_uuid _existing _list
+
+  _list=$(ilm_curl GET /v1/raProfiles)
+  _existing=$(find_named_item "$_list" "$ra_name")
+  if [[ -n "$_existing" ]]; then
+    _ra_uuid=$(echo "$_existing" | jq -r '.uuid')
+    if [[ "$(echo "$_existing" | jq -r '.enabled // false')" != "true" ]]; then
+      ilm_curl PATCH "/v1/authorities/${AUTH_UUID}/raProfiles/${_ra_uuid}/enable" >/dev/null
+    fi
+    ok "reusing existing RA profile '${ra_name}'  $_ra_uuid"
+    printf -v "$out_ra_uuid" '%s' "$_ra_uuid"
+    return 0
+  fi
 
   log "Fetching available RA profile attributes from authority..."
   ra_attrs=$(ilm_curl GET "/v1/authorities/${AUTH_UUID}/attributes/raProfile")
@@ -999,11 +1261,24 @@ wait_for_certificate_validation() {
 # Usage: setup_tsp_profile <name> <out_tsp_uuid_var>
 setup_tsp_profile() {
   local tsp_name="$1" out_tsp_uuid="$2"
-  local _resp _tsp_uuid
+  local _resp _tsp_uuid _existing _list
+
+  _list=$(list_paginated /v1/tspProfiles/list)
+  _existing=$(find_named_item "$_list" "$tsp_name")
+  if [[ -n "$_existing" ]]; then
+    _tsp_uuid=$(echo "$_existing" | jq -r '.uuid')
+    if [[ "$(echo "$_existing" | jq -r '.enabled // false')" != "true" ]]; then
+      ilm_curl PATCH "/v1/tspProfiles/${_tsp_uuid}/enable" >/dev/null
+    fi
+    ok "reusing existing TSP profile '${tsp_name}'  $_tsp_uuid"
+    printf -v "$out_tsp_uuid" '%s' "$_tsp_uuid"
+    return 0
+  fi
 
   log "Creating TSP profile '${tsp_name}'..."
   _resp=$(ilm_curl POST /v1/tspProfiles -d \
-    "$(jq -n --arg name "$tsp_name" '{name: $name, customAttributes: []}')")
+    "$(jq -n --arg name "$tsp_name" \
+      '{name: $name, allowedAuthenticationMethods: ["clientCertificate"], customAttributes: []}')")
   _tsp_uuid=$(require_uuid "$_resp" "TSP profile '${tsp_name}'")
   ok "TSP profile  $_tsp_uuid"
 
@@ -1023,7 +1298,19 @@ setup_tsp_profile() {
 setup_signing_profile() {
   local sp_name="$1" cert_uuid="$2" policy_oid="$3" time_quality_uuid="$4" formatter_conn_uuid="$5" out_sp_uuid="$6"
   local _resp sig_attrs sig_scheme_uuid sig_digest_uuid _sp_uuid formatter_attrs
-  local qualified_timestamp
+  local qualified_timestamp _existing _list
+
+  _list=$(list_paginated /v1/signingProfiles/list)
+  _existing=$(find_named_item "$_list" "$sp_name")
+  if [[ -n "$_existing" ]]; then
+    _sp_uuid=$(echo "$_existing" | jq -r '.uuid')
+    if [[ "$(echo "$_existing" | jq -r '.enabled // false')" != "true" ]]; then
+      ilm_curl PATCH "/v1/signingProfiles/${_sp_uuid}/enable" >/dev/null
+    fi
+    ok "reusing existing Signing Profile '${sp_name}'  $_sp_uuid (keeps its existing certificate; the cert issued this run is left unused)"
+    printf -v "$out_sp_uuid" '%s' "$_sp_uuid"
+    return 0
+  fi
 
   if [[ -n "$time_quality_uuid" ]]; then
     qualified_timestamp="true"
@@ -1117,13 +1404,61 @@ link_tsp_signing_profile() {
     "$(jq -n \
       --arg name   "$tsp_name" \
       --arg spUuid "$sp_uuid" \
-      '{name: $name, defaultSigningProfileUuid: $spUuid, customAttributes: []}')" \
+      '{name: $name, defaultSigningProfileUuid: $spUuid, allowedAuthenticationMethods: ["clientCertificate"], customAttributes: []}')" \
     >/dev/null
   ok "TSP profile default Signing Profile set"
 
   log "Activating TSP protocol on Signing Profile for TSP profile '${tsp_name}'..."
   _resp=$(ilm_curl PATCH "/v1/signingProfiles/${sp_uuid}/protocols/tsp/activate/${tsp_uuid}")
   ok "TSP protocol activated  signingUrl=$(echo "$_resp" | jq -r '.signingUrl // "(unknown)"')"
+}
+
+# --- Per-set orchestration ----------------------------------------------------
+# setup_tsa_set <suffix> <ejbca_cert_profile> <policy_oid> <time_quality_uuid> <global_suffix>
+#
+# Idempotent. If the set's Signing Profile already exists the whole set is treated as already configured and reused
+# WITHOUT issuing a new certificate: EJBCA binds a key to a single end-entity - reusing keys is rejected.
+setup_tsa_set() {
+  local suffix="$1" cert_profile="$2" policy_oid="$3" tq_uuid="$4" g="$5"
+  local key_name="${KEY_NAME_BASE}-${suffix}"
+  local ra_name="${RA_PROFILE_NAME_BASE}-${suffix}"
+  local tsp_name="${TSP_PROFILE_NAME_BASE}-${suffix}"
+  local sp_name="${SIGNING_PROFILE_NAME_BASE}-${suffix}"
+  local key_uuid="" priv_uuid="" ra_uuid="" cert_uuid="" tsp_uuid="" sp_uuid=""
+  local existing_sp _list sp_details
+
+  log "=== Setting up TSA ${suffix} set ==="
+
+  _list=$(list_paginated /v1/signingProfiles/list)
+  existing_sp=$(find_named_item "$_list" "$sp_name")
+  if [[ -n "$existing_sp" ]]; then
+    sp_uuid=$(echo "$existing_sp" | jq -r '.uuid')
+    ok "TSA ${suffix} set already configured (Signing Profile '${sp_name}'  $sp_uuid); reusing, no new certificate issued"
+    _list=$(ilm_curl GET /v1/keys/pairs)
+    key_uuid=$(find_named_item "$_list" "$key_name" | jq -r '.uuid // empty')
+    _list=$(ilm_curl GET /v1/raProfiles)
+    ra_uuid=$(find_named_item "$_list" "$ra_name" | jq -r '.uuid // empty')
+    _list=$(list_paginated /v1/tspProfiles/list)
+    tsp_uuid=$(find_named_item "$_list" "$tsp_name" | jq -r '.uuid // empty')
+    # The detail DTO nests the cert as signingScheme.certificate (CertificateSimpleDto), not certificateUuid.
+    sp_details=$(ilm_curl GET "/v1/signingProfiles/${sp_uuid}")
+    cert_uuid=$(echo "$sp_details" | jq -r '.signingScheme.certificate.uuid // empty')
+  else
+    setup_key_pair    "$key_name" key_uuid priv_uuid
+    setup_ra_profile  "$ra_name" "$cert_profile" ra_uuid
+    issue_certificate "${CERTIFICATE_DN}-${suffix}" "$key_uuid" "$priv_uuid" "$ra_uuid" cert_uuid
+    poll_certificate  "$cert_uuid" "${CERTIFICATE_DN}-${suffix}"
+    trust_certificate_chain "$cert_uuid"
+    setup_tsp_profile "$tsp_name" tsp_uuid
+    setup_signing_profile "$sp_name" "$cert_uuid" "$policy_oid" "$tq_uuid" "$FORMATTER_CONN_UUID" sp_uuid
+    link_tsp_signing_profile "$tsp_uuid" "$tsp_name" "$sp_uuid"
+  fi
+
+  printf -v "KEY_UUID_${g}"             '%s' "$key_uuid"
+  printf -v "RA_PROFILE_UUID_${g}"      '%s' "$ra_uuid"
+  printf -v "ISSUED_CERT_UUID_${g}"     '%s' "$cert_uuid"
+  printf -v "TSP_PROFILE_UUID_${g}"     '%s' "$tsp_uuid"
+  printf -v "SIGNING_PROFILE_UUID_${g}" '%s' "$sp_uuid"
 }
 
 # --- Summary ------------------------------------------------------------------
@@ -1179,61 +1514,8 @@ main() {
   setup_token_profile
   setup_time_quality_config
 
-  # ----- Non-qualified set -----
-  log "=== Setting up TSA non-qualified set ==="
-  setup_key_pair \
-    "${KEY_NAME_BASE}-non-qualified" \
-    KEY_UUID_NQ PRIVATE_KEY_ITEM_UUID_NQ
-  setup_ra_profile \
-    "${RA_PROFILE_NAME_BASE}-non-qualified" \
-    "$EJBCA_CERT_PROFILE" \
-    RA_PROFILE_UUID_NQ
-  issue_certificate \
-    "${CERTIFICATE_DN}-non-qualified" \
-    "$KEY_UUID_NQ" "$PRIVATE_KEY_ITEM_UUID_NQ" "$RA_PROFILE_UUID_NQ" \
-    ISSUED_CERT_UUID_NQ
-  poll_certificate "$ISSUED_CERT_UUID_NQ" "${CERTIFICATE_DN}-non-qualified"
-  trust_certificate_chain "$ISSUED_CERT_UUID_NQ"
-  setup_tsp_profile \
-    "${TSP_PROFILE_NAME_BASE}-non-qualified" \
-    TSP_PROFILE_UUID_NQ
-  setup_signing_profile \
-    "${SIGNING_PROFILE_NAME_BASE}-non-qualified" \
-    "$ISSUED_CERT_UUID_NQ" "$POLICY_ID_NON_QUALIFIED" \
-    "" \
-    "$FORMATTER_CONN_UUID" \
-    SIGNING_PROFILE_UUID_NQ
-  link_tsp_signing_profile \
-    "$TSP_PROFILE_UUID_NQ" "${TSP_PROFILE_NAME_BASE}-non-qualified" \
-    "$SIGNING_PROFILE_UUID_NQ"
-
-  # ----- Qualified set -----
-  log "=== Setting up TSA qualified set ==="
-  setup_key_pair \
-    "${KEY_NAME_BASE}-qualified" \
-    KEY_UUID_Q PRIVATE_KEY_ITEM_UUID_Q
-  setup_ra_profile \
-    "${RA_PROFILE_NAME_BASE}-qualified" \
-    "$EJBCA_CERT_PROFILE_QUALIFIED" \
-    RA_PROFILE_UUID_Q
-  issue_certificate \
-    "${CERTIFICATE_DN}-qualified" \
-    "$KEY_UUID_Q" "$PRIVATE_KEY_ITEM_UUID_Q" "$RA_PROFILE_UUID_Q" \
-    ISSUED_CERT_UUID_Q
-  poll_certificate "$ISSUED_CERT_UUID_Q" "${CERTIFICATE_DN}-qualified"
-  trust_certificate_chain "$ISSUED_CERT_UUID_Q"
-  setup_tsp_profile \
-    "${TSP_PROFILE_NAME_BASE}-qualified" \
-    TSP_PROFILE_UUID_Q
-  setup_signing_profile \
-    "${SIGNING_PROFILE_NAME_BASE}-qualified" \
-    "$ISSUED_CERT_UUID_Q" "$POLICY_ID_QUALIFIED" \
-    "$TIME_QUALITY_UUID" \
-    "$FORMATTER_CONN_UUID" \
-    SIGNING_PROFILE_UUID_Q
-  link_tsp_signing_profile \
-    "$TSP_PROFILE_UUID_Q" "${TSP_PROFILE_NAME_BASE}-qualified" \
-    "$SIGNING_PROFILE_UUID_Q"
+  setup_tsa_set "non-qualified" "$EJBCA_CERT_PROFILE"           "$POLICY_ID_NON_QUALIFIED" ""                   NQ
+  setup_tsa_set "qualified"     "$EJBCA_CERT_PROFILE_QUALIFIED" "$POLICY_ID_QUALIFIED"     "$TIME_QUALITY_UUID" Q
 
   print_summary
 }
