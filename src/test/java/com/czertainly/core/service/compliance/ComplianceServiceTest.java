@@ -369,8 +369,9 @@ class ComplianceServiceTest extends BaseComplianceTest {
                         Mockito.argThat(req -> isRequestFor(req, Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE)), Mockito.any(), Mockito.any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
 
+        List<UUID> objectUuids = List.of(UUID.randomUUID());
         Assertions.assertThrows(AuthorizationDeniedException.class,
-                () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, List.of(UUID.randomUUID())),
+                () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, objectUuids),
                 "checkResourceObjectsComplianceValidation must enforce COMPLIANCE_PROFILE/CHECK_COMPLIANCE");
     }
 

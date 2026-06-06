@@ -32,8 +32,9 @@ public interface ResourceExternalService {
     /**
      * Function to get the list of objects available to be displayed for object level access for Access Control
      *
-     * @param resource   Name of the resource to
-     * @param filters Filters for the resource objects
+     * @param resource   Secured resource whose objects are being listed
+     * @param filter     Security filter restricting the objects to those the principal may access
+     * @param filters    Filters for the resource objects
      * @param pagination Pagination of the response
      * @return List of NameAndUuidDto
      */

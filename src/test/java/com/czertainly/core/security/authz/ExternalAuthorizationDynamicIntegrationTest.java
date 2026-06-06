@@ -67,11 +67,11 @@ class ExternalAuthorizationDynamicIntegrationTest extends BaseSpringBootTest {
         denyResourceAction(Resource.CERTIFICATE, ResourceAction.UPDATE);
 
         List<BaseAttributeContentV3<?>> content = List.of(new StringAttributeContentV3("value"));
+        SecuredResource securedResource = SecuredResource.fromResource(Resource.CERTIFICATE);
+        SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+        UUID attributeUuid = UUID.randomUUID();
         Assertions.assertThrows(AuthorizationDeniedException.class, () -> resourceService.updateAttributeContentForObject(
-                SecuredResource.fromResource(Resource.CERTIFICATE),
-                SecuredUUID.fromUUID(UUID.randomUUID()),
-                UUID.randomUUID(),
-                content));
+                securedResource, objectUuid, attributeUuid, content));
     }
 
     @Test
@@ -100,11 +100,10 @@ class ExternalAuthorizationDynamicIntegrationTest extends BaseSpringBootTest {
     void authorizesAgainstSecuredResourceNotBareResourceArgument() {
         denyResourceAction(Resource.SECRET, ResourceAction.DETAIL);
 
+        SecuredResource securedResource = SecuredResource.fromResource(Resource.SECRET);
+        UUID objectUuid = UUID.randomUUID();
         Assertions.assertThrows(AuthorizationDeniedException.class, () -> complianceService.getComplianceCheckResult(
-                SecuredResource.fromResource(Resource.SECRET),
-                null,
-                Resource.CERTIFICATE,
-                UUID.randomUUID()));
+                securedResource, null, Resource.CERTIFICATE, objectUuid));
     }
 
     private void denyResourceAction(Resource resource, ResourceAction action) {

@@ -255,7 +255,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         RaProfile outOfScope = new RaProfile();
         outOfScope.setName("Out of scope RA profile");
-        outOfScope = raProfileRepository.save(outOfScope);
+        raProfileRepository.save(outOfScope);
 
         UUID inScopeUuid = inScope.getUuid();
 
@@ -314,15 +314,17 @@ class ResourceServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals("test2", ((ResponseAttributeV3) responseAttributes.getFirst()).getContent().getFirst().getData());
 
         // Should throw NotSupported
+        SecuredResource attributeResource = SecuredResource.fromResource(Resource.ATTRIBUTE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                SecuredResource.fromResource(Resource.ATTRIBUTE),
+                attributeResource,
                 certificateUuid,
                 attributeUuid,
                 request
         ));
 
+        SecuredResource ruleResource = SecuredResource.fromResource(Resource.RULE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                SecuredResource.fromResource(Resource.RULE),
+                ruleResource,
                 certificateUuid,
                 attributeUuid,
                 request

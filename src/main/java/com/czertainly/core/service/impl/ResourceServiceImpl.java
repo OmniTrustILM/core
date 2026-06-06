@@ -159,7 +159,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
     public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
         Resource resource = securedResource.getResource();
-        logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeUuid);
+        logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeContentItems);
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
         if (!resource.hasCustomAttributes() || resourceExtensionService == null)
             throw new NotSupportedException("Cannot update custom attribute for requested resource: " + resource.getCode());

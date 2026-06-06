@@ -35,6 +35,11 @@ public class ObjectFilterAspect {
 
     protected final Log logger = LogFactory.getLog(this.getClass());
 
+    private static final String NAME = "name";
+    private static final String ACTION = "action";
+    private static final String PARENT_NAME = "parentName";
+    private static final String PARENT_ACTION = "parentAction";
+
     private final OpaClient opaClient;
 
     private final OpaSecuredAnnotationMetadataExtractor opaSecuredAnnotationMetadataExtractor;
@@ -67,7 +72,7 @@ public class ObjectFilterAspect {
         SecurityFilter secFilter = getSecurityFilter(arguments);
 
         if (secFilter == null) {
-            logger.trace("No ObjectFilter was found, invoking %sjoint point without filter.".formatted(joinPointKind));
+            logger.trace("No ObjectFilter was found, invoking %sjoin point without filter.".formatted(joinPointKind));
             return joinPoint.proceed();
         }
 
@@ -94,10 +99,10 @@ public class ObjectFilterAspect {
      */
     public void populateSecurityFilter(Resource resource, ResourceAction action, Resource parentResource, ResourceAction parentAction, SecurityFilter secFilter) {
         Map<String, String> properties = new HashMap<>();
-        properties.put("name", resource.getCode());
-        properties.put("action", action.getCode());
-        properties.put("parentName", parentResource != null ? parentResource.getCode() : Resource.NONE.getCode());
-        properties.put("parentAction", parentAction != null ? parentAction.getCode() : ResourceAction.NONE.getCode());
+        properties.put(NAME, resource.getCode());
+        properties.put(ACTION, action.getCode());
+        properties.put(PARENT_NAME, parentResource != null ? parentResource.getCode() : Resource.NONE.getCode());
+        properties.put(PARENT_ACTION, parentAction != null ? parentAction.getCode() : ResourceAction.NONE.getCode());
         populateSecurityFilter(properties, secFilter);
     }
 
@@ -115,7 +120,7 @@ public class ObjectFilterAspect {
         if (!(auth instanceof CzertainlyAuthenticationToken authToken))
             throw new RuntimeException("Unsupported authentication type.");
 
-        if (!properties.get("parentName").equals(Resource.NONE.getCode())) {
+        if (!properties.get(PARENT_NAME).equals(Resource.NONE.getCode())) {
             SecurityResourceFilter parentResourceFilter = getResourceFilter(authToken, properties, true);
             secFilter.setParentResourceFilter(parentResourceFilter);
         }
@@ -123,13 +128,13 @@ public class ObjectFilterAspect {
         secFilter.setResourceFilter(resourceFilter);
 
         try {
-            Resource resource = Resource.findByCode(properties.get("name"));
-            ResourceAction resourceAction = ResourceAction.findByCode(properties.get("action"));
+            Resource resource = Resource.findByCode(properties.get(NAME));
+            ResourceAction resourceAction = ResourceAction.findByCode(properties.get(ACTION));
 
             // if resource has groups and action is list or detail (only allowed through group membership), load user group members permissions
             if (resource.hasGroups() && (resourceAction == ResourceAction.LIST || resourceAction == ResourceAction.DETAIL)) {
-                properties.put("name", Resource.GROUP.getCode());
-                properties.put("action", ResourceAction.MEMBERS.getCode());
+                properties.put(NAME, Resource.GROUP.getCode());
+                properties.put(ACTION, ResourceAction.MEMBERS.getCode());
 
                 SecurityResourceFilter groupMembersFilter = getResourceFilter(authToken, properties, false);
                 secFilter.setGroupMembersFilter(groupMembersFilter);
@@ -145,20 +150,20 @@ public class ObjectFilterAspect {
         Map<String, String> voteProperties = properties;
         if (parentResource) {
             Map<String, String> parentProperties = properties.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-            parentProperties.put("name", properties.get("parentName"));
-            parentProperties.put("action", properties.get("parentAction"));
+            parentProperties.put(NAME, properties.get(PARENT_NAME));
+            parentProperties.put(ACTION, properties.get(PARENT_ACTION));
             voteProperties = parentProperties;
         }
-        voteProperties.remove("parentName");
-        voteProperties.remove("parentAction");
+        voteProperties.remove(PARENT_NAME);
+        voteProperties.remove(PARENT_ACTION);
 
         OpaObjectAccessResult result = obtainObjectAccess(auth, voteProperties);
 
         logger.trace("User has the following object access rights. %s".formatted(result.toString()));
 
         SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
-        resourceFilter.setResource(Resource.findByCode(voteProperties.get("name")));
-        resourceFilter.setResourceAction(ResourceAction.findByCode(voteProperties.get("action")));
+        resourceFilter.setResource(Resource.findByCode(voteProperties.get(NAME)));
+        resourceFilter.setResourceAction(ResourceAction.findByCode(voteProperties.get(ACTION)));
         resourceFilter.addAllowedObjects(result.getAllowedObjects());
         resourceFilter.addDeniedObjects(result.getForbiddenObjects());
         resourceFilter.setAreOnlySpecificObjectsAllowed(!result.isActionAllowedForGroupOfObjects());

@@ -37,15 +37,17 @@ class SecuredResourceTest {
 
     @Test
     void throwsWhenNoSecuredResourceArgumentPresent() {
+        Object[] arguments = new Object[]{Resource.CERTIFICATE, UUID.randomUUID()};
         Assertions.assertThrows(ValidationException.class,
-                () -> SecuredResource.fromArguments(new Object[]{Resource.CERTIFICATE, UUID.randomUUID()}));
+                () -> SecuredResource.fromArguments(arguments));
     }
 
     @Test
     void throwsWhenMoreThanOneSecuredResourceArgumentPresent() {
+        Object[] arguments = new Object[]{
+                SecuredResource.fromResource(Resource.CERTIFICATE),
+                SecuredResource.fromResource(Resource.RA_PROFILE)};
         Assertions.assertThrows(ValidationException.class,
-                () -> SecuredResource.fromArguments(new Object[]{
-                        SecuredResource.fromResource(Resource.CERTIFICATE),
-                        SecuredResource.fromResource(Resource.RA_PROFILE)}));
+                () -> SecuredResource.fromArguments(arguments));
     }
 }
