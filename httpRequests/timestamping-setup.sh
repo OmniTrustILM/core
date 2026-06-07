@@ -264,6 +264,12 @@ find_named_item() {
   echo "$1" | jq -c --arg n "$2" 'first(.[] | select(.name==$n)) // empty'
 }
 
+# uuid_of_named <list_json> <name> -> the item's uuid, or empty if not found.
+uuid_of_named() {
+  local match; match=$(find_named_item "$1" "$2")
+  [[ -n "$match" ]] && echo "$match" | jq -r '.uuid // empty'
+}
+
 # list_paginated <path> -> JSON array of .items for POST .../list endpoints
 list_paginated() {
   ilm_curl POST "$1" -d '{"itemsPerPage":1000,"pageNumber":1,"filters":[]}' | jq '.items // []'
@@ -366,7 +372,7 @@ configure_authentication() {
       CURL_AUTH_ARGS=(--cert-type P12 --cert "$CLIENT_P12_BUNDLE" --pass "$CLIENT_P12_PASSPHRASE")
     elif openssl pkcs12 -legacy -in "$CLIENT_P12_BUNDLE" -passin "pass:${CLIENT_P12_PASSPHRASE}" \
          -nokeys -clcerts -out /dev/null 2>/dev/null; then
-      die_unsupported_pkcs12 "$CLIENT_P12_BUNDLE" "$CLIENT_P12_PASSPHRASE"
+      die_unsupported_pkcs12 "$CLIENT_P12_BUNDLE"
     else
       die "Cannot read admin PKCS12 ${CLIENT_P12_BUNDLE} (wrong --client-p12-password or corrupt bundle?)"
     fi
@@ -384,32 +390,36 @@ configure_authentication() {
 
 # The admin PKCS12 uses a legacy PBE that SecureTransport curl cannot load.
 die_unsupported_pkcs12() {
-  local p12="$1" pass="$2" modern="${1%.p12}-modern.p12"
+  local p12="$1" modern="${1%.p12}-modern.p12"
   cat >&2 <<EOF
 ERROR: Admin PKCS12 '${p12}' uses a legacy encryption format that SecureTransport curl cannot load.
 
 Convert it once to a modern PKCS12, then re-run with the converted bundle:
 
-  openssl pkcs12 -legacy -in '${p12}' -passin 'pass:${pass}' -nodes -out /tmp/admin-mtls.pem
-  openssl pkcs12 -export -in /tmp/admin-mtls.pem -passout 'pass:${pass}' -out '${modern}'
-  rm -f /tmp/admin-mtls.pem
+  read -rs P12_PASS                     # type the --client-p12-password, then press Enter
+  openssl pkcs12 -legacy -in '${p12}' -passin "pass:\$P12_PASS" -nodes -out /tmp/admin-mtls.pem
+  openssl pkcs12 -export -in /tmp/admin-mtls.pem -passout "pass:\$P12_PASS" -out '${modern}'
+  rm -f /tmp/admin-mtls.pem; unset P12_PASS
 
 Then re-run with:  --client-p12-bundle '${modern}'  (keep the same --client-p12-password)
 EOF
   exit 1
 }
 
+# Keeps only the PEM blocks from stdin, dropping OpenSSL's "Bag Attributes" dump lines.
+pem_only() { sed -n '/-----BEGIN /,/-----END /p'; }
+
 # extract_p12_pem <p12> <password> <out_cert_pem> <out_key_pem>
 # Splits a PKCS12 into a client-cert PEM and an unencrypted key PEM. Retries with
 # -legacy for bundles using legacy PBE algorithms unsupported by OpenSSL 3 defaults.
 extract_p12_pem() {
   local p12="$1" pass="$2" out_cert="$3" out_key="$4" legacy=""
-  if ! openssl pkcs12 -in "$p12" -passin "pass:${pass}" -clcerts -nokeys -out "$out_cert" 2>/dev/null; then
+  if ! openssl pkcs12 -in "$p12" -passin "pass:${pass}" -clcerts -nokeys 2>/dev/null | pem_only > "$out_cert"; then
     legacy="-legacy"
-    openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -clcerts -nokeys -out "$out_cert" 2>/dev/null \
+    openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -clcerts -nokeys 2>/dev/null | pem_only > "$out_cert" \
       || die "Failed to extract client certificate from ${p12} (wrong password or unsupported format?)"
   fi
-  openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -nocerts -nodes -out "$out_key" 2>/dev/null \
+  openssl pkcs12 $legacy -in "$p12" -passin "pass:${pass}" -nocerts -nodes 2>/dev/null | pem_only > "$out_key" \
     || die "Failed to extract private key from ${p12} (wrong password or unsupported format?)"
 }
 
@@ -1435,11 +1445,11 @@ setup_tsa_set() {
     sp_uuid=$(echo "$existing_sp" | jq -r '.uuid')
     ok "TSA ${suffix} set already configured (Signing Profile '${sp_name}'  $sp_uuid); reusing, no new certificate issued"
     _list=$(ilm_curl GET /v1/keys/pairs)
-    key_uuid=$(find_named_item "$_list" "$key_name" | jq -r '.uuid // empty')
+    key_uuid=$(uuid_of_named "$_list" "$key_name")
     _list=$(ilm_curl GET /v1/raProfiles)
-    ra_uuid=$(find_named_item "$_list" "$ra_name" | jq -r '.uuid // empty')
+    ra_uuid=$(uuid_of_named "$_list" "$ra_name")
     _list=$(list_paginated /v1/tspProfiles/list)
-    tsp_uuid=$(find_named_item "$_list" "$tsp_name" | jq -r '.uuid // empty')
+    tsp_uuid=$(uuid_of_named "$_list" "$tsp_name")
     # The detail DTO nests the cert as signingScheme.certificate (CertificateSimpleDto), not certificateUuid.
     sp_details=$(ilm_curl GET "/v1/signingProfiles/${sp_uuid}")
     cert_uuid=$(echo "$sp_details" | jq -r '.signingScheme.certificate.uuid // empty')
