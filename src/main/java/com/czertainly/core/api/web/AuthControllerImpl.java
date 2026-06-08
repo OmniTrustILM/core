@@ -11,6 +11,8 @@ import com.czertainly.api.model.core.auth.UserProfileDetailDto;
 import com.czertainly.api.model.core.logging.enums.Module;
 import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
+import com.czertainly.core.security.authz.SecuredResource;
+import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.AuthExternalService;
 import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
@@ -62,7 +64,7 @@ public class AuthControllerImpl implements AuthController {
 
     @Override
     public List<NameAndUuidDto> getObjectsForResource(Resource resourceName) throws NotFoundException {
-        return resourceService.getResourceObjects(resourceName, null, null);
+        return resourceService.getResourceObjects(SecuredResource.fromResource(resourceName), SecurityFilter.create(), null, null);
     }
 
 

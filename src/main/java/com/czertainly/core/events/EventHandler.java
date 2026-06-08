@@ -15,7 +15,6 @@ import com.czertainly.core.dao.repository.workflows.EventHistoryRepository;
 import com.czertainly.core.dao.repository.workflows.TriggerAssociationRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
-import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.AuthHelper;
@@ -42,7 +41,6 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
     protected AuthHelper authHelper;
     protected ObjectMapper objectMapper;
     protected EventProducer eventProducer;
-    protected NotificationProducer notificationProducer;
     protected ApplicationEventPublisher applicationEventPublisher;
     protected EventHistoryRepository eventHistoryRepository;
 
@@ -69,11 +67,6 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
     @Autowired
     public void setEventProducer(EventProducer eventProducer) {
         this.eventProducer = eventProducer;
-    }
-
-    @Autowired
-    public void setNotificationProducer(NotificationProducer notificationProducer) {
-        this.notificationProducer = notificationProducer;
     }
 
     @Autowired

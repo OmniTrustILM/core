@@ -18,6 +18,7 @@ import com.czertainly.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.AttributeService;
@@ -152,7 +153,7 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
             List<AttributeContent> request
     ) throws NotFoundException, AttributeException {
         return resourceService.updateAttributeContentForObject(
-                resourceName,
+                SecuredResource.fromResource(resourceName),
                 SecuredUUID.fromString(objectUuid),
                 UUID.fromString(attributeUuid),
                 request
@@ -167,7 +168,7 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
             @LogResource(uuid = true) String attributeUuid
     ) throws NotFoundException, AttributeException {
         return resourceService.updateAttributeContentForObject(
-                resourceName,
+                SecuredResource.fromResource(resourceName),
                 SecuredUUID.fromString(objectUuid),
                 UUID.fromString(attributeUuid),
                 null

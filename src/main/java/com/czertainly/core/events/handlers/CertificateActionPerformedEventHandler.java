@@ -40,7 +40,7 @@ public class CertificateActionPerformedEventHandler extends CertificateEventsHan
 
         List<NotificationRecipient> recipients = NotificationRecipient.buildUsersAndGroupsNotificationRecipients(certificate.getOwner() == null ? null : List.of(certificate.getOwner().getUuid()), certificate.getGroups() == null ? null : certificate.getGroups().stream().map(UniquelyIdentifiedAndAudited::getUuid).toList());
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, recipients, eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
     }
 
     public static EventMessage constructEventMessage(UUID certificateUuid, ResourceAction action) {
