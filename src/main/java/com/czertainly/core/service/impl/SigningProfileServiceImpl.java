@@ -379,29 +379,22 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         profile.setDescription(request.getDescription());
 
         // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
-        SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion()).orElse(null);
-        boolean recordsExist = signingRecordService.doesSigningRecordExistInternal(profile.getUuid(), profile.getLatestVersion());
-        boolean policyRecordDifferent = currentVersion != null && recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
+        int latestVersion = profile.getLatestVersion();
+        SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
+                .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
+        boolean recordsExist = signingRecordService.doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
+        boolean policyRecordDifferent = recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
-        if (bump) {
-            profile.setLatestVersion(profile.getLatestVersion() + 1);
-        }
 
         SigningProfileVersion version;
         if (bump) {
+            profile.setLatestVersion(profile.getLatestVersion() + 1);
             version = new SigningProfileVersion();
-            version.setSigningProfile(profile);
-            version.setVersion(profile.getLatestVersion());
         } else {
-            final SigningProfile profileRef = profile;
-            version = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion())
-                    .orElseGet(() -> {
-                        SigningProfileVersion v = new SigningProfileVersion();
-                        v.setSigningProfile(profileRef);
-                        v.setVersion(profileRef.getLatestVersion());
-                        return v;
-                    });
+            version = currentVersion;
         }
+        version.setSigningProfile(profile);
+        version.setVersion(profile.getLatestVersion());
 
         applyWorkflow(profile, version, request.getWorkflow());
         applyScheme(profile, version, request.getSigningScheme());
