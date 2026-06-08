@@ -3,9 +3,11 @@ package com.czertainly.core.signing.record;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
@@ -48,15 +50,19 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
     @Autowired
     private SigningProfileRepository profileRepo;
     @Autowired
+    private SigningProfileVersionRepository profileVersionRepo;
+    @Autowired
     private SigningRecordOutboxRepository outboxRepo;
     @Autowired
     private SigningRecordRepository recordRepo;
 
+    private SigningProfile signingProfile;
     private UUID signingProfileUuid;
 
     @BeforeEach
     void seedSigningProfile() {
-        signingProfileUuid = persistSigningProfile().getUuid();
+        signingProfile = persistSigningProfile();
+        signingProfileUuid = signingProfile.getUuid();
     }
 
     @Test
@@ -179,6 +185,7 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
         // given
         var dtbs = new byte[]{7, 8, 9};
         var requestMetadata = "{\"correlationId\":\"req-99\"}";
+        persistProfileVersion(signingProfile, 4);
         var row = persistOutboxRow(aSigningRecordOutboxRow()
                 .withName("audit-record-2026")
                 .withSigningProfileVersion(4)
@@ -210,7 +217,23 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
         profile.setSigningScheme(SigningScheme.MANAGED);
         profile.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
         profile.setLatestVersion(1);
-        return profileRepo.saveAndFlush(profile);
+        profile = profileRepo.saveAndFlush(profile);
+        persistProfileVersion(profile, 1);
+        return profile;
+    }
+
+    /**
+     * Persists the {@code signing_profile_version} row a record references by ({@code signing_profile_uuid},
+     * {@code signing_profile_version}). The composite FK {@code fk_signing_record_profile_version} requires the
+     * referenced version row to exist before any {@link SigningRecord} carrying that pair can be inserted.
+     */
+    private void persistProfileVersion(SigningProfile profile, int version) {
+        SigningProfileVersion profileVersion = new SigningProfileVersion();
+        profileVersion.setSigningProfile(profile);
+        profileVersion.setVersion(version);
+        profileVersion.setSigningScheme(SigningScheme.MANAGED);
+        profileVersion.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
+        profileVersionRepo.saveAndFlush(profileVersion);
     }
 
     private void persistOutboxRows(int count) {

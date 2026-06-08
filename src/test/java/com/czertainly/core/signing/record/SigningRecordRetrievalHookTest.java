@@ -67,19 +67,6 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
     }
 
     @Test
-    void onSignedDocumentServed_keepsRecord_whenProfileMissing() throws NotFoundException {
-        // given
-        SigningRecord orphan = insertRecordWithoutProfile();
-
-        // when
-        serveSignedDocumentInTransaction(orphan.getUuid());
-
-        // then
-        SigningRecord stamped = recordRepo.findById(orphan.getUuid()).orElseThrow();
-        assertNotNull(stamped.getSignedDocumentRetrievedAt());
-    }
-
-    @Test
     void onSignedDocumentServed_throwsNotFoundException_whenRecordDoesNotExist() {
         // given
         var missingRecordUuid = UUID.randomUUID();
@@ -183,10 +170,6 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
     private SigningRecord insertRetrievedRecord(SigningProfile profile) {
         var retrievedYesterday = Instant.now().minus(1, ChronoUnit.DAYS);
         return persistRecord(profile.getUuid(), retrievedYesterday);
-    }
-
-    private SigningRecord insertRecordWithoutProfile() {
-        return persistRecord(null, null);
     }
 
     private SigningRecord persistRecord(UUID signingProfileUuid, Instant signedDocumentRetrievedAt) {

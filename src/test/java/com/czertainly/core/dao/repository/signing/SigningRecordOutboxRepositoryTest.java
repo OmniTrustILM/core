@@ -200,6 +200,7 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         var anyProfileVersion = 1;
         SigningRecordOutbox outbox = new SigningRecordOutbox();
         outbox.setUuid(UUID.randomUUID());
+        outbox.setSigningProfileUuid(UUID.randomUUID());
         outbox.setSigningProfileVersion(anyProfileVersion);
         outbox.setSigningTime(signingTime);
         outbox.setAttempts(attempts);

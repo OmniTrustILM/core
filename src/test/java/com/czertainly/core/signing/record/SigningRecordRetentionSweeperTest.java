@@ -63,20 +63,6 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
         assertTrue(recordRepository.existsById(old.getUuid()));
     }
 
-    @Test
-    void sweep_keepsOrphanRecordsWithoutProfile() {
-        // given
-        var signedLongAgo = Instant.now().minus(Duration.ofDays(365));
-        SigningRecord orphan = insertOrphanRecordSignedAt(signedLongAgo);
-
-        // when
-        sweeper.sweep();
-
-        // then
-        assertEquals(1, recordRepository.count());
-        assertTrue(recordRepository.existsById(orphan.getUuid()));
-    }
-
     private SigningProfile insertProfileWithRetention(String name, int retentionDays) {
         return insertProfile(name, retentionDays);
     }
@@ -98,10 +84,6 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
 
     private SigningRecord insertRecordSignedAt(SigningProfile profile, Instant signingTime) {
         return insertRecordSignedAt(profile.getUuid(), signingTime);
-    }
-
-    private SigningRecord insertOrphanRecordSignedAt(Instant signingTime) {
-        return insertRecordSignedAt((UUID) null, signingTime);
     }
 
     private SigningRecord insertRecordSignedAt(UUID signingProfileUuid, Instant signingTime) {

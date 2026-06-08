@@ -3,8 +3,10 @@ package com.czertainly.core.signing.record;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -47,11 +49,14 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
     private SigningRecordRepository recordRepo;
     @Autowired
     private SigningProfileRepository profileRepo;
+    @Autowired
+    private SigningProfileVersionRepository profileVersionRepo;
 
     @Test
     void record_recordingEverything_roundTripsEveryFieldThroughPostgres() throws JsonProcessingException {
         // given
         SigningProfile persistedProfile = insertSigningProfile("round-trip-profile");
+        insertProfileVersion(persistedProfile, 7);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
                 .uuid(persistedProfile.getUuid())
                 .version(7)
@@ -86,6 +91,7 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
         // given
         var recordedCount = 5;
         SigningProfile persistedProfile = insertSigningProfile("batched-profile");
+        insertProfileVersion(persistedProfile, 1);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
                 .uuid(persistedProfile.getUuid())
                 .recordPolicy(recordingEverything().build())
@@ -121,6 +127,20 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
         profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
         profile.setLatestVersion(1);
         return profileRepo.saveAndFlush(profile);
+    }
+
+    /**
+     * Persists the {@code signing_profile_version} row a record's {@code (signing_profile_uuid, signing_profile_version)}
+     * foreign key must reference. The version's policy fields are irrelevant to the strategy (the record policy comes
+     * from the in-memory model), so this fills only the NOT NULL columns.
+     */
+    private void insertProfileVersion(SigningProfile profile, int version) {
+        SigningProfileVersion profileVersion = new SigningProfileVersion();
+        profileVersion.setSigningProfile(profile);
+        profileVersion.setVersion(version);
+        profileVersion.setSigningScheme(SigningScheme.DELEGATED);
+        profileVersion.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        profileVersionRepo.saveAndFlush(profileVersion);
     }
 
     private void assertSameJson(String expected, String actual) throws JsonProcessingException {
