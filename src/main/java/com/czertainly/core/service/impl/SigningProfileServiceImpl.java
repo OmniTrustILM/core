@@ -463,6 +463,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             );
         }
 
+        if (signingRecordService.doesSigningRecordExistForProfileInternal(signingProfile.getUuid())) {
+            throw new ValidationException(
+                    ValidationError.create(String.format(
+                            "Cannot delete Signing Profile '%s': it has signing records. Delete the signing records first.",
+                            signingProfile.getName()
+                    ))
+            );
+        }
+
         signingProfileWriter.deleteAllVersionsBySigningProfileUuid(signingProfile.getUuid());
         signingProfileRepository.delete(signingProfile);
         attributeEngine.deleteObjectAttributeContent(Resource.SIGNING_PROFILE, signingProfile.getUuid());

@@ -14,6 +14,8 @@ import java.util.UUID;
 public interface SigningRecordRepository extends SecurityFilterRepository<SigningRecord, UUID> {
     boolean existsBySigningProfileUuidAndSigningProfileVersion(UUID signingProfileUuid, int version);
 
+    boolean existsBySigningProfileUuid(UUID signingProfileUuid);
+
     @Modifying
     @Query("DELETE FROM SigningRecord sr WHERE sr.uuid = :uuid")
     int deleteByUuid(@Param("uuid") UUID uuid);

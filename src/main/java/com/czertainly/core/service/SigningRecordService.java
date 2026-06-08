@@ -26,4 +26,6 @@ public interface SigningRecordService {
     List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids);
 
     boolean doesSigningRecordExistInternal(UUID uuid, int version);
+
+    boolean doesSigningRecordExistForProfileInternal(UUID signingProfileUuid);
 }

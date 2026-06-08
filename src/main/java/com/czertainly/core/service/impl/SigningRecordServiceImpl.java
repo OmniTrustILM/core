@@ -131,6 +131,11 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         return signingRecordRepository.existsBySigningProfileUuidAndSigningProfileVersion(uuid, version);
     }
 
+    @Override
+    public boolean doesSigningRecordExistForProfileInternal(UUID signingProfileUuid) {
+        return signingRecordRepository.existsBySigningProfileUuid(signingProfileUuid);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
