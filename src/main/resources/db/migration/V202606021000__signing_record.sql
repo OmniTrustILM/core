@@ -1,7 +1,10 @@
 -- Versioned record-policy fields on signing_profile_version: each SigningRecord carries the version it was
 -- created under, so its retention / delete-after-retrieval / persistence behaviour is fixed at signing time and
 -- a later policy change applies only to records created afterwards.
+-- recording_enabled is the master on/off switch: when FALSE no record is created at all for operations under that
+-- version, regardless of the content flags. Defaults TRUE so existing profiles keep their current recording behaviour.
 ALTER TABLE "signing_profile_version"
+    ADD COLUMN "recording_enabled" BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN "record_request_metadata" BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signature"        BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signed_document"  BOOLEAN NOT NULL DEFAULT FALSE,
