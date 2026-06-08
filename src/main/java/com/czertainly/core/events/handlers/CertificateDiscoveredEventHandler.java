@@ -47,7 +47,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -222,12 +221,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             }
         }
 
-        eventHistoryDiscovery.setStatus(EventStatus.FINISHED);
-        eventHistoryPlatform.setStatus(EventStatus.FINISHED);
-        eventHistoryPlatform.setFinishedAt(OffsetDateTime.now());
-        eventHistoryDiscovery.setFinishedAt(OffsetDateTime.now());
-        eventHistoryRepository.save(eventHistoryDiscovery);
-        eventHistoryRepository.save(eventHistoryPlatform);
+        saveEventHistory(eventHistoryDiscovery, EventStatus.FINISHED);
+        saveEventHistory(eventHistoryPlatform, EventStatus.FINISHED);
 
         // trigger other events
         eventProducer.produceMessage(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), context.getUserUuid(), context.getScheduledJobInfo(), new DiscoveryResult(DiscoveryStatus.PROCESSING, originalMessage)));
