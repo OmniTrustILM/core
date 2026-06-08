@@ -112,7 +112,6 @@ public class SigningProfileMapper {
 
     private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfileVersion version) {
         SigningRecordPolicyDto policy = new SigningRecordPolicyDto();
-        policy.setRecordMetadata(version.isRecordMetadata());
         policy.setRecordRequestMetadata(version.isRecordRequestMetadata());
         policy.setRecordSignature(version.isRecordSignature());
         policy.setRecordSignedDocument(version.isRecordSignedDocument());
@@ -277,7 +276,6 @@ public class SigningProfileMapper {
 
     private static SigningRecordPolicyModel buildRecordPolicyModel(SigningProfileVersion version) {
         return new SigningRecordPolicyModel(
-                version.isRecordMetadata(),
                 version.isRecordRequestMetadata(),
                 version.isRecordSignature(),
                 version.isRecordSignedDocument(),

@@ -4,7 +4,6 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
 
 public final class SigningRecordPolicyModelBuilder {
 
-    private boolean recordMetadata = false;
     private boolean recordRequestMetadata = false;
     private boolean recordSignature = false;
     private boolean recordSignedDocument = false;
@@ -22,7 +21,6 @@ public final class SigningRecordPolicyModelBuilder {
      */
     public static SigningRecordPolicyModelBuilder notRecording() {
         return aSigningRecordPolicy()
-                .recordMetadata(false)
                 .recordRequestMetadata(false)
                 .recordSignature(false)
                 .recordSignedDocument(false)
@@ -34,16 +32,10 @@ public final class SigningRecordPolicyModelBuilder {
      */
     public static SigningRecordPolicyModelBuilder recordingEverything() {
         return aSigningRecordPolicy()
-                .recordMetadata(true)
                 .recordRequestMetadata(true)
                 .recordSignature(true)
                 .recordSignedDocument(true)
                 .recordDtbs(true);
-    }
-
-    public SigningRecordPolicyModelBuilder recordMetadata(boolean v) {
-        this.recordMetadata = v;
-        return this;
     }
 
     public SigningRecordPolicyModelBuilder recordRequestMetadata(boolean v) {
@@ -83,7 +75,6 @@ public final class SigningRecordPolicyModelBuilder {
 
     public SigningRecordPolicyModel build() {
         return new SigningRecordPolicyModel(
-                recordMetadata,
                 recordRequestMetadata,
                 recordSignature,
                 recordSignedDocument,

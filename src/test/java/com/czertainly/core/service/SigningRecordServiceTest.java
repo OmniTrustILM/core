@@ -82,6 +82,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
                 .withDtbs("alpha-v1-dtbs".getBytes())
                 .withSignedDocument("alpha-v1-signed-document".getBytes())
                 .withRequestMetadataJson("{\"alg\":\"SHA256\"}")
+                .withRequestedByUuid(UUID.fromString("99999999-9999-9999-9999-999999999999"))
+                .withRequestedByUsername("alice")
                 .withSignedDocumentRetrievedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS))
                 .insert();
         aRecord(alphaProfile, VERSION_2).withName(ALPHA_RECORD_V2).insert();
@@ -233,6 +235,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         // so assert on content rather than byte-exact equality
         assertTrue(dto.getRequestMetadataJson().contains("\"alg\""));
         assertTrue(dto.getRequestMetadataJson().contains("SHA256"));
+        assertEquals(alphaRecordV1.getRequestedByUuid().toString(), dto.getRequestedBy().getUuid());
+        assertEquals(alphaRecordV1.getRequestedByUsername(), dto.getRequestedBy().getName());
         assertEquals(alphaRecordV1.getSignedDocumentRetrievedAt(), dto.getSignedDocumentRetrievedAt());
         assertNotNull(dto.getCreatedAt());
     }
@@ -384,6 +388,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         private byte[] dtbs = null;
         private byte[] signedDocument = null;
         private String requestMetadataJson = null;
+        private UUID requestedByUuid = null;
+        private String requestedByUsername = null;
         private Instant signedDocumentRetrievedAt = null;
 
         private RecordBuilder(SigningProfile profile, int version) {
@@ -416,6 +422,16 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             return this;
         }
 
+        private RecordBuilder withRequestedByUuid(UUID requestedByUuid) {
+            this.requestedByUuid = requestedByUuid;
+            return this;
+        }
+
+        private RecordBuilder withRequestedByUsername(String requestedByUsername) {
+            this.requestedByUsername = requestedByUsername;
+            return this;
+        }
+
         private RecordBuilder withSignedDocumentRetrievedAt(Instant signedDocumentRetrievedAt) {
             this.signedDocumentRetrievedAt = signedDocumentRetrievedAt;
             return this;
@@ -431,6 +447,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             record.setDtbs(dtbs);
             record.setSignedDocument(signedDocument);
             record.setRequestMetadataJson(requestMetadataJson);
+            record.setRequestedByUuid(requestedByUuid);
+            record.setRequestedByUsername(requestedByUsername);
             record.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
             return signingRecordRepository.saveAndFlush(record);
         }

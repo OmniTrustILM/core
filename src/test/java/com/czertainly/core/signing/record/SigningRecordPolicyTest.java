@@ -30,7 +30,6 @@ class SigningRecordPolicyTest {
 
     private static Stream<Arguments> singleRecordFlagPolicies() {
         return Stream.of(
-                Arguments.of(named("recordMetadata", aSigningRecordPolicy().recordMetadata(true).build())),
                 Arguments.of(named("recordRequestMetadata", aSigningRecordPolicy().recordRequestMetadata(true).build())),
                 Arguments.of(named("recordSignature", aSigningRecordPolicy().recordSignature(true).build())),
                 Arguments.of(named("recordSignedDocument", aSigningRecordPolicy().recordSignedDocument(true).build())),

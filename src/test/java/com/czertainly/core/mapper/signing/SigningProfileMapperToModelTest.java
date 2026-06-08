@@ -128,7 +128,6 @@ class SigningProfileMapperToModelTest {
         version.setRetentionDays(retentionDays);
         version.setDeleteAfterRetrieval(true);
         version.setPersistenceMode(persistenceMode);
-        version.setRecordMetadata(true);
         version.setRecordRequestMetadata(false);
         version.setRecordSignature(true);
         version.setRecordSignedDocument(false);
@@ -140,7 +139,6 @@ class SigningProfileMapperToModelTest {
 
         // then
         SigningRecordPolicyModel policy = model.recordPolicy();
-        assertTrue(policy.recordMetadata());
         assertFalse(policy.recordRequestMetadata());
         assertTrue(policy.recordSignature());
         assertFalse(policy.recordSignedDocument());

@@ -24,7 +24,7 @@ public final class SigningProfileModelBuilder {
     private SigningSchemeModel signingScheme = new StaticKeyManagedSigning(
             UUID.fromString("00000000-0000-0000-0000-000000000003"), List.of());
     private SigningRecordPolicyModel recordPolicy = new SigningRecordPolicyModel(
-            false, false, false, false, false, null, false, SigningRecordPersistenceMode.DEFERRED_DURABLE);
+            false, false, false, false, null, false, SigningRecordPersistenceMode.DEFERRED_DURABLE);
 
     public static SigningProfileModelBuilder aSigningProfile() {
         return new SigningProfileModelBuilder();

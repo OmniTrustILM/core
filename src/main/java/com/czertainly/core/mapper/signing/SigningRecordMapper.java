@@ -1,6 +1,7 @@
 package com.czertainly.core.mapper.signing;
 
 import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
@@ -27,6 +28,8 @@ public class SigningRecordMapper {
         record.setSigningProfileUuid(outbox.getSigningProfileUuid());
         record.setSigningProfileVersion(outbox.getSigningProfileVersion());
         record.setSigningTime(outbox.getSigningTime());
+        record.setRequestedByUuid(outbox.getRequestedByUuid());
+        record.setRequestedByUsername(outbox.getRequestedByUsername());
         record.setSignatureValue(outbox.getSignatureValue());
         record.setSignedDocument(outbox.getSignedDocument());
         record.setDtbs(outbox.getDtbs());
@@ -41,6 +44,10 @@ public class SigningRecordMapper {
         dto.setSigningProfile(toSigningProfileListDto(record));
         Instant signingTime = record.getSigningTime();
         dto.setSigningTime(signingTime);
+        if (record.getRequestedByUuid() != null) {
+            dto.setRequestedBy(new NameAndUuidDto(
+                    record.getRequestedByUuid().toString(), record.getRequestedByUsername()));
+        }
         OffsetDateTime createdAt = record.getCreated();
         dto.setCreatedAt(createdAt.toInstant());
         dto.setSignatureValue(record.getSignatureValue());

@@ -36,6 +36,12 @@ public class SigningRecordOutbox {
     @Column(name = "signing_time", nullable = false)
     private Instant signingTime;
 
+    @Column(name = "requested_by_uuid")
+    private UUID requestedByUuid;
+
+    @Column(name = "requested_by_username")
+    private String requestedByUsername;
+
     @Column(name = "signature_value")
     private byte[] signatureValue;
 

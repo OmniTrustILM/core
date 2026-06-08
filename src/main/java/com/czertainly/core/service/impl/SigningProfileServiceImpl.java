@@ -721,8 +721,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private boolean recordPolicyDiffersFromVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
         if (p == null)
             return false;
-        return v.isRecordMetadata() != p.isRecordMetadata()
-                || v.isRecordRequestMetadata() != p.isRecordRequestMetadata()
+        return v.isRecordRequestMetadata() != p.isRecordRequestMetadata()
                 || v.isRecordSignature() != p.isRecordSignature()
                 || v.isRecordSignedDocument() != p.isRecordSignedDocument()
                 || v.isRecordDtbs() != p.isRecordDtbs()
@@ -734,7 +733,6 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private void applyRecordPolicyToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
         if (p == null)
             return;
-        v.setRecordMetadata(p.isRecordMetadata());
         v.setRecordRequestMetadata(p.isRecordRequestMetadata());
         v.setRecordSignature(p.isRecordSignature());
         v.setRecordSignedDocument(p.isRecordSignedDocument());

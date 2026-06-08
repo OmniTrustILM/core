@@ -1,5 +1,6 @@
 package com.czertainly.core.mapper.signing;
 
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.model.signing.SigningRecordPolicyModel;
@@ -26,6 +27,7 @@ public class SigningRecordInputMapper {
         record.setSigningProfileUuid(input.getSigningProfile().uuid());
         record.setSigningProfileVersion(input.getSigningProfile().version());
         record.setSigningTime(input.getSigningTime());
+        applyRequester(input, record::setRequestedByUuid, record::setRequestedByUsername);
         applyRecordableContent(input,
                 record::setRequestMetadataJson, record::setSignatureValue,
                 record::setSignedDocument, record::setDtbs);
@@ -42,10 +44,25 @@ public class SigningRecordInputMapper {
         outbox.setSigningProfileUuid(input.getSigningProfile().uuid());
         outbox.setSigningProfileVersion(input.getSigningProfile().version());
         outbox.setSigningTime(input.getSigningTime());
+        applyRequester(input, outbox::setRequestedByUuid, outbox::setRequestedByUsername);
         applyRecordableContent(input,
                 outbox::setRequestMetadataJson, outbox::setSignatureValue,
                 outbox::setSignedDocument, outbox::setDtbs);
         return outbox;
+    }
+
+    /**
+     * Unpacks the requester {@link NameAndUuidDto} into the record's denormalized uuid/username columns.
+     * Captured unconditionally — the requester identity is not gated by the content {@code record*} toggles.
+     */
+    private void applyRequester(SigningRecordInput input, Consumer<UUID> uuid, Consumer<String> username) {
+        NameAndUuidDto requestedBy = input.getRequestedBy();
+        if (requestedBy == null) {
+            return;
+        }
+        if (requestedBy.getUuid() != null)
+            uuid.accept(UUID.fromString(requestedBy.getUuid()));
+        username.accept(requestedBy.getName());
     }
 
     private void applyRecordableContent(SigningRecordInput input,

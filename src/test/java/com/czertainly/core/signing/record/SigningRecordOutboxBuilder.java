@@ -18,6 +18,8 @@ public final class SigningRecordOutboxBuilder {
     private UUID signingProfileUuid = UUID.randomUUID();
     private Integer signingProfileVersion = 1;
     private Instant signingTime = Instant.parse("2026-01-01T00:00:00Z");
+    private UUID requestedByUuid = UUID.fromString("99999999-9999-9999-9999-999999999999");
+    private String requestedByUsername = "alice";
     private byte[] signatureValue = "signature".getBytes(StandardCharsets.UTF_8);
     private byte[] signedDocument = "signed-document".getBytes(StandardCharsets.UTF_8);
     private byte[] dtbs = "data-to-be-signed".getBytes(StandardCharsets.UTF_8);
@@ -36,6 +38,16 @@ public final class SigningRecordOutboxBuilder {
 
     public SigningRecordOutboxBuilder withName(String name) {
         this.name = name;
+        return this;
+    }
+
+    public SigningRecordOutboxBuilder withRequestedByUuid(UUID requestedByUuid) {
+        this.requestedByUuid = requestedByUuid;
+        return this;
+    }
+
+    public SigningRecordOutboxBuilder withRequestedByUsername(String requestedByUsername) {
+        this.requestedByUsername = requestedByUsername;
         return this;
     }
 
@@ -91,6 +103,8 @@ public final class SigningRecordOutboxBuilder {
         row.setSigningProfileUuid(signingProfileUuid);
         row.setSigningProfileVersion(signingProfileVersion);
         row.setSigningTime(signingTime);
+        row.setRequestedByUuid(requestedByUuid);
+        row.setRequestedByUsername(requestedByUsername);
         row.setSignatureValue(signatureValue);
         row.setSignedDocument(signedDocument);
         row.setDtbs(dtbs);

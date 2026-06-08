@@ -7,7 +7,6 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
  * operation, how long it is retained, and how it is persisted.
  *
  *
- * @param recordMetadata        Whether operation metadata is recorded.
  * @param recordRequestMetadata Whether request metadata is recorded.
  * @param recordSignature       Whether the produced signature is recorded.
  * @param recordSignedDocument  Whether the signed document is recorded.
@@ -17,7 +16,6 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
  * @param persistenceMode       How records are persisted.
  */
 public record SigningRecordPolicyModel(
-        boolean recordMetadata,
         boolean recordRequestMetadata,
         boolean recordSignature,
         boolean recordSignedDocument,

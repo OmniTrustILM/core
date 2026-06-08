@@ -22,6 +22,8 @@ class SigningRecordMapperTest {
         outbox.setSigningProfileUuid(UUID.fromString("11111111-1111-1111-1111-111111111111"));
         outbox.setSigningProfileVersion(7);
         outbox.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
+        outbox.setRequestedByUuid(UUID.fromString("99999999-9999-9999-9999-999999999999"));
+        outbox.setRequestedByUsername("alice");
         outbox.setRequestMetadataJson("{ \"alg\": \"ES256\" }");
         outbox.setSignatureValue("the-signature".getBytes());
         outbox.setSignedDocument("the-signed-document".getBytes());
@@ -36,6 +38,8 @@ class SigningRecordMapperTest {
         assertEquals(outbox.getSigningProfileUuid(), record.getSigningProfileUuid());
         assertEquals(outbox.getSigningProfileVersion(), record.getSigningProfileVersion());
         assertEquals(outbox.getSigningTime(), record.getSigningTime());
+        assertEquals(outbox.getRequestedByUuid(), record.getRequestedByUuid());
+        assertEquals(outbox.getRequestedByUsername(), record.getRequestedByUsername());
         assertEquals(outbox.getRequestMetadataJson(), record.getRequestMetadataJson());
         assertArrayEquals(outbox.getSignatureValue(), record.getSignatureValue());
         assertArrayEquals(outbox.getSignedDocument(), record.getSignedDocument());

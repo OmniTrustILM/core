@@ -109,9 +109,6 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "validate_token_signature")
     private Boolean validateTokenSignature;
 
-    @Column(name = "record_metadata", nullable = false)
-    private boolean recordMetadata = false;
-
     @Column(name = "record_request_metadata", nullable = false)
     private boolean recordRequestMetadata = false;
 

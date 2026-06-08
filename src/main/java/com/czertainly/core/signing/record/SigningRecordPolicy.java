@@ -15,8 +15,7 @@ public final class SigningRecordPolicy {
      * Whether the version is configured to record anything at all about a signing operation.
      */
     public static boolean hasAnyRecordableContent(SigningRecordPolicyModel policy) {
-        return policy.recordMetadata()
-                || policy.recordRequestMetadata()
+        return policy.recordRequestMetadata()
                 || policy.recordSignature()
                 || policy.recordSignedDocument()
                 || policy.recordDtbs();

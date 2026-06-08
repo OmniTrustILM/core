@@ -2,7 +2,6 @@
 -- created under, so its retention / delete-after-retrieval / persistence behaviour is fixed at signing time and
 -- a later policy change applies only to records created afterwards.
 ALTER TABLE "signing_profile_version"
-    ADD COLUMN "record_metadata" BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_request_metadata"  BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signature"         BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN "record_signed_document"   BOOLEAN NOT NULL DEFAULT FALSE,
@@ -19,6 +18,8 @@ CREATE TABLE "signing_record"
     "signing_profile_uuid"         UUID,
     "signing_profile_version"      INTEGER     NOT NULL,
     "signing_time"                 TIMESTAMPTZ NOT NULL,
+    "requested_by_uuid"     UUID,
+    "requested_by_username" VARCHAR,
     "signature_value"              BYTEA,
     "request_metadata_json"        JSONB,
     "signed_document"              BYTEA,
@@ -50,6 +51,8 @@ CREATE TABLE "signing_record_outbox"
     "signing_profile_uuid"    UUID NULL,
     "signing_profile_version" INTEGER     NOT NULL,
     "signing_time"            TIMESTAMPTZ NOT NULL,
+    "requested_by_uuid"     UUID    NULL,
+    "requested_by_username" VARCHAR NULL,
     "signature_value"         BYTEA NULL,
     "signed_document"         BYTEA NULL,
     "dtbs"                    BYTEA NULL,

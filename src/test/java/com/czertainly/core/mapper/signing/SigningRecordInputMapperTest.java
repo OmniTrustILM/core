@@ -41,6 +41,8 @@ class SigningRecordInputMapperTest {
         assertEquals(profileUuid, record.getSigningProfileUuid());
         assertEquals(profileVersion, record.getSigningProfileVersion());
         assertEquals(signingTime, record.getSigningTime());
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), record.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), record.getRequestedByUsername());
     }
 
     @Test
@@ -78,7 +80,9 @@ class SigningRecordInputMapperTest {
         // when
         SigningRecord record = mapper.toRecord(input);
 
-        // then
+        // then the requester identity is captured unconditionally, independent of the content policy
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), record.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), record.getRequestedByUsername());
         assertNull(record.getRequestMetadataJson());
         assertNull(record.getSignatureValue());
         assertNull(record.getSignedDocument());
@@ -175,6 +179,8 @@ class SigningRecordInputMapperTest {
         assertEquals(profileUuid, outbox.getSigningProfileUuid());
         assertEquals(profileVersion, outbox.getSigningProfileVersion());
         assertEquals(signingTime, outbox.getSigningTime());
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), outbox.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), outbox.getRequestedByUsername());
     }
 
     @Test
@@ -200,7 +206,9 @@ class SigningRecordInputMapperTest {
         // when
         SigningRecordOutbox outbox = mapper.toOutbox(input);
 
-        // then
+        // then the requester identity is captured unconditionally, independent of the content policy
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), outbox.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), outbox.getRequestedByUsername());
         assertNull(outbox.getRequestMetadataJson());
         assertNull(outbox.getSignatureValue());
         assertNull(outbox.getSignedDocument());

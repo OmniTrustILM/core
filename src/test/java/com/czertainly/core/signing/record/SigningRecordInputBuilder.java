@@ -1,5 +1,6 @@
 package com.czertainly.core.signing.record;
 
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.core.model.signing.SigningProfileModel;
 
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,7 @@ public final class SigningRecordInputBuilder {
 
     private SigningProfileModel<?, ?> signingProfile = aSigningProfile().build();
     private Instant signingTime = Instant.parse("2026-01-01T00:00:00Z");
+    private NameAndUuidDto requestedBy = new NameAndUuidDto("99999999-9999-9999-9999-999999999999", "alice");
     private String displayName = "test-record";
     private String requestMetadataJson = "{ \"foo\": \"bar\" }";
     private byte[] signature = "signature".getBytes(StandardCharsets.UTF_8);
@@ -32,6 +34,11 @@ public final class SigningRecordInputBuilder {
 
     public SigningRecordInputBuilder signingTime(Instant signingTime) {
         this.signingTime = signingTime;
+        return this;
+    }
+
+    public SigningRecordInputBuilder requestedBy(NameAndUuidDto requestedBy) {
+        this.requestedBy = requestedBy;
         return this;
     }
 
@@ -64,6 +71,7 @@ public final class SigningRecordInputBuilder {
         return SigningRecordInput.builder()
                 .signingProfile(signingProfile)
                 .signingTime(signingTime)
+                .requestedBy(requestedBy)
                 .displayName(displayName)
                 .requestMetadataJson(requestMetadataJson)
                 .signature(signature)
