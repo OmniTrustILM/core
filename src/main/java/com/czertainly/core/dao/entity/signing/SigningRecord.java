@@ -32,7 +32,7 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
         return name;
     }
 
-    @Column(name = "signing_profile_uuid")
+    @Column(name = "signing_profile_uuid", nullable = false)
     private UUID signingProfileUuid;
 
     @ManyToOne(fetch = FetchType.LAZY)

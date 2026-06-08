@@ -27,7 +27,7 @@ public class SigningRecordOutbox {
     @Column(name = "name")
     private String name;
 
-    @Column(name = "signing_profile_uuid")
+    @Column(name = "signing_profile_uuid", nullable = false)
     private UUID signingProfileUuid;
 
     @Column(name = "signing_profile_version", nullable = false)

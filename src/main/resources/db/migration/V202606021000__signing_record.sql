@@ -15,7 +15,7 @@ CREATE TABLE "signing_record"
 (
     "uuid"                         UUID        NOT NULL,
     "name"                         VARCHAR,
-    "signing_profile_uuid"         UUID,
+    "signing_profile_uuid" UUID NOT NULL,
     "signing_profile_version"      INTEGER     NOT NULL,
     "signing_time"                 TIMESTAMPTZ NOT NULL,
     "requested_by_uuid"     UUID,
@@ -48,7 +48,7 @@ CREATE TABLE "signing_record_outbox"
 (
     "uuid"                    UUID        NOT NULL PRIMARY KEY,
     "name"                    VARCHAR NULL,
-    "signing_profile_uuid"    UUID NULL,
+    "signing_profile_uuid" UUID NOT NULL,
     "signing_profile_version" INTEGER     NOT NULL,
     "signing_time"            TIMESTAMPTZ NOT NULL,
     "requested_by_uuid"     UUID    NULL,

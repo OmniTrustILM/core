@@ -80,7 +80,9 @@ public class SigningRecordMapper {
     private static SigningProfileListDto toSigningProfileListDto(SigningRecord record) {
         SigningProfile profile = record.getSigningProfile();
         if (profile == null) {
-            return null;
+            throw new IllegalStateException(
+                    "SigningRecord " + record.getUuid() + " has no signing profile; signing_profile_uuid is NOT NULL "
+                            + "and SigningRecordDto.signingProfile is required, so this association must be present.");
         }
         SigningProfileListDto dto = SigningProfileMapper.toListDto(profile);
         dto.setVersion(record.getSigningProfileVersion());
