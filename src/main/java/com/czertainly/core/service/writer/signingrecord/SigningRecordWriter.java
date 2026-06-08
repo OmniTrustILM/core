@@ -34,8 +34,10 @@ public class SigningRecordWriter {
     // --- Inbound writes (REQUIRED) ---------------------------------------------------------------------
 
     /**
-     * Persists one signing record. {@code saveAndFlush} forces the INSERT now so a constraint violation
-     * surfaces to the caller (and the strategy's metric scope) instead of being deferred to commit.
+     * Persists one signing record. The entity carries an application-assigned UUID, so Spring Data routes the
+     * {@code save} through a merge rather than a bare persist; {@code saveAndFlush} forces the flush now so a
+     * constraint violation surfaces to the caller (and the strategy's metric scope) instead of being deferred
+     * to commit.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insert(SigningRecord record) {
@@ -43,8 +45,9 @@ public class SigningRecordWriter {
     }
 
     /**
-     * Stages one signing record into the outbox. {@code saveAndFlush} forces the INSERT now so a constraint
-     * violation surfaces synchronously; the row is durable the moment the signing operation commits.
+     * Stages one signing record into the outbox. The entity carries an application-assigned UUID, so the
+     * {@code save} runs as a merge; {@code saveAndFlush} forces the flush now so a constraint violation
+     * surfaces synchronously, and the row is durable the moment the signing operation commits.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insertOutbox(SigningRecordOutbox row) {
@@ -64,11 +67,12 @@ public class SigningRecordWriter {
 
     /**
      * Persists one signing record and removes its originating outbox row, atomically in a single transaction.
-     * The {@code saveAndFlush} forces the INSERT to execute now, so a constraint violation is thrown to the
-     * caller instead of being deferred to commit; a pre-existing {@code signing_record} (crash recovery) is
-     * reconciled via merge into a no-op update, and {@code delete} no-ops if the outbox row is already gone, so
-     * the copy is idempotent. The orchestration around it — reading the outbox row, mapping it, and skipping an
-     * already-drained row — lives in {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}.
+     * The record carries an application-assigned UUID, so {@code saveAndFlush} runs as a merge-then-flush: the
+     * flush forces the write to execute now, so a constraint violation is thrown to the caller instead of being
+     * deferred to commit, and a pre-existing {@code signing_record} (crash recovery) is reconciled into a no-op
+     * update. {@code delete} no-ops if the outbox row is already gone, so the copy is idempotent. The
+     * orchestration around it — reading the outbox row, mapping it, and skipping an already-drained row — lives
+     * in {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveRecordAndDeleteOutbox(SigningRecord record, SigningRecordOutbox outboxRow) {
