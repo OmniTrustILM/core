@@ -8,6 +8,7 @@ import com.czertainly.core.signing.tsa.timequality.TimeQualityRegister;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityResult;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import java.util.List;
 @Component
 @Slf4j
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 @AllArgsConstructor
 public class TimeQualityResultListener implements MessageProcessor<TimeQualityResultMessage> {
 
