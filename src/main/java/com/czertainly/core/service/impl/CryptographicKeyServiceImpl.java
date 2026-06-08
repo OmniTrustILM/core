@@ -702,13 +702,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private SecurityFilter createSecurityFilterFor(@NonNull Resource resource, @NonNull ResourceAction action,
                                                    @Nullable Resource parentResource, @Nullable ResourceAction parentAction, @Nullable String parentRefProperty) {
         SecurityFilter filter = SecurityFilter.create();
-        Map<String, String> properties = new HashMap<>(Map.of(
-                "name", resource.getCode(),
-                "action", action.getCode(),
-                "parentName", parentResource != null ? parentResource.getCode() : Resource.NONE.getCode(),
-                "parentAction", parentAction != null ? parentAction.getCode() : ResourceAction.NONE.getCode()
-        ));
-        objectFilterAspect.populateSecurityFilter(properties, filter);
+        objectFilterAspect.populateSecurityFilter(resource, action, parentResource, parentAction, filter);
 
         if (parentRefProperty != null) {
             filter.setParentRefProperty(parentRefProperty);

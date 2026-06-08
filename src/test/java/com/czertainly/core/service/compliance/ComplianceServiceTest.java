@@ -28,8 +28,11 @@ import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.czertainly.core.model.compliance.ComplianceResultProviderRulesDto;
 import com.czertainly.core.model.compliance.ComplianceResultRulesDto;
+import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
+import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.ComplianceExternalService;
 import com.czertainly.core.service.ComplianceInternalService;
@@ -38,7 +41,9 @@ import com.czertainly.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
@@ -177,13 +182,13 @@ class ComplianceServiceTest extends BaseComplianceTest {
 
         // reload certificate and assert compliance result was stored
         Certificate certificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
-        ComplianceCheckResultDto complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
+        ComplianceCheckResultDto complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, complianceCheckResult.getStatus(), "Compliance result status should be Not checked");
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, certificate.getComplianceStatus(), "Compliance status should be Not checked");
 
         Certificate certificate2 = certificateRepository.findByFingerprint(fingerprint2).orElseThrow();
         complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate2.getUuid());
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE, certificate2.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE, certificate2.getUuid());
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, complianceCheckResult.getStatus(), "Compliance result status should be Not checked");
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, certificate2.getComplianceStatus(), "Compliance status should be Not checked");
 
@@ -198,20 +203,20 @@ class ComplianceServiceTest extends BaseComplianceTest {
         complianceService.checkCompliance(uuids, Resource.CERTIFICATE, null);
 
         // check failed compliance with invalid internal rule and V1 and V2 provider rules
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
         Assertions.assertEquals(ComplianceStatus.FAILED, complianceCheckResult.getStatus(), "Compliance result status should be Failed");
         Assertions.assertNotNull(complianceCheckResult.getMessage());
 
         complianceProfileRuleRepository.delete(internalRuleAssoc);
 
         complianceService.checkCompliance(uuids, Resource.CERTIFICATE, null);
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE, certificate.getUuid());
         Assertions.assertEquals(ComplianceStatus.NOK, complianceCheckResult.getStatus(), "Compliance result status should be Not Compliant");
 
         certificate2.setRaProfileUuid(associatedRaProfileUuid);
         certificateRepository.save(certificate2);
         complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate2.getUuid());
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CERTIFICATE, certificate2.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE, certificate2.getUuid());
         Assertions.assertEquals(ComplianceStatus.NOK, complianceCheckResult.getStatus(), "Compliance result status should be Not Compliant");
         CertificateDetailDto certificate2Dto = certificateService.getCertificate(SecuredUUID.fromUUID(certificate2.getUuid()));
         // Expect 4 failed rules: 1 internal, 1 v1 provide0r rule, 2 v2 provider rules (one group with two rules)
@@ -244,6 +249,9 @@ class ComplianceServiceTest extends BaseComplianceTest {
 
         CryptographicKey key = cryptographicKeyRepository.findWithAssociationsByUuid(certificate.getKeyUuid()).orElseThrow();
         CryptographicKeyItem keyItem = key.getItems().iterator().next();
+
+        Assertions.assertEquals(key.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid()).getValue(),
+                "A key item must be authorized against its owning key, not its own UUID");
         key.setTokenProfileUuid(tokenProfile.getUuid());
         cryptographicKeyRepository.save(key);
 
@@ -260,7 +268,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
 
 
         complianceService.checkCompliance(uuids, Resource.CRYPTOGRAPHIC_KEY, null);
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
         Assertions.assertEquals(ComplianceStatus.NA, complianceCheckResult.getStatus(), "Compliance status should be Not applicable due to incompatible attributes setting");
 
         RequestAttributeV3 requestAttribute = new RequestAttributeV3();
@@ -272,11 +280,11 @@ class ComplianceServiceTest extends BaseComplianceTest {
         complianceProfileRuleRepository.save(v2RuleAssoc);
 
         complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus(), "Compliance status should be Compliant");
 
         complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus(), "Compliance status should be Compliant");
 
         WireMock.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/complianceProvider/%s/compliance".formatted(KIND_V2)))
@@ -297,7 +305,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
         );
 
         complianceService.checkResourceObjectCompliance(Resource.TOKEN_PROFILE, tokenProfile.getUuid());
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
         Assertions.assertEquals(ComplianceStatus.NOK, complianceCheckResult.getStatus(), "Compliance status should be Not Compliant");
     }
 
@@ -322,18 +330,55 @@ class ComplianceServiceTest extends BaseComplianceTest {
         Assertions.assertDoesNotThrow(() -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, List.of(vaultProfileUuid)));
         Assertions.assertDoesNotThrow(() -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.SECRET, List.of(secret.getUuid())));
         complianceService.checkResourceObjectCompliance(Resource.SECRET, secret.getUuid());
-        ComplianceCheckResultDto complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
+        ComplianceCheckResultDto complianceCheckResult = complianceService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
 
         complianceService.checkCompliance(List.of(SecuredUUID.fromUUID(complianceProfile.getUuid())), Resource.SECRET, null);
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
         OffsetDateTime lastUpdated = complianceCheckResult.getTimestamp();
 
         complianceService.checkResourceObjectCompliance(Resource.VAULT_PROFILE, vaultProfileUuid);
-        complianceCheckResult = complianceExternalService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
+        complianceCheckResult = complianceService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
         Assertions.assertNotEquals(lastUpdated, complianceCheckResult.getTimestamp());
+
+        Assertions.assertEquals(secret.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.SECRET, secret.getUuid()).getValue(),
+                "A secret is authorized against its own UUID");
+    }
+
+    @Test
+    void resolveComplianceAuthorizableObjectMapsToOwningAuthorizableObject() {
+        UUID certificateUuid = UUID.randomUUID();
+        Assertions.assertEquals(certificateUuid, complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, certificateUuid).getValue(),
+                "A certificate is authorized against its own UUID");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
+                "A certificate request has no stable owning object; authorization is resource-level (null)");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()),
+                "An unknown key item resolves to null (resource-level); the body then throws NotFound post-authorization");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, null),
+                "A null object UUID resolves to null (resource-level)");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationDeniedWhenOpaRejectsCheckCompliance() {
+        Mockito.when(opaClient.checkResourceAccess(Mockito.any(),
+                        Mockito.argThat(req -> isRequestFor(req, Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE)), Mockito.any(), Mockito.any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+
+        List<UUID> objectUuids = List.of(UUID.randomUUID());
+        Assertions.assertThrows(AuthorizationDeniedException.class,
+                () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, objectUuids),
+                "checkResourceObjectsComplianceValidation must enforce COMPLIANCE_PROFILE/CHECK_COMPLIANCE");
+    }
+
+    private static boolean isRequestFor(OpaRequestedResource requestedResource, Resource resource, ResourceAction action) {
+        return requestedResource != null && requestedResource.getProperties() != null
+                && resource.getCode().equals(requestedResource.getProperties().get("name"))
+                && action.getCode().equals(requestedResource.getProperties().get("action"));
     }
 
     @Test

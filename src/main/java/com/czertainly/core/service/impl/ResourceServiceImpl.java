@@ -28,8 +28,11 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;
+import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
+import com.czertainly.core.security.authz.ObjectFilterAspect;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
@@ -80,6 +83,13 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         this.attributeEngine = attributeEngine;
     }
 
+    private ObjectFilterAspect objectFilterAspect;
+
+    @Autowired
+    public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
+        this.objectFilterAspect = objectFilterAspect;
+    }
+
     @Override
     @AnyPrincipalEndpoint
     public List<ResourceDto> listResources() {
@@ -127,18 +137,30 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
-    public List<NameAndUuidDto> getResourceObjects(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
-        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
-        if (resourceExtensionService == null)
-            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
-        return resourceExtensionService.listResourceObjects(SecurityFilter.create(), filters, pagination);
+    @ExternalAuthorizationDynamic(action = ResourceAction.LIST)
+    public List<NameAndUuidDto> getResourceObjects(SecuredResource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource.getResource(), filter, filters, pagination);
     }
 
     @Override
-    @ExternalAuthorizationMissing
-    public List<ResponseAttribute> updateAttributeContentForObject(Resource resource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
-        logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeUuid);
+    public List<NameAndUuidDto> getResourceObjectsInternal(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource, SecurityFilter.create(), filters, pagination);
+    }
+
+    private List<NameAndUuidDto> doListResourceObjects(Resource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
+        if (resourceExtensionService == null) {
+            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
+        }
+        return resourceExtensionService.listResourceObjects(filter, filters, pagination);
+    }
+
+    @Override
+    @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
+    public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
+        Resource resource = securedResource.getResource();
+        logger.info("Updating the attribute {} for resource {} with {} content item(s)", attributeUuid, resource,
+                attributeContentItems == null ? 0 : attributeContentItems.size());
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
         if (!resource.hasCustomAttributes() || resourceExtensionService == null)
             throw new NotSupportedException("Cannot update custom attribute for requested resource: " + resource.getCode());
@@ -171,7 +193,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, filterField.getEnumClass().getEnumConstants()));
                     // Filter field has values of all objects of another entity
                 else if (filterField.getFieldResource() != null)
-                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, getResourceObjects(filterField.getFieldResource(), null, null)));
+                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, listScopedFieldResourceObjects(filterField.getFieldResource())));
                     // Filter field has values of all possible values of a property
                 else {
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, FilterPredicatesBuilder.getAllValuesOfProperty(FilterPredicatesBuilder.buildPathToProperty(filterField.getJoinAttributes(), filterField.getFieldAttribute()), resource, entityManager).getResultList()));
@@ -183,6 +205,12 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
             searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fieldDataDtos, FilterFieldSource.PROPERTY));
 
         return searchFieldDataByGroupDtos;
+    }
+
+    private List<NameAndUuidDto> listScopedFieldResourceObjects(Resource fieldResource) throws NotSupportedException {
+        SecurityFilter fieldFilter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(fieldResource, ResourceAction.LIST, null, null, fieldFilter);
+        return doListResourceObjects(fieldResource, fieldFilter, null, null);
     }
 
     @Override
