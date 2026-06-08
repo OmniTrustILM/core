@@ -244,6 +244,9 @@ spring:
     default-timeout: 120
 
 messaging:
+  # Enables Core's messaging integration with the external Time Quality Monitor (TQM) service.
+  time-quality:
+    enabled: ${MESSAGING_TIME_QUALITY_ENABLED:false}
   concurrency:
     actions: 10
     events: 5
