@@ -51,6 +51,7 @@ public class SigningRecordRetentionSweeper {
             log.debug("Retention sweep skipped: another instance holds the lock");
             return;
         }
+        metrics.sweep(SigningRecordMetrics.DELETE_TYPE_EXPIRED).increment();
         int total = 0;
         try {
             int batchesRun = 0;
@@ -65,11 +66,11 @@ public class SigningRecordRetentionSweeper {
                         maxBatchesPerSweep);
             }
         } catch (RuntimeException e) {
-            metrics.retentionFailed().increment();
+            metrics.sweepFailed(SigningRecordMetrics.DELETE_TYPE_EXPIRED).increment();
             log.warn("Retention sweep aborted after deleting {} record(s); will retry next interval", total, e);
         }
         if (total > 0) {
-            metrics.retentionDeleted().increment(total);
+            metrics.deleted(SigningRecordMetrics.DELETE_TYPE_EXPIRED).increment(total);
             log.info("Retention sweep deleted {} signing record(s)", total);
         }
     }

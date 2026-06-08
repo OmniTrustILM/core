@@ -25,11 +25,12 @@ public class ImmediateSigningRecordStrategy extends AbstractSigningRecordStrateg
 
     @Override
     protected void doRecord(SigningRecordInput input) {
+        metrics.persist(mode().name()).increment();
         try {
             writer.insert(mapper.toRecord(input));
-            metrics.created(mode().name()).increment();
         } catch (RuntimeException e) {
             metrics.persistFailed(mode().name()).increment();
+            metrics.intakeFailed(mode().name(), SigningRecordMetrics.REASON_PERSIST_ERROR).increment();
             throw e;
         }
     }

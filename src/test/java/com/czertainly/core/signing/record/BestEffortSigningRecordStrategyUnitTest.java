@@ -30,10 +30,12 @@ import static org.mockito.Mockito.when;
 
 /**
  * Pure unit test for {@link BestEffortSigningRecordStrategy} over a mocked {@link BestEffortSigningRecordQueue}
- * and {@link SigningRecordWriter}. The strategy's job is narrow: skip empty policies, map + count, dispatch to
- * the right backpressure method, and persist a polled batch through the writer (counting losses without
- * propagating). Queue mechanics — eviction, blocking, batching — are covered against the real queue in
- * {@link BestEffortSigningRecordQueueTest}.
+ * and {@link SigningRecordWriter}. The strategy's job is narrow: every call ticks the intake funnel; an empty
+ * policy is skipped, otherwise it maps and dispatches to the right backpressure method (admission is the intake
+ * accept, an interrupted block is {@code intake.failed{interrupted}}, an eviction is the standalone
+ * {@code best_effort.evicted} post-acceptance loss). The async flush is the stage-2 {@code persist} pair,
+ * counting losses without propagating. Queue mechanics — eviction, blocking, batching — are covered against the
+ * real queue in {@link BestEffortSigningRecordQueueTest}.
  */
 class BestEffortSigningRecordStrategyUnitTest {
 
@@ -54,7 +56,7 @@ class BestEffortSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_skipsAndCounts_whenPolicyRecordsNothing() {
+    void record_countsIntakeSkipped_whenPolicyRecordsNothing() {
         // given
         var notRecordingInput = aSigningRecordInput()
                 .signingProfile(
@@ -70,12 +72,13 @@ class BestEffortSigningRecordStrategyUnitTest {
         strategy.record(notRecordingInput);
 
         // then
-        assertEquals(1, skippedCounter());
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(1, intakeSkippedCounter(MODE));
         verifyNoInteractions(queue, writer);
     }
 
     @Test
-    void record_enqueuesDroppingAndCountsQueued_underDropOldestPolicy() throws Exception {
+    void record_enqueuesDroppingAndCountsIntake_underDropOldestPolicy() throws Exception {
         // given
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
@@ -83,14 +86,15 @@ class BestEffortSigningRecordStrategyUnitTest {
         strategy.record(recordableInput());
 
         // then
-        assertEquals(1, queuedCounter(MODE));
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(0, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));
         assertEquals(1, durationSampleCount(MODE));
         verify(queue).enqueueDropping(any(SigningRecord.class));
         verify(queue, never()).enqueueBlocking(any());
     }
 
     @Test
-    void record_recordsEvictedDropMetric_whenDropOldestEvicts() {
+    void record_recordsEvictedLossMetric_whenDropOldestEvicts() {
         // given
         var evictedByQueue = 2;
         when(queue.enqueueDropping(any())).thenReturn(evictedByQueue);
@@ -100,7 +104,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         strategy.record(recordableInput());
 
         // then
-        assertEquals(evictedByQueue, droppedCounter("evicted_oldest"));
+        assertEquals(evictedByQueue, evictedCounter());
     }
 
     @Test
@@ -117,7 +121,7 @@ class BestEffortSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_countsInterruptedDropAndSkipsQueued_whenBlockingInterrupted() throws Exception {
+    void record_countsIntakeFailedInterrupted_whenBlockingInterrupted() throws Exception {
         // given
         doThrow(new InterruptedException()).when(queue).enqueueBlocking(any());
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
@@ -126,12 +130,11 @@ class BestEffortSigningRecordStrategyUnitTest {
         strategy.record(recordableInput());
 
         // then
-        assertEquals(1, droppedCounter("interrupted"));
-        assertEquals(0, queuedCounter(MODE));
+        assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));
     }
 
     @Test
-    void drainAndPersistBatch_persistsPolledBatch_throughTheWriter() throws Exception {
+    void drainAndPersistBatch_persistsPolledBatchAndCountsPersist_throughTheWriter() throws Exception {
         // setup
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
@@ -145,7 +148,8 @@ class BestEffortSigningRecordStrategyUnitTest {
 
         // then
         verify(writer).insertBatch(batch);
-        assertEquals(batch.size(), createdCounter(MODE));
+        assertEquals(batch.size(), persistCounter(MODE));
+        assertEquals(0, persistFailedCounter(MODE));
     }
 
     @Test
@@ -161,10 +165,11 @@ class BestEffortSigningRecordStrategyUnitTest {
 
         // then
         verify(writer, never()).insertBatch(any());
+        assertEquals(0, persistCounter(MODE));
     }
 
     @Test
-    void drainAndPersistBatch_countsPersistFailureAndLostRecordsByBatchSizeAndDoesNotThrow_whenInsertFails() throws Exception {
+    void drainAndPersistBatch_countsPersistAttemptAndFailureByBatchSizeAndDoesNotThrow_whenInsertFails() throws Exception {
         // setup
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
@@ -177,8 +182,8 @@ class BestEffortSigningRecordStrategyUnitTest {
         strategy.drainAndPersistBatch(noWait()); // swallows the failure: best-effort records may be lost
 
         // then
+        assertEquals(batch.size(), persistCounter(MODE)); // attempt is counted before the insert
         assertEquals(batch.size(), persistFailedCounter(MODE));
-        assertEquals(batch.size(), droppedCounter("flush_failed"));
     }
 
     @Test
@@ -208,31 +213,38 @@ class BestEffortSigningRecordStrategyUnitTest {
         return 0L;
     }
 
-    private double skippedCounter() {
-        return registry.get("signing_record.skipped_no_content_policy.total").counter().count();
-    }
-
-    private double queuedCounter(String mode) {
-        var counter = registry.find("signing_record.queued.total").tag("mode", mode).counter();
+    private double intakeCounter(String mode) {
+        var counter = registry.find("signing_record.intake").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 
-    private double createdCounter(String mode) {
-        var counter = registry.find("signing_record.created.total").tag("mode", mode).counter();
+    private double intakeSkippedCounter(String mode) {
+        var counter = registry.find("signing_record.intake.skipped").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 
-    private double droppedCounter(String reason) {
-        return registry.get("signing_record.best_effort.dropped.total").tag("reason", reason).counter().count();
+    private double intakeFailedCounter(String mode, String reason) {
+        var counter = registry.find("signing_record.intake.failed").tag("mode", mode).tag("reason", reason).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double evictedCounter() {
+        var counter = registry.find("signing_record.best_effort.evicted").counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double persistCounter(String mode) {
+        var counter = registry.find("signing_record.persist").tag("mode", mode).counter();
+        return counter == null ? 0d : counter.count();
     }
 
     private double persistFailedCounter(String mode) {
-        var counter = registry.find("signing_record.persist.failed.total").tag("mode", mode).counter();
+        var counter = registry.find("signing_record.persist.failed").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 
     private long durationSampleCount(String mode) {
-        Timer timer = registry.find("signing_record.write.duration_ms").tag("mode", mode).timer();
+        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).timer();
         return timer == null ? 0L : timer.count();
     }
 }

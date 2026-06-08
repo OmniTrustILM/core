@@ -73,7 +73,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     private SigningRecordService signingRecordService;
 
     @Test
-    void deferredDurableProfile_stagesWriteInOutbox_thenDrainsIntoSigningRecord_advancingBothCounters()
+    void deferredDurableProfile_stagesWriteInOutbox_thenDrainsIntoSigningRecord_advancingIntakeThenPersistCounters()
             throws NotFoundException {
         // given a profile whose persistence mode routes writes through the durable outbox
         var deferredDurable = SigningRecordPersistenceMode.DEFERRED_DURABLE;
@@ -82,29 +82,29 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
                 .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
-        double createdBefore = counterValue("signing_record.created.total", "mode", deferredDurable.name());
-        double drainedBefore = counterValue("signing_record.outbox.drained.total");
+        double intakeBefore = counterValue("signing_record.intake", "mode", deferredDurable.name());
+        double persistBefore = counterValue("signing_record.persist", "mode", deferredDurable.name());
 
         // when the record is written through the factory-selected writer
         factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
-        // then it is staged in the outbox for that profile, not yet visible through the service
+        // then it is accepted at intake and staged in the outbox, not yet persisted into signing_record
         assertRecordInOutbox();
         assertNoRecordExistsInFinalRecordTable();
+        assertEquals(intakeBefore + 1, counterValue("signing_record.intake", "mode", deferredDurable.name()));
 
         // when the outbox is drained
         drainer.drainOnce();
 
-        // then the staged record has moved into signing_record, is now selectable through the service, and
-        // both lifecycle counters advanced by one
+        // then the staged record has moved into signing_record, is now selectable through the service, and the
+        // stage-2 persist counter advanced by one
         assertEquals(0, outboxRepo.count());
         assertRecordExists();
-        assertEquals(createdBefore + 1, counterValue("signing_record.created.total", "mode", deferredDurable.name()));
-        assertEquals(drainedBefore + 1, counterValue("signing_record.outbox.drained.total"));
+        assertEquals(persistBefore + 1, counterValue("signing_record.persist", "mode", deferredDurable.name()));
     }
 
     @Test
-    void immediateProfile_persistsWriteStraightIntoSigningRecord_withoutStaging_advancingCreatedCounter()
+    void immediateProfile_persistsWriteStraightIntoSigningRecord_withoutStaging_advancingPersistCounter()
             throws NotFoundException {
         // given a profile whose persistence mode persists writes synchronously
         var immediate = SigningRecordPersistenceMode.IMMEDIATE;
@@ -113,7 +113,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
                 .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
-        double createdBefore = counterValue("signing_record.created.total", "mode", immediate.name());
+        double persistBefore = counterValue("signing_record.persist", "mode", immediate.name());
 
         // when the record is written through the factory-selected writer
         factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
@@ -121,11 +121,11 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         // then it is selectable through the service straight away, never staged in the outbox, and the counter advanced
         assertRecordExists();
         assertEquals(0, outboxRepo.count());
-        assertEquals(createdBefore + 1, counterValue("signing_record.created.total", "mode", immediate.name()));
+        assertEquals(persistBefore + 1, counterValue("signing_record.persist", "mode", immediate.name()));
     }
 
     @Test
-    void bestEffortProfile_queuesWrite_thenBackgroundFlusherPersistsIt_advancingQueuedThenCreatedCounter()
+    void bestEffortProfile_queuesWrite_thenBackgroundFlusherPersistsIt_advancingIntakeThenPersistCounter()
             throws NotFoundException {
         // given a profile whose persistence mode routes writes through the in-memory best-effort queue
         var bestEffort = SigningRecordPersistenceMode.BEST_EFFORT;
@@ -134,20 +134,20 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
                 .uuid(version.getSigningProfileUuid())
                 .recordPolicy(recordingEverything().build())
                 .build();
-        double queuedBefore = counterValue("signing_record.queued.total", "mode", bestEffort.name());
-        double createdBefore = counterValue("signing_record.created.total", "mode", bestEffort.name());
+        double intakeBefore = counterValue("signing_record.intake", "mode", bestEffort.name());
+        double persistBefore = counterValue("signing_record.persist", "mode", bestEffort.name());
 
         // when the record is written through the factory-selected writer
         factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
-        // then it is admitted to the queue straight away, before any persistence
-        assertEquals(queuedBefore + 1, counterValue("signing_record.queued.total", "mode", bestEffort.name()));
+        // then it is admitted at intake straight away, before any persistence
+        assertEquals(intakeBefore + 1, counterValue("signing_record.intake", "mode", bestEffort.name()));
 
         // and the background flusher eventually persists it, making it selectable through the service and
-        // advancing the created counter
+        // advancing the stage-2 persist counter
         Awaitility.await().atMost(FLUSH_DEADLINE).until(() -> recordRepo.count() == 1);
         assertRecordExists();
-        assertEquals(createdBefore + 1, counterValue("signing_record.created.total", "mode", bestEffort.name()));
+        assertEquals(persistBefore + 1, counterValue("signing_record.persist", "mode", bestEffort.name()));
     }
 
     /**

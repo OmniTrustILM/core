@@ -24,10 +24,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Pure unit test for {@link ImmediateSigningRecordStrategy} over a mocked {@link SigningRecordWriter}.
- * The strategy's job is narrow: skip empty policies, otherwise map + delegate to the writer + count
- * synchronously. Unlike the best-effort strategy it has no queue and does not swallow persistence failures —
- * they propagate to the caller. Persistence wiring (mapper output, columns, transaction) is covered against
- * the real context in {@link ImmediateSigningRecordStrategyTest}.
+ * The strategy's job is narrow: every call ticks the intake funnel on the shared ancestor; an empty policy is
+ * skipped, otherwise it maps + persists synchronously and counts the persist stage. Unlike the best-effort
+ * strategy it has no queue and does not swallow persistence failures — they propagate to the caller, and the
+ * failure ticks both the stage-2 {@code persist.failed} and the stage-1 {@code intake.failed{persist_error}}.
+ * Persistence wiring (mapper output, columns, transaction) is covered against the real context in
+ * {@link ImmediateSigningRecordStrategyTest}.
  */
 class ImmediateSigningRecordStrategyUnitTest {
 
@@ -45,7 +47,7 @@ class ImmediateSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_skipsAndCounts_whenPolicyRecordsNothing() {
+    void record_countsIntakeSkippedAndDoesNotPersist_whenPolicyRecordsNothing() {
         // given
         var notRecordingInput = aSigningRecordInput()
                 .signingProfile(
@@ -60,12 +62,14 @@ class ImmediateSigningRecordStrategyUnitTest {
         strategy.record(notRecordingInput);
 
         // then
-        assertEquals(1, skippedCounter());
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(1, intakeSkippedCounter(MODE));
+        assertEquals(0, persistCounter(MODE));
         verifyNoInteractions(writer);
     }
 
     @Test
-    void record_insertsMappedRecordAndCountsCreated_whenPolicyRecordsContent() {
+    void record_insertsMappedRecordAndCountsPersist_whenPolicyRecordsContent() {
         // given
         var recordableInput = recordableInput();
 
@@ -74,12 +78,14 @@ class ImmediateSigningRecordStrategyUnitTest {
 
         // then
         verify(writer).insert(any(SigningRecord.class));
-        assertEquals(1, createdCounter(MODE));
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(1, persistCounter(MODE));
+        assertEquals(0, persistFailedCounter(MODE));
         assertEquals(1, durationSampleCount(MODE));
     }
 
     @Test
-    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreated_whenInsertFails() {
+    void record_propagatesAndCountsPersistFailedAndIntakeFailed_whenInsertFails() {
         // given
         doThrow(new RuntimeException("db down")).when(writer).insert(any());
 
@@ -88,8 +94,9 @@ class ImmediateSigningRecordStrategyUnitTest {
 
         // then
         assertThrows(RuntimeException.class, record);
-        assertEquals(0, createdCounter(MODE));
+        assertEquals(1, persistCounter(MODE)); // attempt is counted before the insert
         assertEquals(1, persistFailedCounter(MODE));
+        assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_PERSIST_ERROR));
     }
 
     private SigningRecordInput recordableInput() {
@@ -98,22 +105,33 @@ class ImmediateSigningRecordStrategyUnitTest {
                 .build();
     }
 
-    private double skippedCounter() {
-        return registry.get("signing_record.skipped_no_content_policy.total").counter().count();
+    private double intakeCounter(String mode) {
+        var counter = registry.find("signing_record.intake").tag("mode", mode).counter();
+        return counter == null ? 0d : counter.count();
     }
 
-    private double createdCounter(String mode) {
-        var counter = registry.find("signing_record.created.total").tag("mode", mode).counter();
+    private double intakeSkippedCounter(String mode) {
+        var counter = registry.find("signing_record.intake.skipped").tag("mode", mode).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double intakeFailedCounter(String mode, String reason) {
+        var counter = registry.find("signing_record.intake.failed").tag("mode", mode).tag("reason", reason).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double persistCounter(String mode) {
+        var counter = registry.find("signing_record.persist").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 
     private double persistFailedCounter(String mode) {
-        var counter = registry.find("signing_record.persist.failed.total").tag("mode", mode).counter();
+        var counter = registry.find("signing_record.persist.failed").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 
     private long durationSampleCount(String mode) {
-        Timer timer = registry.find("signing_record.write.duration_ms").tag("mode", mode).timer();
+        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).timer();
         return timer == null ? 0L : timer.count();
     }
 }

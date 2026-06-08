@@ -272,15 +272,15 @@ class SigningRecordOutboxDrainerUnitTest {
     }
 
     private double drainedCount() {
-        return counterValue("signing_record.outbox.drained.total");
+        return persistCounterValue("signing_record.persist");
     }
 
     private double failedCount() {
-        return counterValue("signing_record.outbox.failed.total");
+        return persistCounterValue("signing_record.persist.failed");
     }
 
-    private double counterValue(String name) {
-        var counter = registry.find(name).counter();
+    private double persistCounterValue(String name) {
+        var counter = registry.find(name).tag("mode", "DEFERRED_DURABLE").counter();
         return counter == null ? 0d : counter.count();
     }
 }

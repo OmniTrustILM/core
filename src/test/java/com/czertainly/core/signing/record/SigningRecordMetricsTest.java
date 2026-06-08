@@ -13,9 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Unit test for {@link SigningRecordMetrics#timed(String, Runnable)} over a {@link SimpleMeterRegistry}.
  * The helper wraps the action in a {@code finally}-stopped timer sample, so duration is recorded under the
- * mode's {@code signing_record.write.duration_ms} timer whether the action succeeds or throws — and a thrown
- * action propagates unchanged. The counters incremented inside the action ({@code created}, {@code persist.failed})
- * are pinned against each writer in their own unit tests.
+ * mode's {@code signing_record.write.duration} timer whether the action succeeds or throws — and a thrown
+ * action propagates unchanged. The counters incremented inside the action ({@code persist}, {@code persist.failed})
+ * are pinned against each strategy in their own unit tests.
  */
 class SigningRecordMetricsTest {
 
@@ -69,7 +69,7 @@ class SigningRecordMetricsTest {
     }
 
     private long durationSampleCount(String mode) {
-        Timer timer = registry.find("signing_record.write.duration_ms").tag("mode", mode).timer();
+        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).timer();
         return timer == null ? 0L : timer.count();
     }
 }

@@ -1,5 +1,6 @@
 package com.czertainly.core.signing.record;
 
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
@@ -91,9 +92,6 @@ public class SigningRecordOutboxDrainer {
         do {
             List<UUID> batch = outboxRepo.findDrainableBatch(poisonThreshold, batchSize);
             drained = drainRows(batch);
-            if (drained > 0) {
-                metrics.outboxDrained().increment(drained);
-            }
             batchesRun++;
         } while (drained == batchSize && batchesRun < maxBatchesPerRun);
 
@@ -128,10 +126,11 @@ public class SigningRecordOutboxDrainer {
             if (row == null) {
                 return false;
             }
+            metrics.persist(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
             writer.saveRecordAndDeleteOutbox(SigningRecordMapper.toRecord(row), row);
             return true;
         } catch (RuntimeException drainError) {
-            metrics.outboxFailed().increment();
+            metrics.persistFailed(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
             log.warn("Failed to drain outbox row {}", uuid, drainError);
             recordFailure(uuid, drainError.getMessage());
             return false;

@@ -80,9 +80,9 @@ public class SigningRecordRetrievalHook {
     private void deleteRecordInTransaction(UUID toDelete) {
         try {
             deletionWriter.deleteByUuid(toDelete);
-            metrics.retrievalDeleted().increment();
+            metrics.deleted(SigningRecordMetrics.DELETE_TYPE_AFTER_RETRIEVAL).increment();
         } catch (RuntimeException e) {
-            metrics.retrievalFailed().increment();
+            metrics.deleteFailed(SigningRecordMetrics.DELETE_TYPE_AFTER_RETRIEVAL).increment();
             log.warn("Post-retrieval delete failed for record {}", toDelete, e);
         }
     }
@@ -106,6 +106,7 @@ public class SigningRecordRetrievalHook {
             log.debug("Delete-after-retrieval fallback sweep skipped; another instance is already running it");
             return;
         }
+        metrics.sweep(SigningRecordMetrics.DELETE_TYPE_AFTER_RETRIEVAL_FALLBACK).increment();
         int total = 0;
         try {
             int batchesRun = 0;
@@ -120,11 +121,11 @@ public class SigningRecordRetrievalHook {
                         maxBatchesPerSweep);
             }
         } catch (RuntimeException e) {
-            metrics.retrievalFallbackFailed().increment();
+            metrics.sweepFailed(SigningRecordMetrics.DELETE_TYPE_AFTER_RETRIEVAL_FALLBACK).increment();
             log.warn("Delete-after-retrieval fallback sweep aborted after deleting {} record(s); will retry next interval", total, e);
         }
         if (total > 0) {
-            metrics.retrievalDeleted().increment(total);
+            metrics.deleted(SigningRecordMetrics.DELETE_TYPE_AFTER_RETRIEVAL_FALLBACK).increment(total);
             log.info("Delete-after-retrieval fallback sweep deleted {} record(s)", total);
         }
     }

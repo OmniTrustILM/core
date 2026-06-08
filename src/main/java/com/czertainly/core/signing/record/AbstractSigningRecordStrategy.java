@@ -18,8 +18,9 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
 
     @Override
     public final void record(SigningRecordInput input) {
+        metrics.intake(mode().name()).increment();
         if (!SigningRecordPolicy.hasAnyRecordableContent(input.getSigningProfile().recordPolicy())) {
-            metrics.skippedNoContentPolicy().increment();
+            metrics.intakeSkipped(mode().name()).increment();
             return;
         }
         metrics.timed(mode().name(), () -> doRecord(input));

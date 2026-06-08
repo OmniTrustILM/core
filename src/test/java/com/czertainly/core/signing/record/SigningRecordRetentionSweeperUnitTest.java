@@ -57,10 +57,11 @@ class SigningRecordRetentionSweeperUnitTest {
         // when
         createSweeper().sweep();
 
-        // then it stops after the short batch, well under the cap, and counts both batches
+        // then it stops after the short batch, well under the cap, and counts both batches as one healthy run
         verify(writer, times(2)).deleteExpiredBatch(BATCH_SIZE);
         assertEquals(BATCH_SIZE + (BATCH_SIZE - 1), retentionDeleted());
         assertEquals(0, retentionFailed());
+        assertEquals(1, retentionSweepRuns());
     }
 
     @Test
@@ -115,10 +116,11 @@ class SigningRecordRetentionSweeperUnitTest {
         // when
         createSweeper().sweep();
 
-        // then no work is done and no metric is touched
+        // then no work is done and no metric is touched (the run counter ticks only post-lock)
         verify(writer, never()).deleteExpiredBatch(anyInt());
         assertEquals(0, retentionDeleted());
         assertEquals(0, retentionFailed());
+        assertEquals(0, retentionSweepRuns());
     }
 
     private SigningRecordRetentionSweeper createSweeper() {
@@ -126,15 +128,19 @@ class SigningRecordRetentionSweeperUnitTest {
     }
 
     private double retentionDeleted() {
-        return counterValue("signing_record.retention.deleted.total");
+        return expiredCounter("signing_record.deleted");
     }
 
     private double retentionFailed() {
-        return counterValue("signing_record.retention.failed.total");
+        return expiredCounter("signing_record.sweep.failed");
     }
 
-    private double counterValue(String name) {
-        var counter = registry.find(name).counter();
+    private double retentionSweepRuns() {
+        return expiredCounter("signing_record.sweep");
+    }
+
+    private double expiredCounter(String name) {
+        var counter = registry.find(name).tag("type", SigningRecordMetrics.DELETE_TYPE_EXPIRED).counter();
         return counter == null ? 0d : counter.count();
     }
 }

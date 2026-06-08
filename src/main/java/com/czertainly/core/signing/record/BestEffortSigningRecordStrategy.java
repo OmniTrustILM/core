@@ -45,22 +45,20 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
 
     @Override
     protected void doRecord(SigningRecordInput input) {
-        if (enqueue(mapper.toRecord(input))) {
-            metrics.queued(mode().name()).increment();
-        }
+        enqueue(mapper.toRecord(input));
     }
 
     /**
-     * Enqueues per the configured backpressure policy and reports whether the record was admitted. Oldest-eviction
-     * still admits the new record (returns {@code true}); an interrupted {@code BLOCK} wait drops it (returns
-     * {@code false}) after restoring the interrupt flag and counting the loss.
+     * Enqueues per the configured backpressure policy. Under DROP_OLDEST the new record is always admitted, and
+     * any evicted older records are counted as a post-acceptance loss; with {@code BLOCK}, the addmission blocks
+     * till the queue has empty space. If the wait is interrupted, the record is dropped and intake failure is recorded.
      */
-    private boolean enqueue(SigningRecord signingRecord) {
+    private void enqueue(SigningRecord signingRecord) {
         switch (policy) {
             case DROP_OLDEST -> {
                 int evicted = queue.enqueueDropping(signingRecord);
                 if (evicted > 0) {
-                    metrics.bestEffortDropped("evicted_oldest").increment(evicted);
+                    metrics.bestEffortEvicted().increment(evicted);
                 }
             }
             case BLOCK -> {
@@ -68,12 +66,10 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
                     queue.enqueueBlocking(signingRecord);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    metrics.bestEffortDropped("interrupted").increment();
-                    return false;
+                    metrics.intakeFailed(mode().name(), SigningRecordMetrics.REASON_INTERRUPTED).increment();
                 }
             }
         }
-        return true;
     }
 
     /**
@@ -88,12 +84,11 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
         if (batch.isEmpty()) {
             return;
         }
+        metrics.persist(mode().name()).increment(batch.size());
         try {
             writer.insertBatch(batch);
-            metrics.created(mode().name()).increment(batch.size());
         } catch (RuntimeException e) {
             metrics.persistFailed(mode().name()).increment(batch.size());
-            metrics.bestEffortDropped("flush_failed").increment(batch.size());
             log.warn("BEST_EFFORT flush failed ({} records lost)", batch.size(), e);
         }
     }

@@ -28,10 +28,8 @@ public class DeferredDurableSigningRecordStrategy extends AbstractSigningRecordS
     protected void doRecord(SigningRecordInput input) {
         try {
             writer.insertOutbox(mapper.toOutbox(input));
-            metrics.outboxEnqueued().increment();
-            metrics.created(mode().name()).increment();
         } catch (RuntimeException e) {
-            metrics.persistFailed(mode().name()).increment();
+            metrics.intakeFailed(mode().name(), SigningRecordMetrics.REASON_SAVE_ERROR).increment();
             throw e;
         }
     }
