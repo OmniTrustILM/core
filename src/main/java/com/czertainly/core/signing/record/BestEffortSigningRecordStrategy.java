@@ -36,6 +36,10 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
             @Value("${signing-record.best-effort.backpressure-policy:DROP_OLDEST}") BestEffortBackpressurePolicy policy,
             @Value("${signing-record.best-effort.max-batch-size:200}") int maxBatchSize) {
         super(metrics);
+        if (maxBatchSize < 1) {
+            throw new IllegalArgumentException(
+                    "signing-record.best-effort.max-batch-size must be >= 1, was " + maxBatchSize);
+        }
         this.writer = writer;
         this.mapper = mapper;
         this.policy = policy;
