@@ -12,7 +12,9 @@ import com.czertainly.api.model.core.other.ResourceEvent;
 import com.czertainly.api.model.core.other.ResourceEventDto;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
 import java.util.Map;
@@ -30,12 +32,13 @@ public interface ResourceExternalService {
     /**
      * Function to get the list of objects available to be displayed for object level access for Access Control
      *
-     * @param resource   Name of the resource to
-     * @param filters Filters for the resource objects
+     * @param resource   Secured resource whose objects are being listed
+     * @param filter     Security filter restricting the objects to those the principal may access
+     * @param filters    Filters for the resource objects
      * @param pagination Pagination of the response
      * @return List of NameAndUuidDto
      */
-    List<NameAndUuidDto> getResourceObjects(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotFoundException;
+    List<NameAndUuidDto> getResourceObjects(SecuredResource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotFoundException;
 
     /**
      * Update the attribute content for the object
@@ -48,7 +51,7 @@ public interface ResourceExternalService {
      * @throws NotFoundException When the attribute or the object without the UUID is not found
      */
     List<ResponseAttribute> updateAttributeContentForObject(
-            Resource resourceName,
+            SecuredResource resourceName,
             SecuredUUID objectUuid,
             UUID attributeUuid,
             List<? extends AttributeContent> request
