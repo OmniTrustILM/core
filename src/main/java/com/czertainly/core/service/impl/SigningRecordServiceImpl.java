@@ -24,6 +24,7 @@ import com.czertainly.core.util.SearchHelper;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.SigningRecordService;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import com.czertainly.core.util.FilterPredicatesBuilder;
@@ -50,15 +51,18 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     private final SigningRecordWriter signingRecordWriter;
     private final SigningProfileRepository signingProfileRepository;
     private final AttributeEngine attributeEngine;
+    private final PermissionEvaluator permissionEvaluator;
 
     public SigningRecordServiceImpl(SigningRecordRepository signingRecordRepository,
                                     SigningRecordWriter signingRecordWriter,
                                     SigningProfileRepository signingProfileRepository,
-                                    AttributeEngine attributeEngine) {
+                                    AttributeEngine attributeEngine,
+                                    PermissionEvaluator permissionEvaluator) {
         this.signingRecordRepository = signingRecordRepository;
         this.signingRecordWriter = signingRecordWriter;
         this.signingProfileRepository = signingProfileRepository;
         this.attributeEngine = attributeEngine;
+        this.permissionEvaluator = permissionEvaluator;
     }
 
     @Override
@@ -80,9 +84,10 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
     @Transactional(readOnly = true)
     public PaginationResponseDto<SigningRecordListDto> listSigningRecords(SearchRequestDto request, SecurityFilter filter) {
+        filter.setParentRefProperty("signingProfileUuid");
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
                 (root, cb, cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
@@ -98,6 +103,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @Transactional(readOnly = true)
     public SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException {
         SigningRecord record = getSigningRecordEntity(uuid);
+        evaluateConnectedSigningProfileAccess(record);
         return SigningRecordMapper.toDto(record);
     }
 
@@ -105,6 +111,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DELETE)
     public void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException {
         SigningRecord signingRecord = getSigningRecordEntity(uuid);
+        evaluateConnectedSigningProfileAccess(signingRecord);
         signingRecordWriter.deleteByUuid(signingRecord.getUuid());
     }
 
@@ -112,15 +119,26 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids) {
         List<BulkActionMessageDto> messages = new ArrayList<>();
+        List<SigningRecord> records = new ArrayList<>();
         for (SecuredUUID uuid : uuids) {
-            SigningRecord signingRecord = null;
             try {
-                signingRecord = getSigningRecordEntity(uuid);
-                signingRecordWriter.deleteByUuid(signingRecord.getUuid());
+                records.add(getSigningRecordEntity(uuid));
             } catch (Exception e) {
                 log.error("Failed to delete Signing Record {}", uuid, e);
-                messages.add(BulkActionMessageDto.failure(uuid.toString(), signingRecord != null ?
-                        signingRecord.getName() : "", e, "Failed to delete signing record"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), "", e, "Failed to delete signing record"));
+            }
+        }
+        if (records.isEmpty()) {
+            return messages;
+        }
+        evaluateConnectedSigningProfileAccess(records);
+
+        for (SigningRecord record : records) {
+            try {
+                signingRecordWriter.deleteByUuid(record.getUuid());
+            } catch (Exception e) {
+                log.error("Failed to delete Signing Record {}", record.getUuid(), e);
+                messages.add(BulkActionMessageDto.failure(record.getUuid().toString(), record.getName(), e, "Failed to delete signing record"));
             }
         }
         return messages;
@@ -142,5 +160,26 @@ public class SigningRecordServiceImpl implements SigningRecordService {
 
     private SigningRecord getSigningRecordEntity(SecuredUUID uuid) throws NotFoundException {
         return signingRecordRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException("Signing Record not found: " + uuid));
+    }
+
+    /**
+     * Authorizes that the caller may access the signing profile the record was produced under,
+     * so signing-record visibility follows signing-profile access.
+     */
+    private void evaluateConnectedSigningProfileAccess(SigningRecord record) throws NotFoundException {
+        permissionEvaluator.signingProfile(SecuredUUID.fromUUID(record.getSigningProfileUuid()));
+    }
+
+    /**
+     * Authorizes the distinct signing profiles the records were produced under in a single check.
+     * All-or-nothing: if access to any connected profile is denied, the whole batch is rejected.
+     */
+    private void evaluateConnectedSigningProfileAccess(List<SigningRecord> records) {
+        List<SecuredUUID> signingProfileUuids = records.stream()
+                .map(SigningRecord::getSigningProfileUuid)
+                .distinct()
+                .map(SecuredUUID::fromUUID)
+                .toList();
+        permissionEvaluator.signingProfiles(signingProfileUuids);
     }
 }
