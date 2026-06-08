@@ -153,6 +153,8 @@ spring:
         max-interval: 2000
         multiplier: 2
 messaging:
+  time-quality:
+    enabled: true
   concurrency:
     actions: 10
     events: 5

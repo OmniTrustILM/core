@@ -29,8 +29,8 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
     private final NotificationJmsEndpointConfig notificationJmsEndpointConfig;
     private final SchedulerJmsEndpointConfig schedulerJmsEndpointConfig;
     private final ValidationJmsEndpointConfig validationJmsEndpointConfig;
-    private final TimeQualityConfigurationJmsEndpointConfig timeQualityConfigurationJmsEndpointConfig;
-    private final TimeQualityResultsJmsEndpointConfig timeQualityResultsJmsEndpointConfig;
+    private final Optional<TimeQualityConfigurationJmsEndpointConfig> timeQualityConfigurationJmsEndpointConfig;
+    private final Optional<TimeQualityResultsJmsEndpointConfig> timeQualityResultsJmsEndpointConfig;
     private final Optional<InstanceProxyMessageJmsEndpointConfig> instanceProxyMessageJmsEndpointConfig;
     private final Optional<SharedProxyMessageJmsEndpointConfig> sharedProxyMessageJmsEndpointConfig;
 
@@ -42,8 +42,8 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
         registrar.registerEndpoint(notificationJmsEndpointConfig.listenerEndpoint());
         registrar.registerEndpoint(schedulerJmsEndpointConfig.listenerEndpoint());
         registrar.registerEndpoint(validationJmsEndpointConfig.listenerEndpoint());
-        registrar.registerEndpoint(timeQualityConfigurationJmsEndpointConfig.listenerEndpoint());
-        registrar.registerEndpoint(timeQualityResultsJmsEndpointConfig.listenerEndpoint());
+        timeQualityConfigurationJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
+        timeQualityResultsJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
         instanceProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
         sharedProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
     }
