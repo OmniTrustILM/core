@@ -55,6 +55,10 @@ public class SigningRecordOutboxDrainer {
                                       @Value("${signing-record.outbox.max-batch-size:200}") int batchSize,
                                       @Value("${signing-record.outbox.poison-threshold:10}") int poisonThreshold,
                                       @Value("${signing-record.outbox.max-batches-per-run:10}") int maxBatchesPerRun) {
+        if (batchSize < 1) {
+            throw new IllegalArgumentException(
+                    "signing-record.outbox.max-batch-size must be >= 1, was " + batchSize);
+        }
         this.outboxRepo = outboxRepo;
         this.writer = writer;
         this.clusterSynchronizer = clusterSynchronizer;
