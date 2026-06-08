@@ -1,7 +1,9 @@
 package com.czertainly.core.mapper.signing;
 
+import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 
@@ -36,6 +38,7 @@ public class SigningRecordMapper {
         SigningRecordDto dto = new SigningRecordDto();
         dto.setUuid(record.getUuid().toString());
         dto.setName(record.getName());
+        dto.setSigningProfile(toSigningProfileListDto(record));
         Instant signingTime = record.getSigningTime();
         dto.setSigningTime(signingTime);
         OffsetDateTime createdAt = record.getCreated();
@@ -58,6 +61,22 @@ public class SigningRecordMapper {
         dto.setSigningTime(signingTime);
         OffsetDateTime createdAtZoned = record.getCreated();
         dto.setCreatedAt(createdAtZoned.toInstant());
+        dto.setSigningProfile(toSigningProfileListDto(record));
+        return dto;
+    }
+
+    /**
+     * Builds the {@link SigningProfileListDto} for a record's detail view. The version is pinned to the
+     * {@code signingProfileVersion} captured when the record was produced — not the profile's current latest
+     * version — so the DTO reflects the profile state that actually produced this signature.
+     */
+    private static SigningProfileListDto toSigningProfileListDto(SigningRecord record) {
+        SigningProfile profile = record.getSigningProfile();
+        if (profile == null) {
+            return null;
+        }
+        SigningProfileListDto dto = SigningProfileMapper.toListDto(profile);
+        dto.setVersion(record.getSigningProfileVersion());
         return dto;
     }
 }
