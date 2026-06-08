@@ -26,7 +26,7 @@ import java.util.UUID;
  * {@link Propagation#REQUIRES_NEW} outer transaction — which does nothing but hold the lock and read batches.
  *
  * <p>Each row is copied in its own short transaction via
- * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord, SigningRecordOutbox)}, and a failed row
+ * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord)}, and a failed row
  * has its attempt recorded in a separate transaction via
  * {@link SigningRecordWriter#recordFailure(java.util.UUID, String)}.
  * This per-row isolation is what makes the retry/poison machinery work: a single un-persistable row rolls
@@ -113,8 +113,8 @@ public class SigningRecordOutboxDrainer {
 
     /**
      * Drains one row, or — when the copy fails — records the failed attempt so the row advances toward the
-     * poison threshold. Reads and maps the outbox row here, then hands the pair to the writer's single-transaction
-     * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord, SigningRecordOutbox)} copy. Returns
+     * poison threshold. Reads and maps the outbox row here, then hands the mapped record to the writer's
+     * single-transaction {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord)} copy. Returns
      * {@code false} without touching the writer when the row is already gone (drained by an earlier pass or
      * another node). The read, map and copy may throw; this method absorbs the failure and records the attempt,
      * so one row never aborts the rest of the batch. A row already present in {@code signing_record} (crash
@@ -127,7 +127,7 @@ public class SigningRecordOutboxDrainer {
                 return false;
             }
             metrics.persist(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
-            writer.saveRecordAndDeleteOutbox(SigningRecordMapper.toRecord(row), row);
+            writer.saveRecordAndDeleteOutbox(SigningRecordMapper.toRecord(row));
             return true;
         } catch (RuntimeException drainError) {
             metrics.persistFailed(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();

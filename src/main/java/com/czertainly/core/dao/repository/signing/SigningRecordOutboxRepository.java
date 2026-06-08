@@ -20,10 +20,6 @@ public interface SigningRecordOutboxRepository extends JpaRepository<SigningReco
      * locking: cross-node mutual exclusion for the drain is provided by a cluster-wide advisory lock held by
      * {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}, so a plain ordered read is
      * enough and avoids holding row locks across the per-row drain transactions.
-     *
-     * <p>Only the {@code uuid} is projected: the drainer re-fetches each row as a managed entity inside its own
-     * per-row transaction, so materializing the multi-MB {@code signed_document}/{@code dtbs}/
-     * {@code signature_value} BYTEA columns for the whole batch here would be wasted I/O on the hot path.
      */
     @Query(value = """
             SELECT uuid FROM signing_record_outbox
@@ -43,4 +39,15 @@ public interface SigningRecordOutboxRepository extends JpaRepository<SigningReco
     @Modifying
     @Query("UPDATE SigningRecordOutbox o SET o.attempts = o.attempts + 1, o.lastError = :err WHERE o.uuid IN :uuids")
     void recordFailure(@Param("uuids") List<UUID> uuids, @Param("err") String err);
+
+    /**
+     * Deletes the outbox row by its UUID with a bare {@code DELETE … WHERE uuid = ?}. Unlike the inherited
+     * {@code delete(entity)} / {@code deleteById(...)} — which load the row first and, for a detached entity,
+     * re-SELECT its multi-MB {@code signed_document}/{@code dtbs}/{@code signature_value} BYTEA columns to merge
+     * it into the persistence context before removal — this issues no SELECT, so the drain never reads those
+     * blobs a second time just to delete the row it already copied.
+     */
+    @Modifying
+    @Query("DELETE FROM SigningRecordOutbox o WHERE o.uuid = :uuid")
+    void deleteByUuid(@Param("uuid") UUID uuid);
 }

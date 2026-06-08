@@ -66,18 +66,20 @@ public class SigningRecordWriter {
     // --- Outbox drain (REQUIRES_NEW) -------------------------------------------------------------------
 
     /**
-     * Persists one signing record and removes its originating outbox row, atomically in a single transaction.
-     * The record carries an application-assigned UUID, so {@code saveAndFlush} runs as a merge-then-flush: the
-     * flush forces the write to execute now, so a constraint violation is thrown to the caller instead of being
-     * deferred to commit, and a pre-existing {@code signing_record} (crash recovery) is reconciled into a no-op
-     * update. {@code delete} no-ops if the outbox row is already gone, so the copy is idempotent. The
-     * orchestration around it — reading the outbox row, mapping it, and skipping an already-drained row — lives
-     * in {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}.
+     * Persists one signing record and removes its originating outbox row (which shares the record's UUID),
+     * atomically in a single transaction. The record carries an application-assigned UUID, so
+     * {@code saveAndFlush} runs as a merge-then-flush: the flush forces the write to execute now, so a
+     * constraint violation is thrown to the caller instead of being deferred to commit, and a pre-existing
+     * {@code signing_record} (crash recovery) is reconciled into a no-op update. The outbox row is removed by
+     * id via {@link SigningRecordOutboxRepository#deleteByUuid(UUID)} — a bare {@code DELETE} that reads no
+     * blobs and no-ops if the row is already gone — so the copy is idempotent. The orchestration around it —
+     * reading the outbox row, mapping it, and skipping an already-drained row — lives in
+     * {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void saveRecordAndDeleteOutbox(SigningRecord record, SigningRecordOutbox outboxRow) {
+    public void saveRecordAndDeleteOutbox(SigningRecord record) {
         recordRepository.saveAndFlush(record);
-        outboxRepository.delete(outboxRow);
+        outboxRepository.deleteByUuid(record.getUuid());
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
