@@ -284,6 +284,52 @@ class CryptographyUtilTest {
                 () -> CryptographyUtil.resolveSignatureAlgorithmName(unsupported, null, List.of()));
     }
 
+    // --- resolveSignatureAlgorithmName: precomputed-PQC-spec overload ---
+
+    @Test
+    void resolveWithPrecomputedSpec_rsa_resolvesFromAttributes_ignoringSpec() {
+        // given
+        List<RequestAttributeV2> attrs = List.of(
+                RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)
+        );
+
+        // when — the precomputed PQC spec is irrelevant for classical algorithms
+        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.RSA, attrs, "ignored-spec");
+
+        // then
+        assertEquals("SHA256WITHRSA", result);
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_ecdsa_resolvesFromAttributes_ignoringSpec() {
+        // given
+        List<RequestAttributeV2> attrs = List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
+
+        // when
+        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.ECDSA, attrs, "ignored-spec");
+
+        // then
+        assertEquals("SHA384WITHECDSA", result);
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_pqc_returnsSpecVerbatim_withoutParsingPublicKey() {
+        // given / when / then — for FALCON / ML-DSA / SLH-DSA the precomputed parameter-spec name is returned as-is
+        assertEquals("FALCON-512",
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.FALCON, List.of(), "FALCON-512"));
+        assertEquals(MLDSAParameterSpec.ml_dsa_65.getName(),
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLDSA, List.of(), MLDSAParameterSpec.ml_dsa_65.getName()));
+        assertEquals(SLHDSAParameterSpec.slh_dsa_shake_128s.getName(),
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.SLHDSA, List.of(), SLHDSAParameterSpec.slh_dsa_shake_128s.getName()));
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_unsupportedAlgorithm_throws() {
+        assertThrows(ValidationException.class,
+                () -> CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLKEM, List.of(), null));
+    }
+
     // --- prepareSignatureAlgorithm ---
 
     @Test

@@ -342,6 +342,19 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         mldsaKeyItem.setKeyReferenceUuid(mldsaKeyItem.getUuid());
         cryptographicKeyItemRepository.saveAndFlush(mldsaKeyItem);
 
+        CryptographicKeyItem mldsaPubKeyItem = new CryptographicKeyItem();
+        mldsaPubKeyItem.setKey(cryptographicKey);
+        mldsaPubKeyItem.setKeyUuid(cryptographicKey.getUuid());
+        mldsaPubKeyItem.setType(KeyType.PUBLIC_KEY);
+        mldsaPubKeyItem.setState(KeyState.ACTIVE);
+        mldsaPubKeyItem.setEnabled(true);
+        mldsaPubKeyItem.setKeyAlgorithm(KeyAlgorithm.MLDSA);
+        mldsaPubKeyItem.setLength(2048);
+        mldsaPubKeyItem.setUsage(List.of(KeyUsage.VERIFY));
+        mldsaPubKeyItem = cryptographicKeyItemRepository.saveAndFlush(mldsaPubKeyItem);
+        mldsaPubKeyItem.setKeyReferenceUuid(mldsaPubKeyItem.getUuid());
+        cryptographicKeyItemRepository.saveAndFlush(mldsaPubKeyItem);
+
         // Certificate associated with the MLDSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
         certificate = new Certificate();
         certificate.setKey(cryptographicKey);
@@ -369,6 +382,19 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         rsaKeyItem = cryptographicKeyItemRepository.saveAndFlush(rsaKeyItem);
         rsaKeyItem.setKeyReferenceUuid(rsaKeyItem.getUuid());
         cryptographicKeyItemRepository.saveAndFlush(rsaKeyItem);
+
+        CryptographicKeyItem rsaPubKeyItem = new CryptographicKeyItem();
+        rsaPubKeyItem.setKey(rsaCryptographicKey);
+        rsaPubKeyItem.setKeyUuid(rsaCryptographicKey.getUuid());
+        rsaPubKeyItem.setType(KeyType.PUBLIC_KEY);
+        rsaPubKeyItem.setState(KeyState.ACTIVE);
+        rsaPubKeyItem.setEnabled(true);
+        rsaPubKeyItem.setKeyAlgorithm(KeyAlgorithm.RSA);
+        rsaPubKeyItem.setLength(2048);
+        rsaPubKeyItem.setUsage(List.of(KeyUsage.VERIFY));
+        rsaPubKeyItem = cryptographicKeyItemRepository.saveAndFlush(rsaPubKeyItem);
+        rsaPubKeyItem.setKeyReferenceUuid(rsaPubKeyItem.getUuid());
+        cryptographicKeyItemRepository.saveAndFlush(rsaPubKeyItem);
 
         // Certificate associated with the RSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
         rsaCertificate = new Certificate();
