@@ -6,7 +6,9 @@ import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowT
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.czertainly.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
+import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -22,10 +24,13 @@ import java.util.List;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static com.czertainly.core.util.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Integration test for {@link ImmediateSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest}.
@@ -44,6 +49,9 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
     @Autowired
     private SigningProfileRepository profileRepo;
 
+    @Autowired
+    private SigningProfileVersionRepository versionRepo;
+
     @Test
     void persistsAllRecordableContent_whenEveryToggleEnabled() throws NotFoundException, JsonProcessingException {
         // given
@@ -61,7 +69,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.record(input);
+        strategy.recordSigning(input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -69,30 +77,59 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
                 .getItems();
         assertEquals(1, all.size());
 
-        SigningRecordDto record = signingRecordService
+        SigningRecordDto signingRecord = signingRecordService
                 .getSigningRecord(SecuredUUID.fromString(all.getFirst().getUuid()));
-        assertSameJson("{ \"foo\": \"bar\" }", record.getRequestMetadataJson()); // jsonb re-renders whitespace
-        assertEquals("the-signature", new String(record.getSignatureValue(), UTF_8));
-        assertEquals("the-signed-document", new String(record.getSignedDocument(), UTF_8));
-        assertEquals("the-data-to-be-signed", new String(record.getDtbs(), UTF_8));
+        assertSameJson("{ \"foo\": \"bar\" }", signingRecord.getRequestMetadataJson()); // jsonb re-renders whitespace
+        assertEquals("the-signature", new String(signingRecord.getSignatureValue(), UTF_8));
+        assertEquals("the-signed-document", new String(signingRecord.getSignedDocument(), UTF_8));
+        assertEquals("the-data-to-be-signed", new String(signingRecord.getDtbs(), UTF_8));
     }
 
     @Test
-    void noToggleEnabledIsNoOp() {
+    void recordingDisabledIsNoOp() {
         // given
         SigningProfileModel<?, ?> signingProfile = aSigningProfile()
-                .recordPolicy(notRecording().build())
+                .recordPolicy(recordingDisabled().build())
                 .build();
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        strategy.record(input);
+        strategy.recordSigning(input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
                 .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
                 .getItems();
         assertEquals(0, all.size());
+    }
+
+    @Test
+    void recordsMetadataOnly_whenRecordingEnabledButNoContentSelected() throws NotFoundException {
+        // given
+        SigningProfile persistedProfile = insertSigningProfile("metadata-only-profile");
+        SigningProfileModel<?, ?> signingProfile = aSigningProfile()
+                .uuid(persistedProfile.getUuid())
+                .recordPolicy(notRecording().build())
+                .build();
+        SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
+
+        // when
+        strategy.recordSigning(input);
+
+        // then
+        List<SigningRecordListDto> all = signingRecordService
+                .listSigningRecords(aSearchRequest().build(), SecurityFilter.create())
+                .getItems();
+        assertEquals(1, all.size());
+
+        SigningRecordDto signingRecord = signingRecordService
+                .getSigningRecord(SecuredUUID.fromString(all.getFirst().getUuid()));
+        assertNotNull(signingRecord.getSigningTime());
+        assertEquals("alice", signingRecord.getRequestedBy().getName());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
     }
 
     /**
@@ -106,7 +143,16 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
         profile.setSigningScheme(SigningScheme.DELEGATED);
         profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
         profile.setLatestVersion(1);
-        return profileRepo.saveAndFlush(profile);
+        profile = profileRepo.saveAndFlush(profile);
+
+        SigningProfileVersion version = new SigningProfileVersion();
+        version.setSigningProfile(profile);
+        version.setVersion(1);
+        version.setSigningScheme(SigningScheme.DELEGATED);
+        version.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        versionRepo.saveAndFlush(version);
+
+        return profile;
     }
 
     private void assertSameJson(String expected, String actual) throws JsonProcessingException {

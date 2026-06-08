@@ -12,6 +12,7 @@ import org.junit.jupiter.api.function.Executable;
 
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,9 +48,30 @@ class DeferredDurableSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_countsIntakeSkippedAndDoesNotStage_whenPolicyRecordsNothing() {
+    void record_countsIntakeSkippedAndDoesNotStage_whenRecordingDisabled() {
         // given
-        var notRecordingInput = aSigningRecordInput()
+        var recordingDisabledInput = aSigningRecordInput()
+                .signingProfile(
+                        aSigningProfile()
+                                .recordPolicy(
+                                        recordingDisabled()
+                                                .build())
+                                .build())
+                .build();
+
+        // when
+        strategy.recordSigning(recordingDisabledInput);
+
+        // then
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(1, intakeSkippedCounter(MODE));
+        verifyNoInteractions(writer);
+    }
+
+    @Test
+    void record_stagesMetadataOnlyOutboxRow_whenRecordingEnabledButNoContentSelected() {
+        // given
+        var metadataOnlyInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
                                 .recordPolicy(
@@ -59,12 +81,12 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.record(notRecordingInput);
+        strategy.recordSigning(metadataOnlyInput);
 
         // then
+        verify(writer).insertOutbox(any(SigningRecordOutbox.class));
         assertEquals(1, intakeCounter(MODE));
-        assertEquals(1, intakeSkippedCounter(MODE));
-        verifyNoInteractions(writer);
+        assertEquals(0, intakeSkippedCounter(MODE));
     }
 
     @Test
@@ -73,7 +95,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         var recordableInput = recordableInput();
 
         // when
-        strategy.record(recordableInput);
+        strategy.recordSigning(recordableInput);
 
         // then
         verify(writer).insertOutbox(any(SigningRecordOutbox.class));
@@ -88,10 +110,10 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insertOutbox(any());
 
         // when
-        Executable record = () -> strategy.record(recordableInput());
+        Executable signingRecord = () -> strategy.recordSigning(recordableInput());
 
         // then
-        assertThrows(RuntimeException.class, record);
+        assertThrows(RuntimeException.class, signingRecord);
         assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR));
     }
 

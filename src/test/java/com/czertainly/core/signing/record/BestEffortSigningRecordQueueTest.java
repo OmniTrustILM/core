@@ -34,9 +34,9 @@ class BestEffortSigningRecordQueueTest {
         var queue = queue(UNBOUNDED);
 
         // when
-        queue.enqueueBlocking(record("first"));
-        queue.enqueueBlocking(record("second"));
-        queue.enqueueBlocking(record("third"));
+        queue.enqueueBlocking(signingRecord("first"));
+        queue.enqueueBlocking(signingRecord("second"));
+        queue.enqueueBlocking(signingRecord("third"));
 
         // then
         assertEquals(3, backing.size());
@@ -50,8 +50,8 @@ class BestEffortSigningRecordQueueTest {
         var queue = queue(SINGLE_SLOT);
 
         // when
-        queue.enqueueDropping(record("oldest")); // fills the single slot
-        int evicted = queue.enqueueDropping(record("newest")); // evicts the oldest to admit itself
+        queue.enqueueDropping(signingRecord("oldest")); // fills the single slot
+        int evicted = queue.enqueueDropping(signingRecord("newest")); // evicts the oldest to admit itself
 
         // then
         assertEquals(1, evicted);
@@ -66,7 +66,7 @@ class BestEffortSigningRecordQueueTest {
         var queue = queue(SINGLE_SLOT);
 
         // fills the only available slot
-        queue.enqueueBlocking(record("filler"));
+        queue.enqueueBlocking(signingRecord("filler"));
 
         // try to put another record, which should block
         Thread blockedProducer = putRecordBlockingInNewThread(queue, "blocked");
@@ -87,14 +87,14 @@ class BestEffortSigningRecordQueueTest {
         var queue = queue(SINGLE_SLOT);
 
         // fills the single available slot
-        queue.enqueueBlocking(record("filler"));
+        queue.enqueueBlocking(signingRecord("filler"));
 
         // try to put another record, which should block until interrupted — we want to assert that the wait
         // propagates InterruptedException to the caller and that the blocked record is not enqueued
         var interruptedExceptionThrown = new AtomicBoolean();
         var blockedProducer = new Thread(() -> {
             try {
-                queue.enqueueBlocking(record("blocked")); // blocks on put until interrupted
+                queue.enqueueBlocking(signingRecord("blocked")); // blocks on put until interrupted
             } catch (InterruptedException e) {
                 interruptedExceptionThrown.set(true);
             }
@@ -128,8 +128,8 @@ class BestEffortSigningRecordQueueTest {
     void pollBatch_returnsAllQueuedRecords_whenUnderBatchCap() throws Exception {
         // given
         var queue = queue(UNBOUNDED);
-        queue.enqueueDropping(record("a"));
-        queue.enqueueDropping(record("b"));
+        queue.enqueueDropping(signingRecord("a"));
+        queue.enqueueDropping(signingRecord("b"));
 
         // when
         List<SigningRecord> batch = queue.pollBatch(MAX_BATCH_SIZE, NO_WAIT);
@@ -146,7 +146,7 @@ class BestEffortSigningRecordQueueTest {
         var remaining = overBatch - MAX_BATCH_SIZE;
         var queue = queue(UNBOUNDED);
         for (int i = 0; i < overBatch; i++) {
-            queue.enqueueDropping(record("r-" + i));
+            queue.enqueueDropping(signingRecord("r-" + i));
         }
 
         // when
@@ -180,7 +180,7 @@ class BestEffortSigningRecordQueueTest {
         return new BestEffortSigningRecordQueue(backing);
     }
 
-    private SigningRecord record(String name) {
+    private SigningRecord signingRecord(String name) {
         SigningRecord r = new SigningRecord();
         r.setUuid(UUID.randomUUID());
         r.setName(name);
@@ -198,7 +198,7 @@ class BestEffortSigningRecordQueueTest {
     private Thread putRecordBlockingInNewThread(BestEffortSigningRecordQueue queue, String recordName) {
         var producer = new Thread(() -> {
             try {
-                queue.enqueueBlocking(record(recordName));
+                queue.enqueueBlocking(signingRecord(recordName));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }

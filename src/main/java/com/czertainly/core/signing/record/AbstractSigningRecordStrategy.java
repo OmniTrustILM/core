@@ -1,14 +1,22 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Shared skeleton for the {@link SigningRecordStrategy} implementations: the empty-policy guard and the
+ * Shared skeleton for the {@link SigningRecordStrategy} implementations: the recording-disabled guard and the
  * write-duration timing are identical across every persistence mode, so they live here once. Subclasses
  * implement {@link #doRecord(SigningRecordInput)} (the mode-specific persistence dispatch) and {@link #mode()}
  * (the metric tag / persistence-mode identity).
+ *
+ * <p>{@code recordingEnabled} is the sole gate on whether a record is written: when it is on, every signing
+ * operation produces a record carrying at least its intrinsic metadata (who, when, which profile/version),
+ * with the per-field {@code record*} content toggles deciding only which optional payload columns are filled.</p>
  */
 public abstract class AbstractSigningRecordStrategy implements SigningRecordStrategy {
+
+    private static final Logger logger = LoggerFactory.getLogger(AbstractSigningRecordStrategy.class);
 
     protected final SigningRecordMetrics metrics;
 
@@ -19,7 +27,9 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
     @Override
     public final void recordSigning(SigningRecordInput input) {
         metrics.intake(mode().name()).increment();
-        if (!SigningRecordPolicy.hasAnyRecordableContent(input.getSigningProfile().recordPolicy())) {
+        if (!input.getSigningProfile().recordPolicy().recordingEnabled()) {
+            logger.debug("Signing Record creation is disabled for signing profile {}; skipping the {} record.",
+                    input.getSigningProfile().uuid(), mode().name());
             metrics.intakeSkipped(mode().name()).increment();
             return;
         }

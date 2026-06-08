@@ -20,11 +20,14 @@ import java.util.List;
 
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -58,7 +61,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.record(aSigningRecordInput()
+        strategy.recordSigning(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -83,18 +86,44 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
     }
 
     @Test
-    void record_notRecording_stagesNothing() {
+    void record_recordingDisabled_stagesNothing() {
         // given
-        SigningProfileModel<?, ?> notRecordingProfile = aSigningProfile()
-                .recordPolicy(notRecording().build())
+        SigningProfileModel<?, ?> recordingDisabledProfile = aSigningProfile()
+                .recordPolicy(recordingDisabled().build())
                 .build();
 
         // when
-        strategy.record(aSigningRecordInput().signingProfile(notRecordingProfile).build());
+        strategy.recordSigning(aSigningRecordInput().signingProfile(recordingDisabledProfile).build());
 
         // then
         assertEquals(0, outboxRepo.count());
         assertEquals(0, recordRepo.count());
+    }
+
+    @Test
+    void record_stagesMetadataOnlyOutboxRow_whenRecordingEnabledButNoContentSelected() {
+        // given
+        SigningProfileModel<?, ?> metadataOnlyProfile = aSigningProfile()
+                .recordPolicy(notRecording().build())
+                .build();
+
+        // when
+        strategy.recordSigning(aSigningRecordInput()
+                .signingProfile(metadataOnlyProfile)
+                .displayName("metadata-only-record")
+                .build());
+
+        // then the row is staged with intrinsic metadata only; the optional content columns stay null
+        assertEquals(0, recordRepo.count());
+        SigningRecordOutbox staged = singleStagedRow();
+        assertEquals("metadata-only-record", staged.getName());
+        assertEquals(metadataOnlyProfile.uuid(), staged.getSigningProfileUuid());
+        assertNotNull(staged.getSigningTime());
+        assertEquals("alice", staged.getRequestedByUsername());
+        assertNull(staged.getRequestMetadataJson());
+        assertNull(staged.getSignatureValue());
+        assertNull(staged.getSignedDocument());
+        assertNull(staged.getDtbs());
     }
 
     @Test
@@ -108,13 +137,13 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        Executable record = () -> strategy.record(aSigningRecordInput()
+        Executable signingRecord = () -> strategy.recordSigning(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .signingTime(missingSigningTime)
                 .build());
 
         // then the violation surfaces to the caller and the outbox stays empty
-        assertThrows(Exception.class, record);
+        assertThrows(Exception.class, signingRecord);
         assertEquals(0, outboxRepo.count());
         assertEquals(0, recordRepo.count());
     }

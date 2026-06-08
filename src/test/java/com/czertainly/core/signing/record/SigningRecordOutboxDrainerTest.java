@@ -237,11 +237,11 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
 
 
     private void persistMatchingSigningRecord(SigningRecordOutbox row) {
-        SigningRecord record = new SigningRecord();
-        record.setUuid(row.getUuid());
-        record.setSigningProfileUuid(row.getSigningProfileUuid());
-        record.setSigningProfileVersion(row.getSigningProfileVersion());
-        record.setSigningTime(row.getSigningTime());
-        recordRepo.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(row.getUuid());
+        signingRecord.setSigningProfileUuid(row.getSigningProfileUuid());
+        signingRecord.setSigningProfileVersion(row.getSigningProfileVersion());
+        signingRecord.setSigningTime(row.getSigningTime());
+        recordRepo.saveAndFlush(signingRecord);
     }
 }

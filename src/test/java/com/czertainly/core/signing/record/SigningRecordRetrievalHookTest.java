@@ -42,27 +42,27 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
     void onSignedDocumentServed_stampsRetrievedAtAndDeletesRecord_whenDeleteAfterRetrievalEnabled() throws NotFoundException {
         // given
         SigningProfile profile = insertProfileWithDeleteAfterRetrieval();
-        SigningRecord record = insertRecord(profile);
+        SigningRecord signingRecord = insertRecord(profile);
 
         // when
-        Instant stampedAt = serveSignedDocumentAndReadStampInTransaction(record.getUuid());
+        Instant stampedAt = serveSignedDocumentAndReadStampInTransaction(signingRecord.getUuid());
 
         // then
         assertNotNull(stampedAt);
-        assertFalse(recordRepo.existsById(record.getUuid()));
+        assertFalse(recordRepo.existsById(signingRecord.getUuid()));
     }
 
     @Test
     void onSignedDocumentServed_stampsRetrievedAtAndKeepsRecord_whenDeleteAfterRetrievalDisabled() throws NotFoundException {
         // given
         SigningProfile profile = insertProfileWithoutDeleteAfterRetrieval();
-        SigningRecord record = insertRecord(profile);
+        SigningRecord signingRecord = insertRecord(profile);
 
         // when
-        serveSignedDocumentInTransaction(record.getUuid());
+        serveSignedDocumentInTransaction(signingRecord.getUuid());
 
         // then
-        SigningRecord stamped = recordRepo.findById(record.getUuid()).orElseThrow();
+        SigningRecord stamped = recordRepo.findById(signingRecord.getUuid()).orElseThrow();
         assertNotNull(stamped.getSignedDocumentRetrievedAt());
     }
 
@@ -190,12 +190,12 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
     }
 
     private SigningRecord persistRecord(UUID signingProfileUuid, Instant signedDocumentRetrievedAt) {
-        SigningRecord record = new SigningRecord();
-        record.setUuid(UUID.randomUUID());
-        record.setSigningProfileUuid(signingProfileUuid);
-        record.setSigningProfileVersion(1);
-        record.setSigningTime(Instant.now());
-        record.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
-        return recordRepo.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.randomUUID());
+        signingRecord.setSigningProfileUuid(signingProfileUuid);
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(Instant.now());
+        signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
+        return recordRepo.saveAndFlush(signingRecord);
     }
 }

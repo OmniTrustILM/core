@@ -105,11 +105,11 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
     }
 
     private SigningRecord insertRecordSignedAt(UUID signingProfileUuid, Instant signingTime) {
-        SigningRecord record = new SigningRecord();
-        record.setSigningProfileUuid(signingProfileUuid);
-        record.setSigningProfileVersion(1);
-        record.setSigningTime(signingTime);
-        return recordRepository.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setSigningProfileUuid(signingProfileUuid);
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(signingTime);
+        return recordRepository.saveAndFlush(signingRecord);
     }
 
     /**

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.function.Executable;
 
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,19 +48,19 @@ class ImmediateSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_countsIntakeSkippedAndDoesNotPersist_whenPolicyRecordsNothing() {
+    void record_countsIntakeSkippedAndDoesNotPersist_whenRecordingDisabled() {
         // given
-        var notRecordingInput = aSigningRecordInput()
+        var recordingDisabledInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
                                 .recordPolicy(
-                                        notRecording()
+                                        recordingDisabled()
                                                 .build())
                                 .build())
                 .build();
 
         // when
-        strategy.record(notRecordingInput);
+        strategy.recordSigning(recordingDisabledInput);
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -69,12 +70,29 @@ class ImmediateSigningRecordStrategyUnitTest {
     }
 
     @Test
+    void record_insertsMetadataOnlyRecord_whenRecordingEnabledButNoContentSelected() {
+        // given
+        var metadataOnlyInput = aSigningRecordInput()
+                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .build();
+
+        // when
+        strategy.recordSigning(metadataOnlyInput);
+
+        // then
+        verify(writer).insert(any(SigningRecord.class));
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(0, intakeSkippedCounter(MODE));
+        assertEquals(1, persistCounter(MODE));
+    }
+
+    @Test
     void record_insertsMappedRecordAndCountsPersist_whenPolicyRecordsContent() {
         // given
         var recordableInput = recordableInput();
 
         // when
-        strategy.record(recordableInput);
+        strategy.recordSigning(recordableInput);
 
         // then
         verify(writer).insert(any(SigningRecord.class));
@@ -90,10 +108,10 @@ class ImmediateSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insert(any());
 
         // when
-        Executable record = () -> strategy.record(recordableInput());
+        Executable signingRecord = () -> strategy.recordSigning(recordableInput());
 
         // then
-        assertThrows(RuntimeException.class, record);
+        assertThrows(RuntimeException.class, signingRecord);
         assertEquals(1, persistCounter(MODE)); // attempt is counted before the insert
         assertEquals(1, persistFailedCounter(MODE));
         assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_PERSIST_ERROR));

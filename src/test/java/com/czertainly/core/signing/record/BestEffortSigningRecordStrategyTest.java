@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Integration test for {@link BestEffortSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest},
- * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#record} enqueues, and the real
+ * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#recordSigning} enqueues, and the real
  * background {@link SigningRecordBestEffortFlusher} thread drains the queue and persists a batch into
  * {@code signing_record} through the writer. The strategy's branch logic (policy gating, queue dispatch,
  * metrics, failure isolation, mapping field-fidelity over a captor) is pinned against mocks in
@@ -59,7 +59,7 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.record(aSigningRecordInput()
+        strategy.recordSigning(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -70,15 +70,15 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build());
 
         // then
-        SigningRecord record = awaitSinglePersistedRecord();
-        assertEquals("round-trip-record", record.getName());
-        assertEquals(persistedProfile.getUuid(), record.getSigningProfileUuid());
-        assertEquals(7, record.getSigningProfileVersion());
-        assertEquals(Instant.parse("2026-03-04T05:06:07Z"), record.getSigningTime());
-        assertSameJson("{ \"alg\": \"ES256\" }", record.getRequestMetadataJson()); // jsonb re-renders whitespace
-        assertArrayEquals("the-signature".getBytes(UTF_8), record.getSignatureValue());
-        assertArrayEquals("the-signed-document".getBytes(UTF_8), record.getSignedDocument());
-        assertArrayEquals("the-data-to-be-signed".getBytes(UTF_8), record.getDtbs());
+        SigningRecord signingRecord = awaitSinglePersistedRecord();
+        assertEquals("round-trip-record", signingRecord.getName());
+        assertEquals(persistedProfile.getUuid(), signingRecord.getSigningProfileUuid());
+        assertEquals(7, signingRecord.getSigningProfileVersion());
+        assertEquals(Instant.parse("2026-03-04T05:06:07Z"), signingRecord.getSigningTime());
+        assertSameJson("{ \"alg\": \"ES256\" }", signingRecord.getRequestMetadataJson()); // jsonb re-renders whitespace
+        assertArrayEquals("the-signature".getBytes(UTF_8), signingRecord.getSignatureValue());
+        assertArrayEquals("the-signed-document".getBytes(UTF_8), signingRecord.getSignedDocument());
+        assertArrayEquals("the-data-to-be-signed".getBytes(UTF_8), signingRecord.getDtbs());
     }
 
     @Test
@@ -93,7 +93,7 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
 
         // when
         for (int i = 0; i < recordedCount; i++) {
-            strategy.record(aSigningRecordInput()
+            strategy.recordSigning(aSigningRecordInput()
                     .signingProfile(recordingProfile)
                     .displayName("batched-record-" + i)
                     .build());

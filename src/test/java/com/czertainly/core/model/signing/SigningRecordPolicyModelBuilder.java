@@ -4,6 +4,7 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
 
 public final class SigningRecordPolicyModelBuilder {
 
+    private boolean recordingEnabled = true;
     private boolean recordRequestMetadata = false;
     private boolean recordSignature = false;
     private boolean recordSignedDocument = false;
@@ -17,7 +18,16 @@ public final class SigningRecordPolicyModelBuilder {
     }
 
     /**
-     * A builder pre-configured to capture no content about a signing operation.
+     * A builder pre-configured with recording disabled entirely: no record is created at all, regardless of
+     * the content flags.
+     */
+    public static SigningRecordPolicyModelBuilder recordingDisabled() {
+        return aSigningRecordPolicy().recordingEnabled(false);
+    }
+
+    /**
+     * A builder pre-configured with recording enabled but capturing no optional content about a signing
+     * operation: a metadata-only record (who, when, profile/version) is still created.
      */
     public static SigningRecordPolicyModelBuilder notRecording() {
         return aSigningRecordPolicy()
@@ -36,6 +46,11 @@ public final class SigningRecordPolicyModelBuilder {
                 .recordSignature(true)
                 .recordSignedDocument(true)
                 .recordDtbs(true);
+    }
+
+    public SigningRecordPolicyModelBuilder recordingEnabled(boolean v) {
+        this.recordingEnabled = v;
+        return this;
     }
 
     public SigningRecordPolicyModelBuilder recordRequestMetadata(boolean v) {
@@ -75,6 +90,7 @@ public final class SigningRecordPolicyModelBuilder {
 
     public SigningRecordPolicyModel build() {
         return new SigningRecordPolicyModel(
+                recordingEnabled,
                 recordRequestMetadata,
                 recordSignature,
                 recordSignedDocument,

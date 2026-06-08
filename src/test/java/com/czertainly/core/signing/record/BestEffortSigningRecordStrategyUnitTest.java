@@ -14,6 +14,7 @@ import java.util.List;
 
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
+import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,9 +57,31 @@ class BestEffortSigningRecordStrategyUnitTest {
     }
 
     @Test
-    void record_countsIntakeSkipped_whenPolicyRecordsNothing() {
+    void record_countsIntakeSkipped_whenRecordingDisabled() {
         // given
-        var notRecordingInput = aSigningRecordInput()
+        var recordingDisabledInput = aSigningRecordInput()
+                .signingProfile(
+                        aSigningProfile()
+                                .recordPolicy(
+                                        recordingDisabled()
+                                                .build())
+                                .build())
+                .build();
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
+
+        // when
+        strategy.recordSigning(recordingDisabledInput);
+
+        // then
+        assertEquals(1, intakeCounter(MODE));
+        assertEquals(1, intakeSkippedCounter(MODE));
+        verifyNoInteractions(queue, writer);
+    }
+
+    @Test
+    void record_enqueuesMetadataOnlyRecord_whenRecordingEnabledButNoContentSelected() {
+        // given
+        var metadataOnlyInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
                                 .recordPolicy(
@@ -69,12 +92,12 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.record(notRecordingInput);
+        strategy.recordSigning(metadataOnlyInput);
 
         // then
         assertEquals(1, intakeCounter(MODE));
-        assertEquals(1, intakeSkippedCounter(MODE));
-        verifyNoInteractions(queue, writer);
+        assertEquals(0, intakeSkippedCounter(MODE));
+        verify(queue).enqueueDropping(any(SigningRecord.class));
     }
 
     @Test
@@ -83,7 +106,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.record(recordableInput());
+        strategy.recordSigning(recordableInput());
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -101,7 +124,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.record(recordableInput());
+        strategy.recordSigning(recordableInput());
 
         // then
         assertEquals(evictedByQueue, evictedCounter());
@@ -113,7 +136,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.record(recordableInput());
+        strategy.recordSigning(recordableInput());
 
         // then
         verify(queue).enqueueBlocking(any(SigningRecord.class));
@@ -127,7 +150,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.record(recordableInput());
+        strategy.recordSigning(recordableInput());
 
         // then
         assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));
@@ -141,7 +164,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         // given
         var timeout = 200L;
         var batch = List.of(new SigningRecord(), new SigningRecord());
-        when(queue.pollBatch(eq(MAX_BATCH_SIZE), eq(timeout))).thenReturn(batch);
+        when(queue.pollBatch(MAX_BATCH_SIZE, timeout)).thenReturn(batch);
 
         // when
         strategy.drainAndPersistBatch(timeout);

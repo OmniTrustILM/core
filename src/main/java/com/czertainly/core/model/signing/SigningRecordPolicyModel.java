@@ -7,6 +7,9 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
  * operation, how long it is retained, and how it is persisted.
  *
  *
+ * @param recordingEnabled      Master switch: when {@code false} no record is created at all; when {@code true}
+ *                              a record is always created, capturing whatever content the flags below select
+ *                              (or metadata-only if none).
  * @param recordRequestMetadata Whether request metadata is recorded.
  * @param recordSignature       Whether the produced signature is recorded.
  * @param recordSignedDocument  Whether the signed document is recorded.
@@ -16,6 +19,7 @@ import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersi
  * @param persistenceMode       How records are persisted.
  */
 public record SigningRecordPolicyModel(
+        boolean recordingEnabled,
         boolean recordRequestMetadata,
         boolean recordSignature,
         boolean recordSignedDocument,
