@@ -1,4 +1,4 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
@@ -11,7 +11,6 @@ import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SigningRecordService;
-import com.czertainly.core.signing.record.SigningRecordInput;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,10 +27,16 @@ import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSign
 import static com.czertainly.core.util.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
+/**
+ * Integration test for {@link ImmediateSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest}.
+ * The strategy's branch logic is pinned over mocks in {@link ImmediateSigningRecordStrategyUnitTest}; what only
+ * a real database can prove lives here: a recorded input lands directly in {@code signing_record} and reads
+ * back field-for-field through the jsonb and {@code byte[]} columns a mocked writer would only echo.
+ */
+class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
 
     @Autowired
-    private ImmediateSigningRecordWriter writer;
+    private ImmediateSigningRecordStrategy strategy;
 
     @Autowired
     private SigningRecordService signingRecordService;
@@ -56,7 +61,7 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        writer.record(input);
+        strategy.record(input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -81,7 +86,7 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        writer.record(input);
+        strategy.record(input);
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -92,7 +97,7 @@ class ImmediateSigningRecordWriterTest extends BaseSpringBootTest {
 
     /**
      * Persists the {@code signing_profile} row referenced by a record's {@code signing_profile_uuid}.
-     * The profile's model fields are irrelevant to the writer (it reads only uuid, version and record policy),
+     * The profile's model fields are irrelevant to the strategy (it reads only uuid, version and record policy),
      * so this fills the NOT NULL columns with unremarkable values.
      */
     private SigningProfile insertSigningProfile(String name) {

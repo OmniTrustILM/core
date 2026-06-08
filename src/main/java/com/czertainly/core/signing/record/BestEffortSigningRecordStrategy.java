@@ -1,57 +1,53 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
+import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
-import com.czertainly.core.signing.record.*;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
+/**
+ * {@code BEST_EFFORT} mode: maps the record and admits it to an in-memory queue under the configured
+ * backpressure policy, returning to the caller without touching the database. A background thread
+ * ({@link SigningRecordBestEffortFlusher}) periodically drives {@link #drainAndPersistBatch(long)} to persist
+ * batches via {@link SigningRecordWriter#insertBatch(List)}. Records may be lost (queue eviction, an
+ * interrupted block, or a flush failure) — that is the trade for never blocking or failing the signing
+ * operation on a record write.
+ */
 @Slf4j
 @Component
-public class BestEffortSigningRecordWriter implements SigningRecordWriter {
+public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrategy {
 
-    private final SigningRecordRepository repository;
+    private final SigningRecordWriter writer;
     private final SigningRecordInputMapper mapper;
-    private final SigningRecordMetrics metrics;
-    private final TransactionTemplate tx;
     private final BestEffortBackpressurePolicy policy;
     private final BestEffortSigningRecordQueue queue;
     private final int maxBatchSize;
 
-    public BestEffortSigningRecordWriter(
-            SigningRecordRepository repository,
-            SigningRecordInputMapper mapper,
+    public BestEffortSigningRecordStrategy(
             SigningRecordMetrics metrics,
-            PlatformTransactionManager txm,
+            SigningRecordWriter writer,
+            SigningRecordInputMapper mapper,
             BestEffortSigningRecordQueue queue,
             @Value("${signing-record.best-effort.backpressure-policy:DROP_OLDEST}") BestEffortBackpressurePolicy policy,
             @Value("${signing-record.best-effort.max-batch-size:200}") int maxBatchSize) {
-        this.repository = repository;
+        super(metrics);
+        this.writer = writer;
         this.mapper = mapper;
-        this.metrics = metrics;
-        this.tx = new TransactionTemplate(txm);
         this.policy = policy;
         this.queue = queue;
         this.maxBatchSize = maxBatchSize;
     }
 
     @Override
-    public void record(SigningRecordInput input) {
-        if (!SigningRecordPolicy.hasAnyRecordableContent(input.getSigningProfile().recordPolicy())) {
-            metrics.skippedNoContentPolicy().increment();
-            return;
+    protected void doRecord(SigningRecordInput input) {
+        if (enqueue(mapper.toRecord(input))) {
+            metrics.queued(mode().name()).increment();
         }
-        metrics.timed("BEST_EFFORT", () -> {
-            if (enqueue(mapper.toRecord(input))) {
-                metrics.queued("BEST_EFFORT").increment();
-            }
-        });
     }
 
     /**
@@ -82,10 +78,10 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
 
     /**
      * Waits up to {@code timeoutMs} for queued records, then persists a single batch (up to the configured
-     * {@code signing-record.best-effort.max-batch-size}) in one transaction. Returns immediately when the wait times out with
-     * an empty queue. A persistence failure is counted and logged but not propagated — best-effort records
-     * are allowed to be lost. {@link InterruptedException} is propagated so the caller owning the thread
-     * lifecycle can decide whether to stop.
+     * {@code signing-record.best-effort.max-batch-size}) in one transaction via the writer. Returns immediately
+     * when the wait times out with an empty queue. A persistence failure is counted and logged but not
+     * propagated — best-effort records are allowed to be lost. {@link InterruptedException} is propagated so the
+     * caller owning the thread lifecycle can decide whether to stop.
      */
     public void drainAndPersistBatch(long timeoutMs) throws InterruptedException {
         List<SigningRecord> batch = queue.pollBatch(maxBatchSize, timeoutMs);
@@ -93,12 +89,17 @@ public class BestEffortSigningRecordWriter implements SigningRecordWriter {
             return;
         }
         try {
-            tx.executeWithoutResult(status -> repository.saveAll(batch));
-            metrics.created("BEST_EFFORT").increment(batch.size());
+            writer.insertBatch(batch);
+            metrics.created(mode().name()).increment(batch.size());
         } catch (RuntimeException e) {
-            metrics.persistFailed("BEST_EFFORT").increment(batch.size());
+            metrics.persistFailed(mode().name()).increment(batch.size());
             metrics.bestEffortDropped("flush_failed").increment(batch.size());
             log.warn("BEST_EFFORT flush failed ({} records lost)", batch.size(), e);
         }
+    }
+
+    @Override
+    protected SigningRecordPersistenceMode mode() {
+        return SigningRecordPersistenceMode.BEST_EFFORT;
     }
 }

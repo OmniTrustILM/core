@@ -1,6 +1,5 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -8,24 +7,24 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Owns the background thread that periodically drives {@link BestEffortSigningRecordWriter} to drain its
- * in-memory queue and persist batched signing records. The writer holds all queue/DB logic; this class
+ * Owns the background thread that periodically drives {@link BestEffortSigningRecordStrategy} to drain its
+ * in-memory queue and persist batched signing records. The strategy holds all queue/DB logic; this class
  * holds only the scheduling and thread lifecycle.
  */
 @Slf4j
 @Component
 public class SigningRecordBestEffortFlusher {
 
-    private final BestEffortSigningRecordWriter writer;
+    private final BestEffortSigningRecordStrategy strategy;
     private final long flushIntervalMs;
 
     private Thread flusher;
     private volatile boolean running = true;
 
     public SigningRecordBestEffortFlusher(
-            BestEffortSigningRecordWriter writer,
+            BestEffortSigningRecordStrategy strategy,
             @Value("${signing-record.best-effort.flush-interval-ms:200}") long flushIntervalMs) {
-        this.writer = writer;
+        this.strategy = strategy;
         this.flushIntervalMs = flushIntervalMs;
     }
 
@@ -47,7 +46,7 @@ public class SigningRecordBestEffortFlusher {
     private void flushLoop() {
         while (running) {
             try {
-                writer.drainAndPersistBatch(flushIntervalMs);
+                strategy.drainAndPersistBatch(flushIntervalMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }

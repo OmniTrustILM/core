@@ -1,8 +1,11 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
+import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
-import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
+import com.czertainly.core.mapper.signing.SigningRecordMapper;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,8 +25,9 @@ import java.util.UUID;
  * {@link Propagation#REQUIRES_NEW} outer transaction — which does nothing but hold the lock and read batches.
  *
  * <p>Each row is copied in its own short transaction via
- * {@link OutboxSigningRecordWriter#drainRow(java.util.UUID)}, and a failed row has its attempt recorded
- * in a separate transaction via {@link OutboxSigningRecordWriter#recordFailure(java.util.UUID, String)}.
+ * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord, SigningRecordOutbox)}, and a failed row
+ * has its attempt recorded in a separate transaction via
+ * {@link SigningRecordWriter#recordFailure(java.util.UUID, String)}.
  * This per-row isolation is what makes the retry/poison machinery work: a single un-persistable row rolls
  * back only its own transaction (leaving the healthy rows in the batch drained and committed) while its
  * attempt count still advances toward the poison threshold. Because the per-row writes run in their own
@@ -35,7 +39,7 @@ import java.util.UUID;
 public class SigningRecordOutboxDrainer {
 
     private final SigningRecordOutboxRepository outboxRepo;
-    private final OutboxSigningRecordWriter writer;
+    private final SigningRecordWriter writer;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final SigningRecordMetrics metrics;
 
@@ -44,7 +48,7 @@ public class SigningRecordOutboxDrainer {
     private final int maxBatchesPerRun;
 
     public SigningRecordOutboxDrainer(SigningRecordOutboxRepository outboxRepo,
-                                      OutboxSigningRecordWriter writer,
+                                      SigningRecordWriter writer,
                                       ClusterOperationSynchronizer clusterSynchronizer,
                                       SigningRecordMetrics metrics,
                                       @Value("${signing-record.outbox.max-batch-size:200}") int batchSize,
@@ -111,14 +115,21 @@ public class SigningRecordOutboxDrainer {
 
     /**
      * Drains one row, or — when the copy fails — records the failed attempt so the row advances toward the
-     * poison threshold. Both steps run in the writer's own transactions and either may throw; this method
-     * absorbs both, so one row never aborts the rest of the batch. A row already present in
-     * {@code signing_record} (crash recovery) is reconciled by the writer's idempotent merge copy and counts
-     * as drained.
+     * poison threshold. Reads and maps the outbox row here, then hands the pair to the writer's single-transaction
+     * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord, SigningRecordOutbox)} copy. Returns
+     * {@code false} without touching the writer when the row is already gone (drained by an earlier pass or
+     * another node). The read, map and copy may throw; this method absorbs the failure and records the attempt,
+     * so one row never aborts the rest of the batch. A row already present in {@code signing_record} (crash
+     * recovery) is reconciled by the writer's idempotent merge copy and counts as drained.
      */
     private boolean attemptDrain(UUID uuid) {
         try {
-            return writer.drainRow(uuid);
+            SigningRecordOutbox row = outboxRepo.findById(uuid).orElse(null);
+            if (row == null) {
+                return false;
+            }
+            writer.saveRecordAndDeleteOutbox(SigningRecordMapper.toRecord(row), row);
+            return true;
         } catch (RuntimeException drainError) {
             metrics.outboxFailed().increment();
             log.warn("Failed to drain outbox row {}", uuid, drainError);

@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * {@code scheduled-tasks.enabled} gate. Keeping them apart mirrors {@link SigningRecordBestEffortFlusher}
  * and lets the drainer be unit- and integration-tested without standing up the scheduling machinery. The
  * drainer's outer transaction only holds the cluster-wide advisory lock; each row is copied in its own short
- * transaction through {@link OutboxSigningRecordWriter}.
+ * transaction through {@link SigningRecordWriter}.
  */
 @Slf4j
 @Component

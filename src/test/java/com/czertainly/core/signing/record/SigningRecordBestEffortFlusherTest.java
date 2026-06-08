@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -15,11 +15,11 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 /**
- * Tests the thread lifecycle of {@link SigningRecordBestEffortFlusher}: {@code start()} must drive the writer
- * repeatedly with the configured interval, and {@code stop()} must halt the loop. The writer itself is mocked —
- * all queue/DB logic lives in {@link BestEffortSigningRecordWriter} and is covered by its own tests.
+ * Tests the thread lifecycle of {@link SigningRecordBestEffortFlusher}: {@code start()} must drive the strategy
+ * repeatedly with the configured interval, and {@code stop()} must halt the loop. The strategy itself is mocked —
+ * all queue/DB logic lives in {@link BestEffortSigningRecordStrategy} and is covered by its own tests.
  * <p>
- * These are inherently timing-based (a real background thread). The mock emulates the real writer by blocking
+ * These are inherently timing-based (a real background thread). The mock emulates the real strategy by blocking
  * for the poll timeout it is handed, so the loop paces itself instead of busy-spinning.
  */
 class SigningRecordBestEffortFlusherTest {
@@ -37,16 +37,16 @@ class SigningRecordBestEffortFlusherTest {
     void start_drivesWriterRepeatedlyWithConfiguredInterval() throws Exception {
         // given
         var flushIntervalMs = 50L;
-        var writer = mock(BestEffortSigningRecordWriter.class);
-        blockForPollTimeout(writer);
-        flusher = new SigningRecordBestEffortFlusher(writer, flushIntervalMs);
+        var strategy = mock(BestEffortSigningRecordStrategy.class);
+        blockForPollTimeout(strategy);
+        flusher = new SigningRecordBestEffortFlusher(strategy, flushIntervalMs);
 
         // when
         flusher.start();
 
         // then
         var atLeastTwoIterations = timeout(2_000L).atLeast(2);
-        verify(writer, atLeastTwoIterations).drainAndPersistBatch(flushIntervalMs);
+        verify(strategy, atLeastTwoIterations).drainAndPersistBatch(flushIntervalMs);
     }
 
     @Test
@@ -54,9 +54,9 @@ class SigningRecordBestEffortFlusherTest {
         // given
         var flushIntervalMs = 20L;
         var invocations = new AtomicInteger();
-        var writer = mock(BestEffortSigningRecordWriter.class);
-        countAndBlockForPollTimeout(writer, invocations);
-        flusher = new SigningRecordBestEffortFlusher(writer, flushIntervalMs);
+        var strategy = mock(BestEffortSigningRecordStrategy.class);
+        countAndBlockForPollTimeout(strategy, invocations);
+        flusher = new SigningRecordBestEffortFlusher(strategy, flushIntervalMs);
         flusher.start();
         awaitLoopRunning(invocations);
 
@@ -68,30 +68,30 @@ class SigningRecordBestEffortFlusherTest {
         Thread.sleep(quietPeriodMs); // let any in-flight iteration finish before snapshotting
         var countAfterStop = invocations.get();
         Thread.sleep(quietPeriodMs);
-        assertEquals(countAfterStop, invocations.get(), "flusher kept driving the writer after stop()");
+        assertEquals(countAfterStop, invocations.get(), "flusher kept driving the strategy after stop()");
     }
 
     /**
-     * Emulates the real writer blocking up to the poll timeout it is handed, so the loop paces itself.
+     * Emulates the real strategy blocking up to the poll timeout it is handed, so the loop paces itself.
      */
-    private void blockForPollTimeout(BestEffortSigningRecordWriter writer) {
+    private void blockForPollTimeout(BestEffortSigningRecordStrategy strategy) {
         try {
             doAnswer(invocation -> {
                 Thread.sleep(invocation.<Long>getArgument(0));
                 return null;
-            }).when(writer).drainAndPersistBatch(anyLong());
+            }).when(strategy).drainAndPersistBatch(anyLong());
         } catch (InterruptedException e) {
             throw new IllegalStateException(e); // stubbing only — never thrown here
         }
     }
 
-    private void countAndBlockForPollTimeout(BestEffortSigningRecordWriter writer, AtomicInteger invocations) {
+    private void countAndBlockForPollTimeout(BestEffortSigningRecordStrategy strategy, AtomicInteger invocations) {
         try {
             doAnswer(invocation -> {
                 invocations.incrementAndGet();
                 Thread.sleep(invocation.<Long>getArgument(0));
                 return null;
-            }).when(writer).drainAndPersistBatch(anyLong());
+            }).when(strategy).drainAndPersistBatch(anyLong());
         } catch (InterruptedException e) {
             throw new IllegalStateException(e); // stubbing only — never thrown here
         }
@@ -101,7 +101,7 @@ class SigningRecordBestEffortFlusherTest {
         var deadlineNanos = System.nanoTime() + 2_000_000_000L; // 2s
         while (invocations.get() < 1) {
             if (System.nanoTime() > deadlineNanos) {
-                fail("flusher never drove the writer after start()");
+                fail("flusher never drove the strategy after start()");
             }
             Thread.sleep(5L);
         }

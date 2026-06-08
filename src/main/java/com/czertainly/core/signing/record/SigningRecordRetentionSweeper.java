@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
-import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -12,13 +12,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 public class SigningRecordRetentionSweeper {
 
-    private final SigningRecordDeletionWriter writer;
+    private final SigningRecordWriter writer;
     private final SigningRecordMetrics metrics;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final int batchSize;
     private final int maxBatchesPerSweep;
 
-    public SigningRecordRetentionSweeper(SigningRecordDeletionWriter writer,
+    public SigningRecordRetentionSweeper(SigningRecordWriter writer,
                                          SigningRecordMetrics metrics,
                                          ClusterOperationSynchronizer clusterSynchronizer,
                                          @Value("${signing-record.retention.batch-size:10000}") int batchSize,
@@ -33,7 +33,7 @@ public class SigningRecordRetentionSweeper {
     /**
      * Holds the cluster-wide advisory lock for the sweep via this transaction (the lock is
      * transaction-scoped). Each batch deletes and commits in its own transaction through
-     * {@link SigningRecordDeletionWriter}, so row locks and WAL release incrementally while this
+     * {@link SigningRecordWriter}, so row locks and WAL release incrementally while this
      * outer transaction keeps the single-node guarantee.
      * <p>
      * The sweep deletes at most {@code maxBatchesPerSweep} batches per run. The cap bounds how long this

@@ -1,11 +1,8 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
-import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
-import com.czertainly.core.signing.record.SigningRecordInput;
-import com.czertainly.core.signing.record.SigningRecordMetrics;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -26,28 +23,27 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Pure unit test for {@link OutboxSigningRecordWriter} over a mocked {@link SigningRecordOutboxRepository}.
- * The writer's job is narrow: skip empty policies, otherwise map + stage into the outbox + count synchronously.
- * Like the immediate writer (and unlike the best-effort writer) it does not swallow persistence failures — they
- * propagate to the caller. What distinguishes it is the {@code DEFERRED_DURABLE} mode and the extra
- * {@code outbox.enqueued} counter, asserted here. Persistence wiring (the row landing in {@code signing_record_outbox}
- * and not {@code signing_record}, field fidelity through jsonb/byte[] columns) is covered against the real context in
- * {@link OutboxSigningRecordWriterTest}.
+ * Pure unit test for {@link DeferredDurableSigningRecordStrategy} over a mocked {@link SigningRecordWriter}.
+ * The strategy's job is narrow: skip empty policies, otherwise map + stage into the outbox + count
+ * synchronously. Like the immediate strategy (and unlike the best-effort strategy) it does not swallow
+ * persistence failures — they propagate to the caller. What distinguishes it is the {@code DEFERRED_DURABLE}
+ * mode and the extra {@code outbox.enqueued} counter, asserted here. Persistence wiring (the row landing in
+ * {@code signing_record_outbox} and not {@code signing_record}, field fidelity through jsonb/byte[] columns) is
+ * covered against the real context in {@link DeferredDurableSigningRecordStrategyTest}.
  */
-class OutboxSigningRecordWriterUnitTest {
+class DeferredDurableSigningRecordStrategyUnitTest {
 
     private static final String MODE = "DEFERRED_DURABLE";
 
     private MeterRegistry registry;
-    private SigningRecordOutboxRepository repository;
-    private OutboxSigningRecordWriter writer;
+    private SigningRecordWriter writer;
+    private DeferredDurableSigningRecordStrategy strategy;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        repository = mock(SigningRecordOutboxRepository.class);
-        writer = new OutboxSigningRecordWriter(repository, mock(SigningRecordRepository.class),
-                new SigningRecordInputMapper(), new SigningRecordMetrics(registry));
+        writer = mock(SigningRecordWriter.class);
+        strategy = new DeferredDurableSigningRecordStrategy(new SigningRecordMetrics(registry), writer, new SigningRecordInputMapper());
     }
 
     @Test
@@ -63,11 +59,11 @@ class OutboxSigningRecordWriterUnitTest {
                 .build();
 
         // when
-        writer.record(notRecordingInput);
+        strategy.record(notRecordingInput);
 
         // then
         assertEquals(1, skippedCounter());
-        verifyNoInteractions(repository);
+        verifyNoInteractions(writer);
         assertEquals(0, createdCounter(MODE));
         assertEquals(0, outboxEnqueuedCounter());
     }
@@ -78,22 +74,22 @@ class OutboxSigningRecordWriterUnitTest {
         var recordableInput = recordableInput();
 
         // when
-        writer.record(recordableInput);
+        strategy.record(recordableInput);
 
         // then
-        verify(repository).saveAndFlush(any(SigningRecordOutbox.class));
+        verify(writer).insertOutbox(any(SigningRecordOutbox.class));
         assertEquals(1, createdCounter(MODE));
         assertEquals(1, outboxEnqueuedCounter());
         assertEquals(1, durationSampleCount(MODE));
     }
 
     @Test
-    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreatedOrEnqueued_whenSaveFails() {
+    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreatedOrEnqueued_whenInsertFails() {
         // given
-        doThrow(new RuntimeException("db down")).when(repository).saveAndFlush(any());
+        doThrow(new RuntimeException("db down")).when(writer).insertOutbox(any());
 
         // when
-        Executable record = () -> writer.record(recordableInput());
+        Executable record = () -> strategy.record(recordableInput());
 
         // then
         assertThrows(RuntimeException.class, record);

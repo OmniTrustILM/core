@@ -1,7 +1,6 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.service.writer.signingrecord.BestEffortSigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
@@ -10,7 +9,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Wraps the bounded in-memory queue feeding {@link BestEffortSigningRecordWriter}, owning both backpressure
+ * Wraps the bounded in-memory queue feeding {@link BestEffortSigningRecordStrategy}, owning both backpressure
  * strategies. {@link #enqueueDropping} sheds the oldest records to admit a new one; {@link #enqueueBlocking}
  * waits for capacity. {@link #pollBatch} takes a bounded batch for persistence. Drop accounting is left to
  * the caller — the dropping path returns how many records it evicted.

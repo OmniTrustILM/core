@@ -1,10 +1,8 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
-import com.czertainly.core.signing.record.SigningRecordInput;
-import com.czertainly.core.signing.record.SigningRecordMetrics;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -19,26 +17,31 @@ import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSign
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Pure unit test for {@link ImmediateSigningRecordWriter} over a mocked {@link SigningRecordRepository}.
- * The writer's job is narrow: skip empty policies, otherwise map + save + count synchronously. Unlike the
- * best-effort writer it has no queue and does not swallow persistence failures — they propagate to the caller.
- * Persistence wiring (mapper output, columns, transaction) is covered against the real context in
- * {@link ImmediateSigningRecordWriterTest}.
+ * Pure unit test for {@link ImmediateSigningRecordStrategy} over a mocked {@link SigningRecordWriter}.
+ * The strategy's job is narrow: skip empty policies, otherwise map + delegate to the writer + count
+ * synchronously. Unlike the best-effort strategy it has no queue and does not swallow persistence failures —
+ * they propagate to the caller. Persistence wiring (mapper output, columns, transaction) is covered against
+ * the real context in {@link ImmediateSigningRecordStrategyTest}.
  */
-class ImmediateSigningRecordWriterUnitTest {
+class ImmediateSigningRecordStrategyUnitTest {
+
+    private static final String MODE = "IMMEDIATE";
 
     private MeterRegistry registry;
-    private SigningRecordRepository repository;
-    private ImmediateSigningRecordWriter writer;
+    private SigningRecordWriter writer;
+    private ImmediateSigningRecordStrategy strategy;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        repository = mock(SigningRecordRepository.class);
-        writer = new ImmediateSigningRecordWriter(repository, new SigningRecordInputMapper(), new SigningRecordMetrics(registry));
+        writer = mock(SigningRecordWriter.class);
+        strategy = new ImmediateSigningRecordStrategy(new SigningRecordMetrics(registry), writer, new SigningRecordInputMapper());
     }
 
     @Test
@@ -54,39 +57,39 @@ class ImmediateSigningRecordWriterUnitTest {
                 .build();
 
         // when
-        writer.record(notRecordingInput);
+        strategy.record(notRecordingInput);
 
         // then
         assertEquals(1, skippedCounter());
-        verifyNoInteractions(repository);
+        verifyNoInteractions(writer);
     }
 
     @Test
-    void record_savesMappedRecordAndCountsCreated_whenPolicyRecordsContent() {
+    void record_insertsMappedRecordAndCountsCreated_whenPolicyRecordsContent() {
         // given
         var recordableInput = recordableInput();
 
         // when
-        writer.record(recordableInput);
+        strategy.record(recordableInput);
 
         // then
-        verify(repository).saveAndFlush(any(SigningRecord.class));
-        assertEquals(1, createdCounter("IMMEDIATE"));
-        assertEquals(1, durationSampleCount("IMMEDIATE"));
+        verify(writer).insert(any(SigningRecord.class));
+        assertEquals(1, createdCounter(MODE));
+        assertEquals(1, durationSampleCount(MODE));
     }
 
     @Test
-    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreated_whenSaveFails() {
+    void record_propagatesFailureCountsPersistFailedAndDoesNotCountCreated_whenInsertFails() {
         // given
-        doThrow(new RuntimeException("db down")).when(repository).saveAndFlush(any());
+        doThrow(new RuntimeException("db down")).when(writer).insert(any());
 
         // when
-        Executable record = () -> writer.record(recordableInput());
+        Executable record = () -> strategy.record(recordableInput());
 
         // then
         assertThrows(RuntimeException.class, record);
-        assertEquals(0, createdCounter("IMMEDIATE"));
-        assertEquals(1, persistFailedCounter("IMMEDIATE"));
+        assertEquals(0, createdCounter(MODE));
+        assertEquals(1, persistFailedCounter(MODE));
     }
 
     private SigningRecordInput recordableInput() {

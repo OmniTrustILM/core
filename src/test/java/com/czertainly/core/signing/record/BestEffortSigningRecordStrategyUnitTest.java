@@ -1,16 +1,14 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
-import com.czertainly.core.signing.record.*;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.List;
 
@@ -20,7 +18,6 @@ import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -32,27 +29,27 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Pure unit test for {@link BestEffortSigningRecordWriter} over a mocked {@link BestEffortSigningRecordQueue}.
- * The writer's job is narrow: skip empty policies, map + count, dispatch to the right backpressure method,
- * and persist a polled batch in one transaction (counting losses without propagating). Queue mechanics —
- * eviction, blocking, batching — are covered against the real queue in {@link BestEffortSigningRecordQueueTest}.
+ * Pure unit test for {@link BestEffortSigningRecordStrategy} over a mocked {@link BestEffortSigningRecordQueue}
+ * and {@link SigningRecordWriter}. The strategy's job is narrow: skip empty policies, map + count, dispatch to
+ * the right backpressure method, and persist a polled batch through the writer (counting losses without
+ * propagating). Queue mechanics — eviction, blocking, batching — are covered against the real queue in
+ * {@link BestEffortSigningRecordQueueTest}.
  */
-class BestEffortSigningRecordWriterUnitTest {
+class BestEffortSigningRecordStrategyUnitTest {
 
     private static final int MAX_BATCH_SIZE = 200;
+    private static final String MODE = "BEST_EFFORT";
 
     private MeterRegistry registry;
     private SigningRecordMetrics metrics;
-    private SigningRecordRepository repository;
-    private PlatformTransactionManager txm;
+    private SigningRecordWriter writer;
     private BestEffortSigningRecordQueue queue;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
         metrics = new SigningRecordMetrics(registry);
-        repository = mock(SigningRecordRepository.class);
-        txm = mock(PlatformTransactionManager.class);
+        writer = mock(SigningRecordWriter.class);
         queue = mock(BestEffortSigningRecordQueue.class);
     }
 
@@ -67,27 +64,27 @@ class BestEffortSigningRecordWriterUnitTest {
                                                 .build())
                                 .build())
                 .build();
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        writer.record(notRecordingInput);
+        strategy.record(notRecordingInput);
 
         // then
         assertEquals(1, skippedCounter());
-        verifyNoInteractions(queue, repository);
+        verifyNoInteractions(queue, writer);
     }
 
     @Test
     void record_enqueuesDroppingAndCountsQueued_underDropOldestPolicy() throws Exception {
         // given
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        writer.record(recordableInput());
+        strategy.record(recordableInput());
 
         // then
-        assertEquals(1, queuedCounter("BEST_EFFORT"));
-        assertEquals(1, durationSampleCount("BEST_EFFORT"));
+        assertEquals(1, queuedCounter(MODE));
+        assertEquals(1, durationSampleCount(MODE));
         verify(queue).enqueueDropping(any(SigningRecord.class));
         verify(queue, never()).enqueueBlocking(any());
     }
@@ -97,10 +94,10 @@ class BestEffortSigningRecordWriterUnitTest {
         // given
         var evictedByQueue = 2;
         when(queue.enqueueDropping(any())).thenReturn(evictedByQueue);
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        writer.record(recordableInput());
+        strategy.record(recordableInput());
 
         // then
         assertEquals(evictedByQueue, droppedCounter("evicted_oldest"));
@@ -109,10 +106,10 @@ class BestEffortSigningRecordWriterUnitTest {
     @Test
     void record_enqueuesBlocking_underBlockPolicy() throws Exception {
         // given
-        var writer = createWriter(BestEffortBackpressurePolicy.BLOCK);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        writer.record(recordableInput());
+        strategy.record(recordableInput());
 
         // then
         verify(queue).enqueueBlocking(any(SigningRecord.class));
@@ -123,20 +120,20 @@ class BestEffortSigningRecordWriterUnitTest {
     void record_countsInterruptedDropAndSkipsQueued_whenBlockingInterrupted() throws Exception {
         // given
         doThrow(new InterruptedException()).when(queue).enqueueBlocking(any());
-        var writer = createWriter(BestEffortBackpressurePolicy.BLOCK);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        writer.record(recordableInput());
+        strategy.record(recordableInput());
 
         // then
         assertEquals(1, droppedCounter("interrupted"));
-        assertEquals(0, queuedCounter("BEST_EFFORT"));
+        assertEquals(0, queuedCounter(MODE));
     }
 
     @Test
-    void drainAndPersistBatch_persistsPolledBatch_inOneTransaction() throws Exception {
+    void drainAndPersistBatch_persistsPolledBatch_throughTheWriter() throws Exception {
         // setup
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // given
         var timeout = 200L;
@@ -144,42 +141,43 @@ class BestEffortSigningRecordWriterUnitTest {
         when(queue.pollBatch(eq(MAX_BATCH_SIZE), eq(timeout))).thenReturn(batch);
 
         // when
-        writer.drainAndPersistBatch(timeout);
+        strategy.drainAndPersistBatch(timeout);
 
         // then
-        verify(repository).saveAll(batch);
+        verify(writer).insertBatch(batch);
+        assertEquals(batch.size(), createdCounter(MODE));
     }
 
     @Test
     void drainAndPersistBatch_returnsWithoutPersisting_whenBatchEmpty() throws Exception {
         // setup
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // given
         when(queue.pollBatch(eq(MAX_BATCH_SIZE), anyLong())).thenReturn(List.of());
 
         // when
-        writer.drainAndPersistBatch(noWait());
+        strategy.drainAndPersistBatch(noWait());
 
         // then
-        verify(repository, never()).saveAll(any());
+        verify(writer, never()).insertBatch(any());
     }
 
     @Test
-    void drainAndPersistBatch_countsPersistFailureAndLostRecordsByBatchSizeAndDoesNotThrow_whenSaveFails() throws Exception {
+    void drainAndPersistBatch_countsPersistFailureAndLostRecordsByBatchSizeAndDoesNotThrow_whenInsertFails() throws Exception {
         // setup
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // given
         var batch = List.of(new SigningRecord(), new SigningRecord(), new SigningRecord());
         when(queue.pollBatch(eq(MAX_BATCH_SIZE), anyLong())).thenReturn(batch);
-        doThrow(new RuntimeException("db down")).when(repository).saveAll(any());
+        doThrow(new RuntimeException("db down")).when(writer).insertBatch(any());
 
         // when
-        writer.drainAndPersistBatch(noWait()); // swallows the failure: best-effort records may be lost
+        strategy.drainAndPersistBatch(noWait()); // swallows the failure: best-effort records may be lost
 
         // then
-        assertEquals(batch.size(), persistFailedCounter("BEST_EFFORT"));
+        assertEquals(batch.size(), persistFailedCounter(MODE));
         assertEquals(batch.size(), droppedCounter("flush_failed"));
     }
 
@@ -187,17 +185,17 @@ class BestEffortSigningRecordWriterUnitTest {
     void drainAndPersistBatch_propagatesInterrupt_whenQueuePollInterrupted() throws Exception {
         // given
         when(queue.pollBatch(eq(MAX_BATCH_SIZE), anyLong())).thenThrow(new InterruptedException());
-        var writer = createWriter(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        Executable drain = () -> writer.drainAndPersistBatch(noWait());
+        Executable drain = () -> strategy.drainAndPersistBatch(noWait());
 
         // then
         assertThrows(InterruptedException.class, drain);
     }
 
-    private BestEffortSigningRecordWriter createWriter(BestEffortBackpressurePolicy policy) {
-        return new BestEffortSigningRecordWriter(repository, new SigningRecordInputMapper(), metrics, txm, queue, policy, MAX_BATCH_SIZE);
+    private BestEffortSigningRecordStrategy createStrategy(BestEffortBackpressurePolicy policy) {
+        return new BestEffortSigningRecordStrategy(metrics, writer, new SigningRecordInputMapper(), queue, policy, MAX_BATCH_SIZE);
     }
 
     private SigningRecordInput recordableInput() {
@@ -216,6 +214,11 @@ class BestEffortSigningRecordWriterUnitTest {
 
     private double queuedCounter(String mode) {
         var counter = registry.find("signing_record.queued.total").tag("mode", mode).counter();
+        return counter == null ? 0d : counter.count();
+    }
+
+    private double createdCounter(String mode) {
+        var counter = registry.find("signing_record.created.total").tag("mode", mode).counter();
         return counter == null ? 0d : counter.count();
     }
 

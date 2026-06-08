@@ -6,7 +6,7 @@ import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
-import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -24,7 +24,7 @@ public class SigningRecordRetrievalHook {
 
     private final SigningRecordRepository repository;
     private final SigningProfileVersionRepository versionRepository;
-    private final SigningRecordDeletionWriter deletionWriter;
+    private final SigningRecordWriter deletionWriter;
     private final SigningRecordMetrics metrics;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final int batchSize;
@@ -32,7 +32,7 @@ public class SigningRecordRetrievalHook {
 
     public SigningRecordRetrievalHook(SigningRecordRepository repository,
                                       SigningProfileVersionRepository versionRepository,
-                                      SigningRecordDeletionWriter deletionWriter,
+                                      SigningRecordWriter deletionWriter,
                                       SigningRecordMetrics metrics,
                                       ClusterOperationSynchronizer clusterSynchronizer,
                                       @Value("${signing-record.delete-after-retrieval.batch-size:1000}") int batchSize,
@@ -90,7 +90,7 @@ public class SigningRecordRetrievalHook {
     /**
      * Holds the cluster-wide advisory lock for the sweep via this transaction (the lock is
      * transaction-scoped). Each batch deletes and commits in its own {@code REQUIRES_NEW}
-     * transaction through {@link SigningRecordDeletionWriter}, so row locks and WAL release
+     * transaction through {@link SigningRecordWriter}, so row locks and WAL release
      * incrementally — {@code signing_record} rows carry signed-document/signature/dtbs blobs, so a
      * single large delete would otherwise pin locks and the vacuum horizon while WAL accumulates.
      * The sweep deletes at most {@code maxBatchesPerSweep} batches per run; a large backlog clears

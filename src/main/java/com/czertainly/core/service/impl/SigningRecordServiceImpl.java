@@ -25,7 +25,7 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.SigningRecordService;
-import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -47,16 +47,16 @@ import java.util.UUID;
 public class SigningRecordServiceImpl implements SigningRecordService {
 
     private final SigningRecordRepository signingRecordRepository;
-    private final SigningRecordDeletionWriter signingRecordDeletionWriter;
+    private final SigningRecordWriter signingRecordWriter;
     private final SigningProfileRepository signingProfileRepository;
     private final AttributeEngine attributeEngine;
 
     public SigningRecordServiceImpl(SigningRecordRepository signingRecordRepository,
-                                    SigningRecordDeletionWriter signingRecordDeletionWriter,
+                                    SigningRecordWriter signingRecordWriter,
                                     SigningProfileRepository signingProfileRepository,
                                     AttributeEngine attributeEngine) {
         this.signingRecordRepository = signingRecordRepository;
-        this.signingRecordDeletionWriter = signingRecordDeletionWriter;
+        this.signingRecordWriter = signingRecordWriter;
         this.signingProfileRepository = signingProfileRepository;
         this.attributeEngine = attributeEngine;
     }
@@ -105,7 +105,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DELETE)
     public void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException {
         SigningRecord signingRecord = getSigningRecordEntity(uuid);
-        signingRecordDeletionWriter.deleteByUuid(signingRecord.getUuid());
+        signingRecordWriter.deleteByUuid(signingRecord.getUuid());
     }
 
     @Override
@@ -116,7 +116,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
             SigningRecord signingRecord = null;
             try {
                 signingRecord = getSigningRecordEntity(uuid);
-                signingRecordDeletionWriter.deleteByUuid(signingRecord.getUuid());
+                signingRecordWriter.deleteByUuid(signingRecord.getUuid());
             } catch (Exception e) {
                 log.error("Failed to delete Signing Record {}", uuid, e);
                 messages.add(BulkActionMessageDto.failure(uuid.toString(), signingRecord != null ?

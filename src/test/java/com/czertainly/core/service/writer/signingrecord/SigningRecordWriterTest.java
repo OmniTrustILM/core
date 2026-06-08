@@ -20,18 +20,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies the writer's contribution on top of the repository queries (the queries' retention/null/flag
- * semantics are covered in {@code SigningRecordRepositoryTest}): each call runs in its own
- * {@code REQUIRES_NEW} transaction, so it deletes and commits with no ambient transaction held by the caller.
- * For {@code deleteExpiredBatch} the {@code limit} bounds a single batch, which is the signal the sweeper uses
- * to detect a full batch and keep looping; {@code deleteByUuid} removes the single operator-selected row.
+ * Verifies the single {@link SigningRecordWriter}'s deletion contribution on top of the repository queries (the
+ * queries' retention/null/flag semantics are covered in {@code SigningRecordRepositoryTest}): each call runs in
+ * its own {@code REQUIRES_NEW} transaction, so it deletes and commits with no ambient transaction held by the
+ * caller. For {@code deleteExpiredBatch} the {@code limit} bounds a single batch, which is the signal the
+ * sweeper uses to detect a full batch and keep looping; {@code deleteByUuid} removes the single
+ * operator-selected row. The writer's inbound and drain paths are covered through the strategy integration
+ * tests and {@code SigningRecordOutboxDrainerTest}.
  */
-class SigningRecordDeletionWriterTest extends BaseSpringBootTest {
+class SigningRecordWriterTest extends BaseSpringBootTest {
 
     private static final int LIMIT_LARGER_THAN_FIXTURES = 1000;
 
     @Autowired
-    private SigningRecordDeletionWriter writer;
+    private SigningRecordWriter writer;
     @Autowired
     private SigningProfileRepository profileRepository;
     @Autowired

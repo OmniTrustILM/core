@@ -35,12 +35,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * End-to-end test of the signing-record persistence paths over a real Postgres, one per
- * {@link SigningRecordPersistenceMode}: a write goes through the {@link SigningRecordWriterFactory}-selected
- * writer and ends up as a {@code signing_record} row, by whichever route the mode dictates. Each writer, the
+ * {@link SigningRecordPersistenceMode}: a write goes through the {@link SigningRecordStrategyFactory}-selected
+ * strategy and ends up as a {@code signing_record} row, by whichever route the mode dictates. Each strategy, the
  * outbox drainer and the best-effort flusher are pinned in isolation elsewhere
- * ({@code ImmediateSigningRecordWriterTest}, {@code OutboxSigningRecordWriterTest},
- * {@code SigningRecordOutboxDrainerTest}, {@code BestEffortSigningRecordWriterTest}); what these tests alone
- * prove is that the factory routes each mode to the right writer, the mode's stages chain into one persisted
+ * ({@code ImmediateSigningRecordStrategyTest}, {@code DeferredDurableSigningRecordStrategyTest},
+ * {@code SigningRecordOutboxDrainerTest}, {@code BestEffortSigningRecordStrategyTest}); what these tests alone
+ * prove is that the factory routes each mode to the right strategy, the mode's stages chain into one persisted
  * record, and the mode's lifecycle counters advance:
  *
  * <ul>
@@ -56,7 +56,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     private static final Duration FLUSH_DEADLINE = Duration.ofSeconds(10);
 
     @Autowired
-    private SigningRecordWriterFactory factory;
+    private SigningRecordStrategyFactory factory;
     @Autowired
     private SigningRecordOutboxDrainer drainer;
     @Autowired
@@ -86,7 +86,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double drainedBefore = counterValue("signing_record.outbox.drained.total");
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is staged in the outbox for that profile, not yet visible through the service
         assertRecordInOutbox();
@@ -116,7 +116,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double createdBefore = counterValue("signing_record.created.total", "mode", immediate.name());
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is selectable through the service straight away, never staged in the outbox, and the counter advanced
         assertRecordExists();
@@ -138,7 +138,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double createdBefore = counterValue("signing_record.created.total", "mode", bestEffort.name());
 
         // when the record is written through the factory-selected writer
-        factory.writerFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version).record(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is admitted to the queue straight away, before any persistence
         assertEquals(queuedBefore + 1, counterValue("signing_record.queued.total", "mode", bestEffort.name()));

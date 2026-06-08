@@ -8,7 +8,7 @@ import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
-import com.czertainly.core.service.writer.signingrecord.OutboxSigningRecordWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -117,7 +117,7 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
      * Per-row isolation: an unpersistable row (here a {@code signing_profile_uuid} with no matching
      * signing_profile, so its copy into {@code signing_record} violates the FK) has its attempt recorded in
      * its own transaction on every run and eventually crosses the poison threshold, instead of livelocking
-     * the drainer. The fix is {@link OutboxSigningRecordWriter}: each row is copied with an immediate
+     * the drainer. The fix is {@link SigningRecordWriter}: each row is copied with an immediate
      * {@code saveAndFlush} in its own transaction, so the failure surfaces synchronously and
      * {@code recordFailure} commits independently of the rolled-back copy.
      */

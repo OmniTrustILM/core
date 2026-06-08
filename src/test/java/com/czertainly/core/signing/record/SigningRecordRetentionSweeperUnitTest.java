@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
-import com.czertainly.core.service.writer.signingrecord.SigningRecordDeletionWriter;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,14 +22,14 @@ class SigningRecordRetentionSweeperUnitTest {
     private static final int MAX_BATCHES_PER_SWEEP = 3;
 
     private SimpleMeterRegistry registry;
-    private SigningRecordDeletionWriter writer;
+    private SigningRecordWriter writer;
     private ClusterOperationSynchronizer clusterSynchronizer;
     private SigningRecordMetrics metrics;
 
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        writer = mock(SigningRecordDeletionWriter.class);
+        writer = mock(SigningRecordWriter.class);
         clusterSynchronizer = mock(ClusterOperationSynchronizer.class);
         metrics = new SigningRecordMetrics(registry);
         when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.SIGNING_RECORD_RETENTION))

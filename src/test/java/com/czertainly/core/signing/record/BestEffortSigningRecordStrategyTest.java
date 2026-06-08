@@ -1,4 +1,4 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -7,7 +7,6 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
-import com.czertainly.core.signing.record.SigningRecordBestEffortFlusher;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,22 +26,23 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Integration test for {@link BestEffortSigningRecordWriter} over a real Postgres via {@link BaseSpringBootTest},
- * exercising the genuine async pipeline: {@link BestEffortSigningRecordWriter#record} enqueues, and the real
+ * Integration test for {@link BestEffortSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest},
+ * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#record} enqueues, and the real
  * background {@link SigningRecordBestEffortFlusher} thread drains the queue and persists a batch into
- * {@code signing_record}. The writer's branch logic (policy gating, queue dispatch, metrics, failure isolation,
- * mapping field-fidelity over a captor) is pinned against mocks in {@link BestEffortSigningRecordWriterUnitTest},
- * and the queue's eviction/blocking/batching mechanics against the real queue in
- * BestEffortSigningRecordQueueTest. What only a real database can prove lives here: a queued record
- * survives the flusher's real transactional {@code saveAll} (including the {@code signing_profile} foreign key)
- * and reads back field-for-field — through the jsonb and {@code byte[]} columns a mocked repository would only echo.
+ * {@code signing_record} through the writer. The strategy's branch logic (policy gating, queue dispatch,
+ * metrics, failure isolation, mapping field-fidelity over a captor) is pinned against mocks in
+ * {@link BestEffortSigningRecordStrategyUnitTest}, and the queue's eviction/blocking/batching mechanics against
+ * the real queue in BestEffortSigningRecordQueueTest. What only a real database can prove lives here: a queued
+ * record survives the flusher's real transactional {@code saveAll} (including the {@code signing_profile}
+ * foreign key) and reads back field-for-field — through the jsonb and {@code byte[]} columns a mocked repository
+ * would only echo.
  */
-class BestEffortSigningRecordWriterTest extends BaseSpringBootTest {
+class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
 
     private static final Duration FLUSH_DEADLINE = Duration.ofSeconds(10);
 
     @Autowired
-    private BestEffortSigningRecordWriter writer;
+    private BestEffortSigningRecordStrategy strategy;
     @Autowired
     private SigningRecordRepository recordRepo;
     @Autowired
@@ -59,7 +59,7 @@ class BestEffortSigningRecordWriterTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        writer.record(aSigningRecordInput()
+        strategy.record(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -93,7 +93,7 @@ class BestEffortSigningRecordWriterTest extends BaseSpringBootTest {
 
         // when
         for (int i = 0; i < recordedCount; i++) {
-            writer.record(aSigningRecordInput()
+            strategy.record(aSigningRecordInput()
                     .signingProfile(recordingProfile)
                     .displayName("batched-record-" + i)
                     .build());
@@ -111,7 +111,7 @@ class BestEffortSigningRecordWriterTest extends BaseSpringBootTest {
 
     /**
      * Persists the {@code signing_profile} row a record's {@code signing_profile_uuid} foreign key must reference.
-     * The profile's model fields are irrelevant to the writer (it reads only uuid, version and record policy),
+     * The profile's model fields are irrelevant to the strategy (it reads only uuid, version and record policy),
      * so this fills the NOT NULL columns with unremarkable values.
      */
     private SigningProfile insertSigningProfile(String name) {

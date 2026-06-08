@@ -1,4 +1,4 @@
-package com.czertainly.core.service.writer.signingrecord;
+package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
 import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -8,7 +8,6 @@ import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.model.signing.SigningProfileModel;
-import com.czertainly.core.signing.record.SigningRecordOutboxDrainer;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,18 +28,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Integration test for {@link OutboxSigningRecordWriter} over a real Postgres via {@link BaseSpringBootTest}.
- * The writer's branch logic (policy gating, metrics, failure counting, propagation) is pinned over mocks in
- * {@link OutboxSigningRecordWriterUnitTest}; what only a real database can prove lives here: a recorded input
- * lands as a row in {@code signing_record_outbox} (the staging table the {@link SigningRecordOutboxDrainer}
- * later moves) and <em>not</em> in {@code signing_record}, reads back field-for-field through the jsonb and
- * {@code byte[]} columns a mocked repository would only echo, and a constraint violation propagates to the
- * caller leaving nothing staged.
+ * Integration test for {@link DeferredDurableSigningRecordStrategy} over a real Postgres via
+ * {@link BaseSpringBootTest}. The strategy's branch logic (policy gating, metrics, failure counting,
+ * propagation) is pinned over mocks in {@link DeferredDurableSigningRecordStrategyUnitTest}; what only a real
+ * database can prove lives here: a recorded input lands as a row in {@code signing_record_outbox} (the staging
+ * table the {@link SigningRecordOutboxDrainer} later moves) and <em>not</em> in {@code signing_record}, reads
+ * back field-for-field through the jsonb and {@code byte[]} columns a mocked writer would only echo, and a
+ * constraint violation propagates to the caller leaving nothing staged.
  */
-class OutboxSigningRecordWriterTest extends BaseSpringBootTest {
+class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
 
     @Autowired
-    private OutboxSigningRecordWriter writer;
+    private DeferredDurableSigningRecordStrategy strategy;
     @Autowired
     private SigningProfileRepository profileRepo;
     @Autowired
@@ -59,7 +58,7 @@ class OutboxSigningRecordWriterTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        writer.record(aSigningRecordInput()
+        strategy.record(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -91,7 +90,7 @@ class OutboxSigningRecordWriterTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        writer.record(aSigningRecordInput().signingProfile(notRecordingProfile).build());
+        strategy.record(aSigningRecordInput().signingProfile(notRecordingProfile).build());
 
         // then
         assertEquals(0, outboxRepo.count());
@@ -109,7 +108,7 @@ class OutboxSigningRecordWriterTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        Executable record = () -> writer.record(aSigningRecordInput()
+        Executable record = () -> strategy.record(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .signingTime(missingSigningTime)
                 .build());
@@ -128,7 +127,7 @@ class OutboxSigningRecordWriterTest extends BaseSpringBootTest {
 
     /**
      * Persists the {@code signing_profile} row referenced by a staged record's {@code signing_profile_uuid}.
-     * The profile's model fields are irrelevant to the writer (it reads only uuid, version and record policy),
+     * The profile's model fields are irrelevant to the strategy (it reads only uuid, version and record policy),
      * so this fills the NOT NULL columns with unremarkable values.
      */
     private SigningProfile insertSigningProfile(String name) {
