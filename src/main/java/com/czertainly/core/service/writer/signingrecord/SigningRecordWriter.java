@@ -4,6 +4,7 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,12 @@ import java.util.UUID;
 @Component
 public class SigningRecordWriter {
 
+    /**
+     * Caps the stored error to a sane length. A driver/constraint message (e.g. a full "could not execute
+     * batch [...]" dump) can be huge and even embed the row's payload bytes; storing it verbatim would bloat
+     * the {@code last_error} column. Keeping it bounded also keeps the failure UPDATE itself small and cheap,
+     * so the attempt increment commits and poison escalation proceed.
+     */
     private static final int MAX_ERROR_LENGTH = 1000;
 
     private final SigningRecordRepository recordRepository;
@@ -84,7 +91,7 @@ public class SigningRecordWriter {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordFailure(UUID uuid, String error) {
-        outboxRepository.recordFailure(List.of(uuid), truncateError(error));
+        outboxRepository.recordFailure(List.of(uuid), StringUtils.truncate(error, MAX_ERROR_LENGTH));
     }
 
     // --- Deletions (REQUIRES_NEW) ----------------------------------------------------------------------
@@ -102,20 +109,5 @@ public class SigningRecordWriter {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public int deleteRetrievedAndFlaggedBatch(int limit) {
         return recordRepository.deleteRetrievedAndFlagged(limit);
-    }
-
-    // --- Helpers ---------------------------------------------------------------------------------------
-
-    /**
-     * Caps the stored error to a sane length. A driver/constraint message (e.g. a full "could not execute
-     * batch [...]" dump) can be huge and even embed the row's payload bytes; storing it verbatim would bloat
-     * the {@code last_error} column. Keeping it bounded also keeps the failure UPDATE itself small and cheap,
-     * so the attempt increment commits and poison escalation proceed.
-     */
-    private static String truncateError(String error) {
-        if (error == null || error.length() <= MAX_ERROR_LENGTH) {
-            return error;
-        }
-        return error.substring(0, MAX_ERROR_LENGTH);
     }
 }
