@@ -28,7 +28,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.ValidatorUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -120,7 +120,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
 
         boolean intuneEnabled = Boolean.TRUE.equals(request.getEnableIntune());
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getCaCertificateUuid()));
-        if (!CertificateUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
+        if (!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
@@ -184,7 +184,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
 
         boolean intuneEnabled = Boolean.TRUE.equals(request.getEnableIntune());
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getCaCertificateUuid()));
-        if(!CertificateUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
+        if(!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 

@@ -5,6 +5,7 @@ import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowT
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
 import com.czertainly.api.model.common.enums.cryptography.KeyType;
+import com.czertainly.api.model.core.certificate.CertificateState;
 import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
@@ -17,9 +18,12 @@ import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.cmp.CmpEntityUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.security.cert.X509Certificate;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -151,7 +155,7 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
     private List<UUID> queryUuids(SigningWorkflowType workflowType, boolean qualified) {
         return certificateRepository
                 .findUsingSecurityFilter(SecurityFilter.create(), List.of(),
-                        CertificateUtil.constructQueryDigitalSigningCertAcceptable(workflowType, qualified))
+                        CertificateEligibilityUtil.constructQueryDigitalSigningCertAcceptable(workflowType, qualified))
                 .stream().map(Certificate::getUuid).toList();
     }
 
@@ -159,6 +163,7 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
         CryptographicKey key = cryptographicKeyRepository.save(newKey());
 
         var keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+
         CryptographicKeyItem privKey = CmpEntityUtil.createCryptographicKeyItem(
                 key, UUID.randomUUID(), KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, null);
         privKey.setKeyUuid(key.getUuid());
@@ -170,7 +175,18 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
         privKey.setKeyReferenceUuid(privKey.getUuid());
         cryptographicKeyItemRepository.save(privKey);
 
-        key.setItems(Set.of(privKey));
+        CryptographicKeyItem pubKey = CmpEntityUtil.createCryptographicKeyItem(
+                key, UUID.randomUUID(), KeyType.PUBLIC_KEY, KeyAlgorithm.RSA, null);
+        pubKey.setKeyUuid(key.getUuid());
+        pubKey.setKeyData(java.util.Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+        pubKey.setFormat(KeyFormat.SPKI);
+        pubKey.setLength(2048);
+        pubKey.setUsage(List.of(KeyUsage.VERIFY));
+        cryptographicKeyItemRepository.save(pubKey);
+        pubKey.setKeyReferenceUuid(pubKey.getUuid());
+        cryptographicKeyItemRepository.save(pubKey);
+
+        key.setItems(Set.of(privKey, pubKey));
         return cryptographicKeyRepository.save(key);
     }
 
@@ -192,6 +208,100 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
         cert.setCertificateContent(content);
         cert.setKey(key);
         cert.setValidationStatus(CertificateValidationStatus.VALID);
+        return certificateRepository.save(cert);
+    }
+
+    // --- parameterized JPA query test against the shared dataset ---
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("com.czertainly.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
+    void jpaQuery_matchesInMemoryEligibilityRule(
+            String testCaseName,
+            List<CertificateTestData.KeyItemData> publicKeys,
+            List<CertificateTestData.KeyItemData> privateKeys,
+            CertificateState certState, CertificateValidationStatus validationStatus, boolean archived,
+            boolean withTokenProfile, boolean withTokenInstanceReference,
+            List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
+            SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance,
+            boolean expectedResult
+    ) throws Exception {
+        CryptographicKey key = buildAndSaveKey(publicKeys, privateKeys, withTokenProfile, withTokenInstanceReference);
+        Certificate cert = buildAndSaveCert(key, certState, validationStatus, archived,
+                extendedKeyUsages, extendedKeyUsageCritical, qcCompliance);
+
+        List<UUID> found = queryUuids(workflowType, qualifiedTimestamp);
+
+        if (expectedResult) {
+            assertThat(found).as("Test case '%s': certificate should be included", testCaseName)
+                    .contains(cert.getUuid());
+        } else {
+            assertThat(found).as("Test case '%s': certificate should be excluded", testCaseName)
+                    .doesNotContain(cert.getUuid());
+        }
+    }
+
+    private CryptographicKey buildAndSaveKey(
+            List<CertificateTestData.KeyItemData> publicKeys,
+            List<CertificateTestData.KeyItemData> privateKeys,
+            boolean withTokenProfile, boolean withTokenInstanceReference
+    ) {
+        CryptographicKey key = CmpEntityUtil.createCryptographicKey();
+        if (withTokenProfile) {
+            key.setTokenProfile(tokenProfile);
+        }
+        if (withTokenInstanceReference) {
+            key.setTokenInstanceReference(tokenProfile.getTokenInstanceReference());
+        }
+        key = cryptographicKeyRepository.save(key);
+
+        Set<CryptographicKeyItem> items = new HashSet<>();
+        for (CertificateTestData.KeyItemData kd : publicKeys) {
+            items.add(buildAndSaveKeyItem(key, kd));
+        }
+        for (CertificateTestData.KeyItemData kd : privateKeys) {
+            items.add(buildAndSaveKeyItem(key, kd));
+        }
+        key.setItems(items);
+        return cryptographicKeyRepository.save(key);
+    }
+
+    private CryptographicKeyItem buildAndSaveKeyItem(CryptographicKey key, CertificateTestData.KeyItemData kd) {
+        CryptographicKeyItem item = CmpEntityUtil.createCryptographicKeyItem(
+                key, UUID.randomUUID(), kd.type(), kd.algorithm(), null);
+        item.setKeyUuid(key.getUuid());
+        item.setKeyData("placeholder");
+        item.setFormat(kd.type() == KeyType.PUBLIC_KEY ? KeyFormat.SPKI : KeyFormat.PRKI);
+        item.setLength(2048);
+        item.setUsage(kd.usage());
+        item.setState(kd.state());
+        CryptographicKeyItem saved = cryptographicKeyItemRepository.save(item);
+        saved.setKeyReferenceUuid(saved.getUuid());
+        return cryptographicKeyItemRepository.save(saved);
+    }
+
+    private Certificate buildAndSaveCert(
+            CryptographicKey key,
+            CertificateState state, CertificateValidationStatus validationStatus, boolean archived,
+            List<String> extendedKeyUsages, boolean extendedKeyUsageCritical, Boolean qcCompliance
+    ) throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        String pem = CertificateUtil.normalizeCertificateContent(
+                java.util.Base64.getEncoder().encodeToString(x509.getEncoded()));
+        CertificateContent content = CmpEntityUtil.createCertContent(CertificateUtil.getThumbprint(x509), pem);
+        certificateContentRepository.save(content);
+
+        Certificate cert = new Certificate();
+        CertificateUtil.prepareIssuedCertificate(cert, x509);
+        cert.setCertificateContent(content);
+        cert.setKey(key);
+        cert.setState(state);
+        cert.setValidationStatus(validationStatus);
+        cert.setArchived(archived);
+        cert.setExtendedKeyUsage(extendedKeyUsages.isEmpty() ? null : MetaDefinitions.serializeArrayString(extendedKeyUsages));
+        cert.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
+        if (qcCompliance != null) {
+            cert.setQcCompliance(qcCompliance);
+        }
         return certificateRepository.save(cert);
     }
 }
