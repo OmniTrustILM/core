@@ -77,7 +77,7 @@ import com.czertainly.core.service.SigningProfileService;
 import com.czertainly.core.service.TokenProfileService;
 import com.czertainly.core.service.TspProfileService;
 import com.czertainly.core.service.model.SecuredList;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -605,7 +605,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
                 Certificate certificate =
                         certificateService.getCertificateEntity(SecuredUUID.fromUUID(s.getCertificateUuid()));
-                if (CertificateUtil.isCertificateDigitalSigningAcceptable(certificate, p.getWorkflowType(), Boolean.TRUE.equals(version.getQualifiedTimestamp()))) {
+                if (CertificateEligibilityUtil.isCertificateDigitalSigningAcceptable(certificate, p.getWorkflowType(), Boolean.TRUE.equals(version.getQualifiedTimestamp()))) {
                     version.setCertificate(certificate);
                 } else {
                     throw new ValidationException("Certificate " + certificate.getUuid() + " is not eligible for signing workflow type " + p.getWorkflowType());
