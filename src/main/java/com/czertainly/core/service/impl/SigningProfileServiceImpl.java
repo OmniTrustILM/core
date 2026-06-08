@@ -43,6 +43,7 @@ import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.config.cache.CacheEvictor;
@@ -125,6 +126,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
     private CacheEvictor cacheEvictor;
+    private ClusterOperationSynchronizer clusterSynchronizer;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -361,8 +363,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Transactional
     SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request, List<BaseAttribute> formatterDefinitions)
             throws AlreadyExistException, AttributeException, NotFoundException {
-        // Acquire advisory lock before the bump decision to prevent race conditions
-        signingProfileVersionRepository.acquireAdvisoryLock("signing-profile:" + uuid.getValue());
+        // Serialize the bump decision per profile to prevent concurrent updates from racing.
+        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
 
         SigningProfile profile = findByUuid(uuid);
         // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
@@ -977,5 +979,10 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setClusterSynchronizer(ClusterOperationSynchronizer clusterSynchronizer) {
+        this.clusterSynchronizer = clusterSynchronizer;
     }
 }

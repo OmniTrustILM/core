@@ -49,4 +49,23 @@ public class ClusterOperationSynchronizer {
                 .setParameter("key", operation.lockKey)
                 .getSingleResult();
     }
+
+    /**
+     * Acquires a cluster-wide lock keyed on {@code key}, blocking until it becomes available.
+     * <p>
+     * Unlike {@link #tryLock(Operation)}, this waits for the lock instead of skipping the work, so use
+     * it to serialize a read-decide-write section that every caller must perform (e.g. the signing-profile
+     * version-bump decision) rather than housekeeping only one node needs to run. The {@code key} is hashed
+     * into the advisory-lock keyspace via {@code hashtext}; distinct keys serialize independently, so callers
+     * scope the lock by composing a stable prefix with the entity identifier (e.g. {@code "signing-profile:" + uuid}).
+     * <p>
+     * Must be called inside a transaction: the lock is transaction-scoped and released automatically when
+     * the transaction commits or rolls back.
+     */
+    public void lock(String key) {
+        entityManager
+                .createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(:key))")
+                .setParameter("key", key)
+                .getSingleResult();
+    }
 }
