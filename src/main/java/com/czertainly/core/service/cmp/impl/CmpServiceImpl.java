@@ -35,6 +35,7 @@ import com.czertainly.core.dao.repository.RaProfileRepository;
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
 import com.czertainly.core.service.cmp.CmpService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
@@ -448,7 +449,7 @@ public class CmpServiceImpl implements CmpService {
                         certificateContent);
             }
 
-            if (!CertificateUtil.isCertificateCmpAcceptable(cmpCaCertificate)) {
+            if (!CertificateEligibilityUtil.isCertificateCmpAcceptable(cmpCaCertificate)) {
                 throw new CmpConfigurationException(PKIFailureInfo.systemFailure, "CMP Profile does not have associated acceptable CA certificate");
             }
         }
