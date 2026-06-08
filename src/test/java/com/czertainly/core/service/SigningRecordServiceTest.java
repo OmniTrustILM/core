@@ -310,13 +310,13 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // doesSigningRecordExist
+    // doesSigningRecordExistInternal
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
     void doesSigningRecordExist_trueForProfileVersionThatHasRecords() {
         // when
-        boolean exists = signingRecordService.doesSigningRecordExist(alphaProfile.getUuid(), VERSION_2);
+        boolean exists = signingRecordService.doesSigningRecordExistInternal(alphaProfile.getUuid(), VERSION_2);
 
         // then
         assertTrue(exists);
@@ -328,7 +328,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         var versionWithoutRecords = 3;
 
         // when
-        boolean exists = signingRecordService.doesSigningRecordExist(alphaProfile.getUuid(), versionWithoutRecords);
+        boolean exists = signingRecordService.doesSigningRecordExistInternal(alphaProfile.getUuid(), versionWithoutRecords);
 
         // then
         assertFalse(exists);
@@ -338,7 +338,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void doesSigningRecordExist_isScopedToTheProfile() {
         // beta-profile has no version-2 record even though alpha-profile does
         // when
-        boolean exists = signingRecordService.doesSigningRecordExist(betaProfile.getUuid(), VERSION_2);
+        boolean exists = signingRecordService.doesSigningRecordExistInternal(betaProfile.getUuid(), VERSION_2);
 
         // then
         assertFalse(exists);

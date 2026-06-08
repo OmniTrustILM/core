@@ -378,7 +378,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
         SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), profile.getLatestVersion()).orElse(null);
-        boolean recordsExist = signingRecordService.doesSigningRecordExist(profile.getUuid(), profile.getLatestVersion());
+        boolean recordsExist = signingRecordService.doesSigningRecordExistInternal(profile.getUuid(), profile.getLatestVersion());
         boolean policyRecordDifferent = currentVersion != null && recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
         if (bump) {

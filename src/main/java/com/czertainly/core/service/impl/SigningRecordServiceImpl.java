@@ -127,8 +127,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST)
-    public boolean doesSigningRecordExist(UUID uuid, int version) {
+    public boolean doesSigningRecordExistInternal(UUID uuid, int version) {
         return signingRecordRepository.existsBySigningProfileUuidAndSigningProfileVersion(uuid, version);
     }
 
