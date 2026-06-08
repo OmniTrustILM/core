@@ -27,7 +27,31 @@ public class CryptographyUtil {
         return getAlgorithmIdentifierInstance(resolveSignatureAlgorithmName(keyAlgorithm, publicKey, signatureAttributes));
     }
 
+    /**
+     * Resolves the signature algorithm name. Derives the PQC parameter-spec name from raw public-key bytes. Use it when no
+     * pre-computed name is available; on the signing hot path prefer the overload taking {@code pqcParameterSpecName}.
+     */
     public static String resolveSignatureAlgorithmName(KeyAlgorithm keyAlgorithm, String publicKey, List<? extends RequestAttribute> signatureAttributes) {
+        return resolveSignatureAlgorithmName(keyAlgorithm, signatureAttributes, resolvePqcParameterSpecName(keyAlgorithm, publicKey));
+    }
+
+    /**
+     * Resolves the signature algorithm name; used by the signing hot path.
+     *
+     * <p>
+     * Callers stay algorithm-agnostic and pass both inputs; this method picks the one that applies:
+     * <ul>
+     *   <li>RSA / ECDSA — <strong>request-intrinsic</strong>: built from {@code signatureAttributes} (digest and scheme),
+     *       which only exist per signing request; {@code pqcParameterSpecName} is {@code null} and ignored.</li>
+     *   <li>FALCON / ML-DSA / SLH-DSA — <strong>key-intrinsic</strong>: the name <em>is</em> the key's parameter set, so
+     *       {@code pqcParameterSpecName} (pre-resolved once at key-model build time) is returned verbatim.</li>
+     * </ul>
+     *
+     * @param keyAlgorithm         the key algorithm
+     * @param signatureAttributes  signing operation attributes (read for RSA / ECDSA)
+     * @param pqcParameterSpecName the pre-computed parameter-spec name for PQC algorithms; ignored for RSA / ECDSA
+     */
+    public static String resolveSignatureAlgorithmName(KeyAlgorithm keyAlgorithm, List<? extends RequestAttribute> signatureAttributes, String pqcParameterSpecName) {
         switch (keyAlgorithm) {
             case RSA -> {
                 final RsaSignatureScheme scheme = RsaSignatureScheme.findByCode(
@@ -56,7 +80,11 @@ public class CryptographyUtil {
                 return digest.getProviderName() + "WITHECDSA";
             }
             case FALCON, MLDSA, SLHDSA -> {
-                return resolvePqcParameterSpecName(keyAlgorithm, publicKey);
+                if (pqcParameterSpecName == null) {
+                    throw new ValidationException(
+                            ValidationError.create("pqcParameterSpecName is required for PQC algorithm " + keyAlgorithm));
+                }
+                return pqcParameterSpecName;
             }
             default -> throw new ValidationException(
                     ValidationError.create("Cryptographic algorithm not supported"));
