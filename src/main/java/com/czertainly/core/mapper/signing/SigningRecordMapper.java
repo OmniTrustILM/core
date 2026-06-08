@@ -22,53 +22,53 @@ public class SigningRecordMapper {
      * when the row was staged, so no content gating happens here.
      */
     public static SigningRecord toRecord(SigningRecordOutbox outbox) {
-        SigningRecord record = new SigningRecord();
-        record.setUuid(outbox.getUuid());
-        record.setName(outbox.getName());
-        record.setSigningProfileUuid(outbox.getSigningProfileUuid());
-        record.setSigningProfileVersion(outbox.getSigningProfileVersion());
-        record.setSigningTime(outbox.getSigningTime());
-        record.setRequestedByUuid(outbox.getRequestedByUuid());
-        record.setRequestedByUsername(outbox.getRequestedByUsername());
-        record.setSignatureValue(outbox.getSignatureValue());
-        record.setSignedDocument(outbox.getSignedDocument());
-        record.setDtbs(outbox.getDtbs());
-        record.setRequestMetadataJson(outbox.getRequestMetadataJson());
-        return record;
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(outbox.getUuid());
+        signingRecord.setName(outbox.getName());
+        signingRecord.setSigningProfileUuid(outbox.getSigningProfileUuid());
+        signingRecord.setSigningProfileVersion(outbox.getSigningProfileVersion());
+        signingRecord.setSigningTime(outbox.getSigningTime());
+        signingRecord.setRequestedByUuid(outbox.getRequestedByUuid());
+        signingRecord.setRequestedByUsername(outbox.getRequestedByUsername());
+        signingRecord.setSignatureValue(outbox.getSignatureValue());
+        signingRecord.setSignedDocument(outbox.getSignedDocument());
+        signingRecord.setDtbs(outbox.getDtbs());
+        signingRecord.setRequestMetadataJson(outbox.getRequestMetadataJson());
+        return signingRecord;
     }
 
-    public static SigningRecordDto toDto(SigningRecord record) {
+    public static SigningRecordDto toDto(SigningRecord signingRecord) {
         SigningRecordDto dto = new SigningRecordDto();
-        dto.setUuid(record.getUuid().toString());
-        dto.setName(record.getName());
-        dto.setSigningProfile(toSigningProfileListDto(record));
-        Instant signingTime = record.getSigningTime();
+        dto.setUuid(signingRecord.getUuid().toString());
+        dto.setName(signingRecord.getName());
+        dto.setSigningProfile(toSigningProfileListDto(signingRecord));
+        Instant signingTime = signingRecord.getSigningTime();
         dto.setSigningTime(signingTime);
-        if (record.getRequestedByUuid() != null) {
+        if (signingRecord.getRequestedByUuid() != null) {
             dto.setRequestedBy(new NameAndUuidDto(
-                    record.getRequestedByUuid().toString(), record.getRequestedByUsername()));
+                    signingRecord.getRequestedByUuid().toString(), signingRecord.getRequestedByUsername()));
         }
-        OffsetDateTime createdAt = record.getCreated();
+        OffsetDateTime createdAt = signingRecord.getCreated();
         dto.setCreatedAt(createdAt.toInstant());
-        dto.setSignatureValue(record.getSignatureValue());
-        dto.setSignedDocument(record.getSignedDocument());
-        dto.setDtbs(record.getDtbs());
-        dto.setRequestMetadataJson(record.getRequestMetadataJson());
-        if (record.getSignedDocumentRetrievedAt() != null) {
-            dto.setSignedDocumentRetrievedAt(record.getSignedDocumentRetrievedAt());
+        dto.setSignatureValue(signingRecord.getSignatureValue());
+        dto.setSignedDocument(signingRecord.getSignedDocument());
+        dto.setDtbs(signingRecord.getDtbs());
+        dto.setRequestMetadataJson(signingRecord.getRequestMetadataJson());
+        if (signingRecord.getSignedDocumentRetrievedAt() != null) {
+            dto.setSignedDocumentRetrievedAt(signingRecord.getSignedDocumentRetrievedAt());
         }
         return dto;
     }
 
-    public static SigningRecordListDto toListDto(SigningRecord record) {
+    public static SigningRecordListDto toListDto(SigningRecord signingRecord) {
         SigningRecordListDto dto = new SigningRecordListDto();
-        dto.setUuid(record.getUuid().toString());
-        dto.setName(record.getName());
-        Instant signingTime = record.getSigningTime();
+        dto.setUuid(signingRecord.getUuid().toString());
+        dto.setName(signingRecord.getName());
+        Instant signingTime = signingRecord.getSigningTime();
         dto.setSigningTime(signingTime);
-        OffsetDateTime createdAtZoned = record.getCreated();
+        OffsetDateTime createdAtZoned = signingRecord.getCreated();
         dto.setCreatedAt(createdAtZoned.toInstant());
-        dto.setSigningProfile(toSigningProfileListDto(record));
+        dto.setSigningProfile(toSigningProfileListDto(signingRecord));
         return dto;
     }
 
@@ -77,15 +77,15 @@ public class SigningRecordMapper {
      * {@code signingProfileVersion} captured when the record was produced — not the profile's current latest
      * version — so the DTO reflects the profile state that actually produced this signature.
      */
-    private static SigningProfileListDto toSigningProfileListDto(SigningRecord record) {
-        SigningProfile profile = record.getSigningProfile();
+    private static SigningProfileListDto toSigningProfileListDto(SigningRecord signingRecord) {
+        SigningProfile profile = signingRecord.getSigningProfile();
         if (profile == null) {
             throw new IllegalStateException(
-                    "SigningRecord " + record.getUuid() + " has no signing profile; signing_profile_uuid is NOT NULL "
+                    "SigningRecord " + signingRecord.getUuid() + " has no signing profile; signing_profile_uuid is NOT NULL "
                             + "and SigningRecordDto.signingProfile is required, so this association must be present.");
         }
         SigningProfileListDto dto = SigningProfileMapper.toListDto(profile);
-        dto.setVersion(record.getSigningProfileVersion());
+        dto.setVersion(signingRecord.getSigningProfileVersion());
         return dto;
     }
 }

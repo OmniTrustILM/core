@@ -438,19 +438,19 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         }
 
         private SigningRecord insert() {
-            SigningRecord record = new SigningRecord();
-            record.setSigningProfileUuid(profile.getUuid());
-            record.setSigningProfileVersion(version);
-            record.setName(name);
-            record.setSigningTime(signingTime);
-            record.setSignatureValue(signatureValue);
-            record.setDtbs(dtbs);
-            record.setSignedDocument(signedDocument);
-            record.setRequestMetadataJson(requestMetadataJson);
-            record.setRequestedByUuid(requestedByUuid);
-            record.setRequestedByUsername(requestedByUsername);
-            record.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
-            return signingRecordRepository.saveAndFlush(record);
+            SigningRecord signingRecord = new SigningRecord();
+            signingRecord.setSigningProfileUuid(profile.getUuid());
+            signingRecord.setSigningProfileVersion(version);
+            signingRecord.setName(name);
+            signingRecord.setSigningTime(signingTime);
+            signingRecord.setSignatureValue(signatureValue);
+            signingRecord.setDtbs(dtbs);
+            signingRecord.setSignedDocument(signedDocument);
+            signingRecord.setRequestMetadataJson(requestMetadataJson);
+            signingRecord.setRequestedByUuid(requestedByUuid);
+            signingRecord.setRequestedByUsername(requestedByUsername);
+            signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
+            return signingRecordRepository.saveAndFlush(signingRecord);
         }
     }
 }

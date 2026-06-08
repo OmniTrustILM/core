@@ -34,15 +34,15 @@ class SigningRecordInputMapperTest {
                 .build();
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertEquals(displayName, record.getName());
-        assertEquals(profileUuid, record.getSigningProfileUuid());
-        assertEquals(profileVersion, record.getSigningProfileVersion());
-        assertEquals(signingTime, record.getSigningTime());
-        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), record.getRequestedByUuid());
-        assertEquals(input.getRequestedBy().getName(), record.getRequestedByUsername());
+        assertEquals(displayName, signingRecord.getName());
+        assertEquals(profileUuid, signingRecord.getSigningProfileUuid());
+        assertEquals(profileVersion, signingRecord.getSigningProfileVersion());
+        assertEquals(signingTime, signingRecord.getSigningTime());
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), signingRecord.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), signingRecord.getRequestedByUsername());
     }
 
     @Test
@@ -51,10 +51,10 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = aSigningRecordInput().build();
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertNotNull(record.getUuid());
+        assertNotNull(signingRecord.getUuid());
     }
 
     @Test
@@ -63,13 +63,13 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(recordingEverything().build());
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertEquals(input.getRequestMetadataJson(), record.getRequestMetadataJson());
-        assertArrayEquals(input.getSignature(), record.getSignatureValue());
-        assertArrayEquals(input.getSignedDocument(), record.getSignedDocument());
-        assertArrayEquals(input.getDtbs(), record.getDtbs());
+        assertEquals(input.getRequestMetadataJson(), signingRecord.getRequestMetadataJson());
+        assertArrayEquals(input.getSignature(), signingRecord.getSignatureValue());
+        assertArrayEquals(input.getSignedDocument(), signingRecord.getSignedDocument());
+        assertArrayEquals(input.getDtbs(), signingRecord.getDtbs());
     }
 
     @Test
@@ -78,15 +78,15 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(notRecording().build());
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then the requester identity is captured unconditionally, independent of the content policy
-        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), record.getRequestedByUuid());
-        assertEquals(input.getRequestedBy().getName(), record.getRequestedByUsername());
-        assertNull(record.getRequestMetadataJson());
-        assertNull(record.getSignatureValue());
-        assertNull(record.getSignedDocument());
-        assertNull(record.getDtbs());
+        assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), signingRecord.getRequestedByUuid());
+        assertEquals(input.getRequestedBy().getName(), signingRecord.getRequestedByUsername());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
     }
 
     @Test
@@ -96,13 +96,13 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(onlyRequestMetadata);
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertEquals(input.getRequestMetadataJson(), record.getRequestMetadataJson());
-        assertNull(record.getSignatureValue());
-        assertNull(record.getSignedDocument());
-        assertNull(record.getDtbs());
+        assertEquals(input.getRequestMetadataJson(), signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
     }
 
     @Test
@@ -112,13 +112,13 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(onlySignature);
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertArrayEquals(input.getSignature(), record.getSignatureValue());
-        assertNull(record.getRequestMetadataJson());
-        assertNull(record.getSignedDocument());
-        assertNull(record.getDtbs());
+        assertArrayEquals(input.getSignature(), signingRecord.getSignatureValue());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
     }
 
     @Test
@@ -128,13 +128,13 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(onlySignedDocument);
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertArrayEquals(input.getSignedDocument(), record.getSignedDocument());
-        assertNull(record.getRequestMetadataJson());
-        assertNull(record.getSignatureValue());
-        assertNull(record.getDtbs());
+        assertArrayEquals(input.getSignedDocument(), signingRecord.getSignedDocument());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getDtbs());
     }
 
     @Test
@@ -144,13 +144,13 @@ class SigningRecordInputMapperTest {
         SigningRecordInput input = inputWithPolicy(onlyDtbs);
 
         // when
-        SigningRecord record = mapper.toRecord(input);
+        SigningRecord signingRecord = mapper.toRecord(input);
 
         // then
-        assertArrayEquals(input.getDtbs(), record.getDtbs());
-        assertNull(record.getRequestMetadataJson());
-        assertNull(record.getSignatureValue());
-        assertNull(record.getSignedDocument());
+        assertArrayEquals(input.getDtbs(), signingRecord.getDtbs());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
     }
 
     @Test

@@ -210,12 +210,12 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
 
     private SigningRecord insertRecord(SigningProfile profile, int version, Instant signedDocumentRetrievedAt,
                                        Instant signingTime) {
-        SigningRecord record = new SigningRecord();
-        record.setSigningProfileUuid(profile.getUuid());
-        record.setSigningProfileVersion(version);
-        record.setSigningTime(signingTime);
-        record.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
-        return repository.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setSigningProfileUuid(profile.getUuid());
+        signingRecord.setSigningProfileVersion(version);
+        signingRecord.setSigningTime(signingTime);
+        signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
+        return repository.saveAndFlush(signingRecord);
     }
 
     private void insertProfileVersion(SigningProfile profile, int version) {

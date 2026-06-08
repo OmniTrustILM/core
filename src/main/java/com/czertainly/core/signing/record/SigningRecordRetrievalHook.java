@@ -48,12 +48,12 @@ public class SigningRecordRetrievalHook {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void onSignedDocumentServed(UUID signingRecordUuid) throws NotFoundException {
-        SigningRecord record = repository.findById(signingRecordUuid)
+        SigningRecord signingRecord = repository.findById(signingRecordUuid)
                 .orElseThrow(() -> new NotFoundException(SigningRecord.class, signingRecordUuid));
 
-        record.setSignedDocumentRetrievedAt(Instant.now());
-        repository.save(record);
-        planSigningRecordDeletion(record);
+        signingRecord.setSignedDocumentRetrievedAt(Instant.now());
+        repository.save(signingRecord);
+        planSigningRecordDeletion(signingRecord);
     }
 
     private void planSigningRecordDeletion(SigningRecord r) {

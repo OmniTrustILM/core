@@ -30,20 +30,20 @@ class SigningRecordMapperTest {
         outbox.setDtbs("the-data-to-be-signed".getBytes());
 
         // when
-        SigningRecord record = SigningRecordMapper.toRecord(outbox);
+        SigningRecord signingRecord = SigningRecordMapper.toRecord(outbox);
 
         // then the record mirrors the row, keeping the row's own UUID (no new one is generated)
-        assertEquals(outbox.getUuid(), record.getUuid());
-        assertEquals(outbox.getName(), record.getName());
-        assertEquals(outbox.getSigningProfileUuid(), record.getSigningProfileUuid());
-        assertEquals(outbox.getSigningProfileVersion(), record.getSigningProfileVersion());
-        assertEquals(outbox.getSigningTime(), record.getSigningTime());
-        assertEquals(outbox.getRequestedByUuid(), record.getRequestedByUuid());
-        assertEquals(outbox.getRequestedByUsername(), record.getRequestedByUsername());
-        assertEquals(outbox.getRequestMetadataJson(), record.getRequestMetadataJson());
-        assertArrayEquals(outbox.getSignatureValue(), record.getSignatureValue());
-        assertArrayEquals(outbox.getSignedDocument(), record.getSignedDocument());
-        assertArrayEquals(outbox.getDtbs(), record.getDtbs());
+        assertEquals(outbox.getUuid(), signingRecord.getUuid());
+        assertEquals(outbox.getName(), signingRecord.getName());
+        assertEquals(outbox.getSigningProfileUuid(), signingRecord.getSigningProfileUuid());
+        assertEquals(outbox.getSigningProfileVersion(), signingRecord.getSigningProfileVersion());
+        assertEquals(outbox.getSigningTime(), signingRecord.getSigningTime());
+        assertEquals(outbox.getRequestedByUuid(), signingRecord.getRequestedByUuid());
+        assertEquals(outbox.getRequestedByUsername(), signingRecord.getRequestedByUsername());
+        assertEquals(outbox.getRequestMetadataJson(), signingRecord.getRequestMetadataJson());
+        assertArrayEquals(outbox.getSignatureValue(), signingRecord.getSignatureValue());
+        assertArrayEquals(outbox.getSignedDocument(), signingRecord.getSignedDocument());
+        assertArrayEquals(outbox.getDtbs(), signingRecord.getDtbs());
     }
 
     @Test
@@ -54,13 +54,13 @@ class SigningRecordMapperTest {
         outbox.setSigningProfileVersion(1);
 
         // when
-        SigningRecord record = SigningRecordMapper.toRecord(outbox);
+        SigningRecord signingRecord = SigningRecordMapper.toRecord(outbox);
 
         // then the absent content is carried over untouched, not re-evaluated against any policy
-        assertEquals(outbox.getUuid(), record.getUuid());
-        assertNull(record.getRequestMetadataJson());
-        assertNull(record.getSignatureValue());
-        assertNull(record.getSignedDocument());
-        assertNull(record.getDtbs());
+        assertEquals(outbox.getUuid(), signingRecord.getUuid());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
     }
 }

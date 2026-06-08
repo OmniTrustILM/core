@@ -102,9 +102,9 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
     public SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException {
-        SigningRecord record = getSigningRecordEntity(uuid);
-        evaluateConnectedSigningProfileAccess(record);
-        return SigningRecordMapper.toDto(record);
+        SigningRecord signingRecord = getSigningRecordEntity(uuid);
+        evaluateConnectedSigningProfileAccess(signingRecord);
+        return SigningRecordMapper.toDto(signingRecord);
     }
 
     @Override
@@ -133,12 +133,12 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         }
         evaluateConnectedSigningProfileAccess(records);
 
-        for (SigningRecord record : records) {
+        for (SigningRecord signingRecord : records) {
             try {
-                signingRecordWriter.deleteByUuid(record.getUuid());
+                signingRecordWriter.deleteByUuid(signingRecord.getUuid());
             } catch (Exception e) {
-                log.error("Failed to delete Signing Record {}", record.getUuid(), e);
-                messages.add(BulkActionMessageDto.failure(record.getUuid().toString(), record.getName(), e, "Failed to delete signing record"));
+                log.error("Failed to delete Signing Record {}", signingRecord.getUuid(), e);
+                messages.add(BulkActionMessageDto.failure(signingRecord.getUuid().toString(), signingRecord.getName(), e, "Failed to delete signing record"));
             }
         }
         return messages;
@@ -166,8 +166,8 @@ public class SigningRecordServiceImpl implements SigningRecordService {
      * Authorizes that the caller may access the signing profile the record was produced under,
      * so signing-record visibility follows signing-profile access.
      */
-    private void evaluateConnectedSigningProfileAccess(SigningRecord record) throws NotFoundException {
-        permissionEvaluator.signingProfile(SecuredUUID.fromUUID(record.getSigningProfileUuid()));
+    private void evaluateConnectedSigningProfileAccess(SigningRecord signingRecord) throws NotFoundException {
+        permissionEvaluator.signingProfile(SecuredUUID.fromUUID(signingRecord.getSigningProfileUuid()));
     }
 
     /**

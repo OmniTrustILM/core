@@ -46,13 +46,13 @@ class SigningRecordWriterTest extends BaseSpringBootTest {
         // given
         var anyRetentionDays = 7;
         SigningProfile profile = insertProfileWithRetention("del-by-uuid", anyRetentionDays);
-        SigningRecord record = insertRecordSignedAt(profile, Instant.now());
+        SigningRecord signingRecord = insertRecordSignedAt(profile, Instant.now());
 
         // when
-        writer.deleteByUuid(record.getUuid());
+        writer.deleteByUuid(signingRecord.getUuid());
 
         // then
-        assertFalse(recordRepository.existsById(record.getUuid()));
+        assertFalse(recordRepository.existsById(signingRecord.getUuid()));
     }
 
     @Test
@@ -142,11 +142,11 @@ class SigningRecordWriterTest extends BaseSpringBootTest {
     }
 
     private SigningRecord insertRecordSignedAt(SigningProfile profile, Instant signingTime) {
-        SigningRecord record = new SigningRecord();
-        record.setSigningProfileUuid(profile.getUuid());
-        record.setSigningProfileVersion(1);
-        record.setSigningTime(signingTime);
-        return recordRepository.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setSigningProfileUuid(profile.getUuid());
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(signingTime);
+        return recordRepository.saveAndFlush(signingRecord);
     }
 
     /**

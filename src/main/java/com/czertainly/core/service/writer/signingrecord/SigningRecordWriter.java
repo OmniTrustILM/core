@@ -47,8 +47,8 @@ public class SigningRecordWriter {
      * to commit.
      */
     @Transactional(propagation = Propagation.REQUIRED)
-    public void insert(SigningRecord record) {
-        recordRepository.saveAndFlush(record);
+    public void insert(SigningRecord signingRecord) {
+        recordRepository.saveAndFlush(signingRecord);
     }
 
     /**
@@ -84,9 +84,9 @@ public class SigningRecordWriter {
      * {@link com.czertainly.core.signing.record.SigningRecordOutboxDrainer}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void saveRecordAndDeleteOutbox(SigningRecord record) {
-        recordRepository.saveAndFlush(record);
-        outboxRepository.deleteByUuid(record.getUuid());
+    public void saveRecordAndDeleteOutbox(SigningRecord signingRecord) {
+        recordRepository.saveAndFlush(signingRecord);
+        outboxRepository.deleteByUuid(signingRecord.getUuid());
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

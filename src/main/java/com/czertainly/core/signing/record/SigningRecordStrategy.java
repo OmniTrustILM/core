@@ -7,5 +7,5 @@ package com.czertainly.core.signing.record;
  * {@link com.czertainly.core.service.writer.signingrecord.SigningRecordWriter}.
  */
 public interface SigningRecordStrategy {
-    void record(SigningRecordInput input);
+    void recordSigning(SigningRecordInput input);
 }

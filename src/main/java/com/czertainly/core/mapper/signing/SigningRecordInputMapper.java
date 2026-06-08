@@ -21,17 +21,17 @@ public class SigningRecordInputMapper {
      * Builds a fully populated {@link SigningRecord}, including its signing-profile UUID.
      */
     public SigningRecord toRecord(SigningRecordInput input) {
-        SigningRecord record = new SigningRecord();
-        record.setUuid(UUID.randomUUID());
-        record.setName(input.getDisplayName());
-        record.setSigningProfileUuid(input.getSigningProfile().uuid());
-        record.setSigningProfileVersion(input.getSigningProfile().version());
-        record.setSigningTime(input.getSigningTime());
-        applyRequester(input, record::setRequestedByUuid, record::setRequestedByUsername);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.randomUUID());
+        signingRecord.setName(input.getDisplayName());
+        signingRecord.setSigningProfileUuid(input.getSigningProfile().uuid());
+        signingRecord.setSigningProfileVersion(input.getSigningProfile().version());
+        signingRecord.setSigningTime(input.getSigningTime());
+        applyRequester(input, signingRecord::setRequestedByUuid, signingRecord::setRequestedByUsername);
         applyRecordableContent(input,
-                record::setRequestMetadataJson, record::setSignatureValue,
-                record::setSignedDocument, record::setDtbs);
-        return record;
+                signingRecord::setRequestMetadataJson, signingRecord::setSignatureValue,
+                signingRecord::setSignedDocument, signingRecord::setDtbs);
+        return signingRecord;
     }
 
     /**
