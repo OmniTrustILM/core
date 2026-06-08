@@ -4,6 +4,7 @@ import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationReposi
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 @Component
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 @AllArgsConstructor
 @Slf4j
 public class TimeQualityMonitorInitializer {
