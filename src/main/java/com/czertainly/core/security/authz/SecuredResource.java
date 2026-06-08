@@ -49,6 +49,6 @@ public class SecuredResource {
 
     @Override
     public String toString() {
-        return resource == null ? null : resource.getCode();
+        return resource == null ? "SecuredResource[null]" : resource.getCode();
     }
 }

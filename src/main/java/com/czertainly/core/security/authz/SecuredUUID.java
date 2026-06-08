@@ -48,6 +48,6 @@ public class SecuredUUID {
 
     @Override
     public String toString() {
-        return this.value == null ? null : this.value.toString();
+        return this.value == null ? "SecuredUUID[null]" : this.value.toString();
     }
 }
