@@ -2,7 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.*;
+import com.otilm.core.service.*;
 import com.otilm.core.service.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;

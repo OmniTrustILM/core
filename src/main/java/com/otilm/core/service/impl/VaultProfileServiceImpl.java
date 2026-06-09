@@ -18,7 +18,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.SecretRepository;

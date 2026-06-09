@@ -2,7 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;

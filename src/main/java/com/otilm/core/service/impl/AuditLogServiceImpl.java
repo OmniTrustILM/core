@@ -13,7 +13,7 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.dao.entity.AuditLog;
-import com.czertainly.core.dao.entity.AuditLog_;
+import com.otilm.core.dao.entity.AuditLog_;
 import com.otilm.core.dao.repository.AuditLogRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.logging.AuditLogExportDto;

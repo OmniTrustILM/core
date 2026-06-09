@@ -12,7 +12,7 @@ import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.dao.entity.Audited_;
+import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningRecordMapper;

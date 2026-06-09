@@ -40,7 +40,7 @@ public class LoggingAdvice {
     protected void loggingAllOperation() {
     }
 
-    @Pointcut("within(com.czertainly.core.api..*)")
+    @Pointcut("within(com.otilm.core.api..*)")
     private void logAnyFunctionWithinResource() {
     }
 

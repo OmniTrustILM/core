@@ -20,7 +20,7 @@ import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;

@@ -48,7 +48,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.cbom.client.CbomRepositoryClient;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Cbom;
-import com.czertainly.core.dao.entity.Cbom_;
+import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;

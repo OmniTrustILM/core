@@ -8,7 +8,7 @@ import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.cryptography.key.KeyState;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;

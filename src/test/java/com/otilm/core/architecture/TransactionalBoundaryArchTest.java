@@ -35,7 +35,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  * for {@code @Modifying}) or silently loses the write (detached-entity save with no dirty checking).
  * Use a {@code *Writer} bean instead.</p>
  *
- * <p><b>Rule B</b> — no {@code @Transactional} on any class or method in {@code com.czertainly.core.dao.repository..}.
+ * <p><b>Rule B</b> — no {@code @Transactional} on any class or method in {@code com.otilm.core.dao.repository..}.
  * The transactional boundary lives on services, not repositories.</p>
  *
  * <p><b>Rule C</b> — only {@code *Writer} beans (production code residing in {@code ..service.writer..}) may invoke
@@ -50,7 +50,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  * self-invocations, so a {@code @Modifying} call reached via an internal {@code this.method()} hop relies on the
  * outer public method's transaction rather than starting its own.</p>
  */
-@AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class TransactionalBoundaryArchTest {
 
     private static final Set<String> FORBIDDEN_REPO_WRITE_METHODS = Set.of(

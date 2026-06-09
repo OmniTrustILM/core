@@ -4,7 +4,7 @@ import com.otilm.api.model.common.attribute.v2.BaseAttributeV2;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.RoleDto;
 import com.otilm.api.model.core.auth.UserDto;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeProfile;

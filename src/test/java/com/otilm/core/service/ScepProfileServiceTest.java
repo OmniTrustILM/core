@@ -25,10 +25,10 @@ import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsRequestD
 import com.otilm.api.model.core.scep.ScepProfileDetailDto;
 import com.otilm.api.model.core.scep.ScepProfileDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.scep.ScepProfile;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.security.authz.SecuredUUID;

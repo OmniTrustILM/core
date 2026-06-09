@@ -38,9 +38,9 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
@@ -1466,7 +1466,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideCmpAcceptableTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideCmpAcceptableTestData")
     public void testListCmpSigningCertificates(
             String commonName,
             List<CertificateTestData.KeyItemData> publicKeys,
@@ -1526,7 +1526,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideScepCaCertificateTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideScepCaCertificateTestData")
     public void testListScepCaCertificates(
             String commonName,
             List<CertificateTestData.KeyItemData> publicKeys,

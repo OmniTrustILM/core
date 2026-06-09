@@ -35,7 +35,7 @@ import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.*;
+import com.otilm.core.service.*;
 import com.otilm.core.service.AttributeResourceService;
 import com.otilm.core.service.ResourceExtensionService;
 import com.otilm.core.service.ResourceExternalService;

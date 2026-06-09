@@ -9,7 +9,7 @@ import com.otilm.api.model.connector.cryptography.operations.data.SignatureRespo
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
 import com.otilm.api.model.core.connector.ConnectorDto;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.cmp.CmpProfile;

@@ -9,7 +9,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.comparator.SearchFieldDataComparator;
-import com.czertainly.core.dao.entity.oid.*;
+import com.otilm.core.dao.entity.oid.*;
 import com.otilm.core.dao.entity.oid.CustomOidEntry;
 import com.otilm.core.dao.entity.oid.ExtendedKeyUsageCustomOidEntry;
 import com.otilm.core.dao.entity.oid.GenericCustomOidEntry;

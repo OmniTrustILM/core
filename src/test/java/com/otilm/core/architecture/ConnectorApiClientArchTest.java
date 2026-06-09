@@ -14,7 +14,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  * ConnectorService.getConnectorForApiClient() rather than calling Connector.mapToApiClientDtoV1() directly.
  * The service method is cache-backed; bypassing it silently skips the cache and risks stale / divergent connector state at call sites.
  */
-@AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class ConnectorApiClientArchTest {
 
     @ArchTest

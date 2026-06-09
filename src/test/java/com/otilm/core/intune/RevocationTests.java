@@ -23,7 +23,7 @@
 
 /*
 This class was updated for the integration of the platform with the Intune server.
-It is placed under the package `com.czertainly.core.intune` and further maintained by
+It is placed under the package `com.otilm.core.intune` and further maintained by
 the development team.
 
 The important modification are marked with the comment "MODIFICATION"
@@ -32,7 +32,7 @@ package com.otilm.core.intune;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.czertainly.core.intune.scepvalidation.*;
+import com.otilm.core.intune.scepvalidation.*;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;

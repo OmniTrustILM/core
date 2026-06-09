@@ -1,6 +1,6 @@
 package com.otilm.core.security.authz.opa;
 
-import com.czertainly.core.security.authz.opa.dto.*;
+import com.otilm.core.security.authz.opa.dto.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.security.authz.opa.dto.*;
 import org.apache.commons.logging.Log;

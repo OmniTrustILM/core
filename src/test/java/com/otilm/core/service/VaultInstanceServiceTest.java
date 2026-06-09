@@ -26,7 +26,7 @@ import com.otilm.api.model.core.vault.*;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;

@@ -19,7 +19,7 @@ import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
-import com.czertainly.core.dao.entity.acme.AcmeProfile_;
+import com.otilm.core.dao.entity.acme.AcmeProfile_;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;

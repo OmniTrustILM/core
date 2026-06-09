@@ -11,7 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(basePackages = "com.czertainly.core.api.acme")
+@RestControllerAdvice(basePackages = "com.otilm.core.api.acme")
 public class AcmeExceptionHandlingAdvice {
 
     private static final Logger LOG = LoggerFactory.getLogger(AcmeExceptionHandlingAdvice.class);

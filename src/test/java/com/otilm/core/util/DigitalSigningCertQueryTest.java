@@ -11,8 +11,8 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.core.dao.entity.*;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.entity.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -216,7 +216,7 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
     // --- parameterized JPA query test against the shared dataset ---
 
     @ParameterizedTest(name = "[{index}] {0}")
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
     void jpaQuery_matchesInMemoryEligibilityRule(
             String testCaseName,
             List<CertificateTestData.KeyItemData> publicKeys,

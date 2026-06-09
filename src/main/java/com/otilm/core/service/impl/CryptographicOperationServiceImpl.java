@@ -14,7 +14,7 @@ import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.core.attribute.*;
+import com.otilm.core.attribute.*;
 import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaEncryptionAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;

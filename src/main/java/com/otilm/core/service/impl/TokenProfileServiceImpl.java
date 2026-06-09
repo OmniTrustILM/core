@@ -18,7 +18,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.czertainly.core.dao.entity.TokenProfile_;
+import com.otilm.core.dao.entity.TokenProfile_;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;

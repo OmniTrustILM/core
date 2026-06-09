@@ -19,11 +19,11 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 /**
  * Structural safety rules for exception message handling.
  * <p>
- * Rule 1: All concrete Throwable subclasses in com.czertainly.core must implement PlatformException so safeMessage()
+ * Rule 1: All concrete Throwable subclasses in com.otilm.core must implement PlatformException so safeMessage()
  * can gate message exposure at wire boundaries. PlatformException is the "controlled domain-exception type" gate:
  * its getMessage() is shaped by us and therefore safe to expose, whereas raw Exception.getMessage() can carry SQL
  * fragments, stack-frame class names, or upstream vendor payloads that must never reach the wire.
- * com.czertainly.core.intune is excluded: these are vendor-forked Microsoft exception classes whose getMessage()
+ * com.otilm.core.intune is excluded: these are vendor-forked Microsoft exception classes whose getMessage()
  * embeds uncontrolled upstream payloads — raw HTTP response bodies, SCEP activity/transaction IDs, and Microsoft
  * Graph service names — not shaped by us and therefore never safe to expose at the wire. Code outside this package
  * must not propagate them in method signatures; Rule 3 enforces that boundary.
@@ -31,17 +31,17 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
  * Rule 2: BulkActionMessageDto must be created via BulkActionMessageDto.failure() factory methods so message content
  * can be controlled.
  * <p>
- * Rule 3: No method outside com.czertainly.core.intune may declare throws of IntuneClientException (or any subclass),
+ * Rule 3: No method outside com.otilm.core.intune may declare throws of IntuneClientException (or any subclass),
  * preventing uncontrolled upstream payloads from escaping the intune package boundary via method signatures.
  */
-@AnalyzeClasses(packages = "com.czertainly.core", importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
 class PlatformExceptionTest {
 
     @ArchTest
     static final ArchRule coreExceptionsMustImplementPlatformException =
             classes()
-                    .that().resideInAPackage("com.czertainly.core..")
-                    .and().resideOutsideOfPackage("com.czertainly.core.intune..")
+                    .that().resideInAPackage("com.otilm.core..")
+                    .and().resideOutsideOfPackage("com.otilm.core.intune..")
                     .and().areAssignableTo(Throwable.class)
                     .and().areNotInterfaces()
                     .and().doNotHaveModifier(JavaModifier.ABSTRACT)
@@ -52,7 +52,7 @@ class PlatformExceptionTest {
     @ArchTest
     static final ArchRule bulkActionMessageDtoMustUseFactory =
             noClasses()
-                    .that().resideInAPackage("com.czertainly.core..")
+                    .that().resideInAPackage("com.otilm.core..")
                     .should(callCodeUnitWhere(DescribedPredicate.describe(
                             "call a constructor of BulkActionMessageDto",
                             (JavaCall<?> call) -> BulkActionMessageDto.class.getName().equals(
@@ -65,7 +65,7 @@ class PlatformExceptionTest {
     @ArchTest
     static final ArchRule intuneExceptionsMustNotEscapePackageSignatures =
             noMethods()
-                    .that().areDeclaredInClassesThat().resideOutsideOfPackage("com.czertainly.core.intune..")
+                    .that().areDeclaredInClassesThat().resideOutsideOfPackage("com.otilm.core.intune..")
                     .should().declareThrowableOfType(IntuneClientException.class)
                     .because("IntuneClientException and its subclasses carry uncontrolled upstream payloads " +
                             "(raw HTTP response bodies, SCEP activity/transaction IDs, Microsoft Graph service names) " +

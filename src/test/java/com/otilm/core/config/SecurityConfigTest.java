@@ -5,7 +5,7 @@ import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDt
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.oauth2.OAuth2TestUtil;
 import com.otilm.core.settings.SettingsCache;
-import com.czertainly.core.util.*;
+import com.otilm.core.util.*;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.nimbusds.jose.JOSEException;

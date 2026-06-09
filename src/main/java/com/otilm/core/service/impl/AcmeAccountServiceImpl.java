@@ -11,7 +11,7 @@ import com.otilm.api.model.core.acme.AccountStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
-import com.czertainly.core.dao.entity.acme.AcmeAccount_;
+import com.otilm.core.dao.entity.acme.AcmeAccount_;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
 import com.otilm.core.model.auth.ResourceAction;

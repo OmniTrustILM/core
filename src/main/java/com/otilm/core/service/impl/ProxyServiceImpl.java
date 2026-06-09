@@ -16,7 +16,7 @@ import com.otilm.api.model.core.proxy.ProxyListDto;
 import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Proxy;
-import com.czertainly.core.dao.entity.Proxy_;
+import com.otilm.core.dao.entity.Proxy_;
 import com.otilm.core.dao.repository.ProxyRepository;
 import com.otilm.core.provisioning.ProxyProvisioningService;
 import com.otilm.core.security.authz.ExternalAuthorization;

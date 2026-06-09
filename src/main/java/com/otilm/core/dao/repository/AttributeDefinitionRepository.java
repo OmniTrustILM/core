@@ -42,13 +42,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      * The original LEFT JOIN over 4 tables is split into two SELECTS, using a sub-SELECT to optimize further.
      */
     @Query("""
-            SELECT DISTINCT new com.czertainly.core.model.SearchFieldObject(
+            SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
                 ad.name, ad.contentType, ad.type, ad.label, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1
             UNION
-            SELECT DISTINCT new com.czertainly.core.model.SearchFieldObject(
+            SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
                 ad.name, ad.contentType, ad.type, ad.label, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.uuid IN (
@@ -68,13 +68,13 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
      * The original LEFT JOIN over 4 tables is split into two SELECTS, using a sub-SELECT to optimize further.
      */
     @Query("""
-            SELECT DISTINCT new com.czertainly.core.model.SearchFieldObject(
+            SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
                 ad.name, ad.contentType, ad.type, ad.label, ad.definition)
                 FROM AttributeDefinition ad
                 LEFT JOIN AttributeRelation ar ON ar.attributeDefinitionUuid = ad.uuid
                 WHERE ad.type IN ?2 AND ar.resource = ?1 AND ad.contentType IN ?3
             UNION
-            SELECT DISTINCT new com.czertainly.core.model.SearchFieldObject(
+            SELECT DISTINCT new com.otilm.core.model.SearchFieldObject(
                 ad.name, ad.contentType, ad.type, ad.label, ad.definition)
                 FROM AttributeDefinition ad
                 WHERE ad.type IN ?2 AND ad.contentType IN ?3 AND ad.uuid IN (

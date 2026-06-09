@@ -21,12 +21,12 @@ import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettings
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;

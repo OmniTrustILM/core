@@ -33,7 +33,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebMvc
-@ComponentScan("com.czertainly.core.api")
+@ComponentScan("com.otilm.core.api")
 public class WebAppConfig implements WebMvcConfigurer {
 
     @Bean(name="jacksonObjectMapper")

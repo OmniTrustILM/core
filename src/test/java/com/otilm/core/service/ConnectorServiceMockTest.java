@@ -10,7 +10,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Endpoint;
 import com.otilm.core.dao.entity.FunctionGroup;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.handler.ConnectorV1Adapter;

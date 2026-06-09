@@ -9,7 +9,7 @@ import com.otilm.api.model.core.certificate.group.GroupRequestDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Group;
-import com.czertainly.core.dao.entity.Group_;
+import com.otilm.core.dao.entity.Group_;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;

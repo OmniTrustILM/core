@@ -4,7 +4,7 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import jakarta.persistence.*;
 import lombok.Getter;

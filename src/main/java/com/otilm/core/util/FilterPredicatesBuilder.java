@@ -9,7 +9,7 @@ import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.GroupAssociation;

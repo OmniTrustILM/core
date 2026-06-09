@@ -25,7 +25,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.EntityInstanceReference;
-import com.czertainly.core.dao.entity.EntityInstanceReference_;
+import com.otilm.core.dao.entity.EntityInstanceReference_;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;

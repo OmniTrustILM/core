@@ -43,7 +43,7 @@ import javax.net.ssl.TrustManager;
 @EnableJpaAuditing(auditorAwareRef = "auditorAware")
 @EnableConfigurationProperties(DiscoveryProperties.class)
 @PropertySource(value = ApplicationConfig.EXTERNAL_PROPERTY_SOURCE, ignoreResourceNotFound = true)
-@ComponentScan(basePackages = "com.czertainly.core")
+@ComponentScan(basePackages = "com.otilm.core")
 public class ApplicationConfig {
 
     @Autowired

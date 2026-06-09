@@ -15,7 +15,7 @@ import com.otilm.api.model.core.compliance.v2.ProviderComplianceRulesDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.*;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.enums.FilterField;

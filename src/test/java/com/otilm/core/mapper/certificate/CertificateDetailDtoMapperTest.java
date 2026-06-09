@@ -7,7 +7,7 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;

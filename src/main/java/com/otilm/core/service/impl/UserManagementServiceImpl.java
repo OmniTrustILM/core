@@ -32,7 +32,7 @@ import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.*;
+import com.otilm.core.service.*;
 import com.otilm.core.service.*;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.CertificateUtil;

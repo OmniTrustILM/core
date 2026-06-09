@@ -45,7 +45,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("purpose") String purpose);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -68,7 +68,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
     //   N     → matches rows WHERE object_version = N      (specific version)
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -88,7 +88,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("objectVersion") Integer objectVersion);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -106,7 +106,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("objectVersion") Integer objectVersion);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -125,7 +125,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("objectVersion") Integer objectVersion);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -146,7 +146,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
      * Use when the caller explicitly wants the unversioned slice and never the per-version rows.
      */
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -162,7 +162,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
      * Returns DATA attribute content for the given object across <em>every</em> version, including unversioned rows.
      */
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
@@ -174,7 +174,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
     List<ObjectAttributeContent> getAllObjectDataAttributesContent(@Param("objectType") Resource objectType, @Param("objectUuid") UUID objectUuid);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeContentDetail(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail(
                 ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version)
                 FROM AttributeContent2Object aco
                 LEFT JOIN Connector c ON c.uuid = aco.connectorUuid
@@ -197,7 +197,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("objectVersion") Integer objectVersion);
 
     @Query("""
-            SELECT new com.czertainly.core.attribute.engine.records.ObjectAttributeDefinitionContent(
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent(
                 ad.attributeUuid, ad.definition, aci.json)
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid

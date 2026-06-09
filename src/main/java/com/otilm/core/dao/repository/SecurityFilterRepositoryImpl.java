@@ -7,7 +7,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.dao.AggregateResultDto;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.czertainly.core.dao.entity.CryptographicKeyItem_;
+import com.otilm.core.dao.entity.CryptographicKeyItem_;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;

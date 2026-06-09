@@ -8,7 +8,7 @@ import com.otilm.api.model.client.approvalprofile.*;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.core.dao.entity.*;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.ApprovalProfileRelation;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;

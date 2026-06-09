@@ -19,7 +19,7 @@ import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeP
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.Connector;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.util.BaseSpringBootTest;

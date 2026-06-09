@@ -37,7 +37,7 @@ class CertificateEligibilityUtilTest {
     }
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideCmpAcceptableTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideCmpAcceptableTestData")
     void testIsCertificateCmpAcceptable(
             String testCaseName,
             List<CertificateTestData.KeyItemData> publicKeys,
@@ -79,7 +79,7 @@ class CertificateEligibilityUtilTest {
     }
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideScepCaCertificateTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideScepCaCertificateTestData")
     void testIsCertificateScepCaCertAcceptable(
             String testCaseName,
             List<CertificateTestData.KeyItemData> publicKeys,
@@ -121,7 +121,7 @@ class CertificateEligibilityUtilTest {
     }
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
     void testIsCertificateDigitalSigningAcceptable(
             String testCaseName,
             List<CertificateTestData.KeyItemData> publicKeys,
@@ -179,7 +179,7 @@ class CertificateEligibilityUtilTest {
     }
 
     @ParameterizedTest
-    @MethodSource("com.czertainly.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
     void testIsCertificateDigitalSigningAcceptable_recordOverload(
             String testCaseName,
             List<CertificateTestData.KeyItemData> publicKeys,

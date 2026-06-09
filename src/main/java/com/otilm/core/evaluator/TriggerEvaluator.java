@@ -21,7 +21,7 @@ import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
-import com.czertainly.core.dao.entity.workflows.*;
+import com.otilm.core.dao.entity.workflows.*;
 import com.otilm.core.dao.entity.workflows.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;

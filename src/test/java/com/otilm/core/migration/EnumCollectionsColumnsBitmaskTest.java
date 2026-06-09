@@ -6,7 +6,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.czertainly.core.dao.repository.*;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;

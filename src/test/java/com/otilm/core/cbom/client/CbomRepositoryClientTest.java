@@ -5,7 +5,7 @@ import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
-import com.czertainly.core.model.cbom.*;
+import com.otilm.core.model.cbom.*;
 import com.otilm.core.model.cbom.*;
 import com.otilm.core.settings.SettingsCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
