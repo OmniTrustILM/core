@@ -14,7 +14,7 @@ import org.bouncycastle.asn1.cmp.PKIMessage;
 public interface BiValidator<E, R> {
 
     /**
-     * validate incoming request message (from client - CZERTAINLY is server)
+     * validate incoming request message (from client - ILM is server)
      *
      * @param request message incoming from client
      * @return null if validation is ok
@@ -23,7 +23,7 @@ public interface BiValidator<E, R> {
     R validateIn(PKIMessage request, ConfigurationContext configuration) throws CmpBaseException;
 
     /**
-     * validate outgoing response message (from CR/RA - CZERTAINLY is client)
+     * validate outgoing response message (from CR/RA - ILM is client)
      *
      * @param response message incoming from CA/RA
      * @return null if validation is ok

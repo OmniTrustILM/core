@@ -19,7 +19,7 @@ import java.util.Map;
 
 /**
  * Converts ConnectorDto authentication information to proxy message format.
- * Maps CZERTAINLY auth types and attributes to the proxy's expected ConnectorAuth structure.
+ * Maps ILM auth types and attributes to the proxy's expected ConnectorAuth structure.
  */
 @Slf4j
 @Component

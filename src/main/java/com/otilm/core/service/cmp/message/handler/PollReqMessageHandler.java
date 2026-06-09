@@ -76,7 +76,7 @@ public class PollReqMessageHandler implements MessageHandler<PKIMessage> {
                     "pollReq carries no certReqId entries");
         }
 
-        // CZERTAINLY currently maps one transaction to one certificate, so any certReqId in the
+        // ILM currently maps one transaction to one certificate, so any certReqId in the
         // pollReq body refers to the same in-flight operation. Use the first.
         ASN1Integer certReqId = new ASN1Integer(certReqIdValues[0]);
 

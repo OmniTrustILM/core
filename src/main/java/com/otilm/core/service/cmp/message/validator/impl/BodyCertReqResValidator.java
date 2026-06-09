@@ -26,8 +26,8 @@ import java.util.Objects;
  *     <li>{@link PKIBody#TYPE_CERT_REP}</li>
  *     <li>{@link PKIBody#TYPE_KEY_UPDATE_REQ}</li>
  *     <li>{@link PKIBody#TYPE_KEY_UPDATE_REP}</li>
- *     <li>{@link PKIBody#TYPE_CROSS_CERT_REQ} - <b>not implemented in czertainly</b></li>
- *     <li>{@link PKIBody#TYPE_CROSS_CERT_REP} - <b>not implemented in czertainly</b></li>
+ *     <li>{@link PKIBody#TYPE_CROSS_CERT_REQ} - <b>not implemented in ILM</b></li>
+ *     <li>{@link PKIBody#TYPE_CROSS_CERT_REP} - <b>not implemented in ILM</b></li>
  * </ul>
  *
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4211#section-3">CertReqMessage Syntax</a>

@@ -235,7 +235,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
         assertEquals(issuedCertificate.getSerialNumber(), serialNumber, "serial number of certificate are not equals");
         Optional<Certificate> certificate = certificateRepository.findBySerialNumberIgnoreCase(
                 serialNumber);
-        assertFalse(certificate.isEmpty(), "certificate has not been stored in czertainly database");
+        assertFalse(certificate.isEmpty(), "certificate has not been stored in ILM database");
         assertEquals(CertificateState.ISSUED, certificate.get().getState(), "certificate is not expected(=ISSUED) state");//CertificateState.ISSUED
 
         // (3) check transaction (found by serial number - same as related with cert) and its state

@@ -131,7 +131,7 @@ public class SingatureBaseProtectionStrategy extends BaseProtectionStrategy impl
     /**
      * <b>scope: SIGNATURE-BASED protection</b>
      *
-     * @return get name of signature algorithm, which is configured at czertainly server
+     * @return get name of signature algorithm, which is configured at ILM server
      * @see <a href="https://docs.oracle.com/en/java/javase/17/docs/specs/security/standard-names.html">Java Security Standard Algorithm Names Specification</a>
      */
     @Override

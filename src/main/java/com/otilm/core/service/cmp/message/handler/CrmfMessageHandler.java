@@ -37,7 +37,7 @@ import java.security.cert.X509Certificate;
 import java.util.*;
 
 /**
- * Handle (czertainly) supported CRMF-based message - ir/cr/kur; concrete handle (how to get/update certificate)
+ * Handle (ILM) supported CRMF-based message - ir/cr/kur; concrete handle (how to get/update certificate)
  * delegates to another specific handlers, e.g. {@link CrmfIrCrMessageHandler} or {@link CrmfKurMessageHandler}.
  *
  * @see CrmfIrCrMessageHandler
@@ -166,7 +166,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
         CertReqMsg[] certRequests = certReqMessages.toCertReqMsgArray();
 
         List<CertResponse> listOfCertResponses = new ArrayList<>();
-        // -- czertainly is (right now) able to handle only (first) one, see {@link CrmfCertificateRequest}
+        // -- ilm is (right now) able to handle only (first) one, see {@link CrmfCertificateRequest}
         //for(var certRequest : certRequests) {
 
         List<CmpTransaction> trx = cmpTransactionService.findByTransactionId(tid.toString());

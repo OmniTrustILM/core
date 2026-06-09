@@ -151,7 +151,7 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
     }
 
     /**
-     * Get current certificate from czertainly database and parse/convert into x509 format.
+     * Get current certificate from the ILM database and parse/convert into x509 format.
      *
      * @param tid         identifier of current flow (see {@link PKIHeader#getTransactionID()})
      * @param currentCert found certificate for update

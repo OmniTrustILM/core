@@ -27,7 +27,7 @@ public class CmpTransactionService {
     }
 
     /**
-     * List of transactions for given transactionId (even if current version of cmp czertainly
+     * List of transactions for given transactionId (even if current version of cmp ilm
      * works with one request per transactionId).
      *
      * <p>List is prepare for future behaviour of CMP protocol (ir,cr,kur allows to process list of requests). It means

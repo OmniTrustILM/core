@@ -57,7 +57,7 @@ public class PlatformCipherSpi extends CipherSpi {
     protected int engineGetBlockSize() {
         //Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
         return 0;
     }
 
@@ -65,7 +65,7 @@ public class PlatformCipherSpi extends CipherSpi {
     protected byte[] engineGetIV() {
         //Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
         return null;
     }
 
@@ -73,7 +73,7 @@ public class PlatformCipherSpi extends CipherSpi {
     protected int engineGetOutputSize(int value) {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
         return 0;
     }
 
@@ -81,7 +81,7 @@ public class PlatformCipherSpi extends CipherSpi {
     protected AlgorithmParameters engineGetParameters() {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
         return null;
     }
 
@@ -103,7 +103,7 @@ public class PlatformCipherSpi extends CipherSpi {
             throws InvalidKeyException, InvalidAlgorithmParameterException {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
     }
 
     @Override
@@ -111,21 +111,21 @@ public class PlatformCipherSpi extends CipherSpi {
             throws InvalidKeyException, InvalidAlgorithmParameterException {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
     }
 
     @Override
     protected void engineSetMode(String operationMode) throws NoSuchAlgorithmException {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
     }
 
     @Override
     protected void engineSetPadding(String operationMode) throws NoSuchPaddingException {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
     }
 
 }

@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     private static MockWebServer authServiceMock;
 
-    private PlatformAuthenticationClient czertainlyAuthenticationClient;
+    private PlatformAuthenticationClient authenticationClient;
 
     @Autowired
     private AuditLogInternalService auditLogService;
@@ -63,7 +63,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         String authServiceBaseUrl = "http://%s:%d".formatted(authServiceMock.getHostName(), authServiceMock.getPort());
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        czertainlyAuthenticationClient = new PlatformAuthenticationClient(auditLogService, objectMapper, authenticationCache, authServiceBaseUrl);
+        authenticationClient = new PlatformAuthenticationClient(auditLogService, objectMapper, authenticationCache, authServiceBaseUrl);
         authenticationCache.evictAll();
     }
 
@@ -90,7 +90,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         setUpSuccessfulAuthenticationResponse();
 
         // when
-        AuthenticationInfo info = czertainlyAuthenticationClient.authenticate(AuthMethod.NONE, null, false);
+        AuthenticationInfo info = authenticationClient.authenticate(AuthMethod.NONE, null, false);
 
         // then
         assertEquals("FrantisekJednicka", info.getUsername());
@@ -125,7 +125,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         setUpEmptyResponse();
 
         // when
-        Executable willThrow = () -> czertainlyAuthenticationClient.authenticate(AuthMethod.NONE, null, false);
+        Executable willThrow = () -> authenticationClient.authenticate(AuthMethod.NONE, null, false);
 
         // then
         assertThrows(PlatformAuthenticationException.class, willThrow);
@@ -137,7 +137,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         setUpFaultyResponse();
 
         // when
-        Executable willThrow = () -> czertainlyAuthenticationClient.authenticate(AuthMethod.NONE, null, false);
+        Executable willThrow = () -> authenticationClient.authenticate(AuthMethod.NONE, null, false);
 
         // then
         assertThrows(PlatformAuthenticationException.class, willThrow);
@@ -151,7 +151,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         setUpSuccessfulAuthenticationResponse();
 
         // when
-        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateSystemUser("superadmin");
+        AuthenticationInfo result = authenticationClient.authenticateSystemUser("superadmin");
 
         // then
         assertEquals("FrantisekJednicka", result.getUsername());
@@ -162,10 +162,10 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     void authenticateSystemUser_cacheHit_doesNotCallAuthService() {
         // given
         setUpSuccessfulAuthenticationResponse();
-        czertainlyAuthenticationClient.authenticateSystemUser("superadmin"); // prime the cache
+        authenticationClient.authenticateSystemUser("superadmin"); // prime the cache
 
         // when
-        czertainlyAuthenticationClient.authenticateSystemUser("superadmin");
+        authenticationClient.authenticateSystemUser("superadmin");
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -180,7 +180,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         UUID userUuid = UUID.randomUUID();
 
         // when
-        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+        AuthenticationInfo result = authenticationClient.authenticateByUserUuid(userUuid);
 
         // then
         assertEquals("FrantisekJednicka", result.getUsername());
@@ -192,10 +192,10 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         // given
         setUpSuccessfulAuthenticationResponse();
         UUID userUuid = UUID.randomUUID();
-        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid); // prime the cache
+        authenticationClient.authenticateByUserUuid(userUuid); // prime the cache
 
         // when
-        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+        authenticationClient.authenticateByUserUuid(userUuid);
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -209,7 +209,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         setUpSuccessfulAuthenticationResponse();
 
         // when
-        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc");
+        AuthenticationInfo result = authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc");
 
         // then
         assertEquals("FrantisekJednicka", result.getUsername());
@@ -220,10 +220,10 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     void authenticateByCertificate_cacheHit_doesNotCallAuthService() {
         // given - cache key is the fingerprint, not the raw cert content
         setUpSuccessfulAuthenticationResponse();
-        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc"); // prime the cache
+        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc"); // prime the cache
 
         // when - same fingerprint, different raw content; the cache should serve the result
-        czertainlyAuthenticationClient.authenticateByCertificate("OTHER_CERT_CONTENT", "sha256-fingerprint-abc");
+        authenticationClient.authenticateByCertificate("OTHER_CERT_CONTENT", "sha256-fingerprint-abc");
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -238,7 +238,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         Map<String, Object> claims = Map.of("jti", "jti-test-123");
 
         // when
-        AuthenticationInfo result = czertainlyAuthenticationClient.authenticateByToken(claims);
+        AuthenticationInfo result = authenticationClient.authenticateByToken(claims);
 
         // then
         assertEquals("FrantisekJednicka", result.getUsername());
@@ -250,10 +250,10 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         // given
         setUpSuccessfulAuthenticationResponse();
         Map<String, Object> claims = Map.of("jti", "jti-test-123");
-        czertainlyAuthenticationClient.authenticateByToken(claims); // prime the cache
+        authenticationClient.authenticateByToken(claims); // prime the cache
 
         // when
-        czertainlyAuthenticationClient.authenticateByToken(claims);
+        authenticationClient.authenticateByToken(claims);
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -267,8 +267,8 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         Map<String, Object> claimsWithoutJti = Map.of("sub", "user-123");
 
         // when
-        czertainlyAuthenticationClient.authenticateByToken(claimsWithoutJti);
-        czertainlyAuthenticationClient.authenticateByToken(claimsWithoutJti);
+        authenticationClient.authenticateByToken(claimsWithoutJti);
+        authenticationClient.authenticateByToken(claimsWithoutJti);
 
         // then
         assertEquals(2, authServiceMock.getRequestCount());
@@ -280,11 +280,11 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     void authenticateSystemUser_cacheHit_restoresActorMdc() {
         // given - cache primed, MDC cleared to simulate a fresh request thread
         setUpSuccessfulAuthenticationResponse();
-        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        authenticationClient.authenticateSystemUser("acme");
         MDC.clear();
 
         // when - cache hit, loader (and its MDC side effects) skipped
-        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        authenticationClient.authenticateSystemUser("acme");
 
         // then - the second call was served from cache, yet audit log actor info is complete
         assertEquals(1, authServiceMock.getRequestCount());
@@ -299,11 +299,11 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         // given
         setUpSuccessfulAuthenticationResponse();
         UUID userUuid = UUID.randomUUID();
-        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+        authenticationClient.authenticateByUserUuid(userUuid);
         MDC.clear();
 
         // when
-        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+        authenticationClient.authenticateByUserUuid(userUuid);
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -317,11 +317,11 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     void authenticateByCertificate_cacheHit_restoresActorMdc() {
         // given
         setUpSuccessfulAuthenticationResponse();
-        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
         MDC.clear();
 
         // when
-        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
 
         // then - without restoration the actor falls back to CORE/NONE, misattributing the request
         assertEquals(1, authServiceMock.getRequestCount());
@@ -336,11 +336,11 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         // given
         setUpSuccessfulAuthenticationResponse();
         Map<String, Object> claims = Map.of("jti", "jti-mdc-test");
-        czertainlyAuthenticationClient.authenticateByToken(claims);
+        authenticationClient.authenticateByToken(claims);
         MDC.clear();
 
         // when
-        czertainlyAuthenticationClient.authenticateByToken(claims);
+        authenticationClient.authenticateByToken(claims);
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -354,13 +354,13 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     void authenticateSystemUser_cacheHit_matchesCacheMissActorMdc() {
         // given - cache primed; the miss path overwrote the MDC actor to the authenticated USER identity
         setUpSuccessfulAuthenticationResponse();
-        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        authenticationClient.authenticateSystemUser("acme");
         // a later request reuses the thread with a different enclosing actor (e.g. an internal proxy call)
         MDC.clear();
         LoggingHelper.putActorInfoWhenNull(ActorType.CORE, "b2c3d4e5-0000-0000-0000-000000000002", "existingActor");
 
         // when - cache hit must reproduce the miss path's actor, not preserve the enclosing one
-        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        authenticationClient.authenticateSystemUser("acme");
 
         // then - actor is the authenticated USER identity, identical to what a cache miss produces
         assertEquals(1, authServiceMock.getRequestCount());
@@ -382,7 +382,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
         );
 
         // when
-        AuthenticationInfo info = czertainlyAuthenticationClient.authenticateSystemUser("unknown-user");
+        AuthenticationInfo info = authenticationClient.authenticateSystemUser("unknown-user");
 
         // then - the loader's anonymous MDC put stands; restoreActorMdc must not overwrite it
         Assertions.assertTrue(info.isAnonymous());

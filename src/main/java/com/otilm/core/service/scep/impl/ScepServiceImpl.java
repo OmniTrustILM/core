@@ -319,7 +319,7 @@ public class ScepServiceImpl implements ScepService {
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
         var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
         // Get the private key from the configuration of SCEP Profile
-        PlatformPrivateKey czertainlyPrivateKey = new PlatformPrivateKey(
+        PlatformPrivateKey privateKey = new PlatformPrivateKey(
                 key.getTokenInstanceReference().getTokenInstanceUuid(),
                 item.getKeyReferenceUuid().toString(),
                 connectorDto,
@@ -327,13 +327,13 @@ public class ScepServiceImpl implements ScepService {
         );
 
         CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-        PlatformProvider czertainlyProvider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformProvider provider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
 
         // decrypt the PKCS#10 request
         try {
             scepRequest.decryptData(
-                    czertainlyPrivateKey,
-                    czertainlyProvider,
+                    privateKey,
+                    provider,
                     cryptographicKeyService.getKeyItemFromKey(scepProfile.getCaCertificate().getKey(), KeyType.PRIVATE_KEY).getKeyAlgorithm(),
                     scepProfile.getChallengePassword()
             );
@@ -428,10 +428,10 @@ public class ScepServiceImpl implements ScepService {
         CryptographicKey key = scepProfile.getCaCertificate().getKey();
         var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
         CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-        PlatformProvider czertainlyProvider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformProvider provider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
         // Get the private key from the configuration of SCEP Profile
-        PlatformPrivateKey czertainlyPrivateKey = new PlatformPrivateKey(
+        PlatformPrivateKey privateKey = new PlatformPrivateKey(
                 key.getTokenInstanceReference().getTokenInstanceUuid(),
                 item.getKeyReferenceUuid().toString(),
                 connectorDto,
@@ -440,8 +440,8 @@ public class ScepServiceImpl implements ScepService {
         try {
             scepResponse.setSigningAttributes(
                     CertificateUtil.getX509Certificate(scepProfile.getCaCertificate().getCertificateContent().getContent()),
-                    czertainlyPrivateKey,
-                    czertainlyProvider
+                    privateKey,
+                    provider
 
             );
         } catch (CertificateException e) {
