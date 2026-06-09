@@ -1,6 +1,6 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.dao.entity.Proxy;
 import com.czertainly.core.dao.repository.ProxyRepository;
 import com.czertainly.core.provisioning.ProxyProvisioningService;

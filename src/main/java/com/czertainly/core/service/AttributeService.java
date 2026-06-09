@@ -1,20 +1,20 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.attribute.AttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
-import com.czertainly.api.model.client.attribute.metadata.ConnectorMetadataResponseDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
-import com.czertainly.api.model.common.attribute.common.CustomAttribute;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.attribute.AttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
+import com.otilm.api.model.client.attribute.metadata.ConnectorMetadataResponseDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
+import com.otilm.api.model.common.attribute.common.CustomAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;

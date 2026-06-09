@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ConnectorRequest;
-import com.czertainly.api.clients.mq.model.CoreMessage;
+import com.otilm.api.clients.mq.model.ConnectorRequest;
+import com.otilm.api.clients.mq.model.CoreMessage;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;

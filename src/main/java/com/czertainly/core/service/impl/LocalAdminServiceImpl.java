@@ -1,10 +1,10 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.AddUserRequestDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.AddUserRequestDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authz.UnauthenticatedEndpoint;
 import com.czertainly.core.service.LocalAdminExternalService;

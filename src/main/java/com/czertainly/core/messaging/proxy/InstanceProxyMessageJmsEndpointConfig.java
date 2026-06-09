@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.listeners.AbstractJmsEndpointConfig;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;

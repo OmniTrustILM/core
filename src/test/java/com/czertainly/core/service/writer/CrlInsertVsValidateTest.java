@@ -1,6 +1,6 @@
 package com.czertainly.core.service.writer;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.core.dao.entity.Crl;
 import com.czertainly.core.dao.repository.CrlRepository;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;

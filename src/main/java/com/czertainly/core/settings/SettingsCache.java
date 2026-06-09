@@ -1,7 +1,7 @@
 package com.czertainly.core.settings;
 
-import com.czertainly.api.model.core.settings.SettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

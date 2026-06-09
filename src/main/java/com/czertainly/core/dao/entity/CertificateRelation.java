@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

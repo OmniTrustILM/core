@@ -1,11 +1,11 @@
 
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.TriggerDetailDto;
-import com.czertainly.api.model.core.workflows.TriggerDto;
-import com.czertainly.api.model.core.workflows.TriggerType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.TriggerDetailDto;
+import com.otilm.api.model.core.workflows.TriggerDto;
+import com.otilm.api.model.core.workflows.TriggerType;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import jakarta.persistence.*;
 import lombok.*;

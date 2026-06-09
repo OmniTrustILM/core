@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.EventException;
+import com.otilm.api.exception.EventException;
 import com.czertainly.core.events.IEventHandler;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.util.AuthHelper;

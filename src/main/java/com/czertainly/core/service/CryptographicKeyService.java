@@ -1,16 +1,16 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.cryptography.CryptographicKeyResponseDto;
-import com.czertainly.api.model.client.cryptography.key.*;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.cryptography.key.KeyDetailDto;
-import com.czertainly.api.model.core.cryptography.key.KeyDto;
-import com.czertainly.api.model.core.cryptography.key.KeyEventHistoryDto;
-import com.czertainly.api.model.core.cryptography.key.KeyItemDetailDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
+import com.otilm.api.model.client.cryptography.key.*;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
+import com.otilm.api.model.core.cryptography.key.KeyDto;
+import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.CryptographicKey;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;

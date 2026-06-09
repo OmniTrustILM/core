@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
-import com.czertainly.api.model.core.credential.CredentialDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.core.credential.CredentialDto;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.Column;

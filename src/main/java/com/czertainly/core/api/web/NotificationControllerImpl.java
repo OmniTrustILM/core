@@ -1,12 +1,12 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.NotificationController;
-import com.czertainly.api.model.client.notification.NotificationRequestDto;
-import com.czertainly.api.model.client.notification.NotificationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.NotificationController;
+import com.otilm.api.model.client.notification.NotificationRequestDto;
+import com.otilm.api.model.client.notification.NotificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.NotificationExternalService;

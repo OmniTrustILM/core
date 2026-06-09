@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.scep.ScepProfileEditRequestDto;
-import com.czertainly.api.model.client.scep.ScepProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.scep.ScepProfileDetailDto;
-import com.czertainly.api.model.core.scep.ScepProfileDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.scep.ScepProfileEditRequestDto;
+import com.otilm.api.model.client.scep.ScepProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.scep.ScepProfileDetailDto;
+import com.otilm.api.model.core.scep.ScepProfileDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

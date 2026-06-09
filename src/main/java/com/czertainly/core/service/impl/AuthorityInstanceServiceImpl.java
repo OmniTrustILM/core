@@ -1,36 +1,36 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndIdDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.czertainly.api.model.connector.authority.AuthorityProviderInstanceDto;
-import com.czertainly.api.model.connector.authority.AuthorityProviderInstanceRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.authority.AuthorityInstanceDto;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.FunctionGroupDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.connector.authority.AuthorityProviderInstanceDto;
+import com.otilm.api.model.connector.authority.AuthorityProviderInstanceRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.AuthorityInstanceDto;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.FunctionGroupDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.AuthorityInstanceReferenceRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -137,7 +137,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.CREATE)
-    public AuthorityInstanceDto createAuthorityInstance(com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+    public AuthorityInstanceDto createAuthorityInstance(com.otilm.api.model.client.authority.AuthorityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (authorityInstanceReferenceRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(AuthorityInstanceReference.class, request.getName());
         }

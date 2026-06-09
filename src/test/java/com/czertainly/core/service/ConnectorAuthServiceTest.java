@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.clients.BaseApiClient;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.*;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.content.data.FileAttributeContentData;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.core.connector.AuthType;
+import com.otilm.api.clients.BaseApiClient;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.*;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.connector.AuthType;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -22,11 +22,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.*;
 
-import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE;
-import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE_PASSWORD;
-import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE_TYPE;
-import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_PASSWORD;
-import static com.czertainly.api.clients.BaseApiClient.ATTRIBUTE_USERNAME;
+import static com.otilm.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE;
+import static com.otilm.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE_PASSWORD;
+import static com.otilm.api.clients.BaseApiClient.ATTRIBUTE_KEYSTORE_TYPE;
+import static com.otilm.api.clients.BaseApiClient.ATTRIBUTE_PASSWORD;
+import static com.otilm.api.clients.BaseApiClient.ATTRIBUTE_USERNAME;
 
 @SpringBootTest
 @Transactional

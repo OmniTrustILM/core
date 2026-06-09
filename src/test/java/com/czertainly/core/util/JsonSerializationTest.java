@@ -1,16 +1,17 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.common.NameAndIdDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

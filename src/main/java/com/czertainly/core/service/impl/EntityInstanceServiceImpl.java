@@ -1,25 +1,25 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.certificate.EntityInstanceResponseDto;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.entity.EntityInstanceUpdateRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.connector.entity.EntityInstanceRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.entity.EntityInstanceDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.certificate.EntityInstanceResponseDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.entity.EntityInstanceUpdateRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.connector.entity.EntityInstanceRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.entity.EntityInstanceDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
@@ -28,7 +28,7 @@ import com.czertainly.core.dao.entity.EntityInstanceReference;
 import com.czertainly.core.dao.entity.EntityInstanceReference_;
 import com.czertainly.core.dao.repository.EntityInstanceReferenceRepository;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -36,7 +36,7 @@ import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
 import com.czertainly.core.service.EntityInstanceService;
 import com.czertainly.core.service.ResourceInternalService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.RequestValidatorHelper;
 import com.czertainly.core.util.SearchHelper;
@@ -138,7 +138,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
         }
 
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstanceReference.getConnectorUuid());
-        com.czertainly.api.model.connector.entity.EntityInstanceDto entityProviderInstanceDto = connectorApiFactory.getEntityInstanceApiClient(connectorDto).getEntityInstance(connectorDto,
+        com.otilm.api.model.connector.entity.EntityInstanceDto entityProviderInstanceDto = connectorApiFactory.getEntityInstanceApiClient(connectorDto).getEntityInstance(connectorDto,
                 entityInstanceReference.getEntityInstanceUuid());
 
         if (attributes.isEmpty() && entityProviderInstanceDto.getAttributes() != null && !entityProviderInstanceDto.getAttributes().isEmpty()) {
@@ -157,7 +157,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
 
     @Override
     @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.CREATE)
-    public EntityInstanceDto createEntityInstance(com.czertainly.api.model.client.entity.EntityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+    public EntityInstanceDto createEntityInstance(com.otilm.api.model.client.entity.EntityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (entityInstanceReferenceRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(EntityInstanceReference.class, request.getName());
         }
@@ -184,7 +184,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
         entityInstanceDto.setKind(request.getKind());
         entityInstanceDto.setName(request.getName());
 
-        com.czertainly.api.model.connector.entity.EntityInstanceDto response = connectorApiFactory.getEntityInstanceApiClient(connector).createEntityInstance(connector, entityInstanceDto);
+        com.otilm.api.model.connector.entity.EntityInstanceDto response = connectorApiFactory.getEntityInstanceApiClient(connector).createEntityInstance(connector, entityInstanceDto);
 
         EntityInstanceReference entityInstanceRef = new EntityInstanceReference();
         entityInstanceRef.setEntityInstanceUuid((response.getUuid()));

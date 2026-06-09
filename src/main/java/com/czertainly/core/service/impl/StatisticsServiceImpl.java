@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CertificateService;

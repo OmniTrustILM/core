@@ -1,38 +1,38 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.czertainly.api.model.connector.v2.CertificateIdentificationRequestDto;
-import com.czertainly.api.model.connector.v2.CertificateIdentificationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.certificate.group.GroupDto;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.location.LocationDto;
-import com.czertainly.api.model.core.oid.OidCategory;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
-import com.czertainly.api.model.core.settings.CertificateValidationSettingsDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.certificate.group.GroupDto;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.attribute.CsrAttributes;
 import com.czertainly.core.attribute.engine.AttributeContentPurpose;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -61,7 +61,7 @@ import com.czertainly.core.messaging.jms.producers.ValidationProducer;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.model.ValidationMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.oid.OidHandler;
@@ -1010,7 +1010,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
-    public Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException {
+    public Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.otilm.api.exception.CertificateException {
         Certificate entity = new Certificate();
         String fingerprint;
 
@@ -1021,15 +1021,15 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (!certificateType.equals(CertificateType.X509)) {
             String message = "Unsupported type of the certificate: " + certificateType;
             log.debug(message);
-            throw new com.czertainly.api.exception.CertificateException(message);
+            throw new com.otilm.api.exception.CertificateException(message);
         } else {
             X509Certificate certificate;
             try {
                 certificate = getX509(certificateData);
             } catch (CertificateException e) {
                 String message = "Failed to get parse the certificate " + certificateData + " > " + e.getMessage();
-                log.error("message");
-                throw new com.czertainly.api.exception.CertificateException(message);
+                log.error(message);
+                throw new com.otilm.api.exception.CertificateException(message);
             }
             try {
                 fingerprint = CertificateUtil.getThumbprint(certificate.getEncoded());
@@ -1041,8 +1041,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 }
             } catch (NoSuchAlgorithmException | CertificateException e) {
                 String message = "Failed to get thumbprint for certificate " + certificate.getSerialNumber() + " > " + e.getMessage();
-                log.error("message");
-                throw new com.czertainly.api.exception.CertificateException(message);
+                log.error(message);
+                throw new com.otilm.api.exception.CertificateException(message);
             }
 
             CertificateUtil.prepareIssuedCertificate(entity, certificate);

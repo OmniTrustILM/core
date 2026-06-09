@@ -1,6 +1,6 @@
 package com.czertainly.core.events;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.workflows.TriggerAssociation;
 import lombok.Getter;
 

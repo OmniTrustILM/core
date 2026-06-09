@@ -1,12 +1,12 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.notification.NotificationDto;
-import com.czertainly.api.model.client.notification.NotificationRequestDto;
-import com.czertainly.api.model.client.notification.NotificationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.notification.NotificationDto;
+import com.otilm.api.model.client.notification.NotificationRequestDto;
+import com.otilm.api.model.client.notification.NotificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
 import com.czertainly.core.dao.entity.notifications.Notification;
 import com.czertainly.core.dao.entity.notifications.NotificationRecipient;
 import com.czertainly.core.dao.repository.notifications.NotificationRecipientRepository;

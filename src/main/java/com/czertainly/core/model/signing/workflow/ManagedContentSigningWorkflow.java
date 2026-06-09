@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing.workflow;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 
 import java.util.List;
 import java.util.UUID;

@@ -1,10 +1,10 @@
 package com.czertainly.core.validation.certificate;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.settings.CertificateValidationSettingsDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CrlEntry;
 import com.czertainly.core.dao.entity.RaProfile;

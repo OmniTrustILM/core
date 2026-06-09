@@ -1,9 +1,9 @@
 package com.czertainly.core.dao.entity.signing;
 
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.*;
 import jakarta.persistence.*;
 import lombok.Getter;

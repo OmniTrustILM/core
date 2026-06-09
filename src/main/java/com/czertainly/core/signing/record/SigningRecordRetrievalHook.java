@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.exception.NotFoundException;
+import com.otilm.api.exception.NotFoundException;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;

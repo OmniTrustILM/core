@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.discovery.DiscoveryHistoryDetailDto;
-import com.czertainly.api.model.client.discovery.DiscoveryHistoryDto;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.client.discovery.DiscoveryHistoryDetailDto;
+import com.otilm.api.model.client.discovery.DiscoveryHistoryDto;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.czertainly.core.dao.entity.workflows.Trigger;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;

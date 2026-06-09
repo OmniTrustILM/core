@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.repository.workflows;
 
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import org.springframework.data.jpa.repository.EntityGraph;

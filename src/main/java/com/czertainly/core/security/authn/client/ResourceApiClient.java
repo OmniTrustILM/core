@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.AuthResourceDto;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.model.auth.SyncRequestDto;
 import com.czertainly.core.model.auth.SyncResponseDto;

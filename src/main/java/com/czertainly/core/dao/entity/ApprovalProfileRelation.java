@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRelationDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileRelationDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;

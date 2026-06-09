@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.notification.NotificationRequestDto;
-import com.czertainly.api.model.client.notification.NotificationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.notification.NotificationRequestDto;
+import com.otilm.api.model.client.notification.NotificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.repository.notifications.NotificationRecipientRepository;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.BaseSpringBootTest;

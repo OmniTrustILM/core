@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.core.connector.v2.ConnectorInterfaceDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.connector.v2.ConnectorInterfaceDto;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;

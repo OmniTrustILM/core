@@ -1,7 +1,7 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.core.oid.OidCategory;
-import com.czertainly.api.model.core.oid.SystemOid;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.SystemOid;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
 import org.bouncycastle.asn1.x500.RDN;

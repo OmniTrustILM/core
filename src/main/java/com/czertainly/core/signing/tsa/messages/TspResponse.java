@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.messages;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 
 import java.util.Arrays;
 

@@ -1,10 +1,10 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.audit.AuditLogResponseDto;
-import com.czertainly.api.model.core.audit.ExportResultDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.audit.AuditLogResponseDto;
+import com.otilm.api.model.core.audit.ExportResultDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 
 import java.util.List;
 

@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing.resolved;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.signing.tsa.CertificateChain;

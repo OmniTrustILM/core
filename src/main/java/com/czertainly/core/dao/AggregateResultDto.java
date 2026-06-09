@@ -1,6 +1,6 @@
 package com.czertainly.core.dao;
 
-import com.czertainly.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.common.enums.IPlatformEnum;
 
 public record AggregateResultDto(String aggregatedValue, Number aggregation) {
 

@@ -1,11 +1,11 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.v2.ClientCertificateRekeyRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfileRelation;
 import com.czertainly.core.dao.entity.ApprovalProfileVersion;

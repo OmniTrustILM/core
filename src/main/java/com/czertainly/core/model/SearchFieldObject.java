@@ -1,8 +1,8 @@
 package com.czertainly.core.model;
 
-import com.czertainly.api.model.common.attribute.common.*;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.common.*;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import lombok.Data;
 
 import java.time.LocalDate;

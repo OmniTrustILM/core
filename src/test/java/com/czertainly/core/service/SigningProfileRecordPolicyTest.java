@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.signing.profile.SigningProfileRequestDto;
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
-import com.czertainly.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.repository.ConnectorRepository;

@@ -1,9 +1,9 @@
 package db.migration;
 
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.DatabaseMigration;
-import com.czertainly.core.util.V2AttributeMigrationUtils;
+import com.otilm.core.util.V2AttributeMigrationUtils;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 

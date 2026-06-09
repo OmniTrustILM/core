@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import lombok.Builder;
 import lombok.Value;

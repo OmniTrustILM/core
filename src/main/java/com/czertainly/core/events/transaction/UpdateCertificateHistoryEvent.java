@@ -1,8 +1,8 @@
 package com.czertainly.core.events.transaction;
 
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.czertainly.core.service.CertificateEventHistoryInternalService;
 
 import java.util.UUID;

@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;

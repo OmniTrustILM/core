@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.connector.secrets.SecretType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateSubjectType;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.secret.SecretState;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateSubjectType;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.secret.SecretState;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;

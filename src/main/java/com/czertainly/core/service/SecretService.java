@@ -1,13 +1,13 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.connector.secrets.content.SecretContent;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.secret.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.connector.secrets.content.SecretContent;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.secret.*;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

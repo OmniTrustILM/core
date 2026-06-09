@@ -1,10 +1,10 @@
 package com.czertainly.core.tasks;
 
-import com.czertainly.api.model.client.discovery.DiscoveryDto;
-import com.czertainly.api.model.client.discovery.DiscoveryHistoryDetailDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.client.discovery.DiscoveryDto;
+import com.otilm.api.model.client.discovery.DiscoveryHistoryDetailDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.service.DiscoveryService;
 import com.fasterxml.jackson.databind.ObjectMapper;

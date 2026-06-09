@@ -1,8 +1,8 @@
 package com.czertainly.core.tasks;
 
-import com.czertainly.api.exception.CbomRepositoryException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.api.ScheduledJobSkippedException;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.service.CbomService;

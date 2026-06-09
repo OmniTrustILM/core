@@ -1,7 +1,7 @@
 package com.czertainly.core.architecture;
 
-import com.czertainly.api.exception.PlatformException;
-import com.czertainly.api.model.common.BulkActionMessageDto;
+import com.otilm.api.exception.PlatformException;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.czertainly.core.intune.scepvalidation.IntuneClientException;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaCall;

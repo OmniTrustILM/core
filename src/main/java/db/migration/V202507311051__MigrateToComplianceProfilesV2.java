@@ -1,15 +1,15 @@
 package db.migration;
 
-import com.czertainly.api.exception.CertificateOperationException;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.czertainly.core.model.compliance.ComplianceResultProviderRulesDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.DatabaseMigration;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.RoleRequestDto;
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.RoleRequestDto;
+import com.otilm.api.model.core.auth.*;
 
 import java.util.List;
 

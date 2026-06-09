@@ -1,10 +1,10 @@
 package com.czertainly.core.api.scep;
 
-import com.czertainly.api.exception.ScepException;
-import com.czertainly.api.interfaces.core.scep.ScepRaProfileController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.ScepException;
+import com.otilm.api.interfaces.core.scep.ScepRaProfileController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.scep.ScepService;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -1,6 +1,6 @@
 package com.czertainly.core.mapper.signing;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.model.signing.SigningRecordPolicyModel;

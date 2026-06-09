@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.certificate;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 
 /**
  * Result of {@link SigningCertificateValidator#validate(com.czertainly.core.model.signing.resolved.ResolvedManagedScheme, boolean)}.

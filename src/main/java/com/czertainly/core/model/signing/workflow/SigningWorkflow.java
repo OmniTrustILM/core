@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing.workflow;
 
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 
 /**
  * Sealed interface for all signing-workflow-type-specific model objects.

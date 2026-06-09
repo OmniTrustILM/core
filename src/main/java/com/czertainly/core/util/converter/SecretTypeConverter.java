@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.connector.secrets.SecretType;
 
 import java.beans.PropertyEditorSupport;
 

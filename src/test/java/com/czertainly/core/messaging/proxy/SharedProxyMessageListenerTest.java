@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.czertainly.core.messaging.proxy.handler.MessageTypeHandlerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,13 +1,13 @@
 package com.czertainly.core.provider;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto;
-import com.czertainly.api.model.connector.cryptography.operations.DecryptDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.operations.data.CipherRequestData;
-import com.czertainly.api.model.common.enums.cryptography.RsaEncryptionScheme;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.connector.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.connector.cryptography.operations.data.CipherRequestData;
+import com.otilm.api.model.common.enums.cryptography.RsaEncryptionScheme;
 import com.czertainly.core.attribute.RsaEncryptionAttributes;
 import com.czertainly.core.provider.key.CzertainlyPrivateKey;
 import org.slf4j.Logger;

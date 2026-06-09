@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 
 import java.beans.PropertyEditorSupport;
 

@@ -1,8 +1,8 @@
 package com.czertainly.core.api;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.core.acme.Problem;
-import com.czertainly.api.model.core.acme.ProblemDocument;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.core.acme.Problem;
+import com.otilm.api.model.core.acme.ProblemDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;

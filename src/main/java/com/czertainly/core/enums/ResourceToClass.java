@@ -1,9 +1,9 @@
 package com.czertainly.core.enums;
 
-import com.czertainly.api.model.common.attribute.v2.BaseAttributeV2;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.RoleDto;
-import com.czertainly.api.model.core.auth.UserDto;
+import com.otilm.api.model.common.attribute.v2.BaseAttributeV2;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.RoleDto;
+import com.otilm.api.model.core.auth.UserDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
 import com.czertainly.core.dao.entity.acme.AcmeProfile;

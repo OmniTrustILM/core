@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.client.approval.ApprovalStepRecipientDto;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.approval.ApprovalStepRecipientDto;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;

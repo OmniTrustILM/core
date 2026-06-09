@@ -1,15 +1,15 @@
 package com.czertainly.core.service.cmp.message.handler;
 
-import com.czertainly.api.exception.CertificateOperationException;
-import com.czertainly.api.exception.CertificateRequestException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRekeyRequestDto;
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.repository.CertificateRepository;

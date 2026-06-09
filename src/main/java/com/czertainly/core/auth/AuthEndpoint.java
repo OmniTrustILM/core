@@ -1,6 +1,6 @@
 package com.czertainly.core.auth;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

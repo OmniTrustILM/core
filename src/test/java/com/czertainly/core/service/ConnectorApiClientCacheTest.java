@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.core.connector.v2.ConnectorUpdateRequestDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.repository.ConnectorRepository;

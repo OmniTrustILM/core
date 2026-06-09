@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEvent;
 
 import java.beans.PropertyEditorSupport;
 

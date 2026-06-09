@@ -1,11 +1,11 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.certificate.QcType;
 import org.bouncycastle.asn1.ASN1EncodableVector;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;

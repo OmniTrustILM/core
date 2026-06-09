@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 
 import java.util.UUID;
 

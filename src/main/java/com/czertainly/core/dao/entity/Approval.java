@@ -1,12 +1,12 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.approval.ApprovalDetailDto;
-import com.czertainly.api.model.client.approval.ApprovalDetailStepDto;
-import com.czertainly.api.model.client.approval.ApprovalDto;
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.client.approval.ApprovalDetailDto;
+import com.otilm.api.model.client.approval.ApprovalDetailStepDto;
+import com.otilm.api.model.client.approval.ApprovalDto;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.converter.ObjectToJsonConverter;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;

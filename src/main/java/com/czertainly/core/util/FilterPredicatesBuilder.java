@@ -1,14 +1,14 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.enums.BitMaskEnum;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.ResourceToClass;

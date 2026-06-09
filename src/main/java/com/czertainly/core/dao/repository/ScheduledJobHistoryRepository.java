@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.dao.entity.ScheduledJobHistory;
 
 import org.springframework.stereotype.Repository;

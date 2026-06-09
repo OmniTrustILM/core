@@ -1,6 +1,6 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
+import com.otilm.api.exception.NotFoundException;
 import com.czertainly.core.security.authz.SecuredUUID;
 
 import java.util.List;

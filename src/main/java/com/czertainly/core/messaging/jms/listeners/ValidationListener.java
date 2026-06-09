@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.messaging.model.ValidationMessage;

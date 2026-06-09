@@ -1,7 +1,7 @@
 package db.migration;
 
-import com.czertainly.api.model.common.enums.BitMaskEnum;
-import com.czertainly.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.czertainly.core.util.DatabaseMigration;
 import com.czertainly.core.util.MetaDefinitions;
 import org.flywaydb.core.api.migration.BaseJavaMigration;

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.czertainly.core.dao.entity.DiscoveryHistory;
 import com.czertainly.core.dao.entity.FunctionGroup;
 import com.czertainly.core.dao.repository.DiscoveryRepository;

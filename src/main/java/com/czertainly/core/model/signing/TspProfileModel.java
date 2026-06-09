@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing;
 
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
 
 import java.util.List;
 import java.util.UUID;

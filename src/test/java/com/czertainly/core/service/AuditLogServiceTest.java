@@ -1,21 +1,21 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.interfaces.core.web.AuditLogController;
-import com.czertainly.api.interfaces.core.web.SettingController;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.audit.ExportResultDto;
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.records.ActorRecord;
-import com.czertainly.api.model.core.logging.records.LogRecord;
-import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
-import com.czertainly.api.model.core.logging.records.ResourceRecord;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.settings.logging.AuditLoggingSettingsDto;
-import com.czertainly.api.model.core.settings.logging.LoggingSettingsDto;
-import com.czertainly.api.model.core.settings.logging.ResourceLoggingSettingsDto;
+import com.otilm.api.interfaces.core.web.AuditLogController;
+import com.otilm.api.interfaces.core.web.SettingController;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.audit.ExportResultDto;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.logging.records.ResourceRecord;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.czertainly.core.dao.entity.AuditLog;
 import com.czertainly.core.dao.repository.AuditLogRepository;
 import com.czertainly.core.enums.FilterField;
@@ -102,8 +102,8 @@ class AuditLogServiceTest extends BaseSpringBootTest {
         auditLog.setModule(Module.AUTH);
         auditLog.setActorAuthMethod(AuthMethod.NONE);
         auditLog.setActorType(ActorType.CORE);
-        auditLog.setResource(com.czertainly.api.model.core.auth.Resource.CERTIFICATE);
-        auditLog.setAffiliatedResource(com.czertainly.api.model.core.auth.Resource.AUDIT_LOG);
+        auditLog.setResource(com.otilm.api.model.core.auth.Resource.CERTIFICATE);
+        auditLog.setAffiliatedResource(com.otilm.api.model.core.auth.Resource.AUDIT_LOG);
         auditLog.setVersion("1");
         auditLog.setOperation(Operation.LOGOUT);
         auditLog.setOperationResult(OperationResult.SUCCESS);
@@ -122,7 +122,7 @@ class AuditLogServiceTest extends BaseSpringBootTest {
     void testLogWithOutput() {
         LogRecord logRecord = LogRecord.builder()
                 .actor(ActorRecord.builder().authMethod(AuthMethod.CERTIFICATE).type(ActorType.USER).build())
-                .resource(ResourceRecord.builder().type(com.czertainly.api.model.core.auth.Resource.USER).build())
+                .resource(ResourceRecord.builder().type(com.otilm.api.model.core.auth.Resource.USER).build())
                 .timestamp(OffsetDateTime.now())
                 .module(Module.AUTH)
                 .version("1")

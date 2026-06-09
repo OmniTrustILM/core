@@ -1,6 +1,6 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
+import com.otilm.api.exception.NotFoundException;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.service.CertificateChainService;

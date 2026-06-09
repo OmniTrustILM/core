@@ -1,7 +1,7 @@
 package com.czertainly.core.model.signing;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 
 import java.util.List;
 import java.util.UUID;

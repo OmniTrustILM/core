@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.model.signing.TspProfileModel;
 import com.czertainly.core.security.authz.SecuredUUID;

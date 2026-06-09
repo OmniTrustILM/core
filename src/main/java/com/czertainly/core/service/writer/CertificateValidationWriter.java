@@ -1,6 +1,6 @@
 package com.czertainly.core.service.writer;
 
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;

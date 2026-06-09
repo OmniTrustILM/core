@@ -1,13 +1,14 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.CertificateRequestException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.attribute.CsrAttributes;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.model.request.CrmfCertificateRequest;
 import com.czertainly.core.model.request.Pkcs10CertificateRequest;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;

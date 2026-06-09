@@ -1,10 +1,10 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.czertainly.core.dao.repository.CertificateRepository;

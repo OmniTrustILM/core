@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.settings.*;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.settings.*;
 
-import com.czertainly.api.model.core.settings.authentication.*;
-import com.czertainly.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.authentication.*;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 
 public interface SettingService {
 
     /**
      * Get platform settings
      * @return platform settings
-     * {@link com.czertainly.api.model.core.settings.PlatformSettingsDto}
+     * {@link com.otilm.api.model.core.settings.PlatformSettingsDto}
      */
     PlatformSettingsDto getPlatformSettings();
 

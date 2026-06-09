@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.connector.EndpointDto;
+import com.otilm.api.model.core.connector.EndpointDto;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;

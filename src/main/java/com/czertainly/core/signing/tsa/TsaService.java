@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.czertainly.core.signing.tsa.messages.TspRequest;
 import com.czertainly.core.signing.tsa.messages.TspResponse;
 
