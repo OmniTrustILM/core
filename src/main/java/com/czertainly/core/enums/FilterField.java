@@ -34,6 +34,7 @@ import com.czertainly.core.dao.entity.oid.CustomOidEntry_;
 import com.czertainly.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry_;
 import com.czertainly.core.dao.entity.scep.ScepProfile_;
 import com.czertainly.core.dao.entity.signing.SigningProfile_;
+import com.czertainly.core.dao.entity.signing.SigningRecord_;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration_;
 import com.czertainly.core.dao.entity.signing.TspProfile_;
 import com.czertainly.core.model.auth.ResourceAction;
@@ -234,6 +235,14 @@ public enum FilterField {
     TSP_PROFILE_NAME(Resource.TSP_PROFILE, null, null, TspProfile_.name, "Name", SearchFieldTypeEnum.STRING),
     TSP_PROFILE_ENABLED(Resource.TSP_PROFILE, null, null, TspProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
     TSP_PROFILE_DEFAULT_SIGNING_PROFILE(Resource.TSP_PROFILE, Resource.SIGNING_PROFILE, List.of(TspProfile_.defaultSigningProfile), SigningProfile_.name, "Default Signing Profile", SearchFieldTypeEnum.LIST),
+
+    // Signing Record
+    SIGNING_RECORD_NAME(Resource.SIGNING_RECORD, null, null, SigningRecord_.name, "Name", SearchFieldTypeEnum.STRING),
+    SIGNING_RECORD_SIGNING_PROFILE(Resource.SIGNING_RECORD, Resource.SIGNING_PROFILE, List.of(SigningRecord_.signingProfile), SigningProfile_.name, "Signing Profile", SearchFieldTypeEnum.LIST),
+    SIGNING_RECORD_SIGNING_PROFILE_VERSION(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingProfileVersion, "Signing Profile Version", SearchFieldTypeEnum.NUMBER),
+    SIGNING_RECORD_SIGNING_TIME(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingTime, "Signing Time", SearchFieldTypeEnum.DATETIME),
+    SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT(Resource.SIGNING_RECORD, null, null, SigningRecord_.signedDocumentRetrievedAt, "Signed Document Retrieved At", SearchFieldTypeEnum.DATETIME),
+    SIGNING_RECORD_CREATED(Resource.SIGNING_RECORD, null, null, Audited_.created, "Created At", SearchFieldTypeEnum.DATETIME),
     ;
 
     private static final FilterField[] VALUES;

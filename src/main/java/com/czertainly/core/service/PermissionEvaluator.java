@@ -51,5 +51,21 @@ public interface PermissionEvaluator {
 
     void acmeProfile(SecuredUUID uuid) throws NotFoundException;
 
+    /**
+     * Function to evaluate the permission for the Signing Profile connected to a signing record
+     *
+     * @param uuid UUID of the signing profile
+     * @throws NotFoundException when the signing profile with the requested UUID is not found
+     */
+    void signingProfile(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Function to evaluate access to a set of signing profiles in a single authorization check.
+     * The whole set is authorized together: if access to any profile is denied, the check fails.
+     *
+     * @param uuids UUIDs of the signing profiles
+     */
+    void signingProfiles(List<SecuredUUID> uuids);
+
     void vaultInstance(SecuredUUID uuid);
 }
