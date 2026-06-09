@@ -4,7 +4,7 @@ package com.otilm.core.security.oauth2;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Util;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -52,7 +52,7 @@ class OAuth2UtilTest {
         providerSettingsDto.setAudiences(List.of("expected", "other"));
         Assertions.assertDoesNotThrow(() -> OAuth2Util.validateAudiences(accessTokenCorrectAudience, providerSettingsDto));
 
-        Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> OAuth2Util.validateAudiences(accessTokenIncorrectAudience, providerSettingsDto));
+        Assertions.assertThrows(PlatformAuthenticationException.class, () -> OAuth2Util.validateAudiences(accessTokenIncorrectAudience, providerSettingsDto));
 
         providerSettingsDto.setAudiences(new ArrayList<>());
         Assertions.assertDoesNotThrow(() -> OAuth2Util.validateAudiences(accessTokenIncorrectAudience, providerSettingsDto));

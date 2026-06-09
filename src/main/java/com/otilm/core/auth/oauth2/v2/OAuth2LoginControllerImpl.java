@@ -6,7 +6,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.util.OAuth2LoginFlowHelper;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginService;
 import com.otilm.core.util.OAuth2Constants;
@@ -46,7 +46,7 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
 
         if (error != null) {
             request.getSession().invalidate();
-            throw new CzertainlyAuthenticationException("Error during authentication: " + error);
+            throw new PlatformAuthenticationException("Error during authentication: " + error);
         }
 
         // Work only with properly configured OAuth2 providers.
@@ -78,7 +78,7 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
         if (validatedRedirectUrl == null) {
             String errorMessage = "Missing or invalid redirect URL. Please start the login from the beginning.";
             auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, errorMessage, null);
-            throw new CzertainlyAuthenticationException(errorMessage);
+            throw new PlatformAuthenticationException(errorMessage);
         }
 
         HttpServletRequest request = getHttpServletRequest();

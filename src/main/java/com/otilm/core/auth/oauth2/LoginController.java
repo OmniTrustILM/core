@@ -6,7 +6,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.auth.oauth2.v2.OAuth2LoginControllerImpl;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginService;
 import com.otilm.core.settings.SettingsCache;
@@ -60,7 +60,7 @@ public class LoginController {
 
         if (error != null) {
             request.getSession().invalidate();
-            throw new CzertainlyAuthenticationException("Error during authentication: " + error);
+            throw new PlatformAuthenticationException("Error during authentication: " + error);
         }
 
         String baseUrl = ServletUriComponentsBuilder.fromCurrentRequestUri()
@@ -72,7 +72,7 @@ public class LoginController {
         if (validatedRedirectUrl != null) {
             request.getSession().setAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE, baseUrl + validatedRedirectUrl);
         } else {
-            throw new CzertainlyAuthenticationException("No redirect URL provided for login or redirect URL is invalid");
+            throw new PlatformAuthenticationException("No redirect URL provided for login or redirect URL is invalid");
         }
 
         // Display only properly configured providers
@@ -125,7 +125,7 @@ public class LoginController {
         OAuth2ProviderSettingsDto providerSettings = OAuth2LoginFlowHelper.resolveProviderOrThrow(provider, request, oauth2LoginService, auditLogService);
 
         if (request.getSession(false) == null || request.getSession().getAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE) == null) {
-            throw new CzertainlyAuthenticationException("Missing redirect URL. Please start the login from the beginning.");
+            throw new PlatformAuthenticationException("Missing redirect URL. Please start the login from the beginning.");
         }
 
         request.getSession().setMaxInactiveInterval(providerSettings.getSessionMaxInactiveInterval());

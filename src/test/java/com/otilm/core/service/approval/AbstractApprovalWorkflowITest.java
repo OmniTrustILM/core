@@ -16,8 +16,8 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.ApprovalInternalService;
@@ -96,7 +96,7 @@ abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest {
         }
 
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, APPROVER_UUID.toString(), "test-approver", List.of(), rawData);
-        return new CzertainlyAuthenticationToken(new CzertainlyUserDetails(info));
+        return new PlatformAuthenticationToken(new PlatformUserDetails(info));
     }
 
     /**

@@ -2,8 +2,8 @@ package com.otilm.core.config;
 
 import com.czertainly.core.auth.oauth2.*;
 import com.otilm.core.auth.oauth2.*;
-import com.otilm.core.security.authn.CzertainlyAuthenticationFilter;
-import com.otilm.core.security.authn.client.CzertainlyAuthenticationClient;
+import com.otilm.core.security.authn.PlatformAuthenticationFilter;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.util.AuthHelper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,19 +29,19 @@ public class SecurityConfig {
 
     private Environment environment;
 
-    private CzertainlyClientRegistrationRepository clientRegistrationRepository;
+    private PlatformClientRegistrationRepository clientRegistrationRepository;
 
     private OAuth2LoginFilter oauth2LoginFilter;
 
     private JwtDecoder jwtDecoder;
 
-    private CzertainlyAuthenticationClient authenticationClient;
+    private PlatformAuthenticationClient authenticationClient;
 
-    private CzertainlyAuthenticationSuccessHandler authenticationSuccessHandler;
+    private PlatformAuthenticationSuccessHandler authenticationSuccessHandler;
 
-    private CzertainlyOAuth2FailureHandler failureHandler;
+    private PlatformOAuth2FailureHandler failureHandler;
 
-    private CzertainlyJwtAuthenticationConverter jwtAuthenticationConverter;
+    private PlatformJwtAuthenticationConverter jwtAuthenticationConverter;
 
     @Bean
     protected SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -60,7 +60,7 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .x509(AbstractHttpConfigurer::disable)
                 .addFilterBefore(protocolValidationFilter, X509AuthenticationFilter.class)
-                .addFilterBefore(createCzertainlyAuthenticationFilter(), BearerTokenAuthenticationFilter.class)
+                .addFilterBefore(createPlatformAuthenticationFilter(), BearerTokenAuthenticationFilter.class)
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.decoder(jwtDecoder)
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter)
@@ -88,11 +88,11 @@ public class SecurityConfig {
 
     @Bean
     public LogoutSuccessHandler oidcLogoutSuccessHandler(ClientRegistrationRepository clientRegistrationRepository) {
-        return new CzertainlyLogoutSuccessHandler(clientRegistrationRepository);
+        return new PlatformLogoutSuccessHandler(clientRegistrationRepository);
     }
 
-    protected CzertainlyAuthenticationFilter createCzertainlyAuthenticationFilter() {
-        return new CzertainlyAuthenticationFilter(authenticationClient, environment.getProperty("server.ssl.certificate-header-name"), environment.getProperty("server.servlet.context-path"));
+    protected PlatformAuthenticationFilter createPlatformAuthenticationFilter() {
+        return new PlatformAuthenticationFilter(authenticationClient, environment.getProperty("server.ssl.certificate-header-name"), environment.getProperty("server.servlet.context-path"));
     }
 
     // SETTERs
@@ -108,17 +108,17 @@ public class SecurityConfig {
     }
 
     @Autowired
-    public void setAuthenticationClient(CzertainlyAuthenticationClient authenticationClient) {
+    public void setAuthenticationClient(PlatformAuthenticationClient authenticationClient) {
         this.authenticationClient = authenticationClient;
     }
 
     @Autowired
-    public void setAuthenticationSuccessHandler(CzertainlyAuthenticationSuccessHandler authenticationSuccessHandler) {
+    public void setAuthenticationSuccessHandler(PlatformAuthenticationSuccessHandler authenticationSuccessHandler) {
         this.authenticationSuccessHandler = authenticationSuccessHandler;
     }
 
     @Autowired
-    public void setClientRegistrationRepository(CzertainlyClientRegistrationRepository clientRegistrationRepository) {
+    public void setClientRegistrationRepository(PlatformClientRegistrationRepository clientRegistrationRepository) {
         this.clientRegistrationRepository = clientRegistrationRepository;
     }
 
@@ -133,12 +133,12 @@ public class SecurityConfig {
     }
 
     @Autowired
-    public void setFailureHandler(CzertainlyOAuth2FailureHandler failureHandler) {
+    public void setFailureHandler(PlatformOAuth2FailureHandler failureHandler) {
         this.failureHandler = failureHandler;
     }
 
     @Autowired
-    public void setJwtAuthenticationConverter(CzertainlyJwtAuthenticationConverter jwtAuthenticationConverter) {
+    public void setJwtAuthenticationConverter(PlatformJwtAuthenticationConverter jwtAuthenticationConverter) {
         this.jwtAuthenticationConverter = jwtAuthenticationConverter;
     }
 }

@@ -20,7 +20,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CzertainlyX500NameStyle;
+import com.otilm.core.util.PlatformX500NameStyle;
 import lombok.NoArgsConstructor;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.slf4j.Logger;
@@ -163,7 +163,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
 
         for (CARevocationRequest revocationRequest : revocationRequests) {
             try {
-                String issuerName = X500Name.getInstance(new CzertainlyX500NameStyle(true), new X500Principal(revocationRequest.issuerName, OidHandler.getCodeToOidMap()).getEncoded()).toString();
+                String issuerName = X500Name.getInstance(new PlatformX500NameStyle(true), new X500Principal(revocationRequest.issuerName, OidHandler.getCodeToOidMap()).getEncoded()).toString();
                 Certificate certificate = certificateService.getCertificateEntityByIssuerDnNormalizedAndSerialNumber(
                         issuerName,
                         revocationRequest.serialNumber

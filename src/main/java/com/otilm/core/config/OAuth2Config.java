@@ -1,6 +1,6 @@
 package com.otilm.core.config;
 
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.util.OAuth2Constants;
 import com.nimbusds.jwt.SignedJWT;
 import org.springframework.context.annotation.Bean;
@@ -40,7 +40,7 @@ public class OAuth2Config {
                 String issuerUrlString = SignedJWT.parse(((OAuth2RefreshTokenGrantRequest) grantRequest).getAccessToken().getTokenValue()).getJWTClaimsSet().getIssuer();
                 issuerUrl = new URI(issuerUrlString);
             } catch (URISyntaxException | ParseException e) {
-                throw new CzertainlyAuthenticationException("Could not parse issuer URL in token: " + e.getMessage());
+                throw new PlatformAuthenticationException("Could not parse issuer URL in token: " + e.getMessage());
             }
             headers.set("X-Forwarded-Host", issuerUrl.getHost());
             if (issuerUrl.getPort() > 0) headers.set("X-Forwarded-Port", String.valueOf(issuerUrl.getPort()));

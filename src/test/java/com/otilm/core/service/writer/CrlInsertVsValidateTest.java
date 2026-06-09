@@ -6,7 +6,7 @@ import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.CzertainlyX500NameStyle;
+import com.otilm.core.util.PlatformX500NameStyle;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -94,7 +94,7 @@ class CrlInsertVsValidateTest extends BaseSpringBootTest {
 
     @Test
     void parallelGetCurrentCrlCallsResultInExactlyOneRow() throws Exception {
-        String issuerDn = X500Name.getInstance(new CzertainlyX500NameStyle(true),
+        String issuerDn = X500Name.getInstance(new PlatformX500NameStyle(true),
                 eeCert.getIssuerX500Principal().getEncoded()).toString();
         String issuerSerial = caCert.getSerialNumber().toString(16);
 

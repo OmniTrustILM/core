@@ -3,7 +3,7 @@ package com.otilm.core.util;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,7 +28,7 @@ public final class OAuth2LoginFlowHelper {
 
             String message = "Unknown OAuth2 Provider with name '%s' for authentication with OAuth2 flow".formatted(provider);
             auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message, accessToken);
-            throw new CzertainlyAuthenticationException(message);
+            throw new PlatformAuthenticationException(message);
         }
         return providerSettings;
     }

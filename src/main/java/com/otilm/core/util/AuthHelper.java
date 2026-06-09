@@ -11,10 +11,10 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.CzertainlyAuthenticationClient;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.OpaPolicy;
 import com.otilm.core.security.authz.SecurityResourceFilter;
@@ -65,7 +65,7 @@ public class AuthHelper {
 
     private OpaClient opaClient;
     private UserManagementApiClient userManagementApiClient;
-    private CzertainlyAuthenticationClient czertainlyAuthenticationClient;
+    private PlatformAuthenticationClient czertainlyAuthenticationClient;
 
     private static final Set<String> protocolUsers = Set.of(ACME_USERNAME, SCEP_USERNAME, CMP_USERNAME);
 
@@ -80,7 +80,7 @@ public class AuthHelper {
     }
 
     @Autowired
-    public void setCzertainlyAuthenticationClient(CzertainlyAuthenticationClient czertainlyAuthenticationClient) {
+    public void setPlatformAuthenticationClient(PlatformAuthenticationClient czertainlyAuthenticationClient) {
         this.czertainlyAuthenticationClient = czertainlyAuthenticationClient;
     }
 
@@ -90,9 +90,9 @@ public class AuthHelper {
         LoggingHelper.putActorInfoWhenNull(actorType, null, username);
 
         AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticateSystemUser(username);
-        CzertainlyUserDetails userDetails = new CzertainlyUserDetails(authUserInfo);
+        PlatformUserDetails userDetails = new PlatformUserDetails(authUserInfo);
         SecurityContext securityContext = SecurityContextHolder.getContext();
-        securityContext.setAuthentication(new CzertainlyAuthenticationToken(userDetails));
+        securityContext.setAuthentication(new PlatformAuthenticationToken(userDetails));
         logger.debug("User with username '{}' has been successfully authenticated as system user proxy.", authUserInfo.getUsername());
     }
 
@@ -102,13 +102,13 @@ public class AuthHelper {
 
         AuthenticationInfo authUserInfo = czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
         SecurityContext securityContext = SecurityContextHolder.getContext();
-        securityContext.setAuthentication(new CzertainlyAuthenticationToken(new CzertainlyUserDetails(authUserInfo)));
+        securityContext.setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(authUserInfo)));
         logger.debug("User with username '{}' has been successfully authenticated as user proxy.", authUserInfo.getUsername());
     }
 
     public static boolean isLoggedProtocolUser() {
         try {
-            CzertainlyUserDetails userDetails = (CzertainlyUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+            PlatformUserDetails userDetails = (PlatformUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
             String username = userDetails.getUsername();
             return protocolUsers.contains(username);
         } catch (Exception e) {
@@ -137,7 +137,7 @@ public class AuthHelper {
 
     public static NameAndUuidDto getUserIdentification() throws ValidationException {
         try {
-            CzertainlyUserDetails userDetails = (CzertainlyUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+            PlatformUserDetails userDetails = (PlatformUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
             return new NameAndUuidDto(userDetails.getUserUuid(), userDetails.getUsername());
         } catch (Exception e) {
             throw new ValidationException(ValidationError.create("Cannot retrieve user identification for Unknown/Anonymous user"));
@@ -147,7 +147,7 @@ public class AuthHelper {
     public static UserProfileDto getUserProfile() {
         UserProfileDto userProfileDto;
         try {
-            CzertainlyUserDetails userDetails = (CzertainlyUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+            PlatformUserDetails userDetails = (PlatformUserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
             ObjectMapper objectMapper = new ObjectMapper();
             objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
             userProfileDto = objectMapper.readValue(userDetails.getRawData(), UserProfileDto.class);
@@ -159,7 +159,7 @@ public class AuthHelper {
 
     public SecurityResourceFilter loadObjectPermissions(Resource resource, ResourceAction resourceAction) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (!(auth instanceof CzertainlyAuthenticationToken czertainlyAuthenticationToken)) {
+        if (!(auth instanceof PlatformAuthenticationToken czertainlyAuthenticationToken)) {
             // return filter with empty permissions (no objects allowed)
             return new SecurityResourceFilter(List.of(), List.of(), true);
         }

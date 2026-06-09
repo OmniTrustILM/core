@@ -5,7 +5,7 @@ import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
 import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BeautificationUtil;
@@ -454,13 +454,13 @@ public class ExceptionHandlingAdvice {
     }
 
     /**
-     * Handler for {@link CzertainlyAuthenticationException}.
+     * Handler for {@link PlatformAuthenticationException}.
      *
      * @return
      */
-    @ExceptionHandler(CzertainlyAuthenticationException.class)
+    @ExceptionHandler(PlatformAuthenticationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorMessageDto handleCzertainlyAuthenticationException(CzertainlyAuthenticationException ex) {
+    public ErrorMessageDto handlePlatformAuthenticationException(PlatformAuthenticationException ex) {
         LOG.info("HTTP 400: {}", ex.getMessage());
         return ErrorMessageDto.getInstance(ex.getMessage());
     }

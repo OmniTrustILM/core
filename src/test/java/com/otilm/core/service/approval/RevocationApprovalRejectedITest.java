@@ -16,7 +16,7 @@ import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.CzertainlyAuthenticationClient;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,7 +47,7 @@ class RevocationApprovalRejectedITest extends AbstractApprovalWorkflowITest {
      * scoped to this subclass so it does not alter the action-message behavior of other tests.
      */
     @MockitoBean
-    private CzertainlyAuthenticationClient authenticationClient;
+    private PlatformAuthenticationClient authenticationClient;
 
     @BeforeEach
     void stubActionMessageAuthentication() {

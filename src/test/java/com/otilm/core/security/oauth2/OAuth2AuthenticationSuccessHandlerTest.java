@@ -2,9 +2,9 @@ package com.otilm.core.security.oauth2;
 
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.otilm.core.auth.oauth2.CzertainlyAuthenticationSuccessHandler;
-import com.otilm.core.auth.oauth2.CzertainlyClientRegistrationRepository;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.auth.oauth2.PlatformAuthenticationSuccessHandler;
+import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
 import com.nimbusds.jose.JOSEException;
@@ -42,13 +42,13 @@ class OAuth2AuthenticationSuccessHandlerTest {
     OAuth2AuthorizedClientService clientService;
 
     @Autowired
-    CzertainlyAuthenticationSuccessHandler successHandler;
+    PlatformAuthenticationSuccessHandler successHandler;
 
     @Autowired
     SettingsCache settingsCache;
 
     @Autowired
-    CzertainlyClientRegistrationRepository clientRegistrationRepository;
+    PlatformClientRegistrationRepository clientRegistrationRepository;
 
     PrivateKey privateKey;
     MockHttpServletRequest mockHttpServletRequest;
@@ -94,7 +94,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusMillis(100), idTokenClaims);
         DefaultOidcUser oidcUser = new DefaultOidcUser(null, idToken);
         OAuth2AuthenticationToken authenticationToken = new OAuth2AuthenticationToken(oidcUser, null, "test");
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
         Assertions.assertTrue(exception.getMessage().contains("do not match any of audiences"));
     }
 
@@ -109,7 +109,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusMillis(100), idTokenClaims);
         DefaultOidcUser oidcUser = new DefaultOidcUser(null, idToken);
         OAuth2AuthenticationToken authenticationToken = new OAuth2AuthenticationToken(oidcUser, null, "test");
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
         Assertions.assertTrue(exception.getMessage().contains("username"));
     }
 
@@ -126,7 +126,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusMillis(100), idTokenClaims);
         DefaultOidcUser oidcUser = new DefaultOidcUser(null, idToken);
         OAuth2AuthenticationToken authenticationToken = new OAuth2AuthenticationToken(oidcUser, null, "test");
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> successHandler.onAuthenticationSuccess(mockHttpServletRequest, mockHttpServletResponse, authenticationToken));
         Assertions.assertTrue(exception.getMessage().contains("Unknown OAuth2 Provider with name"));
     }
 }

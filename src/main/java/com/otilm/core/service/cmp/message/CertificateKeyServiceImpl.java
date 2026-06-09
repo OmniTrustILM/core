@@ -9,8 +9,8 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
-import com.otilm.core.provider.CzertainlyProvider;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.PlatformProvider;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.service.CryptographicKeyService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -35,7 +35,7 @@ public class CertificateKeyServiceImpl implements CertificateKeyService {
     }
 
     @Override
-    public CzertainlyProvider getProvider(String cmpProfileName, Certificate signingCertificate) throws NotFoundException {
+    public PlatformProvider getProvider(String cmpProfileName, Certificate signingCertificate) throws NotFoundException {
         CryptographicKey key = signingCertificate.getKey();
         if (key == null) {
             throw new IllegalStateException("Signing certificate has no associated cryptographic key");
@@ -50,15 +50,15 @@ public class CertificateKeyServiceImpl implements CertificateKeyService {
         }
 
         CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorUuid);
-        return CzertainlyProvider.getInstance(cmpProfileName, true, apiClient);
+        return PlatformProvider.getInstance(cmpProfileName, true, apiClient);
     }
 
     @Override
-    public CzertainlyPrivateKey getPrivateKey(Certificate certificate) {
+    public PlatformPrivateKey getPrivateKey(Certificate certificate) {
         CryptographicKey key = certificate.getKey();
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
         TokenInstanceReference tokenInsReference = key.getTokenInstanceReference();
-        return new CzertainlyPrivateKey(
+        return new PlatformPrivateKey(
                 tokenInsReference.getTokenInstanceUuid(),
                 item.getKeyReferenceUuid().toString(),
                 tokenInsReference.getConnector().mapToDto(),

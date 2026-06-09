@@ -9,7 +9,7 @@ import com.otilm.core.attribute.EcdsaSignatureAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.service.cmp.message.CertificateKeyService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
@@ -65,7 +65,7 @@ public class SingatureBaseProtectionStrategy extends BaseProtectionStrategy impl
 
     private final List<X509Certificate> certificationsChain;
     private final CertificateKeyService certificateKeyService;
-    private final CzertainlyPrivateKey privateKey;
+    private final PlatformPrivateKey privateKey;
     private final CmpProfile profile;
     private final Certificate signingCertificate;
     private final AlgorithmIdentifier signatureAlg;

@@ -10,8 +10,8 @@ import com.otilm.api.model.core.auth.UserProfileDetailDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.auth.ContextRefreshListener;
 import com.otilm.core.model.auth.ResourceSyncRequestDto;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -170,7 +170,7 @@ class AuthServiceTest extends BaseSpringBootTest {
 
         // inject other user profile
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, "616be97b-0bd0-434c-a582-2d4dee5d0b41", "localhost", List.of(), userProfileData);
-        SecurityContextHolder.getContext().setAuthentication(new CzertainlyAuthenticationToken(new CzertainlyUserDetails(info)));
+        SecurityContextHolder.getContext().setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(info)));
     }
 
     private void injectLocalhostUserProfileChangedToContext() {
@@ -234,7 +234,7 @@ class AuthServiceTest extends BaseSpringBootTest {
 
         // inject other user profile
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, "616be97b-0bd0-434c-a582-2d4dee5d0b41", "localhost", List.of(), userProfileData);
-        SecurityContextHolder.getContext().setAuthentication(new CzertainlyAuthenticationToken(new CzertainlyUserDetails(info)));
+        SecurityContextHolder.getContext().setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(info)));
     }
 
     private void injectAllowAllResourcesUserProfileToContext() {
@@ -263,7 +263,7 @@ class AuthServiceTest extends BaseSpringBootTest {
                 """;
 
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, "616be97b-0bd0-434c-a582-2d4dee5d0b41", "localhost", List.of(), userProfileData);
-        SecurityContextHolder.getContext().setAuthentication(new CzertainlyAuthenticationToken(new CzertainlyUserDetails(info)));
+        SecurityContextHolder.getContext().setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(info)));
     }
 
     private String getUserDetailMockResponse() {

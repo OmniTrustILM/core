@@ -2,7 +2,7 @@ package com.otilm.core.config;
 
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.CzertainlyAuthenticationClient;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.util.BaseSpringBootTestNoAuth;
 import com.otilm.core.util.SessionTableHelper;
 import jakarta.servlet.http.Cookie;
@@ -65,7 +65,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
     JdbcTemplate jdbcTemplate;
 
     @MockitoBean
-    CzertainlyAuthenticationClient authenticationClient;
+    PlatformAuthenticationClient authenticationClient;
 
     @DynamicPropertySource
     static void overrideProperties(DynamicPropertyRegistry registry) {

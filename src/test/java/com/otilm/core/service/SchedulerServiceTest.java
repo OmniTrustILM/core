@@ -225,7 +225,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
         // create scheduled discovery job
         String jobName = "TestScheduledDiscoveryWithTriggers";
         DiscoveryDto discoveryDto = new DiscoveryDto();
-        discoveryDto.setName("TestCzertainlyDiscoveryWithTriggers");
+        discoveryDto.setName("TestPlatformDiscoveryWithTriggers");
         discoveryDto.setKind("IP-Hostname");
         discoveryDto.setConnectorUuid(connector.getUuid().toString());
         discoveryDto.setAttributes(List.of());

@@ -12,9 +12,9 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.provider.CzertainlyCipherService;
-import com.otilm.core.provider.CzertainlyProvider;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.PlatformCipherService;
+import com.otilm.core.provider.PlatformProvider;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.service.CryptographicKeyService;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -143,8 +143,8 @@ class CryptographicProviderTest {
 
         byte[] cmsDataStream = Base64.getDecoder().decode(encapsulatedString);
 
-        CzertainlyPrivateKey privateKey = new CzertainlyPrivateKey(tokenInstanceReference.getTokenInstanceUuid(), key.getUuid().toString(), connector.mapToDto(), "RSA");
-        CzertainlyProvider czertainlyProvider = CzertainlyProvider.getInstance("Test", true, cryptographicOperationsApiClient);
+        PlatformPrivateKey privateKey = new PlatformPrivateKey(tokenInstanceReference.getTokenInstanceUuid(), key.getUuid().toString(), connector.mapToDto(), "RSA");
+        PlatformProvider czertainlyProvider = PlatformProvider.getInstance("Test", true, cryptographicOperationsApiClient);
 
         CMSEnvelopedData envelopedData = new CMSEnvelopedData(cmsDataStream);
         RecipientInformationStore recipientInfos = envelopedData.getRecipientInfos();
@@ -163,7 +163,7 @@ class CryptographicProviderTest {
 
     @Test
     void testMapCipherAttributesFromCipherAlgorithm() {
-        CzertainlyCipherService cipherService = new CzertainlyCipherService(cryptographicOperationsApiClient, "RSA/NONE/OAEPWithSHA1AndMGF1Padding");
+        PlatformCipherService cipherService = new PlatformCipherService(cryptographicOperationsApiClient, "RSA/NONE/OAEPWithSHA1AndMGF1Padding");
         List<RequestAttribute> attributes = cipherService.mapCipherAttributesFromCipherAlgorithm(cipherService.getAlgorithm());
         Assertions.assertFalse(attributes.isEmpty());
     }

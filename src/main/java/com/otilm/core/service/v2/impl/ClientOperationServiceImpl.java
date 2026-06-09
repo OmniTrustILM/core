@@ -1355,8 +1355,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             X509Certificate certificate = CertificateUtil.parseCertificate(certificateContent);
 
             // convert subjects to normalized form to compare them
-            String normalizedRequestSubject = X500Name.getInstance(new CzertainlyX500NameStyle(true), certificateRequest.getSubject().getEncoded()).toString();
-            String normalizedCertificateSubject = X500Name.getInstance(new CzertainlyX500NameStyle(true), certificate.getSubjectX500Principal().getEncoded()).toString();
+            String normalizedRequestSubject = X500Name.getInstance(new PlatformX500NameStyle(true), certificateRequest.getSubject().getEncoded()).toString();
+            String normalizedCertificateSubject = X500Name.getInstance(new PlatformX500NameStyle(true), certificate.getSubjectX500Principal().getEncoded()).toString();
 
             if (!normalizedCertificateSubject.equals(normalizedRequestSubject)) {
                 throw new Exception("Subject DN of certificate and CSR does not match");

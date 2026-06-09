@@ -16,8 +16,8 @@ import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
-import com.otilm.core.provider.CzertainlyProvider;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.PlatformProvider;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.service.cmp.CmpEntityUtil;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
@@ -129,13 +129,13 @@ public class CertConfirmMessageHandlerTest {
         // After confirmation, the handler builds a signature-protected pkiConfirm response,
         // which needs a private key, a provider and a sign-data call. Stub them.
         given(certificateKeyService.getPrivateKey(any()))
-                .willReturn(new CzertainlyPrivateKey(
+                .willReturn(new PlatformPrivateKey(
                         null,
                         ckPrivateKey.getKeyReferenceUuid().toString(),
                         new ConnectorDto(),
                         KeyAlgorithm.ECDSA.getLabel()));
         given(certificateKeyService.getProvider(any(), any()))
-                .willReturn(CzertainlyProvider.getInstance(cmpProfile.getName(),
+                .willReturn(PlatformProvider.getInstance(cmpProfile.getName(),
                         true, cryptographicOperationsApiClient));
         SignDataResponseDto signData = new SignDataResponseDto();
         SignatureResponseData signDataRsp = new SignatureResponseData();

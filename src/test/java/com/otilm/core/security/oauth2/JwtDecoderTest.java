@@ -7,8 +7,8 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUp
 import com.otilm.core.auth.oauth2.LoginController;
 import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.SettingRepository;
-import com.otilm.core.security.authn.CzertainlyAnonymousToken;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAnonymousToken;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.service.SettingService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -125,7 +125,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
         Assertions.assertNull(jwtDecoder.decode(tokenValue));
 
         AuthenticationInfo authenticationInfo = AuthenticationInfo.getAnonymousAuthenticationInfo();
-        CzertainlyAnonymousToken authentication = new CzertainlyAnonymousToken(UUID.randomUUID().toString(), authenticationInfo, authenticationInfo.getAuthorities());
+        PlatformAnonymousToken authentication = new PlatformAnonymousToken(UUID.randomUUID().toString(), authenticationInfo, authenticationInfo.getAuthorities());
         SecurityContext emptyContext = SecurityContextHolder.createEmptyContext();
         emptyContext.setAuthentication(authentication);
         SecurityContextHolder.setContext(emptyContext);
@@ -139,7 +139,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
     void testNullIssuer() throws JOSEException {
         SecurityContextHolder.clearContext();
         String token = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 1, null, null, null);
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(token));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(token));
         Assertions.assertTrue(exception.getMessage().contains("Issuer URI is not present in JWT."));
     }
 
@@ -147,7 +147,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
     void testNoOauth2Provider() {
         settingService.removeOAuth2Provider(PROVIDER_NAME);
         SecurityContextHolder.clearContext();
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
         Assertions.assertTrue(exception.getMessage().contains("No OAuth2 Provider with issuer URI"));
     }
 
@@ -179,7 +179,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
 
         SecurityContextHolder.clearContext();
         String expiredToken = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 1, ISSUER_URL, AUDIENCE, "");
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(expiredToken));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(expiredToken));
         Assertions.assertTrue(exception.getMessage().contains("Jwt expired"));
     }
 
@@ -197,7 +197,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
         providerSettings.setAudiences(List.of("different-audience"));
         settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
         SecurityContextHolder.clearContext();
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
         Assertions.assertTrue(exception.getMessage().contains("The aud claim is not valid"));
     }
 
@@ -227,7 +227,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
                         .withBody(invalidJwkSetJson)));
 
         SecurityContextHolder.clearContext();
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
         Assertions.assertTrue(exception.getMessage().contains("Invalid signature"));
     }
 
@@ -238,7 +238,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
 
         mockServer.resetAll();
         SecurityContextHolder.clearContext();
-        Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+        Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
     }
 
     @Test
@@ -252,7 +252,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
                 .build();
 
         tokenValue = new PlainJWT(claimsSet).serialize();
-        Exception exception = Assertions.assertThrows(CzertainlyAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
+        Exception exception = Assertions.assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
         Assertions.assertTrue(exception.getMessage().contains("Token is not an instance of Signed JWT"));
     }
 

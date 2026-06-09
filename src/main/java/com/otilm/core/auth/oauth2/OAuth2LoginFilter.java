@@ -5,11 +5,11 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.logging.LoggingHelper;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.CzertainlyAuthenticationClient;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
@@ -48,8 +48,8 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OAuth2LoginFilter.class);
 
-    private CzertainlyAuthenticationClient authenticationClient;
-    private CzertainlyClientRegistrationRepository clientRegistrationRepository;
+    private PlatformAuthenticationClient authenticationClient;
+    private PlatformClientRegistrationRepository clientRegistrationRepository;
     private OAuth2AuthorizedClientProvider authorizedClientProvider;
 
     private AuditLogInternalService auditLogService;
@@ -65,12 +65,12 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
     }
 
     @Autowired
-    public void setAuthenticationClient(CzertainlyAuthenticationClient authenticationClient) {
+    public void setAuthenticationClient(PlatformAuthenticationClient authenticationClient) {
         this.authenticationClient = authenticationClient;
     }
 
     @Autowired
-    public void setClientRegistrationRepository(CzertainlyClientRegistrationRepository clientRegistrationRepository) {
+    public void setClientRegistrationRepository(PlatformClientRegistrationRepository clientRegistrationRepository) {
         this.clientRegistrationRepository = clientRegistrationRepository;
     }
 
@@ -96,7 +96,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                 try {
                     authorizedClient = refreshToken(oauthToken, authorizedClient, request.getSession(), clientRegistration, providerSettings);
                     oauth2AccessToken = authorizedClient.getAccessToken();
-                } catch (ClientAuthorizationException | CzertainlyAuthenticationException e) {
+                } catch (ClientAuthorizationException | PlatformAuthenticationException e) {
                     request.getSession().invalidate();
                     String message = ("Could not refresh token: %s for access token : %s").formatted(e.getMessage(), oauth2AccessToken.getTokenValue());
                     auditLogService.logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message, oauth2AccessToken.getTokenValue());
@@ -106,7 +106,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                 }
                 try {
                     OAuth2Util.validateAudiences(authorizedClient.getAccessToken(), providerSettings);
-                } catch (CzertainlyAuthenticationException e) {
+                } catch (PlatformAuthenticationException e) {
                     request.getSession().invalidate();
                     auditLogService.logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(), oauth2AccessToken.getTokenValue());
                     logger.error(e.getMessage());
@@ -118,7 +118,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
             try {
                 OidcUser oidcUser = (OidcUser) oauthToken.getPrincipal();
                 claims = OAuth2Util.getAllClaimsAvailable(providerSettings, oauth2AccessToken.getTokenValue(), oidcUser.getIdToken());
-            } catch (CzertainlyAuthenticationException e) {
+            } catch (PlatformAuthenticationException e) {
                 request.getSession().invalidate();
                 auditLogService.logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(), authorizedClient.getAccessToken().getTokenValue());
                 logger.error(e.getMessage());
@@ -140,14 +140,14 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
         AuthenticationInfo authInfo;
         try {
             authInfo = authenticationClient.authenticateByToken(claims);
-            CzertainlyAuthenticationToken authenticationToken = new CzertainlyAuthenticationToken(new CzertainlyUserDetails(authInfo));
+            PlatformAuthenticationToken authenticationToken = new PlatformAuthenticationToken(new PlatformUserDetails(authInfo));
             SecurityContextHolder.getContext().setAuthentication(authenticationToken);
             LOGGER.debug("Session of user '{}' logged using OAuth2 Provider '{}' has been successfully validated.", authenticationToken.getPrincipal().getUsername(), clientRegistration.getRegistrationId());
         } catch (AuthenticationException e) {
             // invalidate session when authentication fails
             request.getSession().invalidate();
             SecurityContextHolder.clearContext();
-            if (e instanceof CzertainlyAuthenticationException) {
+            if (e instanceof PlatformAuthenticationException) {
                 LOGGER.warn("Authentication request for '{}' failed: {}", request.getRequestURI(), e.getMessage());
             } else {
                 throw e;
@@ -175,17 +175,17 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
 
                 Object usernameClaim = oauthToken.getPrincipal().getAttribute(usernameClaimName);
                 if (usernameClaim == null) {
-                    throw new CzertainlyAuthenticationException("Missing username claim '%s' in token attributes.".formatted(usernameClaimName));
+                    throw new PlatformAuthenticationException("Missing username claim '%s' in token attributes.".formatted(usernameClaimName));
                 }
 
                 LOGGER.debug("OAuth2 Access Token has been refreshed for user {}.", usernameClaim);
                 session.setAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE, authorizedClient.getAccessToken());
                 session.setAttribute(OAuth2Constants.REFRESH_TOKEN_SESSION_ATTRIBUTE, authorizedClient.getRefreshToken());
             } else {
-                throw new CzertainlyAuthenticationException("Failed to refresh the access token.");
+                throw new PlatformAuthenticationException("Failed to refresh the access token.");
             }
         } else {
-            throw new CzertainlyAuthenticationException("Refresh token is not available ");
+            throw new PlatformAuthenticationException("Refresh token is not available ");
         }
         return authorizedClient;
     }
@@ -197,7 +197,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
             session.invalidate();
             String message = "Unknown OAuth2 Provider with name '%s' for authentication with OAuth2 flow".formatted(clientRegistrationId);
             auditLogService.logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message, oauth2AccessToken.getTokenValue());
-            throw new CzertainlyAuthenticationException(message);
+            throw new PlatformAuthenticationException(message);
         }
         return providerSettings;
     }

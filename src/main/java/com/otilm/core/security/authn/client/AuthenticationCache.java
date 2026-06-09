@@ -28,7 +28,7 @@ public interface AuthenticationCache {
 
     /**
      * Returns cached authentication for a client-certificate request, or invokes {@code loader} and caches the result.
-     * Cached by SHA-256 of the DER-encoded certificate bytes (computed in CzertainlyAuthenticationFilter),
+     * Cached by SHA-256 of the DER-encoded certificate bytes (computed in PlatformAuthenticationFilter),
      * matching the DB {@code certificate.fingerprint} field. All requests carrying the same client certificate
      * share one cache entry. The entry is evicted immediately on revocation via CertificateServiceImpl.
      *

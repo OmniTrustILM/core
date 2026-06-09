@@ -33,8 +33,8 @@ import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.intune.scepvalidation.IntuneScepServiceClient;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
-import com.otilm.core.provider.CzertainlyProvider;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.PlatformProvider;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CryptographicKeyService;
@@ -319,7 +319,7 @@ public class ScepServiceImpl implements ScepService {
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
         var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
         // Get the private key from the configuration of SCEP Profile
-        CzertainlyPrivateKey czertainlyPrivateKey = new CzertainlyPrivateKey(
+        PlatformPrivateKey czertainlyPrivateKey = new PlatformPrivateKey(
                 key.getTokenInstanceReference().getTokenInstanceUuid(),
                 item.getKeyReferenceUuid().toString(),
                 connectorDto,
@@ -327,7 +327,7 @@ public class ScepServiceImpl implements ScepService {
         );
 
         CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-        CzertainlyProvider czertainlyProvider = CzertainlyProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformProvider czertainlyProvider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
 
         // decrypt the PKCS#10 request
         try {
@@ -428,10 +428,10 @@ public class ScepServiceImpl implements ScepService {
         CryptographicKey key = scepProfile.getCaCertificate().getKey();
         var connectorDto = key.getTokenInstanceReference().getConnector().mapToDto();
         CryptographicOperationsSyncApiClient cryptoApiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-        CzertainlyProvider czertainlyProvider = CzertainlyProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
+        PlatformProvider czertainlyProvider = PlatformProvider.getInstance(scepProfile.getName(), true, cryptoApiClient);
         CryptographicKeyItem item = cryptographicKeyService.getKeyItemFromKey(key, KeyType.PRIVATE_KEY);
         // Get the private key from the configuration of SCEP Profile
-        CzertainlyPrivateKey czertainlyPrivateKey = new CzertainlyPrivateKey(
+        PlatformPrivateKey czertainlyPrivateKey = new PlatformPrivateKey(
                 key.getTokenInstanceReference().getTokenInstanceUuid(),
                 item.getKeyReferenceUuid().toString(),
                 connectorDto,

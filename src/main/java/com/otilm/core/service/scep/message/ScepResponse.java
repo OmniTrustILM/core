@@ -4,7 +4,7 @@ import com.otilm.api.exception.ScepException;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
-import com.otilm.core.provider.key.CzertainlyPrivateKey;
+import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.util.AlgorithmUtil;
 import com.otilm.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -64,7 +64,7 @@ public class ScepResponse {
     /**
      * The private key to sign the response.
      */
-    private CzertainlyPrivateKey signerPrivateKey;
+    private PlatformPrivateKey signerPrivateKey;
     /**
      * The provider to use for signing the response.
      */
@@ -133,7 +133,7 @@ public class ScepResponse {
         this.contentEncryptionAlgorithm = contentEncryptionAlgorithm;
     }
 
-    public void setSigningAttributes(X509Certificate signerCertificate, CzertainlyPrivateKey signerPrivateKey, Provider signerProvider) {
+    public void setSigningAttributes(X509Certificate signerCertificate, PlatformPrivateKey signerPrivateKey, Provider signerProvider) {
         this.signerCertificate = signerCertificate;
         this.signerPrivateKey = signerPrivateKey;
         this.signerProvider = signerProvider;

@@ -3,7 +3,7 @@ package com.otilm.core.util;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.otilm.core.security.authn.CzertainlyAuthenticationException;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.settings.SettingsCache;
 import com.nimbusds.jwt.SignedJWT;
 import org.apache.commons.lang3.StringUtils;
@@ -40,12 +40,12 @@ public class OAuth2Util {
         try {
             tokenAudiences = SignedJWT.parse(accessToken.getTokenValue()).getJWTClaimsSet().getAudience();
         } catch (ParseException e) {
-            throw new CzertainlyAuthenticationException("Could not parse JWT Access Token to validate audiences " + accessToken.getTokenValue());
+            throw new PlatformAuthenticationException("Could not parse JWT Access Token to validate audiences " + accessToken.getTokenValue());
         }
 
         if (!(clientAudiences == null || clientAudiences.isEmpty() || tokenAudiences != null && tokenAudiences.stream().anyMatch(clientAudiences::contains))) {
             String errorMessage = "User was not authenticated: audiences %s in access token issued by OAuth2 Provider %s do not match any of audiences %s set for the provider in settings. Token: %s".formatted(StringUtils.join(tokenAudiences), providerSettings.getName(), StringUtils.join(clientAudiences), accessToken.getTokenValue());
-            throw new CzertainlyAuthenticationException(errorMessage);
+            throw new PlatformAuthenticationException(errorMessage);
         }
 
     }
@@ -125,7 +125,7 @@ public class OAuth2Util {
             accessTokenClaims = SignedJWT.parse(accessTokenValue).getJWTClaimsSet().getClaims();
         } catch (ParseException e) {
             String message = "Could not convert access token to JWT and extract claims. Reason: %s Token: %s".formatted(e.getMessage(), accessTokenValue);
-            throw new CzertainlyAuthenticationException(message);
+            throw new PlatformAuthenticationException(message);
         }
 
         Map<String, Object> claims = mergeClaims(accessTokenClaims, idToken == null ? null : idToken.getClaims(), userInfoClaims);
@@ -136,7 +136,7 @@ public class OAuth2Util {
 
         if (!claims.containsKey(usernameClaimName)) {
             String message = "The username claim '%s' could not be retrieved from the Access Token, User Info Endpoint, or ID Token claims for user authenticating with Access Token. Claims %s, Token: %s".formatted(usernameClaimName, StringUtils.join(claims), accessTokenValue);
-            throw new CzertainlyAuthenticationException(message);
+            throw new PlatformAuthenticationException(message);
         }
 
         return claims;

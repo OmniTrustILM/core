@@ -11,7 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 
-public class ResourceApiClient extends CzertainlyBaseAuthenticationClient {
+public class ResourceApiClient extends PlatformBaseAuthenticationClient {
 
     private static final ParameterizedTypeReference<List<SyncRequestDto>> ENDPOINT_LIST_TYPE_REF = new ParameterizedTypeReference<>() {
     };

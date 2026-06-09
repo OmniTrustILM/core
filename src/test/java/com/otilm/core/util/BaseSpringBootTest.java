@@ -4,8 +4,8 @@ import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
@@ -122,6 +122,6 @@ public class BaseSpringBootTest {
         }
 
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, userDto.getUuid(), userDto.getUsername(), List.of(), rawData);
-        return new CzertainlyAuthenticationToken(new CzertainlyUserDetails(info));
+        return new PlatformAuthenticationToken(new PlatformUserDetails(info));
     }
 }

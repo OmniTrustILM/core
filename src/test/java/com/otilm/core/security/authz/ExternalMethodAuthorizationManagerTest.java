@@ -4,8 +4,8 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.AnonymousPrincipal;
@@ -50,7 +50,7 @@ class ExternalMethodAuthorizationManagerTest {
     @InjectMocks
     ExternalMethodAuthorizationManager manager;
 
-    CzertainlyAuthenticationToken authentication = createCzertainlyAuthentication();
+    PlatformAuthenticationToken authentication = createPlatformAuthentication();
     TestClass target = new TestClass();
 
     @Test
@@ -249,9 +249,9 @@ class ExternalMethodAuthorizationManagerTest {
         assertFalse(result.isGranted());
     }
 
-    CzertainlyAuthenticationToken createCzertainlyAuthentication() {
-        return new CzertainlyAuthenticationToken(
-                new CzertainlyUserDetails(
+    PlatformAuthenticationToken createPlatformAuthentication() {
+        return new PlatformAuthenticationToken(
+                new PlatformUserDetails(
                         new AuthenticationInfo(AuthMethod.USER_PROXY, null, "FrantisekJednicka", List.of())
                 )
         );

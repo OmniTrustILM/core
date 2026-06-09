@@ -6,8 +6,8 @@ import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.AnonymousPrincipal;
 import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
@@ -78,7 +78,7 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
     }
 
     @Override
-    protected AuthorizationDecision checkInternal(CzertainlyAuthenticationToken auth, MethodInvocation methodInvocation) {
+    protected AuthorizationDecision checkInternal(PlatformAuthenticationToken auth, MethodInvocation methodInvocation) {
         List<ExternalAuthorizationConfigAttribute> attributes = resolveAttributes(methodInvocation);
         if (attributes == null) {
             return new AuthorizationDecision(false);
@@ -104,7 +104,7 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
         }
     }
 
-    private AuthorizationDecision checkGroupOwnerAssociations(CzertainlyUserDetails principal, MethodInvocation methodInvocation, List<ExternalAuthorizationConfigAttribute> attributes) {
+    private AuthorizationDecision checkGroupOwnerAssociations(PlatformUserDetails principal, MethodInvocation methodInvocation, List<ExternalAuthorizationConfigAttribute> attributes) {
         Map<String, String> properties = attributes
                 .stream()
                 .filter(this::shouldBeSendToOpa)
@@ -149,7 +149,7 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
         return new AuthorizationDecision(false);
     }
 
-    private AuthorizationDecision evaluateGroupMembersPermissions(CzertainlyUserDetails principal, MethodInvocation methodInvocation, Resource resource, ResourceAction resourceAction, Map<String, String> properties, List<SecuredUUID> objectUUIDs) {
+    private AuthorizationDecision evaluateGroupMembersPermissions(PlatformUserDetails principal, MethodInvocation methodInvocation, Resource resource, ResourceAction resourceAction, Map<String, String> properties, List<SecuredUUID> objectUUIDs) {
         if (resource.hasGroups() && (resourceAction == ResourceAction.LIST || resourceAction == ResourceAction.DETAIL)) {
             properties.clear();
             properties.put(NAME_PROP_NAME, Resource.GROUP.getCode());

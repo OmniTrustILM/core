@@ -4,7 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
@@ -117,7 +117,7 @@ public class ObjectFilterAspect {
      */
     public void populateSecurityFilter(Map<String, String> properties, SecurityFilter secFilter) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (!(auth instanceof CzertainlyAuthenticationToken authToken))
+        if (!(auth instanceof PlatformAuthenticationToken authToken))
             throw new RuntimeException("Unsupported authentication type.");
 
         if (!properties.get(PARENT_NAME).equals(Resource.NONE.getCode())) {
@@ -146,7 +146,7 @@ public class ObjectFilterAspect {
         }
     }
 
-    private SecurityResourceFilter getResourceFilter(CzertainlyAuthenticationToken auth, Map<String, String> properties, boolean parentResource) {
+    private SecurityResourceFilter getResourceFilter(PlatformAuthenticationToken auth, Map<String, String> properties, boolean parentResource) {
         Map<String, String> voteProperties = properties;
         if (parentResource) {
             Map<String, String> parentProperties = properties.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
@@ -200,7 +200,7 @@ public class ObjectFilterAspect {
         return filter;
     }
 
-    private OpaObjectAccessResult obtainObjectAccess(CzertainlyAuthenticationToken authentication, Map<String, String> properties) {
+    private OpaObjectAccessResult obtainObjectAccess(PlatformAuthenticationToken authentication, Map<String, String> properties) {
         OpaRequestedResource resource = new OpaRequestedResource(properties);
 
         return this.opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, resource, authentication.getPrincipal().getRawData(), new OpaRequestDetails(null));

@@ -1,8 +1,8 @@
 package com.otilm.core.security.authz;
 
 import com.otilm.api.model.core.logging.enums.AuthMethod;
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
-import com.otilm.core.security.authn.CzertainlyUserDetails;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import lombok.Setter;
 import org.junit.jupiter.api.Test;
@@ -21,10 +21,10 @@ class AbstractExternalAuthorizationManagerTest {
 
     TestImplementationOfManager manager = new TestImplementationOfManager();
 
-    Authentication authentication = createCzertainlyAuthentication();
+    Authentication authentication = createPlatformAuthentication();
 
     @Test
-    void abstainsIfAuthenticationIsNotOfTypeCzertainlyAuthenticationToken() {
+    void abstainsIfAuthenticationIsNotOfTypePlatformAuthenticationToken() {
         // given
         Authentication auth = new UsernamePasswordAuthenticationToken(null, null);
 
@@ -71,9 +71,9 @@ class AbstractExternalAuthorizationManagerTest {
         assertFalse(result.isGranted());
     }
 
-    Authentication createCzertainlyAuthentication() {
-        return new CzertainlyAuthenticationToken(
-                new CzertainlyUserDetails(
+    Authentication createPlatformAuthentication() {
+        return new PlatformAuthenticationToken(
+                new PlatformUserDetails(
                         new AuthenticationInfo(AuthMethod.USER_PROXY, null, "FrantisekJednicka", List.of())
                 )
         );
@@ -95,7 +95,7 @@ class AbstractExternalAuthorizationManagerTest {
         private boolean canDecideForGivenObject = true;
 
         @Override
-        protected AuthorizationDecision checkInternal(CzertainlyAuthenticationToken authentication, Object object) {
+        protected AuthorizationDecision checkInternal(PlatformAuthenticationToken authentication, Object object) {
             return checkResult;
         }
 

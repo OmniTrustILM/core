@@ -14,7 +14,7 @@ import reactor.core.publisher.Mono;
 import java.util.ArrayList;
 import java.util.List;
 
-public class UserManagementApiClient extends CzertainlyBaseAuthenticationClient {
+public class UserManagementApiClient extends PlatformBaseAuthenticationClient {
 
     private static final String USER_BASE_CONTEXT = "/auth/users";
     private static final String USER_DETAIL_CONTEXT = USER_BASE_CONTEXT + "/{userUuid}";

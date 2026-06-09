@@ -349,7 +349,7 @@ class EventHandlersTest extends BaseSpringBootTest {
         association.setTriggeredBy(randomUserUuid);
         triggerAssociationRepository.save(association);
 
-        // No auth service is running on port 10001, so authenticateAsUser throws CzertainlyAuthenticationException,
+        // No auth service is running on port 10001, so authenticateAsUser throws PlatformAuthenticationException,
         // which escapes handleUser (catches only ValidationException) and is caught by the outer catch in
         // processTriggers (EventHandler line 208), which sets EventStatus.FAILED on the event history.
         discoveryFinishedEventHandler.handleEvent(

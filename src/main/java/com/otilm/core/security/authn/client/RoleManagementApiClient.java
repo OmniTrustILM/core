@@ -8,7 +8,7 @@ import reactor.core.publisher.Mono;
 import java.util.ArrayList;
 import java.util.List;
 
-public class RoleManagementApiClient extends CzertainlyBaseAuthenticationClient {
+public class RoleManagementApiClient extends PlatformBaseAuthenticationClient {
 
     private static final String ROLE_BASE_CONTEXT = "/auth/roles";
     private static final String ROLE_DETAIL_CONTEXT = ROLE_BASE_CONTEXT + "/{roleUuid}";

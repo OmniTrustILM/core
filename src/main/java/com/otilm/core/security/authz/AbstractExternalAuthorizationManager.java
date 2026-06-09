@@ -1,6 +1,6 @@
 package com.otilm.core.security.authz;
 
-import com.otilm.core.security.authn.CzertainlyAuthenticationToken;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -20,8 +20,8 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
     @Override
     public AuthorizationDecision check(Supplier<Authentication> authenticationSupplier, T object) {
         Authentication authentication = authenticationSupplier.get();
-        if (!(authentication instanceof CzertainlyAuthenticationToken || authentication instanceof AnonymousAuthenticationToken)) {
-            logger.trace("Authentication is not of type 'CzertainlyAuthenticationToken' or 'AnonymousAuthenticationToken'. Cannot authorize.");
+        if (!(authentication instanceof PlatformAuthenticationToken || authentication instanceof AnonymousAuthenticationToken)) {
+            logger.trace("Authentication is not of type 'PlatformAuthenticationToken' or 'AnonymousAuthenticationToken'. Cannot authorize.");
             return new AuthorizationDecision(false);
         }
 
@@ -30,7 +30,7 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
             return new AuthorizationDecision(false);
         }
 
-        if (authentication instanceof CzertainlyAuthenticationToken token) {
+        if (authentication instanceof PlatformAuthenticationToken token) {
             return checkInternal(token, object);
         } else {
             return checkInternal((AnonymousAuthenticationToken) authentication, object);
@@ -38,7 +38,7 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
 
     }
 
-    protected abstract AuthorizationDecision checkInternal(CzertainlyAuthenticationToken authentication, T object);
+    protected abstract AuthorizationDecision checkInternal(PlatformAuthenticationToken authentication, T object);
 
     protected abstract AuthorizationDecision checkInternal(AnonymousAuthenticationToken authenticationToken, T object);
 

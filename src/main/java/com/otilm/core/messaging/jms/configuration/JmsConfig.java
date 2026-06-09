@@ -196,7 +196,7 @@ public class JmsConfig {
             poolConfig = new MessagingProperties.Pool(null, null, null, null, null);
         }
 
-        JmsPoolConnectionFactory pool = new CzertainlyJmsPoolConnectionFactory();
+        JmsPoolConnectionFactory pool = new PlatformJmsPoolConnectionFactory();
         pool.setConnectionFactory(connectionFactory);
         pool.setMaxConnections(poolConfig.maxConnections());
         pool.setConnectionIdleTimeout(poolConfig.connectionIdleTimeout());
