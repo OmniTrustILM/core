@@ -48,15 +48,9 @@ public class DatabaseMigration {
      */
     @SuppressWarnings("java:S115")
     public enum JavaMigrationChecksums {
-<<<<<<< fix/idempotent-cross-service-auth-migrations
-        V202206151000__AttributeChanges(595685930),
-        V202209211100__Access_Control(-2127987777, true),
-        V202211031400__AttributeV2Changes(-691194104),
-=======
         V202206151000__AttributeChanges(595685930, true),
         V202209211100__Access_Control(-2127987777, true),
         V202211031400__AttributeV2Changes(-691194104, true),
->>>>>>> main
         V202211141030__AttributeV2TablesAndMigration(-1479676999, true),
         V202301311500__PublicKeyMigration(-761670493),
         V202303211718__Scep_Roles(-285333526, true),
@@ -65,11 +59,7 @@ public class DatabaseMigration {
         V202311071500__IssuerAndSubjectDnMigration(-1352440028, true),
         V202402171510__UpdateAndOptimizeAttributesModelMigration(-1671016899, true),
         V202404021100__CreateCmpUserAndPermissions(-264892945, true),
-<<<<<<< fix/idempotent-cross-service-auth-migrations
-        V202404120915__AssignObjectsOwnerAndMultipleGroupsMigration(-305812276),
-=======
         V202404120915__AssignObjectsOwnerAndMultipleGroupsMigration(-305812276, true),
->>>>>>> main
         V202408231055__DuplicateCertificates(-1714171989),
         V202411141900__CreateLocalhostUserAndPermissions(1923994081, true),
         V202501281511__LinkKeysToCertificates(-1169157739, true),
