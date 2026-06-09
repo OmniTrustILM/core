@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.resolver;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 

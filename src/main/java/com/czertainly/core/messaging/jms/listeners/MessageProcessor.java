@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.MessageHandlingException;
+import com.otilm.api.exception.MessageHandlingException;
 
 /**
  * The {@link MessageProcessor} interface represents a contract for processing messages of a specific type.

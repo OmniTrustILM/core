@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa.certificate;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedScheme;
 import com.czertainly.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.czertainly.core.util.CertificateEligibilityUtil;

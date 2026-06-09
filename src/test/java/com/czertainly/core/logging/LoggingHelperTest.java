@@ -1,8 +1,8 @@
 package com.czertainly.core.logging;
 
-import com.czertainly.api.model.core.logging.enums.ActorType;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
-import com.czertainly.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.enums.ActorType;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.records.ActorRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

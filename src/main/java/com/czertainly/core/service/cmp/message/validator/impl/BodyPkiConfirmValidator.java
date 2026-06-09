@@ -1,6 +1,6 @@
 package com.czertainly.core.service.cmp.message.validator.impl;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
 import com.czertainly.core.service.cmp.configurations.ConfigurationContext;
 import com.czertainly.core.service.cmp.message.validator.Validator;
 import org.bouncycastle.asn1.cmp.PKIBody;

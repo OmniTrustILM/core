@@ -1,9 +1,9 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.exception.RuleException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.dao.entity.ComplianceProfileRule;
 import com.czertainly.core.dao.entity.ComplianceSubject;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;

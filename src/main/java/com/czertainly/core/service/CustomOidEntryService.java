@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.oid.*;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.oid.*;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 
 import java.util.List;
 

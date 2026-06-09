@@ -1,16 +1,16 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;
@@ -90,7 +90,7 @@ class DigitalSigningCertQueryTest extends BaseSpringBootTest {
         archived.setArchived(true);
         certificateRepository.save(archived);
         Certificate revoked = saveCert(CertificateTestUtil.createCertificateWithoutEku(), createKey());
-        revoked.setState(com.czertainly.api.model.core.certificate.CertificateState.REVOKED);
+        revoked.setState(com.otilm.api.model.core.certificate.CertificateState.REVOKED);
         certificateRepository.save(revoked);
 
         List<UUID> found = queryUuids(SigningWorkflowType.CONTENT_SIGNING, false);

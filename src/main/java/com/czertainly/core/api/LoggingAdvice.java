@@ -1,8 +1,8 @@
 package com.czertainly.core.api;
 
-import com.czertainly.api.exception.AcmeProblemDocumentException;
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.AcmeProblemDocumentException;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.ValidationException;
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;

@@ -1,7 +1,7 @@
 package db.migration;
 
-import com.czertainly.api.model.core.certificate.CertificateRelationType;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.DatabaseMigration;
 import org.bouncycastle.asn1.x509.Extension;

@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.repository.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import org.springframework.data.domain.Page;

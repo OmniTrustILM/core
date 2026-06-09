@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.vaultprofile.VaultProfileDetailDto;
-import com.czertainly.api.model.core.vaultprofile.VaultProfileDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.vaultprofile.VaultProfileDetailDto;
+import com.otilm.api.model.core.vaultprofile.VaultProfileDto;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;

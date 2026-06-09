@@ -1,6 +1,6 @@
 package com.czertainly.core.validation.certificate;
 
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 
 import java.security.cert.CertificateException;

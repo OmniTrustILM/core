@@ -1,8 +1,8 @@
 package com.czertainly.core.service.cmp.configurations.variants;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.interfaces.core.cmp.error.CmpCrmfValidationException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.service.cmp.message.CertificateKeyService;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;

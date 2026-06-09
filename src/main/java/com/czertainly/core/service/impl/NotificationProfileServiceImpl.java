@@ -1,19 +1,19 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.notification.*;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.notification.*;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.dao.entity.notifications.NotificationProfile;
 import com.czertainly.core.dao.entity.notifications.NotificationProfileVersion;
 import com.czertainly.core.dao.entity.workflows.Execution;
 import com.czertainly.core.dao.repository.notifications.NotificationProfileRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.czertainly.core.dao.repository.workflows.ExecutionRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;

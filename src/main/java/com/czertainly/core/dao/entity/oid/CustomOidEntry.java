@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity.oid;
 
-import com.czertainly.api.model.core.oid.OidCategory;
-import com.czertainly.api.model.core.oid.CustomOidEntryDetailResponseDto;
-import com.czertainly.api.model.core.oid.CustomOidEntryResponseDto;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.CustomOidEntryDetailResponseDto;
+import com.otilm.api.model.core.oid.CustomOidEntryResponseDto;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;

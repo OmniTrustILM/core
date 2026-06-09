@@ -1,6 +1,6 @@
 package com.czertainly.core.provider.key;
 
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.ConnectorDto;
 
 import java.security.PublicKey;
 

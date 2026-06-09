@@ -1,6 +1,6 @@
 package com.czertainly.core.security.oauth2;
 
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.czertainly.core.auth.oauth2.CzertainlyJwtAuthenticationConverter;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;

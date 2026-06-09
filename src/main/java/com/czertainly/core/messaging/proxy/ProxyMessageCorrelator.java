@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ConnectorResponse;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

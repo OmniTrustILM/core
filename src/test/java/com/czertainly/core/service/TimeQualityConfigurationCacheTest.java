@@ -1,10 +1,10 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;

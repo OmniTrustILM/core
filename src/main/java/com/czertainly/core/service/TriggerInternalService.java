@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.entity.workflows.TriggerAssociation;
 import com.czertainly.core.dao.entity.workflows.TriggerHistory;

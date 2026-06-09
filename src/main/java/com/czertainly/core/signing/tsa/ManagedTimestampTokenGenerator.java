@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.signing.tsa.messages.TspRequest;
 import org.bouncycastle.tsp.TimeStampToken;

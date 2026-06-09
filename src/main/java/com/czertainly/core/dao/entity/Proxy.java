@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.connector.ConnectorSummaryDto;
-import com.czertainly.api.model.core.proxy.ProxyDto;
-import com.czertainly.api.model.core.proxy.ProxyListDto;
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.connector.ConnectorSummaryDto;
+import com.otilm.api.model.core.proxy.ProxyDto;
+import com.otilm.api.model.core.proxy.ProxyListDto;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import com.fasterxml.jackson.annotation.JsonManagedReference;

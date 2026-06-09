@@ -1,8 +1,8 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.api.model.core.logging.enums.ActorType;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
-import com.czertainly.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.enums.ActorType;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.service.AuditLogInternalService;

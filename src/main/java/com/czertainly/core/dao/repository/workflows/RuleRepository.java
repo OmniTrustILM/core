@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.workflows.Rule;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -24,7 +24,7 @@ public interface RuleRepository extends SecurityFilterRepository<Rule, UUID> {
     @EntityGraph(attributePaths = {"conditions", "conditions.items"})
     Optional<Rule> findWithConditionsByUuid(UUID uuid);
 
-    @Query("SELECT r FROM Rule r WHERE r.resource = ?1 OR r.resource = ?#{T(com.czertainly.api.model.core.auth.Resource).ANY}")
+    @Query("SELECT r FROM Rule r WHERE r.resource = ?1 OR r.resource = ?#{T(com.otilm.api.model.core.auth.Resource).ANY}")
     List<Rule> findAllByResource(Resource resource);
 
 

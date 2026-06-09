@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn.client.dto;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Collection;

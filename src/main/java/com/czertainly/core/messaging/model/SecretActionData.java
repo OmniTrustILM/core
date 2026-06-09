@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.model;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.core.secret.SecretState;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.core.secret.SecretState;
 import lombok.Builder;
 
 import java.util.List;

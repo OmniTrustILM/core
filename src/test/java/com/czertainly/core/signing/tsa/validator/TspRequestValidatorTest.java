@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa.validator;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.junit.jupiter.api.Test;
 

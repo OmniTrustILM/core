@@ -1,16 +1,16 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.interfaces.client.v2.ComplianceSyncApiClient;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.connector.compliance.ComplianceRequestRulesDto;
-import com.czertainly.api.model.connector.compliance.v2.*;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceRuleAvailabilityStatus;
-import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v2.ComplianceSyncApiClient;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.connector.compliance.ComplianceRequestRulesDto;
+import com.otilm.api.model.connector.compliance.v2.*;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceRuleAvailabilityStatus;
+import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.ComplianceProfileRule;
@@ -40,7 +40,7 @@ public class ComplianceCheckProviderContext {
     private ConnectorException failedStatusException;
 
     private ComplianceRequestDto complianceRequestDto;
-    private com.czertainly.api.model.connector.compliance.ComplianceRequestDto complianceRequestDtoV1;
+    private com.otilm.api.model.connector.compliance.ComplianceRequestDto complianceRequestDtoV1;
 
     public ComplianceCheckProviderContext(Connector connector, String kind, ComplianceProfileRuleHandler ruleHandler, ConnectorApiFactory connectorApiFactory) {
         this.connectorUuid = connector.getUuid();
@@ -74,7 +74,7 @@ public class ComplianceCheckProviderContext {
         }
 
         if (functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER) {
-            complianceRequestDtoV1 = new com.czertainly.api.model.connector.compliance.ComplianceRequestDto();
+            complianceRequestDtoV1 = new com.otilm.api.model.connector.compliance.ComplianceRequestDto();
             complianceRequestDtoV1.setCertificate(subject.getContentData());
             complianceRequestDtoV1.setRules(new ArrayList<>());
         } else {
@@ -147,7 +147,7 @@ public class ComplianceCheckProviderContext {
         ComplianceResponseDto complianceResponse = new ComplianceResponseDto();
         if (functionGroup == FunctionGroupCode.COMPLIANCE_PROVIDER) {
             if (!complianceRequestDtoV1.getRules().isEmpty()) {
-                com.czertainly.api.interfaces.client.v1.ComplianceSyncApiClient complianceApiClientV1 = connectorApiFactory.getComplianceApiClient(connectorDto);
+                com.otilm.api.interfaces.client.v1.ComplianceSyncApiClient complianceApiClientV1 = connectorApiFactory.getComplianceApiClient(connectorDto);
                 var complianceResponseV1 = complianceApiClientV1.checkCompliance(connectorDto, kind, complianceRequestDtoV1);
                 complianceResponse.setStatus(complianceResponseV1.getStatus());
                 complianceResponse.setRules(complianceResponseV1.getRules().stream().map(r -> {

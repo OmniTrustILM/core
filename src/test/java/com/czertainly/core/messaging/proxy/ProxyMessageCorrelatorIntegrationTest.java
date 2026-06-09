@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ConnectorResponse;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ConnectorResponse;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

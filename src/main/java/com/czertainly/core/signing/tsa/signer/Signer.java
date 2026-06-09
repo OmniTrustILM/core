@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa.signer;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 
 /**
  * Signs a byte array and returns the raw signature bytes.

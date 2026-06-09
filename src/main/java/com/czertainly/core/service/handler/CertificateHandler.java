@@ -1,12 +1,12 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;

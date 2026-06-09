@@ -1,6 +1,6 @@
 package com.czertainly.core.attribute.engine.records;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 
 import java.util.Objects;
 import java.util.UUID;

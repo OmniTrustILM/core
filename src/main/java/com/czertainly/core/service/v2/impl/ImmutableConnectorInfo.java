@@ -1,14 +1,14 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.proxy.ProxyDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.proxy.ProxyDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Connector;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 
 import java.util.List;
 

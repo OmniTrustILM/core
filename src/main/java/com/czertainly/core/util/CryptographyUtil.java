@@ -1,15 +1,16 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.RsaSignatureScheme;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.core.attribute.EcdsaSignatureAttributes;
 import com.czertainly.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;

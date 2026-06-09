@@ -1,6 +1,6 @@
 package db.migration;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.CryptographyUtil;
 import com.czertainly.core.util.DatabaseMigration;

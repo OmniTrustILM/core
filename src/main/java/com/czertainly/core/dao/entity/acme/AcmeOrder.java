@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity.acme;
 
-import com.czertainly.api.model.core.acme.Order;
-import com.czertainly.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.acme.Order;
+import com.otilm.api.model.core.acme.OrderStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.czertainly.core.service.acme.AcmeConstants;

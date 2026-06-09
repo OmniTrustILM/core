@@ -1,8 +1,8 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.SecretEncodingVersion;
 import com.czertainly.core.util.SecretsUtil;

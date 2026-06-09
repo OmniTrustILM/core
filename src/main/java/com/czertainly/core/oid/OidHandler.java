@@ -1,6 +1,6 @@
 package com.czertainly.core.oid;
 
-import com.czertainly.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.OidCategory;
 
 import java.util.HashMap;
 import java.util.Map;

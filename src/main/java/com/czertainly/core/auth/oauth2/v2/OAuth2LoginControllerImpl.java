@@ -1,10 +1,10 @@
 package com.czertainly.core.auth.oauth2.v2;
 
-import com.czertainly.api.interfaces.core.web.v2.OAuth2LoginController;
-import com.czertainly.api.model.core.auth.LoginProviderDto;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.enums.OperationResult;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.interfaces.core.web.v2.OAuth2LoginController;
+import com.otilm.api.model.core.auth.LoginProviderDto;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.util.OAuth2LoginFlowHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.service.AuditLogInternalService;

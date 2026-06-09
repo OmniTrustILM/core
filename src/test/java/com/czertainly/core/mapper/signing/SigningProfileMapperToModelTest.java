@@ -1,11 +1,11 @@
 package com.czertainly.core.mapper.signing;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.model.signing.SigningProfileModel;

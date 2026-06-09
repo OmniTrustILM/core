@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
@@ -243,10 +243,10 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Certificate c " +
-            "SET c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).REVOKED}, " +
+            "SET c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).REVOKED}, " +
             "    c.updated = CURRENT_TIMESTAMP " +
             "WHERE c.uuid = :uuid " +
-            "  AND c.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}")
+            "  AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).ISSUED}")
     int transitionIssuedToRevoked(@Param("uuid") UUID uuid);
 
     /**
@@ -289,7 +289,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                 FROM Certificate c
                 LEFT JOIN CertificateRelation cr
                     ON cr.id.predecessorCertificateUuid = c.uuid
-                WHERE c.validationStatus = ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).EXPIRING}
+                WHERE c.validationStatus = ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).EXPIRING}
                   AND c.archived = false
                   AND (
                       cr.id.predecessorCertificateUuid IS NULL
@@ -298,7 +298,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                                     FROM CertificateRelation scr
                                     JOIN Certificate sc ON sc.uuid = scr.id.successorCertificateUuid
                                     WHERE scr.id.predecessorCertificateUuid = c.uuid
-                                        AND sc.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}
+                                        AND sc.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).ISSUED}
                               )
                   )
             """)
@@ -405,7 +405,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * <p>Groups need to be retrieved separately and set to the DTO.</p>
      */
     @Query("""
-            SELECT new com.czertainly.api.model.core.certificate.CertificateDto(
+            SELECT new com.otilm.api.model.core.certificate.CertificateDto(
                 c.uuid, c.commonName, c.serialNumber, c.issuerCommonName, c.issuerDn, c.subjectDn, c.notBefore, c.notAfter,
                 c.publicKeyAlgorithm, c.altPublicKeyAlgorithm, c.signatureAlgorithm, c.altSignatureAlgorithm, c.hybridCertificate,
                 c.keySize, c.altKeySize, c.state, c.validationStatus,
@@ -414,8 +414,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                 c.issuerCertificateUuid,
                 (CASE WHEN c.keyUuid IS NOT NULL AND EXISTS
                     (SELECT 1 FROM CryptographicKeyItem i WHERE i.keyUuid = c.keyUuid
-                        AND i.type = ?#{T(com.czertainly.api.model.common.enums.cryptography.KeyType).PRIVATE_KEY}
-                        AND i.state = ?#{T(com.czertainly.api.model.core.cryptography.key.KeyState).ACTIVE}
+                        AND i.type = ?#{T(com.otilm.api.model.common.enums.cryptography.KeyType).PRIVATE_KEY}
+                        AND i.state = ?#{T(com.otilm.api.model.core.cryptography.key.KeyState).ACTIVE}
                     )
                     THEN true ELSE false END
                 ),

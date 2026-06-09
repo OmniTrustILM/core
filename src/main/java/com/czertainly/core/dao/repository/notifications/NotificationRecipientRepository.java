@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository.notifications;
 
-import com.czertainly.api.model.client.notification.NotificationDto;
+import com.otilm.api.model.client.notification.NotificationDto;
 import com.czertainly.core.dao.entity.notifications.NotificationRecipient;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -14,7 +14,7 @@ import java.util.UUID;
 public interface NotificationRecipientRepository extends JpaRepository<NotificationRecipient, UUID> {
 
     @Query("""
-            SELECT new com.czertainly.api.model.client.notification.NotificationDto(
+            SELECT new com.otilm.api.model.client.notification.NotificationDto(
                 n.uuid, n.message, n.detail, nr.readAt, n.sentAt, n.targetObjectType, n.targetObjectIdentification)
                 FROM NotificationRecipient nr
                 JOIN Notification n ON n.uuid = nr.notificationUuid
@@ -24,7 +24,7 @@ public interface NotificationRecipientRepository extends JpaRepository<Notificat
     Page<NotificationDto> findByUserUuid(UUID userUuid, Pageable pageable);
 
     @Query("""
-            SELECT new com.czertainly.api.model.client.notification.NotificationDto(
+            SELECT new com.otilm.api.model.client.notification.NotificationDto(
                 n.uuid, n.message, n.detail, nr.readAt, n.sentAt, n.targetObjectType, n.targetObjectIdentification)
                 FROM NotificationRecipient nr
                 JOIN Notification n ON n.uuid = nr.notificationUuid

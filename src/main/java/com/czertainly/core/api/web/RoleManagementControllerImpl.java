@@ -1,12 +1,12 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.RoleManagementController;
-import com.czertainly.api.model.client.auth.RoleRequestDto;
-import com.czertainly.api.model.core.auth.*;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.RoleManagementController;
+import com.otilm.api.model.client.auth.RoleRequestDto;
+import com.otilm.api.model.core.auth.*;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.RoleManagementService;
@@ -42,7 +42,7 @@ public class RoleManagementControllerImpl implements RoleManagementController {
 
     @Override
     @AuditLogged(module = Module.AUTH, resource = Resource.ROLE, operation = Operation.CREATE)
-    public ResponseEntity<RoleDetailDto> createRole(com.czertainly.api.model.client.auth.RoleRequestDto request) throws NotFoundException, AttributeException {
+    public ResponseEntity<RoleDetailDto> createRole(com.otilm.api.model.client.auth.RoleRequestDto request) throws NotFoundException, AttributeException {
         RoleDetailDto dto = roleManagementService.createRole(request);
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()

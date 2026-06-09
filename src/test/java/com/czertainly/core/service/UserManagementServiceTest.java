@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.auth.AddUserRequestDto;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.auth.AddUserRequestDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.repository.CertificateContentRepository;

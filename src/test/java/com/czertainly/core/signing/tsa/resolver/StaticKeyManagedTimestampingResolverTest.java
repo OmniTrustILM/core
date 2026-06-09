@@ -1,12 +1,12 @@
 package com.czertainly.core.signing.tsa.resolver;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.czertainly.core.model.signing.SigningCertificate;

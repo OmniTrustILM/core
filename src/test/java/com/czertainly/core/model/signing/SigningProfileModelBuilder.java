@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing;
 
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflowBuilder;

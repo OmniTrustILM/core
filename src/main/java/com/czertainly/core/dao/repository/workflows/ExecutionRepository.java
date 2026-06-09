@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.workflows.Execution;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -28,7 +28,7 @@ public interface ExecutionRepository extends SecurityFilterRepository<Execution,
     List<Execution> findAllWithItemsBy();
 
     @EntityGraph(attributePaths = {"items", "items.notificationProfile"})
-    @Query("SELECT e FROM Execution e WHERE e.resource = ?1 OR e.resource = ?#{T(com.czertainly.api.model.core.auth.Resource).ANY}")
+    @Query("SELECT e FROM Execution e WHERE e.resource = ?1 OR e.resource = ?#{T(com.otilm.api.model.core.auth.Resource).ANY}")
     List<Execution> findAllByResource(Resource resource);
 
     List<Execution> findByItemsNotificationProfileUuid(UUID uuid);

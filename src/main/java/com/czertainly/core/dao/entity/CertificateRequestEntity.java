@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.util.CertificateUtil;
 import jakarta.persistence.*;
 import lombok.*;

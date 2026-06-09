@@ -1,14 +1,14 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.ResourceController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.other.ResourceDto;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.other.ResourceEventDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.ResourceController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.other.ResourceDto;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEventDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.ResourceExternalService;

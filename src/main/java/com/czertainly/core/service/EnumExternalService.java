@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.common.enums.PlatformEnum;
-import com.czertainly.api.model.core.enums.EnumItemDto;
+import com.otilm.api.model.common.enums.PlatformEnum;
+import com.otilm.api.model.core.enums.EnumItemDto;
 
 import java.util.Map;
 

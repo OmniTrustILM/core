@@ -1,6 +1,6 @@
 package com.czertainly.core.service.cmp.message.protection;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpConfigurationException;
+import com.otilm.api.interfaces.core.cmp.error.CmpConfigurationException;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.cmp.*;

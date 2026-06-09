@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.certificate.CertificateEventHistoryDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 
 import java.util.List;
 import java.util.UUID;

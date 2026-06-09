@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity.notifications;
 
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.ResourceObjectAssociation;
 import jakarta.persistence.*;
 import lombok.Getter;

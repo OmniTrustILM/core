@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.audit.AuditLogDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.audit.AuditLogDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.records.LogRecord;
 import com.czertainly.core.logging.AuditLogExportDto;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.util.DtoMapper;

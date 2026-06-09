@@ -1,15 +1,15 @@
 package com.czertainly.core.attribute;
 
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.RsaEncryptionScheme;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.RsaEncryptionScheme;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import org.springframework.stereotype.Component;
 

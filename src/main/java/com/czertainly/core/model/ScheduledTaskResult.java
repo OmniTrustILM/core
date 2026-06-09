@@ -1,7 +1,7 @@
 package com.czertainly.core.model;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

@@ -1,14 +1,14 @@
 package com.czertainly.core.service.cmp.message.handler;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpCrmfValidationException;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
-import com.czertainly.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.cmp.CmpTransaction;

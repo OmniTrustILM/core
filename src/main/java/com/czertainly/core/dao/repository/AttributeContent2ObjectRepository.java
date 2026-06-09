@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContent;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentDetail;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeDefinitionContent;
@@ -151,7 +151,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
-                WHERE ad.type = com.czertainly.api.model.common.attribute.common.AttributeType.DATA
+                WHERE ad.type = com.otilm.api.model.common.attribute.common.AttributeType.DATA
                     AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
                     AND aco.objectVersion IS NULL
                 ORDER BY aci.attributeDefinitionUuid, aco.order
@@ -167,7 +167,7 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
-                WHERE ad.type = com.czertainly.api.model.common.attribute.common.AttributeType.DATA
+                WHERE ad.type = com.otilm.api.model.common.attribute.common.AttributeType.DATA
                     AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
                 ORDER BY aci.attributeDefinitionUuid, aco.order
             """)

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.cryptography.key.KeyEvent;
-import com.czertainly.api.model.core.cryptography.key.KeyEventHistoryDto;
-import com.czertainly.api.model.core.cryptography.key.KeyEventStatus;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.cryptography.key.KeyEvent;
+import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
+import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.czertainly.core.dao.entity.CryptographicKeyEventHistory;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;
 

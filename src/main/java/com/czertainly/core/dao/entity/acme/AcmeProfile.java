@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity.acme;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.acme.AcmeProfileDto;
-import com.czertainly.api.model.core.acme.AcmeProfileListDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.acme.AcmeProfileDto;
+import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.czertainly.core.dao.entity.ProtocolCertificateAssociations;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

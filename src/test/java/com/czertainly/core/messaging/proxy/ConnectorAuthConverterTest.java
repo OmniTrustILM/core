@@ -1,17 +1,17 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.BaseApiClient;
-import com.czertainly.api.clients.mq.model.ConnectorAuth;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV2;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.content.data.FileAttributeContentData;
-import com.czertainly.api.model.common.attribute.v2.content.SecretAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.content.data.SecretAttributeContentData;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.otilm.api.clients.BaseApiClient;
+import com.otilm.api.clients.mq.model.ConnectorAuth;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV2;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

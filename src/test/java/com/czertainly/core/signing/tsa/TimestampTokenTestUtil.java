@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.util.CertificateTestUtil;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;

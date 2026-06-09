@@ -1,13 +1,13 @@
 package com.czertainly.core.service.scep;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.provider.CzertainlyCipherService;

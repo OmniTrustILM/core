@@ -1,16 +1,16 @@
 package com.czertainly.core.service.compliance;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.compliance.v2.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.compliance.v2.ComplianceRuleListDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.ConditionItemRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.compliance.v2.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.compliance.v2.ComplianceRuleListDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;

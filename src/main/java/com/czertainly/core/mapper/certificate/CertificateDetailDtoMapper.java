@@ -1,9 +1,9 @@
 package com.czertainly.core.mapper.certificate;
 
-import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Group;
 import com.czertainly.core.util.CertificateUtil;

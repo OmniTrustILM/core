@@ -1,15 +1,15 @@
 package com.czertainly.core.cbom.client;
 
-import com.czertainly.api.model.core.cbom.CbomUploadRequestDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.model.cbom.BomCreateResponseDto;
 import com.czertainly.core.model.cbom.BomEntryDto;
 import com.czertainly.core.model.cbom.BomResponseDto;
 import com.czertainly.core.model.cbom.BomSearchRequestDto;
 import com.czertainly.core.model.cbom.BomVersionDto;
 import com.czertainly.core.settings.SettingsCache;
-import com.czertainly.api.exception.CbomRepositoryException;
+import com.otilm.api.exception.CbomRepositoryException;
 
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;

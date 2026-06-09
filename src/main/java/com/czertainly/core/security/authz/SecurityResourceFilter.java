@@ -1,7 +1,7 @@
 package com.czertainly.core.security.authz;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import lombok.Getter;
 import lombok.Setter;
 

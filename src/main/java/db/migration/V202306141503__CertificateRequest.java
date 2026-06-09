@@ -1,6 +1,6 @@
 package db.migration;
 
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.dao.entity.CertificateRequestEntity;
 import com.czertainly.core.util.CertificateUtil;
 import org.flywaydb.core.api.migration.BaseJavaMigration;

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.certificate.CertificateChainResponseDto;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;

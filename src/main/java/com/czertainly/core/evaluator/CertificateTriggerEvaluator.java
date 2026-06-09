@@ -1,11 +1,11 @@
 package com.czertainly.core.evaluator;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.CertificateOperationException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.RuleException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.security.authz.SecuredUUID;

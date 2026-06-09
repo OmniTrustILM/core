@@ -1,13 +1,13 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.connector.secrets.SecretType;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.secret.SecretDetailDto;
-import com.czertainly.api.model.core.secret.SecretDto;
-import com.czertainly.api.model.core.secret.SecretState;
-import com.czertainly.api.model.core.secret.SyncVaultProfileDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.secret.SecretDetailDto;
+import com.otilm.api.model.core.secret.SecretDto;
+import com.otilm.api.model.core.secret.SecretState;
+import com.otilm.api.model.core.secret.SyncVaultProfileDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.fasterxml.jackson.annotation.JsonBackReference;

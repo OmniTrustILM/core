@@ -1,7 +1,7 @@
 package com.czertainly.core.evaluator;
 
-import com.czertainly.api.exception.RuleException;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.ComplianceInternalRule;
 import com.czertainly.core.dao.entity.workflows.*;
 

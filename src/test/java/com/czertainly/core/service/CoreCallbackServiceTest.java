@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.content.ResourceObjectContent;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Credential;

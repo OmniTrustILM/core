@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.interfaces.core.web.ApprovalProfileController;
-import com.czertainly.api.model.client.approvalprofile.*;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.core.web.ApprovalProfileController;
+import com.otilm.api.model.client.approvalprofile.*;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.logging.LogResource;

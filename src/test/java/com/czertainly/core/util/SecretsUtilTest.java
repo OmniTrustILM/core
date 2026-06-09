@@ -1,6 +1,6 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.connector.secrets.content.*;
+import com.otilm.api.model.connector.secrets.content.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

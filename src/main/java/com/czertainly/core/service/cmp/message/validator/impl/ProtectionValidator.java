@@ -1,10 +1,10 @@
 package com.czertainly.core.service.cmp.message.validator.impl;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpConfigurationException;
-import com.czertainly.api.model.core.cmp.ProtectionMethod;
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.czertainly.api.interfaces.core.cmp.error.ImplFailureInfo;
+import com.otilm.api.interfaces.core.cmp.error.CmpConfigurationException;
+import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
 import com.czertainly.core.service.cmp.configurations.ConfigurationContext;
 import com.czertainly.core.service.cmp.message.PkiMessageDumper;
 import com.czertainly.core.service.cmp.message.protection.ProtectionStrategy;

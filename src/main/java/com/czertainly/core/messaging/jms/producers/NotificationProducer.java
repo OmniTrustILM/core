@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.jms.producers;
 
-import com.czertainly.api.model.common.events.data.InternalNotificationEventData;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.common.events.data.InternalNotificationEventData;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;

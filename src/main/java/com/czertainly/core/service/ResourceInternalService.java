@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 
 import java.util.List;
 import java.util.Map;

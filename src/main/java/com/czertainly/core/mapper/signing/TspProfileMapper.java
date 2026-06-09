@@ -1,9 +1,9 @@
 package com.czertainly.core.mapper.signing;
 
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.model.signing.TspProfileModel;

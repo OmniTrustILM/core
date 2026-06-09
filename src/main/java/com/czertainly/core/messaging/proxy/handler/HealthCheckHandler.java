@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.dao.repository.ProxyRepository;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;

@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.ConditionItemDto;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.czertainly.core.dao.converter.ObjectToJsonConverter;
 import com.czertainly.core.dao.entity.ComplianceInternalRule;
 import com.czertainly.core.dao.entity.UniquelyIdentified;

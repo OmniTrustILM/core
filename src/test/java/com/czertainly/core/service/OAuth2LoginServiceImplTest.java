@@ -1,8 +1,8 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.service.impl.OAuth2LoginServiceImpl;
 import com.czertainly.core.settings.SettingsCache;
 import org.junit.jupiter.api.Assertions;

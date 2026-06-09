@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.czertainly.core.dao.entity.ApprovalRecipient;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;

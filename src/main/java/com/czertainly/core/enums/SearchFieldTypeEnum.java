@@ -1,7 +1,7 @@
 package com.czertainly.core.enums;
 
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldType;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;

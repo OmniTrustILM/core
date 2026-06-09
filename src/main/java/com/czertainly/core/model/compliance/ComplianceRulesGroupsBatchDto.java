@@ -1,7 +1,7 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.model.connector.compliance.v2.ComplianceGroupBatchResponseDto;
-import com.czertainly.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
+import com.otilm.api.model.connector.compliance.v2.ComplianceGroupBatchResponseDto;
+import com.otilm.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;

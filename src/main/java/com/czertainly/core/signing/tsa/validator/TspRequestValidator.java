@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.validator;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.czertainly.core.model.signing.workflow.TimestampingWorkflow;
 import com.czertainly.core.signing.tsa.messages.TspRequest;
 import org.springframework.stereotype.Component;

@@ -1,6 +1,6 @@
 package com.czertainly.core.tasks;
 
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.dao.repository.acme.AcmeNonceRepository;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.service.ApprovalInternalService;

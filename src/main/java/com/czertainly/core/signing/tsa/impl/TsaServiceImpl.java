@@ -1,8 +1,8 @@
 package com.czertainly.core.signing.tsa.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.model.signing.TspProfileModel;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;

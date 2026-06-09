@@ -1,9 +1,9 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.connector.cryptography.key.value.*;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.connector.cryptography.key.value.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;

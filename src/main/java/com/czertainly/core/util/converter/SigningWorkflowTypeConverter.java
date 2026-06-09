@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 
 import java.beans.PropertyEditorSupport;
 

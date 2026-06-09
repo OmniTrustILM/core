@@ -1,8 +1,8 @@
 package com.czertainly.core.migration;
 
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

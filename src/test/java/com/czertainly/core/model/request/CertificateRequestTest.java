@@ -1,7 +1,7 @@
 package com.czertainly.core.model.request;
 
-import com.czertainly.api.exception.CertificateRequestException;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.service.cmp.CmpTestUtil;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateRequestUtils;

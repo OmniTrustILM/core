@@ -1,14 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.EntityInstanceResponseDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.entity.EntityInstanceRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.entity.EntityInstanceDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.EntityInstanceResponseDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.entity.EntityInstanceRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.entity.EntityInstanceDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.security.authz.SecuredUUID;

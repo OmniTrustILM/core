@@ -1,13 +1,13 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.AuthResourceDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDetailDto;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDetailDto;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.auth.ContextRefreshListener;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;

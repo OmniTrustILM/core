@@ -13,7 +13,7 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationException;
 
 class CbomUtilTest {
 

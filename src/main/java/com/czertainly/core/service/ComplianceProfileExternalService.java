@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.compliance.*;
-import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.compliance.ComplianceProfileDto;
-import com.czertainly.api.model.core.compliance.ComplianceProfilesListDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.compliance.*;
+import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.compliance.ComplianceProfileDto;
+import com.otilm.api.model.core.compliance.ComplianceProfilesListDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

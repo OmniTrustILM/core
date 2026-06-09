@@ -1,20 +1,20 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.AttributeApiClient;
-import com.czertainly.api.clients.mq.AuthorityInstanceApiClient;
-import com.czertainly.api.clients.mq.CertificateApiClient;
-import com.czertainly.api.clients.mq.ConnectorApiClient;
-import com.czertainly.api.clients.mq.CryptographicOperationsApiClient;
-import com.czertainly.api.clients.mq.DiscoveryApiClient;
-import com.czertainly.api.clients.mq.EndEntityApiClient;
-import com.czertainly.api.clients.mq.EndEntityProfileApiClient;
-import com.czertainly.api.clients.mq.EntityInstanceApiClient;
-import com.czertainly.api.clients.mq.HealthApiClient;
-import com.czertainly.api.clients.mq.KeyManagementApiClient;
-import com.czertainly.api.clients.mq.LocationApiClient;
-import com.czertainly.api.clients.mq.NotificationInstanceApiClient;
-import com.czertainly.api.clients.mq.ProxyClient;
-import com.czertainly.api.clients.mq.TokenInstanceApiClient;
+import com.otilm.api.clients.mq.AttributeApiClient;
+import com.otilm.api.clients.mq.AuthorityInstanceApiClient;
+import com.otilm.api.clients.mq.CertificateApiClient;
+import com.otilm.api.clients.mq.ConnectorApiClient;
+import com.otilm.api.clients.mq.CryptographicOperationsApiClient;
+import com.otilm.api.clients.mq.DiscoveryApiClient;
+import com.otilm.api.clients.mq.EndEntityApiClient;
+import com.otilm.api.clients.mq.EndEntityProfileApiClient;
+import com.otilm.api.clients.mq.EntityInstanceApiClient;
+import com.otilm.api.clients.mq.HealthApiClient;
+import com.otilm.api.clients.mq.KeyManagementApiClient;
+import com.otilm.api.clients.mq.LocationApiClient;
+import com.otilm.api.clients.mq.NotificationInstanceApiClient;
+import com.otilm.api.clients.mq.ProxyClient;
+import com.otilm.api.clients.mq.TokenInstanceApiClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -142,8 +142,8 @@ public class ProxyClientConfig {
      * This bean is used when connector has proxyId set for v2 certificate operations.
      */
     @Bean
-    public com.czertainly.api.clients.mq.v2.CertificateApiClient mqCertificateApiClientV2(ProxyClient proxyClient) {
-        return new com.czertainly.api.clients.mq.v2.CertificateApiClient(proxyClient);
+    public com.otilm.api.clients.mq.v2.CertificateApiClient mqCertificateApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.CertificateApiClient(proxyClient);
     }
 
     /**
@@ -151,8 +151,8 @@ public class ProxyClientConfig {
      * This bean is used when connector has proxyId set for compliance operations.
      */
     @Bean
-    public com.czertainly.api.clients.mq.ComplianceApiClient mqComplianceApiClient(ProxyClient proxyClient) {
-        return new com.czertainly.api.clients.mq.ComplianceApiClient(proxyClient);
+    public com.otilm.api.clients.mq.ComplianceApiClient mqComplianceApiClient(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.ComplianceApiClient(proxyClient);
     }
 
     /**
@@ -160,8 +160,8 @@ public class ProxyClientConfig {
      * This bean is used when connector has proxyId set for v2 compliance operations.
      */
     @Bean
-    public com.czertainly.api.clients.mq.v2.ComplianceApiClient mqComplianceApiClientV2(ProxyClient proxyClient) {
-        return new com.czertainly.api.clients.mq.v2.ComplianceApiClient(proxyClient);
+    public com.otilm.api.clients.mq.v2.ComplianceApiClient mqComplianceApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.ComplianceApiClient(proxyClient);
     }
 
     /**

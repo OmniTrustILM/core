@@ -1,9 +1,9 @@
 package com.czertainly.core.signing.tsa.resolver;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.signing.tsa.CertificateChain;
 import com.czertainly.core.model.signing.SigningCertificate;
@@ -88,7 +88,7 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
     private ResolvedManagedScheme resolveScheme(String profileName, SigningSchemeModel scheme) throws TspException {
         if (!(scheme instanceof StaticKeyManagedSigning(
                 UUID certificateUuid,
-                List<com.czertainly.api.model.client.attribute.RequestAttribute> signingOperationAttributes
+                List<com.otilm.api.model.client.attribute.RequestAttribute> signingOperationAttributes
         ))) {
             throw new TspException(TspFailureInfo.SYSTEM_FAILURE,
                     "Signing Profile '%s' uses an unsupported signing scheme: %s".formatted(

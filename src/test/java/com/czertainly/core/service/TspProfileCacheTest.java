@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 import com.czertainly.core.dao.repository.signing.TspProfileRepository;

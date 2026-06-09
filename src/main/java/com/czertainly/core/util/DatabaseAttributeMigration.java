@@ -1,14 +1,15 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
