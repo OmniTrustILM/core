@@ -92,4 +92,14 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
         this.signingProfile = signingProfile;
         this.signingProfileUuid = signingProfile != null ? signingProfile.getUuid() : null;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }
