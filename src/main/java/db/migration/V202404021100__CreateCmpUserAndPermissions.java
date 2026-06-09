@@ -6,6 +6,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
+import com.czertainly.core.util.DatabaseAuthMigration;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
@@ -105,7 +106,7 @@ public class V202404021100__CreateCmpUserAndPermissions extends BaseJavaMigratio
         requestDto.setEnabled(true);
         requestDto.setSystemUser(true);
         requestDto.setCertificateFingerprint("");
-        return userManagementApiClient.createUser(requestDto);
+        return DatabaseAuthMigration.getOrCreateUser(userManagementApiClient, requestDto);
     }
 
     private RoleDetailDto createCmpRole() {
@@ -114,7 +115,7 @@ public class V202404021100__CreateCmpUserAndPermissions extends BaseJavaMigratio
         requestDto.setDescription("System role with all permissions needed for CMP operations");
         requestDto.setSystemRole(true);
         requestDto.setPermissions(getPermissionPayload());
-        return roleManagementApiClient.createRole(requestDto);
+        return DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, requestDto);
     }
 
     private void assignRoles(String userUuid, String roleUUid) {

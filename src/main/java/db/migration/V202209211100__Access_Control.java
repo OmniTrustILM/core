@@ -6,6 +6,7 @@ import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
+import com.czertainly.core.util.DatabaseAuthMigration;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
@@ -108,7 +109,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
                     dto.setEnabled(rows.getBoolean("enabled"));
                     dto.setDescription(rows.getString("description"));
                     dto.setCertificateFingerprint(rows.getString("fingerprint"));
-                    UserDto response = userManagementApiClient.createUser(dto);
+                    UserDto response = DatabaseAuthMigration.getOrCreateUser(userManagementApiClient, dto);
                     assignRoles(response.getUuid(), rows.getString("role").equals("SUPERADMINISTRATOR") ? superAdministratorRoleUuid : administratorRoleUuid);
                     adminNames.add(dto.getUsername());
                     certificateUserUpdateCommands.add("update certificate SET user_uuid = '" + response.getUuid() + "' WHERE uuid = '" + certificateUuid + "'");
@@ -135,7 +136,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
                     dto.setEnabled(rows.getBoolean("enabled"));
                     dto.setCertificateFingerprint(rows.getString("fingerprint"));
                     dto.setDescription(rows.getString("description"));
-                    UserDto response = userManagementApiClient.createUser(dto);
+                    UserDto response = DatabaseAuthMigration.getOrCreateUser(userManagementApiClient, dto);
                     String roleUuid = createClientRoles(response.getUuid(), clientName);
                     clientRoleMap.put(rows.getString("uuid"), roleUuid);
                     certificateUserUpdateCommands.add("update certificate SET user_uuid = '" + response.getUuid() + "' WHERE uuid = '" + certificateUuid + "'");
@@ -168,7 +169,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
         dto.setName("Client_Role_" + clientName);
         dto.setDescription("Role created during migration for the client " + clientName);
         dto.setSystemRole(false);
-        RoleDto response = roleManagementApiClient.createRole(dto);
+        RoleDto response = DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, dto);
         assignRoles(clientUuid, response.getUuid());
         return response.getUuid();
     }
@@ -342,7 +343,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
         requestDto.setDescription("System role with all permissions");
         requestDto.setSystemRole(true);
         requestDto.setPermissions(getAdminPermissions());
-        RoleDetailDto response = roleManagementApiClient.createRole(requestDto);
+        RoleDetailDto response = DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, requestDto);
         setSuperAdministratorRoleUuid(response.getUuid());
     }
 
@@ -352,7 +353,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
         requestDto.setDescription("System role with all administration permissions");
         requestDto.setSystemRole(true);
         requestDto.setPermissions(getAdminPermissions());
-        RoleDetailDto response = roleManagementApiClient.createRole(requestDto);
+        RoleDetailDto response = DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, requestDto);
         setAdministratorRoleUuid(response.getUuid());
     }
 
@@ -362,7 +363,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
         requestDto.setDescription("System role with all ACME permissions");
         requestDto.setSystemRole(true);
         requestDto.setPermissions(getPermissionPayload());
-        RoleDetailDto response = roleManagementApiClient.createRole(requestDto);
+        RoleDetailDto response = DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, requestDto);
         String acmeUser = createAcmeUser();
         assignRoles(acmeUser, response.getUuid());
     }
@@ -374,7 +375,7 @@ public class V202209211100__Access_Control extends BaseJavaMigration {
         requestDto.setEnabled(true);
         requestDto.setSystemUser(true);
         requestDto.setCertificateFingerprint("");
-        return userManagementApiClient.createUser(requestDto).getUuid();
+        return DatabaseAuthMigration.getOrCreateUser(userManagementApiClient, requestDto).getUuid();
     }
 
     private RolePermissionsRequestDto getAdminPermissions() {
