@@ -15,8 +15,9 @@ import com.czertainly.core.dao.repository.workflows.*;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ActionService;
+import com.czertainly.core.service.ActionExternalService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
+import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +27,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class ActionServiceImpl implements ActionService {
+public class ActionServiceImpl implements ActionExternalService {
 
     private ExecutionRepository executionRepository;
     private ExecutionItemRepository executionItemRepository;
@@ -102,12 +103,19 @@ public class ActionServiceImpl implements ActionService {
 
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
-    public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException {
+    public ExecutionDto updateExecution(String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getItems().isEmpty()) {
-            throw new ValidationException("Cannot create an execution without any execution items.");
+            throw new ValidationException("Cannot update an execution without any execution items.");
         }
 
         Execution execution = executionRepository.findByUuid(SecuredUUID.fromString(executionUuid)).orElseThrow(() -> new NotFoundException(Execution.class, executionUuid));
+        if (request.getName() != null) {
+            if (executionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(executionUuid))) {
+                throw new AlreadyExistException("Execution with same name already exists.");
+            }
+            execution.setName(request.getName());
+        }
+
         executionItemRepository.deleteByExecution(execution);
 
         execution.setDescription(request.getDescription());
@@ -149,7 +157,7 @@ public class ActionServiceImpl implements ActionService {
             throw new ValidationException("Missing field source or field identifier in an execution.");
         }
         if (executionItemRequestDto.getFieldSource() != FilterFieldSource.PROPERTY && executionItemRequestDto.getFieldSource() != FilterFieldSource.CUSTOM) {
-            throw new ValidationException("Missing field source or field identifier in an execution.");
+            throw new ValidationException("Field source must be PROPERTY or CUSTOM for set field execution.");
         }
         if (execution.getResource() == Resource.ANY || execution.getResource() == Resource.NONE) {
             throw new ValidationException("Resource %s is not allowed for execution type %s".formatted(execution.getResource().getLabel(), execution.getType().getLabel()));
@@ -159,7 +167,9 @@ public class ActionServiceImpl implements ActionService {
         executionItem.setExecution(execution);
         executionItem.setFieldSource(executionItemRequestDto.getFieldSource());
         executionItem.setFieldIdentifier(executionItemRequestDto.getFieldIdentifier());
-        if (executionItem.getFieldSource() != FilterFieldSource.CUSTOM) {
+        if (executionItemRequestDto.getSourceFieldSource() != null || executionItemRequestDto.getSourceFieldIdentifier() != null) {
+            validateAndSetSourceReference(executionItem, executionItemRequestDto);
+        } else if (executionItem.getFieldSource() != FilterFieldSource.CUSTOM) {
             executionItem.setData(executionItemRequestDto.getData());
         } else {
             try {
@@ -176,6 +186,50 @@ public class ActionServiceImpl implements ActionService {
         }
 
         return executionItem;
+    }
+
+    private void validateAndSetSourceReference(ExecutionItem executionItem, ExecutionItemRequestDto dto) {
+        if (dto.getSourceFieldSource() == null || dto.getSourceFieldIdentifier() == null) {
+            throw new ValidationException("Both sourceFieldSource and sourceFieldIdentifier must be provided together.");
+        }
+        if (dto.getFieldSource() != FilterFieldSource.CUSTOM) {
+            throw new ValidationException("Source field reference is only supported when target fieldSource is CUSTOM.");
+        }
+        if (dto.getSourceFieldSource() != FilterFieldSource.META
+                && dto.getSourceFieldSource() != FilterFieldSource.DATA
+                && dto.getSourceFieldSource() != FilterFieldSource.CUSTOM) {
+            throw new ValidationException("sourceFieldSource must be META, DATA, or CUSTOM.");
+        }
+        if (dto.getData() != null) {
+            throw new ValidationException("data must be null when sourceFieldSource is set — use source reference or static data, not both.");
+        }
+
+        // Validate source identifier format: name|ContentType
+        AttributeContentType sourceContentType = getAttributeContentType(dto.getSourceFieldIdentifier(), "sourceFieldIdentifier");
+
+        // Validate a target identifier format and extract a target content type
+        AttributeContentType targetContentType = getAttributeContentType(dto.getFieldIdentifier(), "fieldIdentifier");
+
+        if (sourceContentType != targetContentType) {
+            throw new ValidationException("Source content type " + sourceContentType + " does not match target content type " + targetContentType + ".");
+        }
+
+        executionItem.setSourceFieldSource(dto.getSourceFieldSource());
+        executionItem.setSourceFieldIdentifier(dto.getSourceFieldIdentifier());
+    }
+
+    private static @NonNull AttributeContentType getAttributeContentType(String sourceId, String propertyName) {
+        String[] sourceParts = sourceId.split("\\|", -1);
+        if (sourceParts.length != 2 || sourceParts[0].isEmpty() || sourceParts[1].isEmpty()) {
+            throw new ValidationException(propertyName + " must be in format 'name|ContentType' with non-empty name and content type, got: " + sourceId);
+        }
+        AttributeContentType sourceContentType;
+        try {
+            sourceContentType = AttributeContentType.valueOf(sourceParts[1]);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Invalid content type in " + propertyName + ": " + sourceParts[1]);
+        }
+        return sourceContentType;
     }
 
     private ExecutionItem createSendNotificationExecutionItem(Execution execution, ExecutionItemRequestDto executionItemRequestDto) throws NotFoundException {
@@ -252,13 +306,19 @@ public class ActionServiceImpl implements ActionService {
 
     @Override
     @ExternalAuthorization(resource = Resource.ACTION, action = ResourceAction.UPDATE)
-    public ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException {
+    public ActionDetailDto updateAction(String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException {
         if (request.getExecutionsUuids().isEmpty()) {
             throw new ValidationException("Action has to contain at least one execution.");
         }
 
         Set<Execution> executions = new HashSet<>();
         Action action = actionRepository.findWithTriggersByUuid(UUID.fromString(actionUuid)).orElseThrow(() -> new NotFoundException(Action.class, actionUuid));
+        if (request.getName() != null) {
+            if (actionRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(actionUuid))) {
+                throw new AlreadyExistException("Action with same name already exists.");
+            }
+            action.setName(request.getName());
+        }
         Set<Resource> associatedTriggersResources = action.getTriggers().stream().map(Trigger::getResource).collect(Collectors.toSet());
 
         for (String executionUuid : request.getExecutionsUuids()) {

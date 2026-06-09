@@ -5,13 +5,16 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.dao.repository.workflows.*;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.TriggerService;
+import com.czertainly.core.service.TriggerExternalService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.AuthHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +28,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class TriggerServiceImpl implements TriggerService {
+public class TriggerServiceImpl implements TriggerExternalService, TriggerInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TriggerServiceImpl.class);
 
@@ -92,9 +95,7 @@ public class TriggerServiceImpl implements TriggerService {
         return triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid)).mapToDetailDto();
     }
 
-    @Override
-    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.DETAIL)
-    public Trigger getTriggerEntity(String triggerUuid) throws NotFoundException {
+    private Trigger getTriggerEntity(String triggerUuid) throws NotFoundException {
         return triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
     }
 
@@ -127,10 +128,17 @@ public class TriggerServiceImpl implements TriggerService {
 
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.UPDATE)
-    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException {
+    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
 
         Trigger trigger = triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
+
+        if (request.getName() != null) {
+            if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
+                throw new AlreadyExistException("Trigger with same name already exists.");
+            }
+            trigger.setName(request.getName());
+        }
 
         trigger.setDescription(request.getDescription());
         trigger.setType(request.getType());
@@ -196,6 +204,12 @@ public class TriggerServiceImpl implements TriggerService {
     //region Trigger Associations
 
     @Override
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.LIST)
+    public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
+        return getTriggersAssociations(resource, associationObjectUuid);
+    }
+
+    @Override
     public Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid) {
         List<TriggerAssociation> triggerAssociations = triggerAssociationRepository.findAllByResourceAndObjectUuidOrderByTriggerOrderAsc(resource, associationObjectUuid);
 
@@ -230,6 +244,9 @@ public class TriggerServiceImpl implements TriggerService {
         List<TriggerAssociation> ignoreTriggers = new ArrayList<>();
         for (UUID triggerUuid : triggerUuids) {
             Trigger trigger = getTriggerEntity(triggerUuid.toString());
+            if (!isCertificateUploadedEventCompatible(event, trigger)) {
+                throw new ValidationException("Trigger '%s' cannot be associated with event '%s' as it contains rule with invalid field source, which is not allowed for this event.".formatted(trigger.getName(), event.getLabel()));
+            }
             if (trigger.getResource() != event.getResource()) {
                 throw new ValidationException("Trigger '%s' is for different resource (%s) than event '%s' (%s)".formatted(trigger.getName(), trigger.getResource().getLabel(), event.getLabel(), event.getResource().getLabel()));
             }
@@ -263,6 +280,20 @@ public class TriggerServiceImpl implements TriggerService {
         }
     }
 
+    private static boolean isCertificateUploadedEventCompatible(ResourceEvent event, Trigger trigger) {
+        return event != ResourceEvent.CERTIFICATE_UPLOADED || trigger.getRules().stream()
+                .flatMap(rule -> rule.getConditions().stream())
+                .flatMap(condition -> condition.getItems().stream())
+                .allMatch(TriggerServiceImpl::isCertificateUploadedEventCompatible);
+    }
+
+    private static boolean isCertificateUploadedEventCompatible(ConditionItem conditionItem) {
+        // Condition should be applicable to not persisted certificate - it can only check its property not tied to another object
+        if (conditionItem.getFieldSource() != FilterFieldSource.PROPERTY) return false;
+        FilterField filterField = FilterField.valueOf(conditionItem.getFieldIdentifier());
+        return filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty()) ;
+    }
+
     @Override
     public void deleteTriggerAssociations(Resource resource, UUID associationObjectUuid) {
         Long deletedAssociations = triggerAssociationRepository.deleteByResourceAndObjectUuid(resource, associationObjectUuid);
@@ -284,6 +315,7 @@ public class TriggerServiceImpl implements TriggerService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.DETAIL)
     public TriggerHistorySummaryDto getTriggerHistorySummary(String associationObjectUuid) throws NotFoundException {
         List<TriggerHistory> triggerHistories = triggerHistoryRepository.findByTriggerAssociationObjectUuidOrderByTriggerUuidAscTriggeredAtAsc(UUID.fromString(associationObjectUuid));
 
@@ -384,6 +416,16 @@ public class TriggerServiceImpl implements TriggerService {
         triggerHistoryRecord.setMessage(message);
         triggerHistoryRecordRepository.save(triggerHistoryRecord);
         return triggerHistoryRecord;
+    }
+
+    @Override
+    public void setTriggerHistoryActionsPerformedFalse(UUID triggerHistoryUuid) {
+        triggerHistoryRepository.findById(triggerHistoryUuid).ifPresent(th -> {
+            if (th.isActionsPerformed()) {
+                th.setActionsPerformed(false);
+                triggerHistoryRepository.save(th);
+            }
+        });
     }
 
     //endregion

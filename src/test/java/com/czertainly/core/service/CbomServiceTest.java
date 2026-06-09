@@ -1472,4 +1472,24 @@ class CbomServiceTest extends BaseSpringBootTest {
                     }
                     """)));
     }
+
+    @Test
+    void testBulkDeleteCbom_deleteFailure_returnsErrorMessage() {
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber("urn:uuid:spy-test-1");
+        cbom.setVersion(1);
+        cbom.setSpecVersion("1.6");
+        cbom.setTimestamp(OffsetDateTime.now());
+        cbom = cbomRepository.save(cbom);
+        final UUID savedUuid = cbom.getUuid();
+
+        Mockito.doThrow(new RuntimeException("DB delete error"))
+                .when(cbomRepositorySpy).deleteById(savedUuid);
+
+        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(savedUuid));
+
+        Assertions.assertEquals(1, messages.size());
+        Assertions.assertEquals(savedUuid.toString(), messages.getFirst().getUuid());
+        Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
 }

@@ -1,9 +1,11 @@
 package com.czertainly.core.security.authn.client;
 
+import com.czertainly.api.model.core.logging.enums.ActorType;
 import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.czertainly.api.model.core.logging.records.ActorRecord;
+import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
-import com.czertainly.core.service.AuditLogService;
-import com.czertainly.core.service.impl.AuditLogServiceImpl;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,6 +14,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.GrantedAuthority;
 
@@ -31,7 +34,7 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
     private CzertainlyAuthenticationClient czertainlyAuthenticationClient;
 
     @Autowired
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
     private AuthenticationCache authenticationCache;
@@ -72,6 +75,7 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
 
     @AfterEach
     void cleanup() {
+        MDC.clear();
         try {
             // Clear the last request by reading it
             authServiceMock.takeRequest(50, TimeUnit.MILLISECONDS);
@@ -268,6 +272,124 @@ class CzertainlyAuthenticationClientTest extends BaseSpringBootTest {
 
         // then
         assertEquals(2, authServiceMock.getRequestCount());
+    }
+
+    // --- actor MDC restoration on cache hits ---
+
+    @Test
+    void authenticateSystemUser_cacheHit_restoresActorMdc() {
+        // given - cache primed, MDC cleared to simulate a fresh request thread
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        MDC.clear();
+
+        // when - cache hit, loader (and its MDC side effects) skipped
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+
+        // then - the second call was served from cache, yet audit log actor info is complete
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(AuthMethod.USER_PROXY, actor.authMethod());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
+    }
+
+    @Test
+    void authenticateByUserUuid_cacheHit_restoresActorMdc() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        UUID userUuid = UUID.randomUUID();
+        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+        MDC.clear();
+
+        // when
+        czertainlyAuthenticationClient.authenticateByUserUuid(userUuid);
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(AuthMethod.USER_PROXY, actor.authMethod());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
+    }
+
+    @Test
+    void authenticateByCertificate_cacheHit_restoresActorMdc() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+        MDC.clear();
+
+        // when
+        czertainlyAuthenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+
+        // then - without restoration the actor falls back to CORE/NONE, misattributing the request
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(AuthMethod.CERTIFICATE, actor.authMethod());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
+    }
+
+    @Test
+    void authenticateByToken_cacheHit_restoresActorMdc() {
+        // given
+        setUpSuccessfulAuthenticationResponse();
+        Map<String, Object> claims = Map.of("jti", "jti-mdc-test");
+        czertainlyAuthenticationClient.authenticateByToken(claims);
+        MDC.clear();
+
+        // when
+        czertainlyAuthenticationClient.authenticateByToken(claims);
+
+        // then
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(AuthMethod.TOKEN, actor.authMethod());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
+    }
+
+    @Test
+    void authenticateSystemUser_cacheHit_matchesCacheMissActorMdc() {
+        // given - cache primed; the miss path overwrote the MDC actor to the authenticated USER identity
+        setUpSuccessfulAuthenticationResponse();
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+        // a later request reuses the thread with a different enclosing actor (e.g. an internal proxy call)
+        MDC.clear();
+        LoggingHelper.putActorInfoWhenNull(ActorType.CORE, "b2c3d4e5-0000-0000-0000-000000000002", "existingActor");
+
+        // when - cache hit must reproduce the miss path's actor, not preserve the enclosing one
+        czertainlyAuthenticationClient.authenticateSystemUser("acme");
+
+        // then - actor is the authenticated USER identity, identical to what a cache miss produces
+        assertEquals(1, authServiceMock.getRequestCount());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(ActorType.USER, actor.type());
+        assertEquals("FrantisekJednicka", actor.name());
+        assertEquals(UUID.fromString("a1b2c3d4-0000-0000-0000-000000000001"), actor.uuid());
+        assertEquals(AuthMethod.USER_PROXY, actor.authMethod());
+    }
+
+    @Test
+    void authenticateSystemUser_anonymousResult_leavesLoaderActorMdcUntouched() {
+        // given - auth service rejects; anonymous results are never cached, the loader always runs
+        authServiceMock.enqueue(
+                new MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("content-type", "application/json")
+                        .setBody("{\"authenticated\": false, \"data\": null}")
+        );
+
+        // when
+        AuthenticationInfo info = czertainlyAuthenticationClient.authenticateSystemUser("unknown-user");
+
+        // then - the loader's anonymous MDC put stands; restoreActorMdc must not overwrite it
+        Assertions.assertTrue(info.isAnonymous());
+        ActorRecord actor = LoggingHelper.getActorInfo();
+        assertEquals(ActorType.ANONYMOUS, actor.type());
+        assertEquals("anonymousUser", actor.name());
+        Assertions.assertNull(actor.uuid());
     }
 
     RecordedRequest getLastRequest() throws InterruptedException {

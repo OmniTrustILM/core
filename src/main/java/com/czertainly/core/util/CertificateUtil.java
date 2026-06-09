@@ -4,19 +4,13 @@ import com.czertainly.api.exception.CertificateRequestException;
 import com.czertainly.api.exception.ValidationError;
 import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
 import com.czertainly.api.model.core.certificate.*;
 import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.api.model.core.oid.SystemOid;
 import com.czertainly.api.model.core.settings.CertificateValidationSettingsDto;
 import com.czertainly.api.model.core.settings.PlatformSettingsDto;
 import com.czertainly.api.model.core.settings.SettingsSection;
 import com.czertainly.core.dao.entity.Certificate;
-import com.czertainly.core.dao.entity.Certificate_;
-import com.czertainly.core.dao.entity.CryptographicKeyItem;
-import com.czertainly.core.dao.entity.CryptographicKeyItem_;
 import com.czertainly.core.dao.entity.DiscoveryCertificate;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.model.request.CrmfCertificateRequest;
@@ -28,14 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import jakarta.annotation.Nullable;
-import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.CriteriaQuery;
-import jakarta.persistence.criteria.Path;
-import jakarta.persistence.criteria.Predicate;
-import jakarta.persistence.criteria.Root;
-import jakarta.persistence.criteria.Subquery;
 import jakarta.xml.bind.DatatypeConverter;
-import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.*;
 import org.bouncycastle.asn1.cmp.CMPCertificate;
 import org.bouncycastle.asn1.pkcs.Attribute;
@@ -43,6 +30,8 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
+import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -430,7 +419,9 @@ public class CertificateUtil {
         modal.setIssuerDnNormalized(X500Name.getInstance(new CzertainlyX500NameStyle(true), issuerDnPrincipalEncoded).toString());
         modal.setSubjectDnNormalized(X500Name.getInstance(new CzertainlyX500NameStyle(true), subjectDnPrincipalEncoded).toString());
         CertificateSubjectType subjectType = CertificateUtil.getCertificateSubjectType(certificate, modal.getSubjectDnNormalized().equals(modal.getIssuerDnNormalized()));
-        if (subjectType == CertificateSubjectType.ROOT_CA || subjectType == CertificateSubjectType.SELF_SIGNED_END_ENTITY) modal.setIssuerSerialNumber(modal.getSerialNumber());
+        if (subjectType == CertificateSubjectType.ROOT_CA || subjectType == CertificateSubjectType.SELF_SIGNED_END_ENTITY) {
+            modal.setIssuerSerialNumber(modal.getSerialNumber());
+        }
 
         List<String> extendedKeyUsage = null;
         try {
@@ -438,13 +429,87 @@ public class CertificateUtil {
         } catch (CertificateParsingException e) {
             logger.warn("Unable to get the extended key usage for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
         }
-        if (extendedKeyUsage != null) modal.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsage));
+        if (extendedKeyUsage != null) {
+            modal.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsage));
+            modal.setExtendedKeyUsageCritical(
+                    certificate.getCriticalExtensionOIDs() != null
+                            && certificate.getCriticalExtensionOIDs().contains(Extension.extendedKeyUsage.getId()));
+        }
+
+        QcStatementParseResult qc = null;
+        try {
+            qc = parseQcStatements(certificate);
+        } catch (Exception e) {
+            logger.warn("Unable to parse QCStatements extension for certificate with serial number {} and subject DN {}: {}", modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
+        }
+        if (qc != null) {
+            modal.setQcCompliance(qc.qcCompliance());
+            modal.setQcSscd(qc.qcSscd());
+            modal.setQcType(qc.qcType() != null
+                    ? MetaDefinitions.serializeArrayString(
+                    qc.qcType().stream().map(QcType::name).toList())
+                    : null);
+            modal.setQcCcLegislation(qc.qcCcLegislation() != null
+                    ? MetaDefinitions.serializeArrayString(qc.qcCcLegislation())
+                    : null);
+        }
+
         modal.setKeyUsage(
-               CertificateUtil.keyUsageExtractor(certificate.getKeyUsage()));
+                CertificateUtil.keyUsageExtractor(certificate.getKeyUsage()));
         modal.setSubjectType(subjectType);
         // Set trusted certificate mark either for CA or for self-signed certificate
         if (subjectType != CertificateSubjectType.END_ENTITY)
             modal.setTrustedCa(false);
+    }
+
+    /**
+     * Parses the QCStatements extension (OID 1.3.6.1.5.5.7.1.3) of an X.509 certificate and extracts the four operationally
+     * relevant statements per ETSI EN 319 412-5. Returns null when the extension is absent.
+     */
+    private static QcStatementParseResult parseQcStatements(X509Certificate cert) {
+        byte[] raw = cert.getExtensionValue(Extension.qCStatements.getId());
+        if (raw == null) return null;
+
+        boolean qcCompliance = false;
+        boolean qcSscd = false;
+        List<QcType> qcType = new ArrayList<>();
+        List<String> qcCcLegislation = new ArrayList<>();
+
+        ASN1Sequence seq = ASN1Sequence.getInstance(ASN1OctetString.getInstance(raw).getOctets());
+        for (ASN1Encodable el : seq) {
+            QCStatement stmt = QCStatement.getInstance(el);
+            ASN1ObjectIdentifier id = stmt.getStatementId();
+
+            if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance.equals(id)) {
+                qcCompliance = true;
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcSSCD.equals(id)) {
+                qcSscd = true;
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcType.equals(id)) {
+                ASN1Sequence types = ASN1Sequence.getInstance(stmt.getStatementInfo());
+                for (ASN1Encodable t : types) {
+                    ASN1ObjectIdentifier typeOid = ASN1ObjectIdentifier.getInstance(t);
+                    if (ETSIQCObjectIdentifiers.id_etsi_qct_esign.equals(typeOid)) qcType.add(QcType.ESIGN);
+                    else if (ETSIQCObjectIdentifiers.id_etsi_qct_eseal.equals(typeOid)) qcType.add(QcType.ESEAL);
+                    else if (ETSIQCObjectIdentifiers.id_etsi_qct_web.equals(typeOid)) qcType.add(QcType.WEB);
+                }
+            } else if (ETSIQCObjectIdentifiers.id_etsi_qcs_QcCClegislation.equals(id)) {
+                ASN1Sequence countries = ASN1Sequence.getInstance(stmt.getStatementInfo());
+                for (ASN1Encodable cc : countries) {
+                    qcCcLegislation.add(DERPrintableString.getInstance(cc).getString());
+                }
+            }
+            // QcLimitValue, QcRetentionPeriod, QcPDS intentionally not parsed since they are not operationally relevant
+        }
+
+        return new QcStatementParseResult(qcCompliance, qcSscd,
+                qcType.isEmpty() ? null : qcType,
+                qcCcLegislation.isEmpty() ? null : qcCcLegislation);
+    }
+
+    record QcStatementParseResult(boolean qcCompliance,
+                                  boolean qcSscd,
+                                  List<QcType> qcType,
+                                  List<String> qcCcLegislation) {
     }
 
     public static String getAlternativeSignatureAlgorithm(byte[] alternativeSignatureAlgorithm) throws IOException {
@@ -554,225 +619,6 @@ public class CertificateUtil {
             certificateHolderChain.add(new JcaX509CertificateHolder(certificate));
         }
         return certificateHolderChain;
-    }
-
-    public static boolean isCertificateScepCaCertAcceptable(Certificate certificate, boolean intuneEnabled) {
-        if (certificate.isArchived() || certificate.getKey() == null || !certificate.getState().equals(CertificateState.ISSUED) || (!certificate.getValidationStatus().equals(CertificateValidationStatus.VALID) && !certificate.getValidationStatus().equals(CertificateValidationStatus.EXPIRING))) {
-            return false;
-        }
-
-        // Check if the public key has usage ENCRYPT enabled and private key has DECRYPT and SIGN enabled
-        // It is required to check RSA for public key since only RSA keys are encryption capable
-        // Other types of keys such as split keys and secret keys are not needed to be checked since they cannot be used in certificates
-        boolean privateKeyAvailable = false;
-        for (CryptographicKeyItem item : certificate.getKey().getItems()) {
-            if ((intuneEnabled && !item.getKeyAlgorithm().equals(KeyAlgorithm.RSA))
-                    || (!intuneEnabled && !item.getKeyAlgorithm().equals(KeyAlgorithm.RSA) && !item.getKeyAlgorithm().equals(KeyAlgorithm.ECDSA))) {
-                return false;
-            } else if (item.getKeyAlgorithm().equals(KeyAlgorithm.RSA) && item.getType().equals(KeyType.PUBLIC_KEY)) {
-                if (!item.getUsage().containsAll(List.of(KeyUsage.ENCRYPT, KeyUsage.VERIFY))) {
-                    return false;
-                }
-            } else if (item.getKeyAlgorithm().equals(KeyAlgorithm.RSA) && item.getType().equals(KeyType.PRIVATE_KEY)) {
-                if (item.getState() != KeyState.ACTIVE || !item.getUsage().containsAll(List.of(KeyUsage.DECRYPT, KeyUsage.SIGN))) {
-                    return false;
-                }
-                privateKeyAvailable = true;
-            } else if (item.getKeyAlgorithm().equals(KeyAlgorithm.ECDSA) && item.getType().equals(KeyType.PUBLIC_KEY)) {
-                if (!item.getUsage().containsAll(List.of(KeyUsage.VERIFY))) {
-                    return false;
-                }
-            } else if (item.getKeyAlgorithm().equals(KeyAlgorithm.ECDSA) && item.getType().equals(KeyType.PRIVATE_KEY)) {
-                if (item.getState() != KeyState.ACTIVE || !item.getUsage().containsAll(List.of(KeyUsage.SIGN))) {
-                    return false;
-                }
-                privateKeyAvailable = true;
-            }
-        }
-        return privateKeyAvailable;
-    }
-
-    /*
-     * Constructed Query Graph for SCEP CA Certificate Filtering:
-     *
-     * Certificate (root)
-     * |-- NOT archived
-     * |-- state == ISSUED
-     * |-- validationStatus IN (VALID, EXPIRING)
-     * |-- keyUuid IS NOT NULL
-     * |-- ALL items must have valid algorithm (RSA [and ECDSA if intuneEnabled=false])
-     * |   |-- Subquery invalidAlgoSubquery: NOT EXISTS item with invalid algorithm
-     * |-- AT LEAST ONE valid private key must exist
-     * |   |-- Subquery privateKeySubquery: EXISTS private key meeting criteria
-     * |-- ALL private keys must meet criteria
-     * |   |-- Subquery invalidPrivateKeySubquery: NOT EXISTS private key NOT meeting criteria
-     * |       |-- RSA Private AND state=ACTIVE AND usage & (DECRYPT | SIGN) == (DECRYPT | SIGN)
-     * |       OR
-     * |       |-- ECDSA Private AND state=ACTIVE AND usage & SIGN [only if intuneEnabled=false]
-     * |-- AT LEAST ONE valid public key must exist
-     * |   |-- Subquery publicKeySubquery: EXISTS public key meeting criteria
-     * |-- ALL public keys must meet criteria
-     *     |-- Subquery invalidPublicKeySubquery: NOT EXISTS public key NOT meeting criteria
-     *         |-- RSA Public AND usage & (ENCRYPT | VERIFY) == (ENCRYPT | VERIFY)
-     *         OR
-     *         |-- ECDSA Public AND usage & VERIFY [only if intuneEnabled=false]
-     */
-    public static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> constructQueryScepCaCertAcceptable(boolean intuneEnabled) {
-        return (root, cb, cr) -> {
-            // Valid key algorithms based on intuneEnabled
-            List<KeyAlgorithm> validAlgorithms = intuneEnabled ? List.of(KeyAlgorithm.RSA) : List.of(KeyAlgorithm.RSA, KeyAlgorithm.ECDSA);
-
-            // Subquery to ensure ALL key items have a valid algorithm.
-            Subquery<Integer> invalidAlgoSubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> subRoot = invalidAlgoSubquery.from(CryptographicKeyItem.class);
-            invalidAlgoSubquery.select(cb.literal(1));
-            invalidAlgoSubquery.where(
-                    cb.equal(subRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.not(subRoot.get(CryptographicKeyItem_.KEY_ALGORITHM).in(validAlgorithms))
-            );
-
-            // Subquery to ensure at least one private key meeting criteria is available.
-            Subquery<Integer> privateKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> pkSubRoot = privateKeySubquery.from(CryptographicKeyItem.class);
-            privateKeySubquery.select(cb.literal(1));
-            privateKeySubquery.where(
-                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY),
-                    constructPrivateKeyItemValidPredicate(cb, pkSubRoot, intuneEnabled)
-            );
-
-            // Subquery to check if there are any private keys that DO NOT meet criteria.
-            Subquery<Integer> invalidPrivateKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> invPkSubRoot = invalidPrivateKeySubquery.from(CryptographicKeyItem.class);
-            invalidPrivateKeySubquery.select(cb.literal(1));
-            invalidPrivateKeySubquery.where(
-                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY),
-                    cb.not(constructPrivateKeyItemValidPredicate(cb, invPkSubRoot, intuneEnabled))
-            );
-
-            // Subquery to ensure at least one public key meeting criteria is available.
-            Subquery<Integer> publicKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> pubSubRoot = publicKeySubquery.from(CryptographicKeyItem.class);
-            publicKeySubquery.select(cb.literal(1));
-            publicKeySubquery.where(
-                    cb.equal(pubSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(pubSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PUBLIC_KEY),
-                    constructPublicKeyItemValidPredicate(cb, pubSubRoot, intuneEnabled)
-            );
-
-            // Subquery to check if there are any public keys that DO NOT meet criteria.
-            Subquery<Integer> invalidPublicKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> invPubSubRoot = invalidPublicKeySubquery.from(CryptographicKeyItem.class);
-            invalidPublicKeySubquery.select(cb.literal(1));
-            invalidPublicKeySubquery.where(
-                    cb.equal(invPubSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(invPubSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PUBLIC_KEY),
-                    cb.not(constructPublicKeyItemValidPredicate(cb, invPubSubRoot, intuneEnabled))
-            );
-
-            return cb.and(
-                    cb.not(root.get(Certificate_.ARCHIVED)),
-                    cb.isNotNull(root.get(Certificate_.KEY_UUID)),
-                    cb.equal(root.get(Certificate_.STATE), CertificateState.ISSUED),
-                    root.get(Certificate_.VALIDATION_STATUS).in(List.of(CertificateValidationStatus.VALID, CertificateValidationStatus.EXPIRING)),
-                    cb.not(cb.exists(invalidAlgoSubquery)),
-                    cb.exists(privateKeySubquery),
-                    cb.not(cb.exists(invalidPrivateKeySubquery)),
-                    cb.exists(publicKeySubquery),
-                    cb.not(cb.exists(invalidPublicKeySubquery))
-            );
-        };
-    }
-
-    private static Predicate constructKeyItemPredicate(CriteriaBuilder cb, Path<CryptographicKeyItem> itemPath, @Nullable KeyAlgorithm algorithm,
-                                                       @Nullable KeyState state, int usageMask) {
-        List<Predicate> predicates = new ArrayList<>();
-        if (algorithm != null) predicates.add(cb.equal(itemPath.get(CryptographicKeyItem_.KEY_ALGORITHM), algorithm));
-        if (state != null) predicates.add(cb.equal(itemPath.get(CryptographicKeyItem_.STATE), state));
-        predicates.add(cb.equal(cb.function(PostgresFunctionContributor.BIT_AND_FUNCTION, Integer.class,
-                itemPath.get(CryptographicKeyItem_.USAGE), cb.literal(usageMask)), usageMask));
-        return cb.and(predicates.toArray(new Predicate[0]));
-    }
-
-    private static Predicate constructPrivateKeyItemValidPredicate(CriteriaBuilder cb, Path<CryptographicKeyItem> itemPath, boolean intuneEnabled) {
-        return intuneEnabled ? constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.RSA, KeyState.ACTIVE, KeyUsage.DECRYPT.getBit() | KeyUsage.SIGN.getBit()) :
-                cb.or(constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.RSA, KeyState.ACTIVE, KeyUsage.DECRYPT.getBit() | KeyUsage.SIGN.getBit()),
-                        constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.ECDSA, KeyState.ACTIVE, KeyUsage.SIGN.getBit()));
-    }
-
-    private static Predicate constructPublicKeyItemValidPredicate(CriteriaBuilder cb, Path<CryptographicKeyItem> itemPath, boolean intuneEnabled) {
-        return intuneEnabled ? constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.RSA, null, KeyUsage.ENCRYPT.getBit() | KeyUsage.VERIFY.getBit()) :
-                cb.or(constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.RSA, null, KeyUsage.ENCRYPT.getBit() | KeyUsage.VERIFY.getBit()),
-                        constructKeyItemPredicate(cb, itemPath, KeyAlgorithm.ECDSA, null, KeyUsage.VERIFY.getBit()));
-    }
-
-    /*
-     * Constructed Query Graph for CMP Signing Certificate Filtering:
-     *
-     * Certificate (root)
-     * |-- NOT archived
-     * |-- keyUuid IS NOT NULL
-     * |-- state == ISSUED
-     * |-- validationStatus IN (VALID, EXPIRING)
-     * |-- AT LEAST ONE private key must exist
-     * |-- ALL private keys must meet criteria
-     *     |-- state=ACTIVE AND usage & SIGN
-     */
-    public static TriFunction<Root<Certificate>, CriteriaBuilder, CriteriaQuery<?>, Predicate> constructQueryCmpSigningCertAcceptable() {
-        return (root, cb, cr) -> {
-            // Subquery to ensure at least one private key exists.
-            Subquery<Integer> privateKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> pkSubRoot = privateKeySubquery.from(CryptographicKeyItem.class);
-            privateKeySubquery.select(cb.literal(1));
-            privateKeySubquery.where(
-                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(pkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY)
-            );
-
-            // Subquery to check if there are any private keys that DO NOT meet criteria.
-            Subquery<Integer> invalidPrivateKeySubquery = cr.subquery(Integer.class);
-            Root<CryptographicKeyItem> invPkSubRoot = invalidPrivateKeySubquery.from(CryptographicKeyItem.class);
-            invalidPrivateKeySubquery.select(cb.literal(1));
-            invalidPrivateKeySubquery.where(
-                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.KEY_UUID), root.get(Certificate_.KEY_UUID)),
-                    cb.equal(invPkSubRoot.get(CryptographicKeyItem_.TYPE), KeyType.PRIVATE_KEY),
-                    cb.not(constructKeyItemPredicate(cb, invPkSubRoot, null, KeyState.ACTIVE, KeyUsage.SIGN.getBit()))
-            );
-
-            return cb.and(
-                    cb.not(root.get(Certificate_.ARCHIVED)),
-                    cb.isNotNull(root.get(Certificate_.KEY_UUID)),
-                    cb.equal(root.get(Certificate_.STATE), CertificateState.ISSUED),
-                    root.get(Certificate_.VALIDATION_STATUS).in(List.of(CertificateValidationStatus.VALID, CertificateValidationStatus.EXPIRING)),
-                    cb.exists(privateKeySubquery),
-                    cb.not(cb.exists(invalidPrivateKeySubquery))
-            );
-        };
-    }
-
-    public static boolean isCertificateCmpAcceptable(Certificate certificate) {
-        if (certificate.isArchived()) return false;
-        if (certificate.getKey() == null ||
-                !certificate.getState().equals(CertificateState.ISSUED) ||
-                (!certificate.getValidationStatus().equals(CertificateValidationStatus.VALID)
-                        && !certificate.getValidationStatus().equals(CertificateValidationStatus.EXPIRING))
-        ) {
-            return false;
-        }
-
-        // Check if the private key has SIGN enabled
-        // Other types of keys such as split keys and secret keys are not needed to be checked since they cannot be used in certificates
-        boolean privateKeyAvailable = false;
-        for (CryptographicKeyItem item : certificate.getKey().getItems()) {
-            if (item.getType().equals(KeyType.PRIVATE_KEY)) {
-                if (item.getState() != KeyState.ACTIVE || !item.getUsage().contains(KeyUsage.SIGN)) {
-                    return false;
-                }
-                privateKeyAvailable = true;
-            }
-        }
-        return privateKeyAvailable;
     }
 
     public static String generateRandomX509CertificateBase64(KeyPair keyPair) throws CertificateException, NoSuchAlgorithmException, SignatureException, InvalidKeyException, NoSuchProviderException, OperatorCreationException {

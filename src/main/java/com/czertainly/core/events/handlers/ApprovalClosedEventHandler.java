@@ -44,7 +44,7 @@ public class ApprovalClosedEventHandler extends EventHandler<Approval> {
         ApprovalEventData eventData = (ApprovalEventData) eventContext.getResourceObjectsEventData().getFirst();
 
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.APPROVAL, approval.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(approval.getCreatorUuid()), eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
 
         // produce only for certificates for now until refactoring and uniting of event history for all resources
         if (approval.getResource() == Resource.CERTIFICATE) {

@@ -49,7 +49,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
     private ComplianceInternalRuleRepository internalRuleRepository;
     private ConditionItemRepository conditionItemRepository;
@@ -78,7 +78,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -173,7 +173,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
                 deleteComplianceProfile(complianceProfile, false);
             } catch (Exception e) {
                 logger.warn("Unable to delete the Compliance Profile with UUID {}: {}", uuid, e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), complianceProfile != null ? complianceProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), complianceProfile != null ? complianceProfile.getName() : "", e, "Delete failed"));
             }
         }
 
@@ -192,7 +192,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
                 deleteComplianceProfile(complianceProfile, true);
             } catch (Exception e) {
                 logger.warn("Unable to force delete the Compliance Profile with UUID {}: {}", uuid, e.getMessage());
-                messages.add(new BulkActionMessageDto(uuid.toString(), complianceProfile != null ? complianceProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), complianceProfile != null ? complianceProfile.getName() : "", e, "Delete failed"));
             }
         }
 

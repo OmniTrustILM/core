@@ -1,6 +1,8 @@
 package com.czertainly.core.architecture;
 
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
 import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.ProtocolEndpoint;
 import com.czertainly.core.security.authz.SelfPrincipalEndpoint;
@@ -33,7 +35,9 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 public class ExternalServiceAuthorizationArchTest {
 
     private static final Set<String> AUTH_ANNOTATION_NAMES = Set.of(
+            AnyPrincipalEndpoint.class.getName(),
             ExternalAuthorization.class.getName(),
+            ExternalAuthorizationDynamic.class.getName(),
             ExternalAuthorizationMissing.class.getName(),
             ProtocolEndpoint.class.getName(),
             SelfPrincipalEndpoint.class.getName(),

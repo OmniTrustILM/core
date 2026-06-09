@@ -1,5 +1,6 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -80,6 +81,12 @@ public class ConnectorServiceImpl implements ConnectorService {
     public ConnectorDto getConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         var connectorDetailDto = connectorServiceV2.getConnector(uuid);
         return convertToDtoV1(connectorDetailDto);
+    }
+
+    @Override
+    public Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException {
+        return connectorRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
     }
 
     @Override
@@ -189,10 +196,7 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     @Override
     public HealthDto checkHealth(SecuredUUID uuid) throws ConnectorException, NotFoundException {
-        Connector connector = connectorRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
-
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = getConnectorForApiClient(uuid.getValue());
         return connectorApiFactory.getHealthApiClient(connectorDto).checkHealth(connectorDto);
     }
 
@@ -256,6 +260,11 @@ public class ConnectorServiceImpl implements ConnectorService {
             attributes.put(fg.getFunctionGroupCode(), kindsAttribute);
         }
         return attributes;
+    }
+
+    @Override
+    public ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException {
+        return connectorServiceV2.getConnectorForApiClient(connectorUuid);
     }
 
     @Override

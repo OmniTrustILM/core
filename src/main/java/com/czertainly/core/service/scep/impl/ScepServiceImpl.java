@@ -44,6 +44,7 @@ import com.czertainly.core.service.scep.message.ScepResponse;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.CertificateRequestUtils;
 import com.czertainly.core.util.RandomUtil;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -253,7 +254,7 @@ public class ScepServiceImpl implements ScepService {
         if (scepProfile.getCaCertificate() == null) {
             throw new ScepException("SCEP Profile does not have any associated CA certificate", FailInfo.BAD_REQUEST);
         }
-        if (!CertificateUtil.isCertificateScepCaCertAcceptable(scepProfile.getCaCertificate(), scepProfile.isIntuneEnabled())) {
+        if (!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(scepProfile.getCaCertificate(), scepProfile.isIntuneEnabled())) {
             throw new ScepException("SCEP Profile does not have associated acceptable CA certificate", FailInfo.BAD_REQUEST);
         }
         if (!raProfileBased && scepProfile.getRaProfile() == null) {

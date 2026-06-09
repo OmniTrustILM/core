@@ -13,14 +13,14 @@ import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class ApprovalControllerImpl implements ApprovalController {
 
-    private ApprovalService approvalService;
+    private ApprovalExternalService approvalService;
 
     @Override
     @AuditLogged(module = Module.APPROVALS, resource = Resource.APPROVAL, operation = Operation.LIST)
@@ -31,7 +31,7 @@ public class ApprovalControllerImpl implements ApprovalController {
     @Override
     @AuditLogged(module = Module.APPROVALS, resource = Resource.APPROVAL, operation = Operation.LIST)
     public ApprovalResponseDto listUserApprovals(PaginationRequestDto paginationRequestDto, ApprovalUserDto approvalUserDto) {
-        return approvalService.listUserApprovals(SecurityFilter.create(), approvalUserDto.isHistory(), paginationRequestDto);
+        return approvalService.listUserApprovals(approvalUserDto.isHistory(), paginationRequestDto);
     }
 
     @Override
@@ -67,7 +67,7 @@ public class ApprovalControllerImpl implements ApprovalController {
     // SETTERs
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalExternalService approvalService) {
         this.approvalService = approvalService;
     }
 }

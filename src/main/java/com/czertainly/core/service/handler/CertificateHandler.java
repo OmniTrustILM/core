@@ -36,7 +36,6 @@ import java.security.cert.X509Certificate;
 import java.util.*;
 
 @Service
-@Transactional
 public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
@@ -47,9 +46,9 @@ public class CertificateHandler {
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
 
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private CryptographicKeyService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
@@ -72,7 +71,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
@@ -82,7 +81,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -106,7 +105,7 @@ public class CertificateHandler {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.DEFAULT)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validate(Certificate certificate) {
         if (CertificateUtil.isValidationEnabled(certificate, null)) {
             certificateService.validate(certificate);
@@ -189,8 +188,8 @@ public class CertificateHandler {
         return keyUuid;
     }
 
+    @Transactional
     public void updateDiscoveredCertificate(DiscoveryHistory discovery, Certificate certificate, List<MetadataAttribute> metadata) {
-        // Set metadata attributes, create certificate event history entry and validate certificate
         try {
             attributeEngine.updateMetadataAttributes(metadata, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(discovery.getConnectorUuid()).source(Resource.DISCOVERY, discovery.getUuid()).sourceName(discovery.getName()).build());
         } catch (AttributeException e) {

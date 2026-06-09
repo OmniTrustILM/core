@@ -28,6 +28,11 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;
+import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
+import com.czertainly.core.security.authz.ObjectFilterAspect;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
@@ -49,7 +54,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class ResourceServiceImpl implements ResourceService {
+public class ResourceServiceImpl implements ResourceExternalService, ResourceInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ResourceServiceImpl.class);
 
     private AttributeEngine attributeEngine;
@@ -78,7 +83,15 @@ public class ResourceServiceImpl implements ResourceService {
         this.attributeEngine = attributeEngine;
     }
 
+    private ObjectFilterAspect objectFilterAspect;
+
+    @Autowired
+    public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
+        this.objectFilterAspect = objectFilterAspect;
+    }
+
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceDto> listResources() {
         List<ResourceDto> resources = new ArrayList<>();
 
@@ -124,16 +137,30 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
-    public List<NameAndUuidDto> getResourceObjects(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
-        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
-        if (resourceExtensionService == null)
-            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
-        return resourceExtensionService.listResourceObjects(SecurityFilter.create(), filters, pagination);
+    @ExternalAuthorizationDynamic(action = ResourceAction.LIST)
+    public List<NameAndUuidDto> getResourceObjects(SecuredResource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource.getResource(), filter, filters, pagination);
     }
 
     @Override
-    public List<ResponseAttribute> updateAttributeContentForObject(Resource resource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
-        logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeUuid);
+    public List<NameAndUuidDto> getResourceObjectsInternal(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource, SecurityFilter.create(), filters, pagination);
+    }
+
+    private List<NameAndUuidDto> doListResourceObjects(Resource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
+        if (resourceExtensionService == null) {
+            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
+        }
+        return resourceExtensionService.listResourceObjects(filter, filters, pagination);
+    }
+
+    @Override
+    @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
+    public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
+        Resource resource = securedResource.getResource();
+        logger.info("Updating the attribute {} for resource {} with {} content item(s)", attributeUuid, resource,
+                attributeContentItems == null ? 0 : attributeContentItems.size());
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
         if (!resource.hasCustomAttributes() || resourceExtensionService == null)
             throw new NotSupportedException("Cannot update custom attribute for requested resource: " + resource.getCode());
@@ -144,6 +171,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<SearchFieldDataByGroupDto> listResourceRuleFilterFields(Resource resource, boolean settable) throws NotFoundException {
 
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(resource, settable);
@@ -165,7 +193,7 @@ public class ResourceServiceImpl implements ResourceService {
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, filterField.getEnumClass().getEnumConstants()));
                     // Filter field has values of all objects of another entity
                 else if (filterField.getFieldResource() != null)
-                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, getResourceObjects(filterField.getFieldResource(), null, null)));
+                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, listScopedFieldResourceObjects(filterField.getFieldResource())));
                     // Filter field has values of all possible values of a property
                 else {
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, FilterPredicatesBuilder.getAllValuesOfProperty(FilterPredicatesBuilder.buildPathToProperty(filterField.getJoinAttributes(), filterField.getFieldAttribute()), resource, entityManager).getResultList()));
@@ -179,12 +207,20 @@ public class ResourceServiceImpl implements ResourceService {
         return searchFieldDataByGroupDtos;
     }
 
+    private List<NameAndUuidDto> listScopedFieldResourceObjects(Resource fieldResource) throws NotSupportedException {
+        SecurityFilter fieldFilter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(fieldResource, ResourceAction.LIST, null, null, fieldFilter);
+        return doListResourceObjects(fieldResource, fieldFilter, null, null);
+    }
+
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceEventDto> listResourceEvents(Resource resource) {
         return ResourceEvent.listEventsByResource(resource).stream().map(ResourceEventDto::new).toList();
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents() {
         return Arrays.stream(ResourceEvent.values())
                 .collect(Collectors.groupingBy(
@@ -257,14 +293,21 @@ public class ResourceServiceImpl implements ResourceService {
         }
 
         for (DataAttribute attribute : attributes) {
-            if (!AttributeContentType.RESOURCE.equals(attribute.getContentType())) {
+            if (!AttributeContentType.RESOURCE.equals(attribute.getContentType()) || attribute.getContent() == null || ((List<?>) attribute.getContent()).isEmpty()) {
                 continue;
             }
-            NameAndUuidDto resourceId = AttributeDefinitionUtils.getNameAndUuidData(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
-            if (resourceId == null || resourceId.getUuid() == null)
-                throw new AttributeException("UUID of Resource Object is missing.", attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
-            ResourceObjectContentData data = getResourceObjectContentData(attribute.getProperties().getResource(), UUID.fromString(resourceId.getUuid()), resourceId.getName());
-            attribute.setContent(List.of(new ResourceObjectContent(resourceId.getName(), data)));
+            List<NameAndUuidDto> resourceIds = AttributeDefinitionUtils.getNameAndUuidDataList(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
+            if (resourceIds.isEmpty()) {
+                throw new AttributeException("No Resource Object UUIDs found for attribute: " + attribute.getName(), attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
+            }
+            List<ResourceObjectContent> contents = new ArrayList<>();
+            for (NameAndUuidDto resourceId : resourceIds) {
+                if (resourceId == null || resourceId.getUuid() == null)
+                    throw new AttributeException("UUID of Resource Object is missing.", attribute.getUuid(), attribute.getName(), AttributeType.DATA, "");
+                ResourceObjectContentData data = getResourceObjectContentData(attribute.getProperties().getResource(), UUID.fromString(resourceId.getUuid()), resourceId.getName());
+                contents.add(new ResourceObjectContent(resourceId.getName(), data));
+            }
+            attribute.setContent(contents);
         }
     }
 

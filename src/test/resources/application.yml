@@ -1,6 +1,32 @@
 app:
   version: '@project.version@'
 
+caching:
+  authentication:
+    ttl-minutes: 5
+    max-size: 500
+  connectors:
+    ttl-minutes: 5
+    max-size: 100
+  cert-chains:
+    ttl-minutes: 5
+    max-size: 1000
+  signing-certs:
+    ttl-minutes: 5
+    max-size: 1000
+  crypto-keys:
+    ttl-minutes: 5
+    max-size: 10000
+  tsp-profiles:
+    ttl-minutes: 5
+    max-size: 100
+  signing-profiles:
+    ttl-minutes: 5
+    max-size: 100
+  time-quality-configs:
+    ttl-minutes: 5
+    max-size: 100
+
 auth-service:
   base-url: http://authservice.dev
 opa:
@@ -87,10 +113,11 @@ spring:
     username: guest
     password: guest
     amqp-idle-timeout: 120000
+    close-timeout: 5000
     pool:
       max-connections: 1
       connection-idle-timeout: 30000
-      connection-check-interval: 60000
+      connection-check-interval: -1
       max-sessions-per-connection: 5
       use-anonymous-producers: true
     queue:
@@ -100,6 +127,9 @@ spring:
       notification: core.notifications
       scheduler: core.scheduler
       validation: core.validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     listener:
       initial-interval: 1000
       multiplier: 1.5
@@ -112,6 +142,9 @@ spring:
       notification: notification
       scheduler: scheduler
       validation: validation
+      time-quality-config-request: time-quality.config-request
+      time-quality-config: time-quality.config
+      time-quality-results: time-quality.results
     producer:
       retry:
         enabled: true
@@ -120,6 +153,8 @@ spring:
         max-interval: 2000
         multiplier: 2
 messaging:
+  time-quality:
+    enabled: true
   concurrency:
     actions: 10
     events: 5
@@ -127,6 +162,8 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+    time-quality-config-request: 1
+    time-quality-results: 1
 
 otel:
   instrumentation:
@@ -139,6 +176,14 @@ settings:
     # Effectively disable the scheduled cache refresh during tests so that
     # in-memory cache values populated by @BeforeEach are not wiped mid-test.
     refresh-interval: 31536000
+
+validation:
+  ocsp:
+    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckTest
+    # (3 s) so the OCSP HTTP call waits for WireMock's response instead of timing out at the
+    # 1 s default. The held OCSP call is what keeps validate()'s would-be row lock observable.
+    read-timeout: 5000
+    connect-timeout: 5000
 
 proxy:
   enabled: true

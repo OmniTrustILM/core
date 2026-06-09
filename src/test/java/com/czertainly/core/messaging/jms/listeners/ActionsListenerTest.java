@@ -12,7 +12,7 @@ import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.SecretService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.AuthHelper;
@@ -45,7 +45,7 @@ class ActionsListenerTest {
     @Mock
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     @Mock
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalInternalService;
     @Mock
     private ClientOperationService clientOperationService;
     @Mock
@@ -63,7 +63,7 @@ class ActionsListenerTest {
     void setUp() {
         listener = new ActionsListener();
         listener.setApprovalProfileRelationRepository(approvalProfileRelationRepository);
-        listener.setApprovalService(approvalService);
+        listener.setApprovalService(approvalInternalService);
         listener.setClientOperationService(clientOperationService);
         listener.setSecretService(secretService);
         listener.setNotificationProducer(notificationProducer);
@@ -73,7 +73,8 @@ class ActionsListenerTest {
         // Only the failure-path tests read this; lenient() avoids strict-stubbing complaints
         // from happy-path tests that never invoke it.
         lenient().when(messagingProperties.routingKey()).thenReturn(new MessagingProperties.RoutingKey(
-                "actions", "audit-logs", "event", "notification", "scheduler", "validation"));
+                "actions", "audit-logs", "event", "notification", "scheduler", "validation",
+                "time-quality.config-request", "time-quality.config", "time-quality.results"));
     }
 
     // ==================== No approval needed — direct action ====================
@@ -92,7 +93,7 @@ class ActionsListenerTest {
 
         verify(authHelper).authenticateAsUser(userUuid);
         verify(clientOperationService).issueCertificateAction(resourceUuid, false);
-        verifyNoInteractions(approvalService);
+        verifyNoInteractions(approvalInternalService);
         verifyNoInteractions(notificationProducer);
     }
 
@@ -110,7 +111,7 @@ class ActionsListenerTest {
         verify(authHelper).authenticateAsUser(userUuid);
         verify(secretService).processSecretAction(msg, true, true);
         verifyNoInteractions(clientOperationService);
-        verifyNoInteractions(approvalService);
+        verifyNoInteractions(approvalInternalService);
     }
 
     @Test
@@ -139,11 +140,11 @@ class ActionsListenerTest {
         stubApprovalProfileRelation();
         Approval createdApproval = new Approval();
         createdApproval.setUuid(UUID.randomUUID());
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
 
         listener.processMessage(msg);
 
-        verify(approvalService).createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE),
+        verify(approvalInternalService).createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE),
                 eq(resourceUuid), eq(userUuid), any());
         verify(clientOperationService).approvalCreatedAction(resourceUuid);
         // The "create approval" branch returns early — direct action must NOT run.
@@ -160,7 +161,7 @@ class ActionsListenerTest {
         stubApprovalProfileRelation();
         Approval createdApproval = new Approval();
         createdApproval.setUuid(UUID.randomUUID());
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any())).thenReturn(createdApproval);
 
         listener.processMessage(msg);
 
@@ -175,7 +176,7 @@ class ActionsListenerTest {
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null, null);
 
         stubApprovalProfileRelation();
-        when(approvalService.createApproval(any(), any(), any(), any(), any(), any()))
+        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("approval creation exploded"));
 
         assertThatThrownBy(() -> listener.processMessage(msg))
@@ -218,7 +219,7 @@ class ActionsListenerTest {
     }
 
     @Test
-    void processMessage_certificateRevoke_rejected_doesNotCallAnyOperation() throws Exception {
+    void processMessage_certificateRevoke_rejected_callsRevokeCertificateRejectedAction() throws Exception {
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.REVOKE, resourceUuid, userUuid,
@@ -226,7 +227,8 @@ class ActionsListenerTest {
 
         listener.processMessage(msg);
 
-        // REVOKE is not in the rejected-action allowlist (ISSUE/RENEW/REKEY only) — it logs and returns.
+        verify(clientOperationService).revokeCertificateRejectedAction(resourceUuid);
+        // A rejected REVOKE must not run the issue-rejection path nor the actual revoke.
         verify(clientOperationService, never()).issueCertificateRejectedAction(any());
         verify(clientOperationService, never()).revokeCertificateAction(any(), any(), anyBoolean());
     }

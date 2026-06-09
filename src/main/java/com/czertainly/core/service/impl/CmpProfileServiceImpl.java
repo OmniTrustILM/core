@@ -32,7 +32,7 @@ import com.czertainly.core.service.CmpProfileService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -253,7 +253,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                 deleteCmpProfile(cmpProfile);
             } catch (Exception e) {
                 logger.error(e.getMessage());
-                messages.add(new BulkActionMessageDto(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -275,7 +275,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                 deleteCmpProfile(cmpProfile);
             } catch (Exception e) {
                 logger.warn(e.getMessage());
-                messages.add(new BulkActionMessageDto(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e.getMessage()));
+                messages.add(BulkActionMessageDto.failure(cmpProfileUuid.toString(), cmpProfile != null ? cmpProfile.getName() : "", e, "Delete failed"));
             }
         }
         return messages;
@@ -437,7 +437,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                     throw new ValidationException(ValidationError.create("Signing certificate cannot be empty"));
                 }
                 Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getSigningCertificateUuid()));
-                if (!CertificateUtil.isCertificateCmpAcceptable(certificate)) {
+                if (!CertificateEligibilityUtil.isCertificateCmpAcceptable(certificate)) {
                     throw new ValidationException(ValidationError.create("Signing certificate cannot be used for CMP Profile"));
                 }
                 cmpProfile.setSigningCertificateUuid(UUID.fromString(request.getSigningCertificateUuid()));

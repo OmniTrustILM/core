@@ -7,6 +7,34 @@ caching:
   authentication:
     ttl-minutes: ${AUTH_CACHE_TTL_MINUTES:5}   # How long a cached identity is considered valid
     max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
+  # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
+  connectors:
+    ttl-minutes: ${CONNECTORS_CACHE_TTL_MINUTES:5}
+    max-size: ${CONNECTORS_CACHE_MAX_SIZE:100}
+  # Certificate-chain cache avoids repeated recursive-CTE lookups on the signing hot path.
+  cert-chains:
+    ttl-minutes: ${CERT_CHAINS_CACHE_TTL_MINUTES:5}
+    max-size: ${CERT_CHAINS_CACHE_MAX_SIZE:1000}
+  # Signing-certificate cache holds certificate data + structural references for the signing hot path.
+  signing-certs:
+    ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
+    max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}
+  # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
+  crypto-keys:
+    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
+    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
+  # TSP Profile cache caches TSP Profile by profile name for the timestamping hot path
+  tsp-profiles:
+    ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
+    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+  # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
+  signing-profiles:
+    ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
+    max-size: ${SIGNING_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached signing profile models
+  # TQC cache caches TimeQualityConfigurationModel by UUID for the signing pipeline
+  time-quality-configs:
+    ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
+    max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
 
 certificate:
   chain:
@@ -198,6 +226,9 @@ spring:
       notification: ${BROKER_QUEUE_NOTIFICATION:core.notifications}
       scheduler: ${BROKER_QUEUE_SCHEDULER:core.scheduler}
       validation: ${BROKER_QUEUE_VALIDATION:core.validation}
+      time-quality-config: ${BROKER_QUEUE_TIME_QUALITY_CONFIG:time-quality.config}
+      time-quality-config-request: ${BROKER_QUEUE_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
+      time-quality-results: ${BROKER_QUEUE_TIME_QUALITY_RESULTS:time-quality.results}
     routing-key:
       actions: ${BROKER_ROUTINGKEY_ACTIONS:action}
       audit-logs: ${BROKER_ROUTINGKEY_AUDIT_LOGS:audit-logs}
@@ -205,6 +236,9 @@ spring:
       notification: ${BROKER_ROUTINGKEY_NOTIFICATION:notification}
       scheduler: ${BROKER_ROUTINGKEY_SCHEDULER:scheduler}
       validation: ${BROKER_ROUTINGKEY_VALIDATION:validation}
+      time-quality-config: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG:time-quality.config}
+      time-quality-config-request: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
+      time-quality-results: ${BROKER_ROUTINGKEY_TIME_QUALITY_RESULTS:time-quality.results}
   threads:
     virtual:
       enabled: true
@@ -212,6 +246,9 @@ spring:
     default-timeout: 120
 
 messaging:
+  # Enables Core's messaging integration with the external Time Quality Monitor (TQM) service.
+  time-quality:
+    enabled: ${MESSAGING_TIME_QUALITY_ENABLED:false}
   concurrency:
     actions: 10
     events: 5
@@ -219,6 +256,8 @@ messaging:
     scheduler: 10
     validation: 5
     audit-logs: 5
+    time-quality-config-request: 5
+    time-quality-results: 5
 
 # Proxy configuration for connector communication via message queue
 proxy:

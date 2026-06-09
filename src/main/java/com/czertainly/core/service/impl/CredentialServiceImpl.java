@@ -204,7 +204,7 @@ public class CredentialServiceImpl implements CredentialService {
                 continue;
             }
 
-            NameAndUuidDto credentialId = AttributeDefinitionUtils.getNameAndUuidData(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes));
+            NameAndUuidDto credentialId = AttributeDefinitionUtils.getNameAndUuidDataList(attribute.getName(), AttributeDefinitionUtils.getClientAttributes(attributes)).getFirst();
             Credential credential = getCredentialEntity(SecuredUUID.fromString(credentialId.getUuid()));
 
             CredentialAttributeContentData credentialAttributeContentData = credential.mapToCredentialContent();

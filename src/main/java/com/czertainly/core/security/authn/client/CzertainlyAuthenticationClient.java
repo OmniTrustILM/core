@@ -9,7 +9,7 @@ import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.security.authn.client.dto.AuthenticationResponseDto;
 import com.czertainly.core.security.authn.client.dto.UserDetailsDto;
 import com.czertainly.core.security.exception.AuthenticationServiceException;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.AuthHelper;
 import com.czertainly.core.util.CertificateUtil;
@@ -46,10 +46,10 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
     @Value("${server.ssl.certificate-header-name}")
     private String certificateHeaderName;
 
-    private final AuditLogService auditLogService;
+    private final AuditLogInternalService auditLogService;
 
     public CzertainlyAuthenticationClient(
-            @Autowired AuditLogService auditLogService,
+            @Autowired AuditLogInternalService auditLogService,
             @Autowired ObjectMapper objectMapper,
             @Autowired AuthenticationCache authenticationCache,
             @Value("${auth-service.base-url}") String customAuthServiceBaseUrl) {
@@ -60,24 +60,37 @@ public class CzertainlyAuthenticationClient extends CzertainlyBaseAuthentication
     }
 
     public AuthenticationInfo authenticateSystemUser(String username) {
-        return authenticationCache.getOrAuthenticateSystemUser(
-                username, () -> authenticate(AuthMethod.USER_PROXY, username, false));
+        return restoreActorMdc(authenticationCache.getOrAuthenticateSystemUser(
+                username, () -> authenticate(AuthMethod.USER_PROXY, username, false)));
     }
 
     public AuthenticationInfo authenticateByUserUuid(UUID userUuid) {
-        return authenticationCache.getOrAuthenticateByUserUuid(
-                userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false));
+        return restoreActorMdc(authenticationCache.getOrAuthenticateByUserUuid(
+                userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false)));
     }
 
     public AuthenticationInfo authenticateByCertificate(String rawCertHeader, String certificateThumbprint) {
-        return authenticationCache.getOrAuthenticateByCertificate(
-                certificateThumbprint, () -> authenticate(AuthMethod.CERTIFICATE, rawCertHeader, false));
+        return restoreActorMdc(authenticationCache.getOrAuthenticateByCertificate(
+                certificateThumbprint, () -> authenticate(AuthMethod.CERTIFICATE, rawCertHeader, false)));
     }
 
     public AuthenticationInfo authenticateByToken(Map<String, Object> claims) {
         String jti = (String) claims.get("jti");
-        return authenticationCache.getOrAuthenticateByToken(
-                jti, () -> authenticate(AuthMethod.TOKEN, claims, false));
+        return restoreActorMdc(authenticationCache.getOrAuthenticateByToken(
+                jti, () -> authenticate(AuthMethod.TOKEN, claims, false)));
+    }
+
+    /**
+     * Replays the actor MDC side effects of {@link #authenticate} so that a cache hit leaves the MDC in the same
+     * state as a cache miss.
+     * Anonymous results are never cached, so the loader's anonymous MDC path is unaffected.
+     */
+    private static AuthenticationInfo restoreActorMdc(AuthenticationInfo authInfo) {
+        if (!authInfo.isAnonymous()) {
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getAuthMethod());
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getUserUuid(), authInfo.getUsername());
+        }
+        return authInfo;
     }
 
     public AuthenticationInfo authenticate(AuthMethod authMethod, Object authData, boolean isLocalhostRequest) throws AuthenticationException {

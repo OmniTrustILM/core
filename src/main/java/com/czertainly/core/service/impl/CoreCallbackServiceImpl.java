@@ -16,7 +16,7 @@ import com.czertainly.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CoreCallbackService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,10 +32,10 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
 
     private CredentialService credentialService;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -81,7 +81,7 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
                 filters.add(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, filterFieldString, operator, callback.getFilter().get(filterDefinition)));
             }
         }
-        return resourceService.getResourceObjects(Resource.findByCode(resource.getCode()), filters, callback.getPagination())
+        return resourceService.getResourceObjectsInternal(Resource.findByCode(resource.getCode()), filters, callback.getPagination())
                 .stream()
                 .map(id -> {
                     ResourceObjectContentData data = new ResourceObjectContentData(resource);

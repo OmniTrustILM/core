@@ -91,7 +91,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
         GITHUB_USER_REF: ${{ secrets.GH_PACKAGE_REPO_USERNAME }}
         GITHUB_TOKEN_REF: ${{ secrets.GH_PACKAGE_REPO_PASSWORD }}
-      run: mvn -B -U verify
+      run: mvn -B -U package -DskipTests
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

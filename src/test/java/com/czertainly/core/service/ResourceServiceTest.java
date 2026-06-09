@@ -2,6 +2,7 @@ package com.czertainly.core.service;
 
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.ResponseAttribute;
+import com.czertainly.api.model.common.NameAndUuidDto;
 import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
@@ -39,12 +40,16 @@ import com.czertainly.core.dao.repository.AttributeRelationRepository;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
 import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,7 +78,9 @@ class ResourceServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
+    @Autowired
+    private ResourceInternalService resourceInternalService;
 
     @Autowired
     private CertificateContentRepository certificateContentRepository;
@@ -85,6 +92,8 @@ class ResourceServiceTest extends BaseSpringBootTest {
     private AttributeDefinitionRepository attributeDefinitionRepository;
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private RaProfileRepository raProfileRepository;
     @Autowired
     private AttributeContentItemRepository attributeContentItemRepository;
     @Autowired
@@ -146,20 +155,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
                         )
         );
 
-        CertificateContent certificateContent = new CertificateContent();
-        certificateContent.setContent("123456");
-        certificateContent = certificateContentRepository.save(certificateContent);
-
-        certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
-        certificate.setUuid(UUID.fromString(CERTIFICATE_UUID));
-        certificateRepository.save(certificate);
+        certificate = createCertificate(UUID.fromString(CERTIFICATE_UUID), "123456", "123456789", "testCertificate");
 
         CustomAttributeV3 attribute = new CustomAttributeV3();
         attribute.setUuid(ATTRIBUTE_UUID);
@@ -187,6 +183,23 @@ class ResourceServiceTest extends BaseSpringBootTest {
         attributeRelation.setResource(Resource.CERTIFICATE);
         attributeRelation.setAttributeDefinitionUuid(attributeDefinition.getUuid());
         attributeRelationRepository.save(attributeRelation);
+    }
+
+    private Certificate createCertificate(UUID uuid, String content, String serialNumber, String subjectDn) {
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent(content);
+        certificateContent = certificateContentRepository.save(certificateContent);
+
+        Certificate newCertificate = new Certificate();
+        newCertificate.setSubjectDn(subjectDn);
+        newCertificate.setIssuerDn("testCertificate");
+        newCertificate.setSerialNumber(serialNumber);
+        newCertificate.setState(CertificateState.ISSUED);
+        newCertificate.setValidationStatus(CertificateValidationStatus.VALID);
+        newCertificate.setCertificateContent(certificateContent);
+        newCertificate.setCertificateContentId(certificateContent.getId());
+        newCertificate.setUuid(uuid);
+        return certificateRepository.save(newCertificate);
     }
 
     @Test
@@ -225,13 +238,55 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         for (Resource resource : resources) {
             // Call the method to test and check that it does not throw an exception
-            Assertions.assertDoesNotThrow(() -> resourceService.getResourceObjects(resource, null, null), "Should not throw exception for resource: " + resource);
+            Assertions.assertDoesNotThrow(() -> resourceInternalService.getResourceObjectsInternal(resource, null, null), "Should not throw exception for resource: " + resource);
         }
 
         // Throw NotFoundException for unsupported resource
         Resource unsupportedResource = Resource.ROLE;
-        Assertions.assertThrows(NotSupportedException.class, () -> resourceService.getResourceObjects(unsupportedResource, null, null), "Should throw NotSupportedException for unsupported resource: " + unsupportedResource);
-        Assertions.assertThrows(NotSupportedException.class, () -> resourceService.getResourceObjects(Resource.RULE, null, null), "Should throw NotSupportedException for unsupported resource: " + Resource.RULE);
+        Assertions.assertThrows(NotSupportedException.class, () -> resourceInternalService.getResourceObjectsInternal(unsupportedResource, null, null), "Should throw NotSupportedException for unsupported resource: " + unsupportedResource);
+        Assertions.assertThrows(NotSupportedException.class, () -> resourceInternalService.getResourceObjectsInternal(Resource.RULE, null, null), "Should throw NotSupportedException for unsupported resource: " + Resource.RULE);
+    }
+
+    @Test
+    void getResourceObjectsRespectsCallerScope() throws NotSupportedException, NotFoundException {
+        RaProfile inScope = new RaProfile();
+        inScope.setName("In scope RA profile");
+        inScope = raProfileRepository.save(inScope);
+
+        RaProfile outOfScope = new RaProfile();
+        outOfScope.setName("Out of scope RA profile");
+        raProfileRepository.save(outOfScope);
+
+        UUID inScopeUuid = inScope.getUuid();
+
+        // OPA OBJECTS policy allows the caller to see only the in-scope RA profile for the LIST action.
+        // The ObjectFilterAspect reads this result and narrows the SecurityFilter accordingly.
+        OpaObjectAccessResult scopedAccess = new OpaObjectAccessResult();
+        scopedAccess.setActionAllowedForGroupOfObjects(false);
+        scopedAccess.setAllowedObjects(List.of(inScopeUuid.toString()));
+        scopedAccess.setForbiddenObjects(List.of());
+        Mockito.when(
+                opaClient.checkObjectAccess(
+                        Mockito.any(),
+                        Mockito.argThat(req -> isObjectAccessRequestForResource(req, Resource.RA_PROFILE, ResourceAction.LIST)),
+                        Mockito.any(),
+                        Mockito.any()
+                )
+        ).thenReturn(scopedAccess);
+
+        List<NameAndUuidDto> objects = resourceService.getResourceObjects(
+                SecuredResource.fromResource(Resource.RA_PROFILE), SecurityFilter.create(), null, null);
+
+        Assertions.assertNotNull(objects);
+        Assertions.assertEquals(1, objects.size(), "Listing must be narrowed to the single in-scope RA profile");
+        Assertions.assertEquals(inScopeUuid.toString(), objects.getFirst().getUuid(),
+                "Only the in-scope RA profile must be returned");
+    }
+
+    private static boolean isObjectAccessRequestForResource(OpaRequestedResource requestedResource, Resource resource, ResourceAction action) {
+        return requestedResource != null && requestedResource.getProperties() != null &&
+                (requestedResource.getProperties().containsKey("name") && requestedResource.getProperties().get("name").equals(resource.getCode())) &&
+                (requestedResource.getProperties().containsKey("action") && requestedResource.getProperties().get("action").equals(action.getCode()));
     }
 
     @Test
@@ -240,7 +295,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
         UUID attributeUuid = UUID.fromString(ATTRIBUTE_UUID);
         List<BaseAttributeContentV3<?>> request = List.of(new StringAttributeContentV3("test3"));
         List<ResponseAttribute> responseAttributes = resourceService.updateAttributeContentForObject(
-                Resource.CERTIFICATE,
+                SecuredResource.fromResource(Resource.CERTIFICATE),
                 certificateUuid,
                 attributeUuid,
                 request
@@ -250,7 +305,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         List<BaseAttributeContentV2<?>> requestV2 = List.of(new StringAttributeContentV2("test2"));
         responseAttributes = resourceService.updateAttributeContentForObject(
-                Resource.CERTIFICATE,
+                SecuredResource.fromResource(Resource.CERTIFICATE),
                 certificateUuid,
                 attributeUuid,
                 requestV2
@@ -259,15 +314,17 @@ class ResourceServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals("test2", ((ResponseAttributeV3) responseAttributes.getFirst()).getContent().getFirst().getData());
 
         // Should throw NotSupported
+        SecuredResource attributeResource = SecuredResource.fromResource(Resource.ATTRIBUTE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                Resource.ATTRIBUTE,
+                attributeResource,
                 certificateUuid,
                 attributeUuid,
                 request
         ));
 
+        SecuredResource ruleResource = SecuredResource.fromResource(Resource.RULE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                Resource.RULE,
+                ruleResource,
                 certificateUuid,
                 attributeUuid,
                 request
@@ -314,28 +371,40 @@ class ResourceServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    @Transactional
     void testLoadResourceObjectContentDataFromDataAttributes() throws NotFoundException, AttributeException, ConnectorException {
         DataAttributeV3 nonResourceAttribute = new DataAttributeV3();
         nonResourceAttribute.setName("name");
         nonResourceAttribute.setContentType(AttributeContentType.DATE);
 
+        Certificate certificate1 = createCertificate(UUID.randomUUID(), "1234567", "1234567890", "testCertificate1");
+        
         DataAttributeV3 resourceAttribute = new DataAttributeV3();
         resourceAttribute.setContentType(AttributeContentType.RESOURCE);
         resourceAttribute.setName("resource");
         ResourceCertificateContentData data = new ResourceCertificateContentData();
         data.setUuid(certificate.getUuid().toString());
-        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data)));
+        ResourceCertificateContentData data2 = new ResourceCertificateContentData();
+        data2.setUuid(certificate1.getUuid().toString());
+        resourceAttribute.setContent(List.of(new ResourceObjectContent("ref", data), new ResourceObjectContent("ref2", data2)));
         DataAttributeProperties properties = new DataAttributeProperties();
         resourceAttribute.setProperties(properties);
         properties.setResource(AttributeResource.CERTIFICATE);
 
-        resourceService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
+        resourceInternalService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
         Assertions.assertNull(nonResourceAttribute.getContent());
+        Assertions.assertEquals(2, resourceAttribute.getContent().size());
         ResourceCertificateContentData dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().getFirst().getData();
         Assertions.assertEquals(certificate.getContentData(), dataWithResource.getContent());
         Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
         Assertions.assertEquals(certificate.getCommonName(), dataWithResource.getName());
         Assertions.assertEquals(certificate.getUuid().toString(), dataWithResource.getUuid());
+
+        dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().get(1).getData();
+        Assertions.assertEquals(certificate1.getContentData(), dataWithResource.getContent());
+        Assertions.assertEquals(AttributeResource.CERTIFICATE, dataWithResource.getResource());
+        Assertions.assertEquals(certificate1.getCommonName(), dataWithResource.getName());
+        Assertions.assertEquals(certificate1.getUuid().toString(), dataWithResource.getUuid());
     }
 
     @Test
@@ -348,10 +417,10 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         RequestAttributeCallback requestAttributeCallback = new RequestAttributeCallback();
         Map<String, AttributeResource> authorityMap = Map.of("to", AttributeResource.AUTHORITY);
-        resourceService.loadResourceObjectContentData(null, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(null, requestAttributeCallback, authorityMap);
         Assertions.assertNull(requestAttributeCallback.getBody());
         AttributeCallback attributeCallback = new AttributeCallback();
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         Assertions.assertNull(requestAttributeCallback.getBody());
         AttributeCallbackMapping stringMapping = new AttributeCallbackMapping();
         stringMapping.setAttributeContentType(AttributeContentType.STRING);
@@ -365,37 +434,37 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         body.put(resourceMapping.getTo(), (Serializable) Map.of("uuid", authorityInstance.getUuid().toString(), "name", authorityInstance.getName()));
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
         Assertions.assertEquals("name", ((ResourceSimpleContentData) requestAttributeCallback.getBody().get(resourceMapping.getTo())).getAttributes().getFirst().getName());
 
 
         body.put(resourceMapping.getTo(), (Serializable) List.of(Map.of("uuid", authorityInstance.getUuid().toString(), "name", authorityInstance.getName())));
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
         Assertions.assertEquals("name", ((ResourceSimpleContentData) requestAttributeCallback.getBody().get(resourceMapping.getTo())).getAttributes().getFirst().getName());
 
 
         body.put(resourceMapping.getTo(), (Serializable) Map.of("name", authorityInstance.getName()));
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), (Serializable) List.of(Map.of("name", authorityInstance.getName())));
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), 1);
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), "notUuid");
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), authorityInstance.getUuid().toString());
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
 
     }
@@ -427,13 +496,13 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         UUID objectUuid = UUID.randomUUID();
         for (Resource resource : allowedResources) {
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObject(resource, objectUuid));
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObjectInternal(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObject(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObjectInternal(resource, objectUuid));
         }
 
         for (Resource resource : notAllowedResources) {
-            Assertions.assertThrows(AuthorizationDeniedException.class, () -> resourceService.getResourceObject(resource, objectUuid));
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObjectInternal(resource, objectUuid));
+            Assertions.assertThrows(AuthorizationDeniedException.class, () -> resourceInternalService.getResourceObject(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObjectInternal(resource, objectUuid));
         }
     }
 

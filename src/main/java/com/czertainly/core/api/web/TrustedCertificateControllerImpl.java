@@ -12,7 +12,7 @@ import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.TrustedCertificateService;
+import com.czertainly.core.service.TrustedCertificateExternalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,7 +28,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TrustedCertificateControllerImpl implements TrustedCertificateController {
 
-    private final TrustedCertificateService trustedCertificateService;
+    private final TrustedCertificateExternalService trustedCertificateService;
 
     @Override
     @AuthEndpoint(resourceName = Resource.TRUSTED_CERTIFICATE)

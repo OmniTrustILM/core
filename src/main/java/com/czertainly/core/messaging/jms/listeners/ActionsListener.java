@@ -14,8 +14,7 @@ import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.SecretService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.AuthHelper;
@@ -39,7 +38,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
 
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalService;
 
     private ClientOperationService clientOperationService;
 
@@ -113,10 +112,13 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     private void processCertificateAction(final ActionMessage actionMessage, boolean hasApproval, boolean isApproved) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, CertificateOperationException, NotFoundException {
         // handle rejected actions
         if (hasApproval && !isApproved) {
-            if (Objects.requireNonNull(actionMessage.getResourceAction()) == ResourceAction.ISSUE || actionMessage.getResourceAction() == ResourceAction.RENEW || actionMessage.getResourceAction() == ResourceAction.REKEY) {
-                clientOperationService.issueCertificateRejectedAction(actionMessage.getResourceUuid());
-            } else {
-                logger.debug("Action listener does not handle reject of action {} for resource {}", actionMessage.getResourceAction().getCode(), actionMessage.getResource().getLabel());
+            switch (Objects.requireNonNull(actionMessage.getResourceAction())) {
+                case ISSUE, RENEW, REKEY ->
+                        clientOperationService.issueCertificateRejectedAction(actionMessage.getResourceUuid());
+                case REVOKE ->
+                        clientOperationService.revokeCertificateRejectedAction(actionMessage.getResourceUuid());
+                default ->
+                        logger.debug("Action listener does not handle reject of action {} for resource {}", actionMessage.getResourceAction().getCode(), actionMessage.getResource().getLabel());
             }
             return;
         }
@@ -149,7 +151,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     }
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalInternalService approvalService) {
         this.approvalService = approvalService;
     }
 

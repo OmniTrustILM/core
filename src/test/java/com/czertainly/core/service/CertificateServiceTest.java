@@ -3,10 +3,16 @@ package com.czertainly.core.service;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttributeV2;
 import com.czertainly.api.model.client.attribute.RequestAttributeV3;
+import com.czertainly.api.model.core.other.ResourceEvent;
+import com.czertainly.api.model.core.search.FilterConditionOperator;
+import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.czertainly.api.model.core.workflows.*;
+import com.czertainly.core.enums.FilterField;
 import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.czertainly.api.model.client.certificate.*;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.NameAndUuidDto;
+import com.czertainly.api.model.common.UuidDto;
 import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
 import com.czertainly.api.model.common.attribute.common.AttributeType;
 import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
@@ -43,15 +49,19 @@ import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
+import com.czertainly.core.config.cache.CacheConfig;
+import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.CertificateTestData;
 import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.MetaDefinitions;
+import com.czertainly.core.util.X509ObjectToString;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +70,8 @@ import org.mockito.Mockito;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
@@ -98,6 +110,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
+    private CertificateEventHistoryRepository certificateEventHistoryRepository;
+    @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -135,6 +149,13 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
     @MockitoBean
     private NotificationProducer notificationProducer;
+    @Autowired
+    private RuleExternalService ruleService;
+    @Autowired
+    private TriggerExternalService triggerService;
+
+    @Autowired
+    private CacheManager cacheManager;
 
     private AttributeEngine attributeEngine;
 
@@ -572,21 +593,58 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUploadCertificate() throws CertificateException, AlreadyExistException, NoSuchAlgorithmException, NotFoundException, AttributeException {
+    void testUploadCertificateSync() throws CertificateException, AlreadyExistException, AttributeException, NotFoundException, IOException {
         UploadCertificateRequestDto request = new UploadCertificateRequestDto();
         request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        RequestAttributeV3 requestAttribute = getAttribute();
+        request.setCustomAttributes(List.of(requestAttribute));
+        UuidDto uuidDto = certificateService.uploadSync(request);
+        CertificateDetailDto certificateNew = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+        Assertions.assertEquals(1, certificateNew.getCustomAttributes().size());
+    }
 
-        CertificateDetailDto dto = certificateService.upload(request, true);
-        Assertions.assertNotNull(dto);
-        Assertions.assertEquals("CLIENT1", dto.getCommonName());
-        Assertions.assertEquals("177e75f42e95ecb98f831eb57de27b0bc8c47643", dto.getSerialNumber());
+    @Test
+    void testUploadCertificateSyncIgnoreTriggerThrowsNotUploaded() throws Exception {
+        ConditionItemRequestDto conditionItemRequest = new ConditionItemRequestDto();
+        conditionItemRequest.setFieldSource(FilterFieldSource.PROPERTY);
+        conditionItemRequest.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
+        conditionItemRequest.setOperator(FilterConditionOperator.EQUALS);
+        conditionItemRequest.setValue(List.of(CertificateState.ISSUED.getCode()));
 
-        // test for presence of created public key
-        var newCertificate = certificateRepository.findWithAssociationsByUuid(UUID.fromString(dto.getUuid()));
-        Assertions.assertTrue(newCertificate.isPresent());
-        Assertions.assertEquals("certKey_%s".formatted(dto.getCommonName()), newCertificate.get().getKey().getName());
-        Assertions.assertEquals(1, newCertificate.get().getKey().getItems().size());
-        Assertions.assertEquals(KeyType.PUBLIC_KEY, newCertificate.get().getKey().getItems().stream().findFirst().get().getType());
+        ConditionRequestDto conditionRequest = new ConditionRequestDto();
+        conditionRequest.setName("IgnoreUploadCondition");
+        conditionRequest.setResource(Resource.CERTIFICATE);
+        conditionRequest.setType(ConditionType.CHECK_FIELD);
+        conditionRequest.setItems(List.of(conditionItemRequest));
+        ConditionDto condition = ruleService.createCondition(conditionRequest);
+
+        RuleRequestDto ruleRequest = new RuleRequestDto();
+        ruleRequest.setName("IgnoreUploadRule");
+        ruleRequest.setResource(Resource.CERTIFICATE);
+        ruleRequest.setConditionsUuids(List.of(condition.getUuid()));
+        RuleDetailDto rule = ruleService.createRule(ruleRequest);
+
+        TriggerRequestDto triggerRequest = new TriggerRequestDto();
+        triggerRequest.setName("IgnoreUploadTrigger");
+        triggerRequest.setType(TriggerType.EVENT);
+        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_UPLOADED);
+        triggerRequest.setResource(Resource.CERTIFICATE);
+        triggerRequest.setRulesUuids(List.of(rule.getUuid()));
+        triggerRequest.setActionsUuids(List.of());
+        triggerRequest.setIgnoreTrigger(true);
+        TriggerDetailDto trigger = triggerService.createTrigger(triggerRequest);
+
+        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
+                List.of(UUID.fromString(trigger.getUuid())), true);
+
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+        CertificateException ex = Assertions.assertThrows(CertificateException.class, () -> certificateService.uploadSync(request));
+        Assertions.assertEquals("Certificate was not uploaded. See Certificate Uploaded Event History for more details.", ex.getMessage());
+    }
+
+    private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
+        return getRequestAttribute();
     }
 
     @Test
@@ -1043,6 +1101,69 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void bulkUpdateRaProfileFailureIsRecordedInEventHistory() throws NotFoundException, NotSupportedException {
+        // The authority of the new RA profile does not identify the certificate,
+        // so switching the RA profile fails for every selected certificate.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();
+        request.setCertificateUuids(List.of(certificate.getUuid().toString()));
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        UUID originalRaProfileUuid = certificate.getRaProfileUuid();
+        certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
+
+        // The per-certificate transaction rolled back: the RA profile must be unchanged.
+        Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(originalRaProfileUuid, reloaded.getRaProfileUuid());
+
+        // The failed bulk attempt must be recorded in the certificate event history.
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed bulk RA profile override must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void updateRaProfileFailureIsRecordedInEventHistory() {
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        CertificateUpdateObjectsDto request = new CertificateUpdateObjectsDto();
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificateSecuredUuid, request));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed RA profile update must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void deleteCertificateUsedByUserFailureIsRecordedInEventHistory() {
+        certificate.setUserUuid(UUID.randomUUID());
+        certificateRepository.save(certificate);
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.deleteCertificate(certificateSecuredUuid));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.DELETE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Refused certificate deletion must produce a FAILED DELETE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
     void testGetSearchableFieldInformation() {
         mockServer = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
         mockServer.start();
@@ -1311,6 +1432,37 @@ class CertificateServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(CertificateRelationType.REPLACEMENT, relationsDto.getPredecessorCertificates().getFirst().getRelationType());
     }
 
+    @Test
+    void cacheIsEvictedAfterIssueRequestedCertificate() throws Exception {
+        Cache cache = cacheManager.getCache(CacheConfig.CERTIFICATE_CHAIN_CACHE);
+        Assertions.assertNotNull(cache, "cert-chain cache must be registered");
+        cache.clear();
+
+        // Create a Certificate entity with no content but with RA profile (required by issueRequestedCertificate)
+        Certificate notIssued = new Certificate();
+        notIssued.setRaProfile(raProfile);
+        notIssued = certificateRepository.save(notIssued);
+        UUID uuid = notIssued.getUuid();
+        String certKey = uuid + "_true";
+
+        // Warm the cache — before issuance the chain is empty (no content), but the entry exists
+        certificateService.getCertificateChainForSigning(uuid, true);
+        Assertions.assertNotNull(cache.get(certKey), "cache should be warm before issuance");
+
+        // Generate a fresh cert so its fingerprint is not already in DB
+        KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=IssueCache-Root");
+        KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=IssueCache-EE", null);
+        String pemCert = X509ObjectToString.toPem(eeX509);
+
+        // Issue the certificate — adds content to the entity and must evict the cache
+        certificateService.issueRequestedCertificate(uuid, pemCert, null);
+
+        Assertions.assertNull(cache.get(certKey),
+                "issueRequestedCertificate must evict the cert-chain cache");
+    }
+
     @ParameterizedTest
     @MethodSource("com.czertainly.core.util.CertificateTestData#provideCmpAcceptableTestData")
     public void testListCmpSigningCertificates(
@@ -1347,6 +1499,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = certificateService.getResourceObjectExternal(certificate.getSecuredUuid());
         Assertions.assertEquals(certificate.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(certificate.getSerialNumber(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testListResourceObjects() {
+        Certificate notNullCommonName = createCertificateEntity("notNullCommonName", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate blankCommonName = createCertificateEntity("", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate nullSerialNumber = new Certificate();
+        nullSerialNumber.setCommonName("nullSerialNumber");
+        nullSerialNumber.setSerialNumber(null);
+        nullSerialNumber.setState(CertificateState.ISSUED);
+        nullSerialNumber.setValidationStatus(CertificateValidationStatus.VALID);
+        nullSerialNumber.setArchived(false);
+        certificateRepository.save(nullSerialNumber);
+        List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
+        Assertions.assertFalse(resourceObjects.isEmpty());
+        Assertions.assertEquals(4, resourceObjects.size());
+        String name = "%s (%s)";
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued"))));
     }
 
 
@@ -1397,7 +1570,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cryptographicKeyRepository.save(key);
     }
 
-    private void createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
+    private Certificate createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
         Certificate cert = new Certificate();
         cert.setCommonName(commonName);
         String serialNumber = commonName.toLowerCase().replace(" ", "-") + "-serial" + UUID.randomUUID();
@@ -1408,6 +1581,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cert.setValidationStatus(validationStatus);
         cert.setArchived(archived);
         certificateRepository.save(cert);
+        return cert;
     }
 
     @NotNull
@@ -1436,6 +1610,13 @@ class CertificateServiceTest extends BaseSpringBootTest {
         ProtocolCertificateAssociations protocolCertificateAssociations = new ProtocolCertificateAssociations();
         protocolCertificateAssociations.setOwnerUuid(UUID.randomUUID());
         protocolCertificateAssociations.setGroupUuids(List.of(group.getUuid()));
+        RequestAttributeV3 requestAttribute = getRequestAttribute();
+        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
+        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
+        return protocolCertificateAssociations;
+    }
+
+    private @NonNull RequestAttributeV3 getRequestAttribute() throws AlreadyExistException, AttributeException {
         CustomAttributeCreateRequestDto customAttributeRequest = new CustomAttributeCreateRequestDto();
         customAttributeRequest.setName("name");
         customAttributeRequest.setLabel("name");
@@ -1447,9 +1628,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         requestAttribute.setName(customAttributeRequest.getName());
         requestAttribute.setContentType(customAttributeRequest.getContentType());
         requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
-        protocolCertificateAssociations.setCustomAttributes(List.of(requestAttribute));
-        protocolCertificateAssociationsRepository.save(protocolCertificateAssociations);
-        return protocolCertificateAssociations;
+        return requestAttribute;
     }
 
     private static boolean isObjectAccessRequestForResource(OpaRequestedResource resource, String name, String action) {

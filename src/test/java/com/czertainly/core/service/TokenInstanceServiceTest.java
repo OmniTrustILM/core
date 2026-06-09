@@ -5,6 +5,7 @@ import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.ValidationException;
+import com.czertainly.api.model.common.BulkActionMessageDto;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.czertainly.api.model.common.NameAndUuidDto;
@@ -129,7 +130,7 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(tokenInstanceReference.getUuid().toString(), dto.getUuid());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -169,7 +170,7 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
-        Assertions.assertEquals(tokenInstanceReference.getConnector().getUuid().toString(), dto.getConnectorUuid());
+        Assertions.assertEquals(tokenInstanceReference.getConnectorUuid().toString(), dto.getConnectorUuid());
     }
 
     @Test
@@ -325,5 +326,17 @@ class TokenInstanceServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = tokenInstanceService.getResourceObjectExternal(tokenInstanceReference.getSecuredUuid());
         Assertions.assertEquals(tokenInstanceReference.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(tokenInstanceReference.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void testDeleteTokenInstance_connectorError_entityNotDeleted() {
+        mockServer.stubFor(WireMock.delete(WireMock.anyUrl())
+                .willReturn(WireMock.aResponse().withStatus(500).withBody("Simulated connector error")));
+
+        tokenInstanceService.deleteTokenInstance(List.of(tokenInstanceReference.getSecuredUuid()));
+
+        Assertions.assertTrue(
+                tokenInstanceReferenceRepository.findById(tokenInstanceReference.getUuid()).isPresent(),
+                "Entity must remain in DB because the connector returned 500 and the catch block absorbed the error");
     }
 }

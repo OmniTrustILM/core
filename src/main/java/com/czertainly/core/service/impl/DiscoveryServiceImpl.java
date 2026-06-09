@@ -20,7 +20,7 @@ import com.czertainly.api.model.connector.discovery.DiscoveryProviderCertificate
 import com.czertainly.api.model.connector.discovery.DiscoveryProviderDto;
 import com.czertainly.api.model.connector.discovery.DiscoveryRequestDto;
 import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.model.core.connector.ConnectorDto;
 import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.api.model.core.discovery.DiscoveryStatus;
@@ -90,7 +90,8 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     private AttributeEngine attributeEngine;
     private CertificateHandler certificateHandler;
 
-    private TriggerService triggerService;
+    private TriggerExternalService triggerService;
+    private TriggerInternalService triggerInternalService;
     private DiscoveryRepository discoveryRepository;
     private CertificateRepository certificateRepository;
     private ConnectorApiFactory connectorApiFactory;
@@ -99,7 +100,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private CertificateContentRepository certificateContentRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
 
     public DiscoveryServiceImpl(DiscoveryProperties discoveryProperties) {
@@ -112,13 +113,18 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
     @Autowired
-    public void setTriggerService(TriggerService triggerService) {
+    public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
+    }
+
+    @Autowired
+    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
+        this.triggerInternalService = triggerInternalService;
     }
 
     @Autowired
@@ -259,15 +265,16 @@ public class DiscoveryServiceImpl implements DiscoveryService {
 
         attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discovery.getUuid());
         discoveryRepository.delete(discovery);
-        triggerService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
+        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discovery.getUuid());
 
         try {
             String referenceUuid = discovery.getDiscoveryConnectorReference();
             if (referenceUuid != null && !referenceUuid.isEmpty()) {
                 Connector connector = connectorRepository.findByUuid(discovery.getConnectorUuid())
                         .orElseThrow(() -> new NotFoundException(Connector.class, discovery.getConnectorUuid()));
-                ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
-                connectorApiFactory.getDiscoveryApiClient(connectorDto).removeDiscovery(connectorDto, referenceUuid);
+                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
+                DiscoverySyncApiClient client = connectorApiFactory.getDiscoveryApiClient(connectorDto);
+                client.removeDiscovery(connectorDto, referenceUuid);
             }
         } catch (ConnectorException e) {
             logger.warn("Failed to delete discovery in the connector. But core history is deleted");

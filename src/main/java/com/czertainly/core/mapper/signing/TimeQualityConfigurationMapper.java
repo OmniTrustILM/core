@@ -26,7 +26,7 @@ public class TimeQualityConfigurationMapper {
         dto.setNtpCheckTimeout(configuration.getNtpCheckTimeout());
         dto.setNtpServersMinReachable(configuration.getNtpServersMinReachable());
         dto.setMaxClockDrift(configuration.getMaxClockDrift());
-        dto.setLeapSecondGuard(configuration.getLeapSecondGuard());
+        dto.setLeapSecondGuard(configuration.isLeapSecondGuard());
         dto.setCustomAttributes(customAttributes);
         return dto;
     }
@@ -39,13 +39,13 @@ public class TimeQualityConfigurationMapper {
                 configuration.getUuid(),
                 configuration.getName(),
                 configuration.getAccuracy(),
-                configuration.getNtpServers(),
+                List.copyOf(configuration.getNtpServers()),
                 configuration.getNtpCheckInterval(),
                 configuration.getNtpSamplesPerServer(),
                 configuration.getNtpCheckTimeout(),
                 configuration.getNtpServersMinReachable(),
                 configuration.getMaxClockDrift(),
-                configuration.getLeapSecondGuard()
+                configuration.isLeapSecondGuard()
         );
     }
 

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,4 +35,30 @@ public interface CrlRepository extends SecurityFilterRepository<Crl, Long>
             DO NOTHING
             """, nativeQuery = true)
     void insertWithIssuerConflictResolve(@Param("crl") Crl crl);
+
+    @Modifying
+    @Query("""
+            UPDATE Crl c
+               SET c.crlNumber = :crlNumber,
+                   c.nextUpdate = :nextUpdate,
+                   c.lastRevocationDate = :lastRevocationDate
+             WHERE c.uuid = :uuid
+            """)
+    void updateBaseMetadata(@Param("uuid") UUID uuid,
+                            @Param("crlNumber") String crlNumber,
+                            @Param("nextUpdate") Date nextUpdate,
+                            @Param("lastRevocationDate") Date lastRevocationDate);
+
+    @Modifying
+    @Query("""
+            UPDATE Crl c
+               SET c.crlNumberDelta = :crlNumberDelta,
+                   c.nextUpdateDelta = :nextUpdateDelta,
+                   c.lastRevocationDate = :lastRevocationDate
+             WHERE c.uuid = :uuid
+            """)
+    void updateDeltaMetadata(@Param("uuid") UUID uuid,
+                             @Param("crlNumberDelta") String crlNumberDelta,
+                             @Param("nextUpdateDelta") Date nextUpdateDelta,
+                             @Param("lastRevocationDate") Date lastRevocationDate);
 }

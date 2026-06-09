@@ -4,7 +4,7 @@ import com.czertainly.api.exception.NotFoundException;
 import com.czertainly.api.exception.NotSupportedException;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -15,10 +15,10 @@ import java.util.UUID;
 @Component
 public class AuditLogEnhancer {
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

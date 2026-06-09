@@ -3,7 +3,7 @@ package com.czertainly.core.tasks;
 import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.dao.repository.acme.AcmeNonceRepository;
 import com.czertainly.core.model.ScheduledTaskResult;
-import com.czertainly.core.service.ApprovalService;
+import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.CertificateService;
 import jakarta.transaction.Transactional;
 import lombok.NoArgsConstructor;
@@ -23,7 +23,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
     private static final String CRON_EXPRESSION = "0 0 * ? * *";
     private static final Logger logger = LoggerFactory.getLogger(UpdateCertificateStatusTask.class);
 
-    private ApprovalService approvalService;
+    private ApprovalInternalService approvalService;
     private CertificateService certificateService;
     private AcmeNonceRepository acmeNonceRepository;
 
@@ -79,7 +79,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
     }
 
     @Autowired
-    public void setApprovalService(ApprovalService approvalService) {
+    public void setApprovalService(ApprovalInternalService approvalService) {
         this.approvalService = approvalService;
     }
 

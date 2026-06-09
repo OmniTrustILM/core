@@ -1,6 +1,7 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
+import com.czertainly.api.clients.ApiClientConnectorInfo;
 import com.czertainly.api.exception.*;
 import com.czertainly.api.model.client.attribute.RequestAttribute;
 import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
@@ -19,7 +20,6 @@ import com.czertainly.api.model.connector.cryptography.key.KeyDataResponseDto;
 import com.czertainly.api.model.connector.cryptography.key.KeyPairDataResponseDto;
 import com.czertainly.api.model.core.auth.Resource;
 import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
 import com.czertainly.api.model.core.cryptography.key.*;
 import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.api.model.core.search.FilterFieldSource;
@@ -28,12 +28,14 @@ import com.czertainly.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
+import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.ResourceAction;
+import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.ObjectFilterAspect;
@@ -51,6 +53,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import com.czertainly.core.config.cache.CacheEvictor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.lang.NonNull;
@@ -104,6 +108,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     // --------------------------------------------------------------------------------
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
+    private com.czertainly.core.service.v2.ConnectorService connectorService;
     private TokenInstanceService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
     private PermissionEvaluator permissionEvaluator;
@@ -112,6 +117,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private NotificationProducer notificationProducer;
 
     private UserManagementApiClient userManagementApiClient;
+    private CacheEvictor cacheEvictor;
     // --------------------------------------------------------------------------------
     // Repositories
     // --------------------------------------------------------------------------------
@@ -152,6 +158,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Autowired
+    public void setConnectorService(com.czertainly.core.service.v2.ConnectorService connectorService) {
+        this.connectorService = connectorService;
+    }
+
+    @Autowired
     public void setTokenInstanceService(TokenInstanceService tokenInstanceService) {
         this.tokenInstanceService = tokenInstanceService;
     }
@@ -174,6 +185,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     @Autowired
     public void setNotificationProducer(NotificationProducer notificationProducer) {
         this.notificationProducer = notificationProducer;
+    }
+
+    @Autowired
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired
@@ -412,6 +428,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
             key.setTokenProfile(tokenProfile);
         }
         key = cryptographicKeyRepository.save(key);
+        key.getItems().forEach(item -> evictKeyItemCache(item.getUuid()));
 
         if (request.getGroupUuids() != null) {
             objectAssociationService.setGroups(Resource.CRYPTOGRAPHIC_KEY, key.getUuid(), request.getGroupUuids().stream().map(UUID::fromString).collect(Collectors.toSet()));
@@ -514,6 +531,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
                 attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItem.getUuid());
                 cryptographicKeyItemRepository.delete(keyItem);
                 cryptographicKeyRepository.save(key);
+                evictKeyItemCache(keyItem.getUuid());
             }
             if (key.getItems().isEmpty()) {
                 deleteKeyWithAssociations(key);
@@ -524,9 +542,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         logger.info("Key deleted: {}", uuid);
     }
 
-    private void destroyKeyFromConnector(TokenInstanceReference tokenInstanceReference, UUID keyReferenceUuid) throws ConnectorException {
+    private void destroyKeyFromConnector(TokenInstanceReference tokenInstanceReference, UUID keyReferenceUuid) throws ConnectorException, NotFoundException {
         try {
-            ConnectorApiClientDtoV1 connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
             connectorApiFactory.getKeyManagementApiClient(connectorDto).destroyKey(
                     connectorDto,
                     tokenInstanceReference.getTokenInstanceUuid(),
@@ -558,6 +576,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
                     }
                     attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItem.getUuid());
                     cryptographicKeyItemRepository.delete(keyItem);
+                    evictKeyItemCache(keyItem.getUuid());
                 }
                 deleteKeyWithAssociations(key);
             } catch (NotFoundException e) {
@@ -603,7 +622,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         logger.debug("Bulk deleted {} of {} key items.", deletedCount, totalToDelete);
     }
 
-    private int deleteKeyItemsBatch(List<SecurityFilter> filters, List<UUID> batchUuids, UUID loggedUserUuid) throws ConnectorException {
+    private int deleteKeyItemsBatch(List<SecurityFilter> filters, List<UUID> batchUuids, UUID loggedUserUuid) throws ConnectorException, NotFoundException {
         // 1. Check permissions for two parents: TokenInstance/MEMBERS and TokenProfile/MEMBERS
         List<UUID> permittedUuids = batchUuids;
         for (SecurityFilter filter : filters) {
@@ -641,6 +660,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         // 5. Get rid of cryptographic key items.
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, permittedUuids);
         cryptographicKeyItemRepository.deleteAllById(permittedUuids);
+        permittedUuids.forEach(this::evictKeyItemCache);
 
         // 6. Finally, delete empty keys.
         if (!keysToDelete.isEmpty()) {
@@ -682,13 +702,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private SecurityFilter createSecurityFilterFor(@NonNull Resource resource, @NonNull ResourceAction action,
                                                    @Nullable Resource parentResource, @Nullable ResourceAction parentAction, @Nullable String parentRefProperty) {
         SecurityFilter filter = SecurityFilter.create();
-        Map<String, String> properties = new HashMap<>(Map.of(
-                "name", resource.getCode(),
-                "action", action.getCode(),
-                "parentName", parentResource != null ? parentResource.getCode() : Resource.NONE.getCode(),
-                "parentAction", parentAction != null ? parentAction.getCode() : ResourceAction.NONE.getCode()
-        ));
-        objectFilterAspect.populateSecurityFilter(properties, filter);
+        objectFilterAspect.populateSecurityFilter(resource, action, parentResource, parentAction, filter);
 
         if (parentRefProperty != null) {
             filter.setParentRefProperty(parentRefProperty);
@@ -740,7 +754,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
                 );
         logger.debug("Token profile details: {}", tokenProfile);
         List<BaseAttribute> attributes;
-        ConnectorApiClientDtoV1 connectorDto = tokenProfile.getTokenInstanceReference().getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenProfile.getTokenInstanceReference().getConnectorUuid());
         if (type.equals(KeyRequestType.KEY_PAIR)) {
             attributes = connectorApiFactory.getKeyManagementApiClient(connectorDto).listCreateKeyPairAttributes(
                     connectorDto,
@@ -765,7 +779,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         //Create a map to hold the key and its objects. The association key will be used as the name for the parent key object
         Map<String, List<KeyDataResponseDto>> associations = new HashMap<>();
         // Get the list of keys from the connector
-        ConnectorApiClientDtoV1 connectorDto = tokenInstanceReference.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         List<KeyDataResponseDto> keys = connectorApiFactory.getKeyManagementApiClient(connectorDto).listKeys(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -903,8 +917,50 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         return null;
     }
 
+    @Override
+    @Cacheable(value = CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, key = "#keyItemUuid", sync = true)
+    @Transactional(readOnly = true)
+    public CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException {
+        CryptographicKeyItem keyItem = cryptographicKeyItemRepository
+                .findWithConnectorByUuid(keyItemUuid)
+                .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
+
+        if (keyItem.getKey() == null) {
+            throw new NotFoundException("Cryptographic Key associated with the Key Item is not found");
+        }
+        TokenInstanceReference tokenInstanceReference = keyItem.getKey().getTokenInstanceReference();
+        if (tokenInstanceReference == null) {
+            throw new NotFoundException("Token Instance associated with the Key is not found");
+        }
+        if (tokenInstanceReference.getConnector() == null) {
+            throw new NotFoundException("Connector associated to the Key is not found");
+        }
+        UUID tokenInstanceUuid = UUID.fromString(tokenInstanceReference.getTokenInstanceUuid());
+
+        String pqcParameterSpecName = keyItem.getType() == KeyType.PUBLIC_KEY
+                ? CryptographyUtil.resolvePqcParameterSpecName(keyItem.getKeyAlgorithm(), keyItem.getKeyData())
+                : null;
+
+        return new CryptographicKeyItemModel(
+                keyItem.getUuid(),
+                keyItem.isEnabled(),
+                keyItem.getKeyAlgorithm(),
+                keyItem.getState(),
+                keyItem.getType(),
+                keyItem.getUsage(),
+                pqcParameterSpecName,
+                keyItem.getKeyReferenceUuid(),
+                tokenInstanceReference.getConnectorUuid(),
+                tokenInstanceUuid
+        );
+    }
+
+    private void evictKeyItemCache(UUID keyItemUuid) {
+        cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, keyItemUuid);
+    }
 
     @Override
+    @Transactional(noRollbackFor = ValidationException.class)
     public UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint) {
         LocalDateTime now = LocalDateTime.now();
         CryptographicKey cryptographicKey = new CryptographicKey();
@@ -968,6 +1024,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
             throw new NotFoundException("Key Item has not been found for Key with UUID %s.".formatted(keyUuid));
         keyItem.get().setName(editKeyItemDto.getName());
         cryptographicKeyItemRepository.save(keyItem.get());
+        evictKeyItemCache(keyItem.get().getUuid());
         return keyItem.get().mapToDto();
     }
 
@@ -1062,6 +1119,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
             );
         }
         cryptographicKeyItemRepository.save(keyItem);
+        evictKeyItemCache(keyItem.getUuid());
         String message;
         if (isDiscovered) {
             message = "Key Discovered from Token Instance "
@@ -1096,13 +1154,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         return cryptographicKeyRepository.findWithAssociationsByUuid(uuid).orElseThrow(() -> new NotFoundException(CryptographicKey.class, uuid));
     }
 
-    private void mergeAndValidateAttributes(KeyRequestType type, TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException {
+    private void mergeAndValidateAttributes(KeyRequestType type, TokenInstanceReference tokenInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         logger.debug("Merging and validating attributes on token instance {}. Request Attributes are: {}", tokenInstanceRef, attributes);
         if (tokenInstanceRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
         }
 
-        ConnectorApiClientDtoV1 connectorDto = tokenInstanceRef.getConnector().mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceRef.getConnectorUuid());
 
         // validate first by connector and list attributes definitions
         List<BaseAttribute> definitions;
@@ -1118,9 +1176,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         attributeEngine.validateUpdateDataAttributes(tokenInstanceRef.getConnectorUuid(), null, definitions, attributes);
     }
 
-    private CryptographicKey createKeyTypeOfKeyPair(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
+    private CryptographicKey createKeyTypeOfKeyPair(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException, NotFoundException {
         boolean enabled = Boolean.TRUE.equals(request.getEnabled());
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
         KeyPairDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createKeyPair(
                 connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),
@@ -1152,8 +1210,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         return cryptographicKeyRepository.save(key);
     }
 
-    private CryptographicKey createKeyTypeOfSecret(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException {
-        ConnectorApiClientDtoV1 connectorDto = connector.mapToApiClientDtoV1();
+    private CryptographicKey createKeyTypeOfSecret(Connector connector, TokenProfile tokenProfile, KeyRequestDto request, CreateKeyRequestDto createKeyRequestDto) throws ConnectorException, AttributeException, NotFoundException {
+        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
         KeyDataResponseDto response = connectorApiFactory.getKeyManagementApiClient(connectorDto).createSecretKey(
                 connectorDto,
                 tokenProfile.getTokenInstanceReference().getTokenInstanceUuid(),
@@ -1208,6 +1266,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         }
         keyItem.setEnabled(enabled);
         cryptographicKeyItemRepository.save(keyItem);
+        evictKeyItemCache(keyItem.getUuid());
         keyEventHistoryService.addEventHistory(enabled ? KeyEvent.ENABLE : KeyEvent.DISABLE, KeyEventStatus.SUCCESS, "Key " + (enabled ? "enabled." : "disabled."), null, keyItem);
         return true;
     }
@@ -1253,6 +1312,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         keyItem.setState(KeyState.COMPROMISED);
         keyItem.setReason(reason);
         cryptographicKeyItemRepository.save(keyItem);
+        evictKeyItemCache(keyItem.getUuid());
         keyEventHistoryService.addEventHistory(KeyEvent.COMPROMISED, KeyEventStatus.SUCCESS, "Key compromised. Reason: " + reason + ".", null, keyItem);
         return true;
     }
@@ -1295,6 +1355,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         String oldUsage = content.getUsage().stream().map(KeyUsage::getCode).collect(Collectors.joining(", "));
         content.setUsage(usages);
         cryptographicKeyItemRepository.save(content);
+        evictKeyItemCache(content.getUuid());
         String newUsage = usages.stream().map(KeyUsage::getCode).collect(Collectors.joining(", "));
         keyEventHistoryService.addEventHistory(KeyEvent.UPDATE_USAGE, KeyEventStatus.SUCCESS,
                 "Key usages updated from " + oldUsage + " to " + newUsage + ".", null, content);
@@ -1346,6 +1407,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         keyItem.setKeyData(null);
         keyItem.setState(finalState);
         cryptographicKeyItemRepository.save(keyItem);
+        evictKeyItemCache(keyItem.getUuid());
         keyEventHistoryService.addEventHistory(KeyEvent.DESTROY, KeyEventStatus.SUCCESS, "Key destroyed.", null, keyItem);
         return true;
     }

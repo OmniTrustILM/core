@@ -1,6 +1,8 @@
 package com.czertainly.core.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,10 +16,15 @@ import org.springframework.security.jackson2.SecurityJackson2Modules;
 import org.springframework.session.config.SessionRepositoryCustomizer;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.jdbc.config.annotation.web.http.EnableJdbcHttpSession;
+import org.springframework.session.web.http.CookieHttpSessionIdResolver;
+import org.springframework.session.web.http.CookieSerializer;
+import org.springframework.session.web.http.HttpSessionIdResolver;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Collections;
+import java.util.List;
 
 @Configuration
 @EnableJdbcHttpSession(tableName = "${DB_SCHEMA:core}.spring_session", cleanupCron = Scheduled.CRON_DISABLED)
@@ -89,6 +96,48 @@ public class SessionConfig implements BeanClassLoaderAware {
         return sessionRepository -> {
             sessionRepository.setCreateSessionAttributeQuery(CREATE_SESSION_ATTRIBUTE_QUERY);
             sessionRepository.setUpdateSessionAttributeQuery(UPDATE_SESSION_ATTRIBUTE_QUERY);
+        };
+    }
+
+    /**
+     * Skips session lookup and creation for TSP protocol requests.
+     * TSP is a stateless binary protocol that does not use HTTP sessions.
+     */
+    @Bean
+    public HttpSessionIdResolver httpSessionIdResolver(CookieSerializer cookieSerializer) {
+        CookieHttpSessionIdResolver delegate = new CookieHttpSessionIdResolver();
+        delegate.setCookieSerializer(cookieSerializer);
+
+        return new HttpSessionIdResolver() {
+            @Override
+            public List<String> resolveSessionIds(HttpServletRequest request) {
+                if (isTspRequest(request)) {
+                    return Collections.emptyList();
+                }
+                return delegate.resolveSessionIds(request);
+            }
+
+            @Override
+            public void setSessionId(HttpServletRequest request, HttpServletResponse response, String sessionId) {
+                if (!isTspRequest(request)) {
+                    delegate.setSessionId(request, response, sessionId);
+                }
+            }
+
+            @Override
+            public void expireSession(HttpServletRequest request, HttpServletResponse response) {
+                if (!isTspRequest(request)) {
+                    delegate.expireSession(request, response);
+                }
+            }
+
+            /**
+             * Uses a servlet path (context-path-agnostic) to correctly match TSP requests under any context path.
+             */
+            private boolean isTspRequest(HttpServletRequest request) {
+                String servletPath = request.getServletPath();
+                return "/v1/protocols/tsp".equals(servletPath) || servletPath.startsWith("/v1/protocols/tsp/");
+            }
         };
     }
 

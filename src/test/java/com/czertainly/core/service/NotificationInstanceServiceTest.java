@@ -4,6 +4,7 @@ import com.czertainly.api.exception.AlreadyExistException;
 import com.czertainly.api.exception.AttributeException;
 import com.czertainly.api.exception.ConnectorException;
 import com.czertainly.api.exception.NotFoundException;
+import com.czertainly.api.exception.ValidationException;
 import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.api.model.common.attribute.common.DataAttribute;
 import com.czertainly.api.model.core.connector.ConnectorStatus;
@@ -11,18 +12,24 @@ import com.czertainly.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.api.model.core.notification.NotificationInstanceDto;
 import com.czertainly.api.model.core.notification.NotificationInstanceRequestDto;
 import com.czertainly.api.model.core.notification.NotificationInstanceUpdateRequestDto;
+import com.czertainly.api.model.core.notification.RecipientType;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
 import com.czertainly.core.dao.entity.FunctionGroup;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceReference;
+import com.czertainly.core.dao.entity.notifications.NotificationProfile;
+import com.czertainly.core.dao.entity.notifications.NotificationProfileVersion;
 import com.czertainly.core.dao.repository.Connector2FunctionGroupRepository;
 import com.czertainly.core.dao.repository.ConnectorRepository;
 import com.czertainly.core.dao.repository.FunctionGroupRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
+import com.czertainly.core.dao.repository.notifications.NotificationProfileRepository;
+import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +53,13 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     @Autowired
-    private NotificationInstanceService notificationInstanceService;
+    private NotificationProfileRepository notificationProfileRepository;
+
+    @Autowired
+    private NotificationProfileVersionRepository notificationProfileVersionRepository;
+
+    @Autowired
+    private NotificationInstanceExternalService notificationInstanceService;
 
     private static final String TEST_CONNECTOR_KIND = "testKind";
     private static final String EXISTING_NIR_NAME = "TestNotificationInstance";
@@ -94,6 +107,11 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         notificationInstance.setNotificationInstanceUuid(UUID.fromString(EXISTING_NIR_UUID));
         notificationInstance.setUuid(UUID.fromString(EXISTING_NIR_UUID));
         notificationInstanceReferenceRepository.save(notificationInstance);
+    }
+
+    @AfterEach
+    void tearDown() {
+        mockServer.stop();
     }
 
     @Test
@@ -232,6 +250,74 @@ class NotificationInstanceServiceTest extends BaseSpringBootTest {
         // Verify the mapping attributes were retrieved successfully
         Assertions.assertNotNull(attributes);
         Assertions.assertTrue(attributes.isEmpty());
+    }
+
+    @Test
+    void testGetOrphanedNotificationInstance() throws ConnectorException, NotFoundException {
+        mockServer.stubFor(WireMock.get(
+                        WireMock.urlPathMatching("/v1/notificationProvider/notifications/%s".formatted(EXISTING_NIR_UUID)))
+                .willReturn(WireMock.aResponse().withStatus(404).withBody("Not Found")));
+
+        NotificationInstanceDto dto = notificationInstanceService.getNotificationInstance(UUID.fromString(EXISTING_NIR_UUID));
+
+        Assertions.assertNotNull(dto);
+        Assertions.assertTrue(dto.getName().contains("(Orphaned)"));
+    }
+
+    @Test
+    void testDeleteOrphanedNotificationInstanceDetachesProfileVersions() {
+        NotificationProfile profile = new NotificationProfile();
+        profile.setName("TestProfile");
+        notificationProfileRepository.save(profile);
+
+        NotificationProfileVersion version = new NotificationProfileVersion();
+        version.setNotificationProfileUuid(profile.getUuid());
+        version.setVersion(1);
+        version.setRecipientType(RecipientType.NONE);
+        version.setInternalNotification(false);
+        version.setNotificationInstanceRefUuid(UUID.fromString(EXISTING_NIR_UUID));
+        notificationProfileVersionRepository.save(version);
+
+        NotificationProfileVersion version2 = new NotificationProfileVersion();
+        version2.setNotificationProfileUuid(profile.getUuid());
+        version2.setVersion(2);
+        version2.setRecipientType(RecipientType.NONE);
+        version2.setInternalNotification(false);
+        notificationProfileVersionRepository.save(version2);
+
+        mockServer.stubFor(WireMock.delete(
+                        WireMock.urlPathMatching("/v1/notificationProvider/notifications/%s".formatted(EXISTING_NIR_UUID)))
+                .willReturn(WireMock.aResponse().withStatus(404).withBody("Not Found")));
+
+        Assertions.assertDoesNotThrow(() -> notificationInstanceService.deleteNotificationInstance(UUID.fromString(EXISTING_NIR_UUID)));
+        Assertions.assertFalse(notificationInstanceReferenceRepository.findByUuid(UUID.fromString(EXISTING_NIR_UUID)).isPresent());
+
+        NotificationProfileVersion reloaded = notificationProfileVersionRepository.findById(version2.getUuid()).orElseThrow();
+        Assertions.assertNull(reloaded.getNotificationInstanceRefUuid());
+    }
+
+    @Test
+    void testDeleteNotificationInstanceBlockedByCurrentProfileVersion() {
+        NotificationProfile profile = new NotificationProfile();
+        profile.setName("BlockingProfile");
+        notificationProfileRepository.save(profile);
+
+        NotificationProfileVersion version = new NotificationProfileVersion();
+        version.setNotificationProfileUuid(profile.getUuid());
+        version.setVersion(1);
+        version.setRecipientType(RecipientType.NONE);
+        version.setInternalNotification(false);
+        UUID uuid = UUID.fromString(EXISTING_NIR_UUID);
+        version.setNotificationInstanceRefUuid(uuid);
+        notificationProfileVersionRepository.save(version);
+
+        mockServer.stubFor(WireMock.delete(
+                        WireMock.urlPathMatching("/v1/notificationProvider/notifications/%s".formatted(EXISTING_NIR_UUID)))
+                .willReturn(WireMock.ok()));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> notificationInstanceService.deleteNotificationInstance(uuid));
+        Assertions.assertTrue(ex.getMessage().contains("BlockingProfile"));
     }
 
 }

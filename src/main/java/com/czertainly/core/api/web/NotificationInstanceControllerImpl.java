@@ -15,7 +15,7 @@ import com.czertainly.api.model.core.notification.NotificationInstanceRequestDto
 import com.czertainly.api.model.core.notification.NotificationInstanceUpdateRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
-import com.czertainly.core.service.NotificationInstanceService;
+import com.czertainly.core.service.NotificationInstanceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,7 +30,7 @@ import java.util.UUID;
 @RestController
 public class NotificationInstanceControllerImpl implements NotificationInstanceController {
 
-    private NotificationInstanceService notificationInstanceService;
+    private NotificationInstanceExternalService notificationInstanceService;
 
     @Override
     @AuditLogged(module = Module.CORE, resource = Resource.NOTIFICATION_INSTANCE, operation = Operation.LIST)
@@ -79,7 +79,7 @@ public class NotificationInstanceControllerImpl implements NotificationInstanceC
     }
 
     @Autowired
-    public void setNotificationInstanceService(NotificationInstanceService notificationInstanceService) {
+    public void setNotificationInstanceService(NotificationInstanceExternalService notificationInstanceService) {
         this.notificationInstanceService = notificationInstanceService;
     }
 
