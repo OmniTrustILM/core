@@ -1,7 +1,7 @@
 package com.czertainly.core.migration;
 
-import com.czertainly.api.model.core.certificate.CertificateKeyUsage;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateRequestEntity;
 import com.czertainly.core.dao.entity.CryptographicKeyItem;

@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.CertificateSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.CertificateValidationSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsUpdateDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.*;
@@ -112,7 +112,7 @@ public class CertificateValidationTest extends BaseSpringBootTest {
     private WireMockServer mockServer;
 
     @BeforeEach
-    public void setUp() throws GeneralSecurityException, IOException, com.czertainly.api.exception.CertificateException {
+    public void setUp() throws GeneralSecurityException, IOException, com.otilm.api.exception.CertificateException {
         mockServer = new WireMockServer(0);
         mockServer.start();
 

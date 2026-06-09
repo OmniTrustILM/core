@@ -6,7 +6,7 @@ import java.util.Objects;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.proxy.HibernateProxy;
 
-import com.czertainly.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomDto;
 import com.czertainly.core.util.DtoMapper;
 
 import jakarta.persistence.Column;

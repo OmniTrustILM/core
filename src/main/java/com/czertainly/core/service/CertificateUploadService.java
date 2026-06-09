@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 
 import java.security.cert.CertificateException;
 import java.util.List;

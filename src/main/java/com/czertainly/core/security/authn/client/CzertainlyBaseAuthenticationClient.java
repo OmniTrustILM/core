@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.api.clients.CzertainlyBaseApiClient;
+import com.otilm.api.clients.PlatformBaseApiClient;
 import com.czertainly.core.security.exception.AuthenticationServiceException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -14,7 +14,7 @@ import reactor.core.publisher.Mono;
 import java.util.function.Function;
 
 @Component
-public class CzertainlyBaseAuthenticationClient extends CzertainlyBaseApiClient {
+public class CzertainlyBaseAuthenticationClient extends PlatformBaseApiClient {
 
     private static final Log logger = LogFactory.getLog(CzertainlyBaseAuthenticationClient.class);
 

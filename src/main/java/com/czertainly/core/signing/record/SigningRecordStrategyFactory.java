@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import org.springframework.stereotype.Component;
 

@@ -1,6 +1,6 @@
 package com.czertainly.core.provider;
 
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,16 +1,16 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.dao.repository.workflows.*;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.TriggerExternalService;

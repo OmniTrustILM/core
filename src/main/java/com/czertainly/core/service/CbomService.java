@@ -3,17 +3,17 @@ package com.czertainly.core.service;
 import java.util.List;
 import java.util.UUID;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.CbomRepositoryException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.core.cbom.CbomDetailDto;
-import com.czertainly.api.model.core.cbom.CbomDto;
-import com.czertainly.api.model.core.cbom.CbomUploadRequestDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.cbom.CbomDetailDto;
+import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

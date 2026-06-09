@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-import com.czertainly.api.exception.SchedulerException;
+import com.otilm.api.exception.SchedulerException;
 import com.czertainly.core.service.SchedulerInternalService;
 
 @Configuration

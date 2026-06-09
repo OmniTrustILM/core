@@ -1,14 +1,14 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.events.data.CertificateEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.EventStatus;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.events.data.CertificateEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.EventStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;

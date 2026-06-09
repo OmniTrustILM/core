@@ -1,17 +1,17 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupDto;
-import com.czertainly.api.model.core.connector.v2.ConnectorApiClientDtoV2;
-import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
-import com.czertainly.api.model.core.connector.v2.ConnectorDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorApiClientDtoV1;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupDto;
+import com.otilm.api.model.core.connector.v2.ConnectorApiClientDtoV2;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
+import com.otilm.api.model.core.connector.v2.ConnectorDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.MetaDefinitions;
 import com.czertainly.core.util.ObjectAccessControlMapper;
@@ -35,7 +35,7 @@ import java.util.Set;
 @Table(name = "connector", uniqueConstraints = {
         @UniqueConstraint(name = "uq_connector_url_version", columnNames = {"url", "version"})
 })
-public class Connector extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<com.czertainly.api.model.core.connector.ConnectorDto>, ObjectAccessControlMapper<NameAndUuidDto> {
+public class Connector extends UniquelyIdentifiedAndAudited implements Serializable, DtoMapper<com.otilm.api.model.core.connector.ConnectorDto>, ObjectAccessControlMapper<NameAndUuidDto> {
 
     @Serial
     private static final long serialVersionUID = -4057975339123024975L;
@@ -153,8 +153,8 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
     }
 
     @Override
-    public com.czertainly.api.model.core.connector.ConnectorDto mapToDto() {
-        var dto = new com.czertainly.api.model.core.connector.ConnectorDto();
+    public com.otilm.api.model.core.connector.ConnectorDto mapToDto() {
+        var dto = new com.otilm.api.model.core.connector.ConnectorDto();
         populateApiClientV1Fields(dto);
         dto.setFunctionGroups(this.functionGroups.stream().map(f -> {
             FunctionGroupDto functionGroupDto = f.getFunctionGroup().mapToDto();

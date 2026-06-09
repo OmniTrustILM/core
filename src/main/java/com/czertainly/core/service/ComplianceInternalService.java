@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 

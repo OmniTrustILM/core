@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.model;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import lombok.*;
 
 import java.util.List;

@@ -1,14 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.connector.ConnectorRequestDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.connector.ConnectorRequestDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.AuthenticationTokenTestHelper;
 import com.czertainly.core.util.BaseSpringBootTest;

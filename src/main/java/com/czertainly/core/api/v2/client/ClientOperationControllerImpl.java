@@ -1,13 +1,13 @@
 package com.czertainly.core.api.v2.client;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.client.v2.ClientOperationController;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.v2.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.client.v2.ClientOperationController;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.v2.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -121,11 +121,11 @@ public class ClientOperationControllerImpl implements ClientOperationController 
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.FINALIZE_ISSUE)
-    public com.czertainly.api.model.core.certificate.CertificateDetailDto manuallyIssueCertificate(
+    public com.otilm.api.model.core.certificate.CertificateDetailDto manuallyIssueCertificate(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid,
-            com.czertainly.api.model.client.certificate.UploadCertificateRequestDto request)
+            com.otilm.api.model.client.certificate.UploadCertificateRequestDto request)
             throws NotFoundException, CertificateException, AlreadyExistException, ConnectorException, AttributeException {
         return clientOperationService.manuallyIssueCertificate(
                 SecuredParentUUID.fromString(authorityUuid),
@@ -147,11 +147,11 @@ public class ClientOperationControllerImpl implements ClientOperationController 
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.CANCEL)
-    public com.czertainly.api.model.core.certificate.CertificateDetailDto cancelPendingCertificateOperation(
+    public com.otilm.api.model.core.certificate.CertificateDetailDto cancelPendingCertificateOperation(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid,
-            com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto request) throws NotFoundException {
+            com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto request) throws NotFoundException {
         return clientOperationService.cancelPendingCertificateOperation(
                 SecuredParentUUID.fromString(authorityUuid),
                 SecuredUUID.fromString(raProfileUuid),

@@ -1,13 +1,13 @@
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.ExecutionItemDto;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ExecutionItemDto;
 import com.czertainly.core.dao.converter.ObjectToJsonConverter;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.czertainly.core.dao.entity.notifications.NotificationProfile;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;

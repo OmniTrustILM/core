@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.entity.EntityInstanceDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.entity.EntityInstanceDto;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import com.fasterxml.jackson.annotation.JsonIgnore;

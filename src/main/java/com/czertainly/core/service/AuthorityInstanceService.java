@@ -1,13 +1,13 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto;
-import com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndIdDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.authority.AuthorityInstanceDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
+import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.authority.AuthorityInstanceDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

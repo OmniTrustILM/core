@@ -1,7 +1,7 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;

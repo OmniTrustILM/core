@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa;
 
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.signing.SigningCertificateBuilder;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -11,7 +11,7 @@ import com.czertainly.core.signing.tsa.certificate.SigningCertificateValidatorFa
 import com.czertainly.core.signing.tsa.certificate.ValidationResult;
 import com.czertainly.core.signing.tsa.messages.TspResponse;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityRegister;
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.util.CertificateTestUtil;
 import com.czertainly.core.util.clocksource.TestClockSource;
 import com.czertainly.core.util.serialnumber.ClockDriftException;

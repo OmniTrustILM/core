@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.oid.SystemOid;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.oid.SystemOid;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.CryptographicKey;

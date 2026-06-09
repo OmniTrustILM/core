@@ -1,14 +1,14 @@
 package com.czertainly.core.signing.tsa.formatter;
 
-import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.common.enums.cryptography.SignatureAlgorithm;
-import com.czertainly.api.model.connector.signatures.formatter.ExtensionDto;
-import com.czertainly.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
-import com.czertainly.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.connector.signatures.formatter.ExtensionDto;
+import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
+import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.signing.tsa.CertificateChain;
 import com.czertainly.core.signing.tsa.messages.TspRequest;

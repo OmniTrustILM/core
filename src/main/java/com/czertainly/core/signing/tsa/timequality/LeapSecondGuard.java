@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.timequality;
 
-import com.czertainly.api.model.messaging.timequality.LeapSecondWarning;
+import com.otilm.api.model.messaging.timequality.LeapSecondWarning;
 import com.czertainly.core.util.clocksource.ClockSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

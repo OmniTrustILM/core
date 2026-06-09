@@ -1,7 +1,7 @@
 package com.czertainly.core.service.writer;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.repository.CertificateContentRepository;

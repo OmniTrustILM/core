@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SettingsSection;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;

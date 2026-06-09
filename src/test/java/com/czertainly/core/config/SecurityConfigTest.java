@@ -1,7 +1,7 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.oauth2.OAuth2TestUtil;
 import com.czertainly.core.settings.SettingsCache;

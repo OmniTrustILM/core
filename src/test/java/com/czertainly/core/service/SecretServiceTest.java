@@ -1,32 +1,32 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.MetadataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.common.error.ErrorCode;
-import com.czertainly.api.model.common.error.ProblemDetailExtended;
-import com.czertainly.api.model.connector.secrets.SecretContentResponseDto;
-import com.czertainly.api.model.connector.secrets.SecretResponseDto;
-import com.czertainly.api.model.connector.secrets.SecretType;
-import com.czertainly.api.model.connector.secrets.content.BasicAuthSecretContent;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
-import com.czertainly.api.model.core.secret.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.secrets.SecretContentResponseDto;
+import com.otilm.api.model.connector.secrets.SecretResponseDto;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.secret.*;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
@@ -34,7 +34,7 @@ import com.czertainly.core.messaging.jms.listeners.ActionsListener;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.SecretActionData;
 import com.czertainly.core.messaging.jms.producers.ActionProducer;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -180,7 +180,7 @@ class SecretServiceTest extends BaseSpringBootTest {
 
         secret = new Secret();
         secret.setName("testSecret");
-        secret.setType(com.czertainly.api.model.connector.secrets.SecretType.BASIC_AUTH);
+        secret.setType(com.otilm.api.model.connector.secrets.SecretType.BASIC_AUTH);
         secret.setState(SecretState.ACTIVE);
         secret.setSourceVaultProfile(vaultProfile);
         secret.setEnabled(true);
@@ -694,8 +694,8 @@ class SecretServiceTest extends BaseSpringBootTest {
                     .filter(f -> f.getFieldIdentifier().equals(FilterField.SECRET_TYPE.name()))
                     .findFirst()
                     .orElseThrow();
-            List<String> secretTypeCodes = Arrays.stream(com.czertainly.api.model.connector.secrets.SecretType.values())
-                    .map(com.czertainly.api.model.connector.secrets.SecretType::getCode)
+            List<String> secretTypeCodes = Arrays.stream(com.otilm.api.model.connector.secrets.SecretType.values())
+                    .map(com.otilm.api.model.connector.secrets.SecretType::getCode)
                     .toList();
             Assertions.assertTrue(((List<?>) secretTypeField.getValue()).containsAll(secretTypeCodes));
 

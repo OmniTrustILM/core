@@ -1,21 +1,21 @@
 package com.czertainly.core.service.acme.impl;
 
-import com.czertainly.api.exception.AcmeProblemDocumentException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.core.acme.*;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.certificate.CertificateChainResponseDto;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.enums.CertificateProtocol;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.exception.AcmeProblemDocumentException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.core.acme.*;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -38,6 +38,7 @@ import com.czertainly.core.util.*;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSObject;
 import com.nimbusds.jose.util.Base64URL;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import jakarta.transaction.Transactional;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -241,7 +242,7 @@ public class AcmeServiceImpl implements AcmeService {
 
         Account accountDto = account.mapToDto();
         String baseUri = getAcmeBaseUri();
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, false, account.getUuid().toString(), account.getAccountId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, false, account.getUuid().toString(), account.getAccountId());
 
         ResponseEntity.BodyBuilder responseBuilder;
         if (isRaProfileBased) {
@@ -287,7 +288,7 @@ public class AcmeServiceImpl implements AcmeService {
         AcmeAccount account;
         try {
             account = getAcmeAccountEntity(accountId);
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, false, account.getUuid().toString(), account.getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, false, account.getUuid().toString(), account.getAccountId());
         } catch (NotFoundException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ACCOUNT_DOES_NOT_EXIST);
         }
@@ -358,7 +359,7 @@ public class AcmeServiceImpl implements AcmeService {
         AcmeAccount acmeAccount;
         try {
             acmeAccount = getAcmeAccountEntity(accountId);
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, false, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, false, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
         } catch (NotFoundException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ACCOUNT_DOES_NOT_EXIST);
         }
@@ -403,7 +404,7 @@ public class AcmeServiceImpl implements AcmeService {
         AcmeAccount acmeAccount;
         try {
             acmeAccount = getAcmeAccountEntity(acmeAccountId);
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, true, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, true, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
             validateAccount(acmeAccount);
             logger.info("ACME Account set: {}", acmeAccount);
         } catch (NotFoundException e) {
@@ -413,7 +414,7 @@ public class AcmeServiceImpl implements AcmeService {
 
         AcmeOrder order = generateOrder(acmeAccount, jwsRequest);
         logger.debug("Order created: {}", order);
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
 
         return ResponseEntity.created(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
@@ -427,7 +428,7 @@ public class AcmeServiceImpl implements AcmeService {
         AcmeAccount acmeAccount;
         try {
             acmeAccount = getAcmeAccountEntity(accountId);
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, true, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, true, acmeAccount.getUuid().toString(), acmeAccount.getAccountId());
         } catch (NotFoundException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ACCOUNT_DOES_NOT_EXIST);
         }
@@ -461,9 +462,9 @@ public class AcmeServiceImpl implements AcmeService {
         AcmeJwsRequest jwsRequest = new AcmeJwsRequest(requestJson);
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
         AcmeAuthorization authorization = validateAuthorization(authorizationId);
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_AUTHORIZATION, false, authorization.getUuid().toString(), authorization.getAuthorizationId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_AUTHORIZATION, false, authorization.getUuid().toString(), authorization.getAuthorizationId());
         if (authorization.getOrder() != null) {
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, true, authorization.getOrder().getUuid().toString(), authorization.getOrder().getOrderId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, true, authorization.getOrder().getUuid().toString(), authorization.getOrder().getOrderId());
         }
 
         boolean isDeactivateRequest = false;
@@ -499,7 +500,7 @@ public class AcmeServiceImpl implements AcmeService {
         logger.debug("Authorization corresponding to the Order: {}", authorization.toString());
         AcmeOrder order = authorization.getOrder();
         logger.debug("Order corresponding to the Challenge: {}", order.toString());
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, true, order.getUuid().toString(), order.getOrderId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, true, order.getUuid().toString(), order.getOrderId());
 
         boolean isValid;
         if (challenge.getType().equals(ChallengeType.HTTP01)) {
@@ -543,9 +544,9 @@ public class AcmeServiceImpl implements AcmeService {
 
         logger.debug("Request to finalize the Order with ID: {}", orderId);
         AcmeOrder order = validateOrder(orderId);
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
         if (order.getAcmeAccount() != null) {
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, true, order.getAcmeAccount().getUuid().toString(), order.getAcmeAccount().getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, true, order.getAcmeAccount().getUuid().toString(), order.getAcmeAccount().getAccountId());
         }
 
         validateAccount(order.getAcmeAccount());
@@ -598,9 +599,9 @@ public class AcmeServiceImpl implements AcmeService {
     @Override
     public ResponseEntity<Order> getOrder(String acmeProfileName, String orderId, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeOrder order = validateOrder(orderId);
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
         if (order.getAcmeAccount() != null) {
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ACCOUNT, true, order.getAcmeAccount().getUuid().toString(), order.getAcmeAccount().getAccountId());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ACCOUNT, true, order.getAcmeAccount().getUuid().toString(), order.getAcmeAccount().getAccountId());
         }
 
         if (order.getStatus().equals(OrderStatus.INVALID)) {
@@ -649,7 +650,7 @@ public class AcmeServiceImpl implements AcmeService {
         ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
 
         Certificate cert = certificateService.getCertificateEntityByContent(base64Certificate);
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.CERTIFICATE, false, cert.getUuid().toString(), cert.getSubjectDn());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false, cert.getUuid().toString(), cert.getSubjectDn());
         if (cert.isArchived()) throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ARCHIVED);
         if (cert.getState().equals(CertificateState.REVOKED)) {
             logger.error("Certificate is already revoked. Serial number: {}, Fingerprint: {}", cert.getSerialNumber(), cert.getFingerprint());
@@ -1149,9 +1150,9 @@ public class AcmeServiceImpl implements AcmeService {
             return AttributeDefinitionUtils.getClientAttributes(AttributeDefinitionUtils.deserialize(attributes, DataAttributeV2.class));
         } else {
             if (isRevoke) {
-                return attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(com.czertainly.api.model.core.auth.Resource.ACME_PROFILE, acmeAccount.getAcmeProfile().getUuid()).connector(acmeAccount.getAcmeProfile().getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build());
+                return attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(com.otilm.api.model.core.auth.Resource.ACME_PROFILE, acmeAccount.getAcmeProfile().getUuid()).connector(acmeAccount.getAcmeProfile().getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build());
             } else {
-                return attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(com.czertainly.api.model.core.auth.Resource.ACME_PROFILE, acmeAccount.getAcmeProfile().getUuid()).connector(acmeAccount.getAcmeProfile().getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build());
+                return attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(com.otilm.api.model.core.auth.Resource.ACME_PROFILE, acmeAccount.getAcmeProfile().getUuid()).connector(acmeAccount.getAcmeProfile().getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build());
             }
         }
 
@@ -1199,11 +1200,11 @@ public class AcmeServiceImpl implements AcmeService {
 
     protected ByteArrayResource getCertificateResource(String certificateId) throws NotFoundException, CertificateException {
         AcmeOrder order = acmeOrderRepository.findByCertificateId(certificateId).orElseThrow(() -> new NotFoundException(Order.class, certificateId));
-        LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.ACME_ORDER, true, order.getUuid().toString(), order.getOrderId());
+        LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, true, order.getUuid().toString(), order.getOrderId());
 
         CertificateChainResponseDto certificateChainResponse = certificateService.getCertificateChain(SecuredUUID.fromUUID(order.getCertificateReferenceUuid()), true);
         if (!certificateChainResponse.getCertificates().isEmpty()) {
-            LoggingHelper.putLogResourceInfo(com.czertainly.api.model.core.auth.Resource.CERTIFICATE, false, certificateChainResponse.getCertificates().getFirst().getUuid(), certificateChainResponse.getCertificates().getFirst().getSubjectDn());
+            LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false, certificateChainResponse.getCertificates().getFirst().getUuid(), certificateChainResponse.getCertificates().getFirst().getSubjectDn());
         }
         String chainString = frameCertChainString(certificateChainResponse.getCertificates());
         return new ByteArrayResource(chainString.getBytes(StandardCharsets.UTF_8));

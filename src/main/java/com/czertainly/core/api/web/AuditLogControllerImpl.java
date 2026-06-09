@@ -1,14 +1,14 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.interfaces.core.web.AuditLogController;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.audit.AuditLogResponseDto;
-import com.czertainly.api.model.core.audit.ExportResultDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.interfaces.core.web.AuditLogController;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.audit.AuditLogResponseDto;
+import com.otilm.api.model.core.audit.ExportResultDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.AuditLogExternalService;
 import org.springframework.beans.factory.annotation.Autowired;

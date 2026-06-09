@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing;
 
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 
 public final class SigningRecordPolicyModelBuilder {
 

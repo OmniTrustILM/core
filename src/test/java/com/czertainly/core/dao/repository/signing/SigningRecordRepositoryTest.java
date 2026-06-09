@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.repository.signing;
 
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;

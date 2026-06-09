@@ -22,9 +22,9 @@ public interface AcmeOrderRepository extends SecurityFilterRepository<AcmeOrder,
 
     @Modifying
     @Query(value = """
-            UPDATE AcmeOrder ac SET status = ?#{T(com.czertainly.api.model.core.acme.OrderStatus).INVALID}
-            WHERE ac.acmeAccount = :acmeAccount AND ac.expires <= :expires AND ac.status != ?#{T(com.czertainly.api.model.core.acme.OrderStatus).INVALID}
-            AND ac.status != ?#{T(com.czertainly.api.model.core.acme.OrderStatus).VALID}
+            UPDATE AcmeOrder ac SET status = ?#{T(com.otilm.api.model.core.acme.OrderStatus).INVALID}
+            WHERE ac.acmeAccount = :acmeAccount AND ac.expires <= :expires AND ac.status != ?#{T(com.otilm.api.model.core.acme.OrderStatus).INVALID}
+            AND ac.status != ?#{T(com.otilm.api.model.core.acme.OrderStatus).VALID}
             """)
     Integer invalidateExpiredOrders(AcmeAccount acmeAccount, Date expires);
 }

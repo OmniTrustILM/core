@@ -1,27 +1,27 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.clients.AttributeApiClient;
-import com.czertainly.api.clients.AuthorityInstanceApiClient;
-import com.czertainly.api.clients.BaseApiClient;
-import com.czertainly.api.clients.CertificateApiClient;
-import com.czertainly.api.clients.ComplianceApiClient;
-import com.czertainly.api.clients.ConnectorApiClient;
-import com.czertainly.api.clients.DiscoveryApiClient;
-import com.czertainly.api.clients.EndEntityApiClient;
-import com.czertainly.api.clients.EndEntityProfileApiClient;
-import com.czertainly.api.clients.EntityInstanceApiClient;
-import com.czertainly.api.clients.HealthApiClient;
-import com.czertainly.api.clients.LocationApiClient;
-import com.czertainly.api.clients.NotificationInstanceApiClient;
-import com.czertainly.api.clients.SchedulerApiClient;
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
-import com.czertainly.api.clients.cryptography.KeyManagementApiClient;
-import com.czertainly.api.clients.cryptography.TokenInstanceApiClient;
-import com.czertainly.api.clients.secret.SecretApiClient;
-import com.czertainly.api.clients.secret.VaultApiClient;
-import com.czertainly.api.clients.signing.SignatureFormatterApiClient;
-import com.czertainly.api.clients.v2.InfoApiClient;
-import com.czertainly.api.clients.v2.MetricsApiClient;
+import com.otilm.api.clients.AttributeApiClient;
+import com.otilm.api.clients.AuthorityInstanceApiClient;
+import com.otilm.api.clients.BaseApiClient;
+import com.otilm.api.clients.CertificateApiClient;
+import com.otilm.api.clients.ComplianceApiClient;
+import com.otilm.api.clients.ConnectorApiClient;
+import com.otilm.api.clients.DiscoveryApiClient;
+import com.otilm.api.clients.EndEntityApiClient;
+import com.otilm.api.clients.EndEntityProfileApiClient;
+import com.otilm.api.clients.EntityInstanceApiClient;
+import com.otilm.api.clients.HealthApiClient;
+import com.otilm.api.clients.LocationApiClient;
+import com.otilm.api.clients.NotificationInstanceApiClient;
+import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
+import com.otilm.api.clients.cryptography.KeyManagementApiClient;
+import com.otilm.api.clients.cryptography.TokenInstanceApiClient;
+import com.otilm.api.clients.secret.SecretApiClient;
+import com.otilm.api.clients.secret.VaultApiClient;
+import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.clients.v2.InfoApiClient;
+import com.otilm.api.clients.v2.MetricsApiClient;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
@@ -56,8 +56,8 @@ public class ApplicationConfig {
     // Connectors v2 API Clients
 
     @Bean(name = "healthApiClientV2")
-    public com.czertainly.api.clients.v2.HealthApiClient healthApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
-        return new com.czertainly.api.clients.v2.HealthApiClient(webClient, defaultTrustManagers);
+    public com.otilm.api.clients.v2.HealthApiClient healthApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v2.HealthApiClient(webClient, defaultTrustManagers);
     }
 
     @Bean
@@ -141,8 +141,8 @@ public class ApplicationConfig {
     }
 
     @Bean
-    public com.czertainly.api.clients.v2.CertificateApiClient certificateApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
-        return new com.czertainly.api.clients.v2.CertificateApiClient(webClient, defaultTrustManagers);
+    public com.otilm.api.clients.v2.CertificateApiClient certificateApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v2.CertificateApiClient(webClient, defaultTrustManagers);
     }
 
     @Bean
@@ -151,8 +151,8 @@ public class ApplicationConfig {
     }
 
     @Bean
-    public com.czertainly.api.clients.v2.ComplianceApiClient complianceApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
-        return new com.czertainly.api.clients.v2.ComplianceApiClient(webClient, defaultTrustManagers);
+    public com.otilm.api.clients.v2.ComplianceApiClient complianceApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v2.ComplianceApiClient(webClient, defaultTrustManagers);
     }
 
     @Bean

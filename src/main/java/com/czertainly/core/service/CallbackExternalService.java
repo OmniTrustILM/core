@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 
 import java.util.UUID;
 

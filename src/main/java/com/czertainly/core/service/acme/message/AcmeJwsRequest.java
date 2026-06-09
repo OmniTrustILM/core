@@ -1,8 +1,8 @@
 package com.czertainly.core.service.acme.message;
 
-import com.czertainly.api.exception.AcmeProblemDocumentException;
-import com.czertainly.api.model.common.JwsBody;
-import com.czertainly.api.model.core.acme.Problem;
+import com.otilm.api.exception.AcmeProblemDocumentException;
+import com.otilm.api.model.common.JwsBody;
+import com.otilm.api.model.core.acme.Problem;
 import com.czertainly.core.service.acme.AcmeConstants;
 import com.czertainly.core.util.AcmeJsonProcessor;
 import com.fasterxml.jackson.core.JsonProcessingException;

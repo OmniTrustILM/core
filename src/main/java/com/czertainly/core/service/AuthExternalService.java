@@ -1,10 +1,10 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.core.auth.AuthResourceDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDetailDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDetailDto;
 
 import java.security.cert.CertificateException;
 import java.util.List;

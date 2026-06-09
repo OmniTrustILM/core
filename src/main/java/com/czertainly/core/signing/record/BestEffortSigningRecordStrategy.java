@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.record;
 
-import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;

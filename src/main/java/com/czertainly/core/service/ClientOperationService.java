@@ -1,14 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.authority.ClientAddEndEntityRequestDto;
-import com.czertainly.api.model.client.authority.LegacyClientCertificateRevocationDto;
-import com.czertainly.api.model.client.authority.LegacyClientCertificateSignRequestDto;
-import com.czertainly.api.model.client.authority.ClientCertificateSignResponseDto;
-import com.czertainly.api.model.client.authority.ClientEditEndEntityRequestDto;
-import com.czertainly.api.model.client.authority.ClientEndEntityDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.authority.ClientAddEndEntityRequestDto;
+import com.otilm.api.model.client.authority.LegacyClientCertificateRevocationDto;
+import com.otilm.api.model.client.authority.LegacyClientCertificateSignRequestDto;
+import com.otilm.api.model.client.authority.ClientCertificateSignResponseDto;
+import com.otilm.api.model.client.authority.ClientEditEndEntityRequestDto;
+import com.otilm.api.model.client.authority.ClientEndEntityDto;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 

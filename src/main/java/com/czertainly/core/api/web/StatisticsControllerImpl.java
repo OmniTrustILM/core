@@ -1,10 +1,10 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.interfaces.core.web.StatisticsController;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.interfaces.core.web.StatisticsController;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.StatisticsExternalService;
 import org.springframework.beans.factory.annotation.Autowired;

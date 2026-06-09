@@ -1,9 +1,9 @@
 package com.czertainly.core.dao.entity.acme;
 
-import com.czertainly.api.model.client.acme.AcmeAccountListResponseDto;
-import com.czertainly.api.model.client.acme.AcmeAccountResponseDto;
-import com.czertainly.api.model.core.acme.Account;
-import com.czertainly.api.model.core.acme.AccountStatus;
+import com.otilm.api.model.client.acme.AcmeAccountListResponseDto;
+import com.otilm.api.model.client.acme.AcmeAccountResponseDto;
+import com.otilm.api.model.core.acme.Account;
+import com.otilm.api.model.core.acme.AccountStatus;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.czertainly.core.util.DtoMapper;

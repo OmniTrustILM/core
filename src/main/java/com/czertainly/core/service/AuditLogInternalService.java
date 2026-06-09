@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.core.logging.enums.AuditLogOutput;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.enums.OperationResult;
-import com.czertainly.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.logging.records.LogRecord;
 
 public interface AuditLogInternalService {
 

@@ -1,11 +1,11 @@
 package com.czertainly.core.tasks;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.scep.ScepProfile;
 import com.czertainly.core.dao.repository.scep.ScepProfileRepository;

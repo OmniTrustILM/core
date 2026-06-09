@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.notification.RecipientType;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.czertainly.core.dao.entity.Group;
 
 import java.util.List;

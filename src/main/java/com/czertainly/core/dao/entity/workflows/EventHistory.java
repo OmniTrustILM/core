@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.EventStatus;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.EventStatus;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import jakarta.persistence.*;
 import lombok.Getter;

@@ -1,12 +1,12 @@
 package com.czertainly.core.service.v2;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.v2.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.v2.*;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

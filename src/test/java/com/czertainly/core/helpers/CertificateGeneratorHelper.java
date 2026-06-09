@@ -1,6 +1,6 @@
 package com.czertainly.core.helpers;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import lombok.Getter;
 import org.bouncycastle.asn1.ASN1EncodableVector;
 import org.bouncycastle.asn1.DERPrintableString;

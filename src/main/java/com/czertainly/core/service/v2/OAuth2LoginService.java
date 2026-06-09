@@ -1,6 +1,6 @@
 package com.czertainly.core.service.v2;
 
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 
 import java.util.List;
 

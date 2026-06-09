@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.core.certificate.CertificateFormat;
+import com.otilm.api.model.core.certificate.CertificateFormat;
 
 import java.beans.PropertyEditorSupport;
 

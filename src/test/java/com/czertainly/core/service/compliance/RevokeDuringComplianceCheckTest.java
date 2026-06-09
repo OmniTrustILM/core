@@ -1,8 +1,8 @@
 package com.czertainly.core.service.compliance;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;

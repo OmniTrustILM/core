@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity.notifications;
 
-import com.czertainly.api.model.core.notification.AttributeMappingDto;
+import com.otilm.api.model.core.notification.AttributeMappingDto;
 import com.czertainly.core.dao.entity.AttributeDefinition;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.czertainly.core.util.DtoMapper;

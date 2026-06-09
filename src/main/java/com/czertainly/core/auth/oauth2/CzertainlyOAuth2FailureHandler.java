@@ -1,6 +1,6 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.*;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.service.AuditLogInternalService;

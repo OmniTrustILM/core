@@ -1,6 +1,6 @@
 package db.migration;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.util.DatabaseAttributeMigration;
 import com.czertainly.core.util.DatabaseMigration;

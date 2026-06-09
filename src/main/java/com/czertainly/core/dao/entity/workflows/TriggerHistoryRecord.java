@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.core.workflows.TriggerHistoryRecordDto;
+import com.otilm.api.model.core.workflows.TriggerHistoryRecordDto;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import jakarta.persistence.*;
 import lombok.*;

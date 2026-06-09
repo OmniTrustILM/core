@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.approval.ApprovalDetailStepDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
+import com.otilm.api.model.client.approval.ApprovalDetailStepDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepDto;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;

@@ -1,6 +1,6 @@
 package com.czertainly.core.model.auth;
 
-import com.czertainly.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.enums.CertificateProtocol;
 import lombok.Getter;
 import lombok.Setter;
 

@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceRuleAvailabilityStatus;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceRuleAvailabilityStatus;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;

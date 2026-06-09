@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.model;
 
-import com.czertainly.api.model.core.notification.RecipientType;
+import com.otilm.api.model.core.notification.RecipientType;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

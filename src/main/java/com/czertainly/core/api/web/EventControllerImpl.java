@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.EventController;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.workflows.EventHistoryDto;
-import com.czertainly.api.model.core.workflows.EventHistoryRequestDto;
-import com.czertainly.api.model.core.workflows.ObjectEventHistoryDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.EventController;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.workflows.EventHistoryDto;
+import com.otilm.api.model.core.workflows.EventHistoryRequestDto;
+import com.otilm.api.model.core.workflows.ObjectEventHistoryDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.EventExternalService;

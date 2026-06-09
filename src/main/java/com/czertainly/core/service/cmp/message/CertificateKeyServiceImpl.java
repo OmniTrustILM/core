@@ -1,8 +1,8 @@
 package com.czertainly.core.service.cmp.message;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.provider.CzertainlyProvider;

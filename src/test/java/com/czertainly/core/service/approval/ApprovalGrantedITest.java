@@ -1,16 +1,16 @@
 package com.czertainly.core.service.approval;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.client.approval.UserApprovalDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventHistoryDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.approval.UserApprovalDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.entity.Certificate;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredUUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;

@@ -1,23 +1,23 @@
 package com.czertainly.core.attribute;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
-import com.czertainly.api.model.client.metadata.MetadataResponseDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.MetadataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.metadata.MetadataResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -379,8 +379,8 @@ class AttributeEngineVersioningTest extends BaseSpringBootTest {
         Connector connectorB = new Connector();
         connectorB.setName("ConnectorB_" + UUID.randomUUID());
         connectorB.setUrl("http://localhost:9998");
-        connectorB.setVersion(com.czertainly.api.model.client.connector.v2.ConnectorVersion.V1);
-        connectorB.setStatus(com.czertainly.api.model.core.connector.ConnectorStatus.CONNECTED);
+        connectorB.setVersion(com.otilm.api.model.client.connector.v2.ConnectorVersion.V1);
+        connectorB.setStatus(com.otilm.api.model.core.connector.ConnectorStatus.CONNECTED);
         connectorB = connectorRepository.save(connectorB);
 
         // Register attribute definitions under each connector for the same operation

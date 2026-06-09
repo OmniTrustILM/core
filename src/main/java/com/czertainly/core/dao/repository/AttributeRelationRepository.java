@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.AttributeRelation;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;

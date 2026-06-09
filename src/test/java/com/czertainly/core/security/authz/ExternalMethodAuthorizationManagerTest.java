@@ -1,9 +1,9 @@
 package com.czertainly.core.security.authz;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.config.OpaSecuredAnnotationMetadataExtractor;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;

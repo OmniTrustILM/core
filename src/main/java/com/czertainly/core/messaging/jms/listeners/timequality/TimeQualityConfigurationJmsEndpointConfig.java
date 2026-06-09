@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigRequest;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigRequest;
 import com.czertainly.core.messaging.jms.configuration.MessagingConcurrencyProperties;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.listeners.AbstractJmsEndpointConfig;

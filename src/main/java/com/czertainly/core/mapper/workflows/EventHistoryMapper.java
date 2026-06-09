@@ -1,8 +1,8 @@
 package com.czertainly.core.mapper.workflows;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.entity.workflows.TriggerHistory;
 import com.czertainly.core.dao.entity.workflows.TriggerHistoryRecord;

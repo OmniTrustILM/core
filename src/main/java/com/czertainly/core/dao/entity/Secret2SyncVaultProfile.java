@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;

@@ -1,15 +1,15 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.AuthController;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.AuthResourceDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDetailDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.AuthController;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDetailDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecurityFilter;

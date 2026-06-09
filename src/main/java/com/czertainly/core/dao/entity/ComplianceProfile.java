@@ -1,9 +1,9 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.compliance.SimplifiedComplianceProfileDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.compliance.ComplianceProviderSummaryDto;
-import com.czertainly.api.model.core.compliance.v2.*;
+import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.compliance.ComplianceProviderSummaryDto;
+import com.otilm.api.model.core.compliance.v2.*;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import jakarta.persistence.*;
@@ -80,13 +80,13 @@ public class ComplianceProfile extends UniquelyIdentifiedAndAudited implements S
      *
      * @return ComplianceProfilesListDto with the response for listing operation
      */
-    public com.czertainly.api.model.core.compliance.ComplianceProfilesListDto mapToListDtoV1() {
-        var complianceProfileDto = new com.czertainly.api.model.core.compliance.ComplianceProfilesListDto();
+    public com.otilm.api.model.core.compliance.ComplianceProfilesListDto mapToListDtoV1() {
+        var complianceProfileDto = new com.otilm.api.model.core.compliance.ComplianceProfilesListDto();
         complianceProfileDto.setName(name);
         complianceProfileDto.setUuid(uuid.toString());
         complianceProfileDto.setDescription(description);
 
-        Map<String, com.czertainly.api.model.core.compliance.ComplianceProviderSummaryDto> providersMapping = new TreeMap<>();
+        Map<String, com.otilm.api.model.core.compliance.ComplianceProviderSummaryDto> providersMapping = new TreeMap<>();
         for (ComplianceProfileRule complianceRule : complianceRules) {
             if (complianceRule.getComplianceRuleUuid() != null) {
                 String connectorName = complianceRule.getConnector().getName();

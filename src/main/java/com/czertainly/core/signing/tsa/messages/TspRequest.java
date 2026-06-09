@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.messages;
 
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.czertainly.core.signing.tsa.validator.TspRequestValidator;
 import org.bouncycastle.asn1.x509.Extensions;
 

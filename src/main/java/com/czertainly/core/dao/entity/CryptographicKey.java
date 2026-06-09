@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.cryptography.key.*;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.cryptography.key.*;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;

@@ -1,7 +1,7 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.core.certificate.CertificateValidationCheck;
-import com.czertainly.api.model.core.certificate.CertificateValidationCheckDto;
+import com.otilm.api.model.core.certificate.CertificateValidationCheck;
+import com.otilm.api.model.core.certificate.CertificateValidationCheckDto;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 

@@ -1,13 +1,13 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
-import com.czertainly.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
+import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.TokenInstanceReference;
 import com.czertainly.core.dao.entity.TokenProfile;

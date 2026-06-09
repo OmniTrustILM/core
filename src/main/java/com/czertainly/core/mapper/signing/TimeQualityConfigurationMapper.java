@@ -1,8 +1,8 @@
 package com.czertainly.core.mapper.signing;
 
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationDto;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationDto;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfiguration;
 import com.czertainly.core.model.signing.timequality.LocalClockTimeQualityConfiguration;

@@ -1,10 +1,10 @@
 package com.czertainly.core.cbom.client;
 
-import com.czertainly.api.exception.CbomRepositoryException;
-import com.czertainly.api.model.core.cbom.CbomUploadRequestDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.czertainly.core.model.cbom.*;
 import com.czertainly.core.settings.SettingsCache;
 import com.fasterxml.jackson.databind.ObjectMapper;

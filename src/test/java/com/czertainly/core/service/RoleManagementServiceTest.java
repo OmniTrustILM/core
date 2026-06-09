@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.auth.RoleRequestDto;
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.model.client.auth.RoleRequestDto;
+import com.otilm.api.model.core.auth.*;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.util.BaseSpringBootTest;

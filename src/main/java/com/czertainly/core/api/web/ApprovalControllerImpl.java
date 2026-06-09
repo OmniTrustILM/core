@@ -1,15 +1,15 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.ApprovalController;
-import com.czertainly.api.model.client.approval.ApprovalDetailDto;
-import com.czertainly.api.model.client.approval.ApprovalResponseDto;
-import com.czertainly.api.model.client.approval.ApprovalUserDto;
-import com.czertainly.api.model.client.approval.UserApprovalDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.ApprovalController;
+import com.otilm.api.model.client.approval.ApprovalDetailDto;
+import com.otilm.api.model.client.approval.ApprovalResponseDto;
+import com.otilm.api.model.client.approval.ApprovalUserDto;
+import com.otilm.api.model.client.approval.UserApprovalDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecurityFilter;

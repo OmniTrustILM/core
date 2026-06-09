@@ -1,13 +1,13 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.oid.SystemOid;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.oid.SystemOid;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Certificate_;
 import com.czertainly.core.dao.entity.CryptographicKey_;

@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.cmp.CmpProfileEditRequestDto;
-import com.czertainly.api.model.client.cmp.CmpProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDetailDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.cmp.CmpProfileEditRequestDto;
+import com.otilm.api.model.client.cmp.CmpProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.cmp.CmpProfileDetailDto;
+import com.otilm.api.model.core.cmp.CmpProfileDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

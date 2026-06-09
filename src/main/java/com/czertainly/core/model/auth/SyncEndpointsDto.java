@@ -1,6 +1,6 @@
 package com.czertainly.core.model.auth;
 
-import com.czertainly.api.model.core.connector.EndpointDto;
+import com.otilm.api.model.core.connector.EndpointDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;

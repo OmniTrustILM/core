@@ -1,10 +1,10 @@
 package com.czertainly.core.events;
 
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.EventStatus;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.EventStatus;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedObject;
 import com.czertainly.core.dao.entity.workflows.EventHistory;
 import com.czertainly.core.dao.entity.workflows.Trigger;

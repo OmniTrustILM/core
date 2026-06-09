@@ -1,10 +1,10 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfileVersion;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 
 import java.util.UUID;
 

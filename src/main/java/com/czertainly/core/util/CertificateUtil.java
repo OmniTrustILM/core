@@ -1,15 +1,15 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.CertificateRequestException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.oid.SystemOid;
-import com.czertainly.api.model.core.settings.CertificateValidationSettingsDto;
-import com.czertainly.api.model.core.settings.PlatformSettingsDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.oid.SystemOid;
+import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.DiscoveryCertificate;
 import com.czertainly.core.model.request.CertificateRequest;

@@ -1,9 +1,9 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.core.protocol.ProtocolCertificateAssociationsDto;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsDto;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import lombok.EqualsAndHashCode;

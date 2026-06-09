@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.vault.VaultInstanceDetailDto;
-import com.czertainly.api.model.core.vault.VaultInstanceDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.vault.VaultInstanceDetailDto;
+import com.otilm.api.model.core.vault.VaultInstanceDto;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;

@@ -1,15 +1,15 @@
 package com.czertainly.core.events.data;
 
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
-import com.czertainly.api.model.common.events.data.*;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.notification.RecipientType;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepDto;
+import com.otilm.api.model.common.events.data.*;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.DiscoveryHistory;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;

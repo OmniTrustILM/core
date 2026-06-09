@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDetailDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileDetailDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import org.junit.jupiter.api.Assertions;

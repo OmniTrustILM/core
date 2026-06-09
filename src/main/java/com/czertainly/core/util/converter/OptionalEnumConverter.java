@@ -1,9 +1,9 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 
 import java.beans.PropertyEditorSupport;
 import java.util.Optional;

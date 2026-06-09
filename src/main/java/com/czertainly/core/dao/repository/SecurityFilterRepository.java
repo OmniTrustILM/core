@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import jakarta.persistence.criteria.*;

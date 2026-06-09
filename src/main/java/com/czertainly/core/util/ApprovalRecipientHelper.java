@@ -1,10 +1,10 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.client.approval.ApprovalDetailStepDto;
-import com.czertainly.api.model.client.approval.ApprovalStepRecipientDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
-import com.czertainly.api.model.core.auth.RoleDto;
-import com.czertainly.api.model.core.auth.UserDto;
+import com.otilm.api.model.client.approval.ApprovalDetailStepDto;
+import com.otilm.api.model.client.approval.ApprovalStepRecipientDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepDto;
+import com.otilm.api.model.core.auth.RoleDto;
+import com.otilm.api.model.core.auth.UserDto;
 import com.czertainly.core.dao.entity.Group;
 import com.czertainly.core.dao.repository.GroupRepository;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;

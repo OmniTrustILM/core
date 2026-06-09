@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.AcmeProfileController;
-import com.czertainly.api.model.client.acme.AcmeProfileEditRequestDto;
-import com.czertainly.api.model.client.acme.AcmeProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.acme.AcmeProfileDto;
-import com.czertainly.api.model.core.acme.AcmeProfileListDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.AcmeProfileController;
+import com.otilm.api.model.client.acme.AcmeProfileEditRequestDto;
+import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.acme.AcmeProfileDto;
+import com.otilm.api.model.core.acme.AcmeProfileListDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;

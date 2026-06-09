@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.SettingController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.settings.*;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.SettingController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.settings.*;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.SettingService;

@@ -1,8 +1,8 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileUpdateRequestDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileRequestDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileUpdateRequestDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepDto;
 import com.czertainly.core.util.BaseSpringBootTest;
 
 import java.util.UUID;

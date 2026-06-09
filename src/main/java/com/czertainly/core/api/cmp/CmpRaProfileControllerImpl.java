@@ -1,12 +1,12 @@
 package com.czertainly.core.api.cmp;
 
-import com.czertainly.api.interfaces.core.cmp.CmpRaProfileController;
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.czertainly.api.interfaces.core.cmp.error.ImplFailureInfo;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.interfaces.core.cmp.CmpRaProfileController;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.cmp.CmpService;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;

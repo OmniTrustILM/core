@@ -1,9 +1,9 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;

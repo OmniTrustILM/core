@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
 
 import java.util.UUID;
