@@ -5,7 +5,6 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;

@@ -1,7 +1,6 @@
 package com.czertainly.core.service.scep;
 
 import com.otilm.api.exception.ScepException;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.scep.MessageType;
 import com.czertainly.core.service.scep.message.ScepConstants;
 import com.czertainly.core.service.scep.message.ScepRequest;
