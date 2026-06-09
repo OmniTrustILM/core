@@ -1,10 +1,12 @@
 package com.czertainly.core.mapper.signing;
 
+import com.czertainly.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
 import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyDto;
 import com.otilm.api.model.client.signing.profile.scheme.*;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowDto;
 import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowDto;

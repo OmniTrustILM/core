@@ -1,6 +1,8 @@
 package com.czertainly.core.service;
 
+import com.czertainly.core.attribute.CsrAttributes;
 import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.search.FilterConditionOperator;
