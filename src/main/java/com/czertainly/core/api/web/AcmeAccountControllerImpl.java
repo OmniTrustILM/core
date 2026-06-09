@@ -12,7 +12,7 @@ import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.AcmeAccountService;
+import com.czertainly.core.service.AcmeAccountExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,10 +21,10 @@ import java.util.List;
 @RestController
 public class AcmeAccountControllerImpl implements AcmeAccountController {
 
-    private AcmeAccountService acmeAccountService;
+    private AcmeAccountExternalService acmeAccountService;
 
     @Autowired
-    public void setAcmeAccountService(AcmeAccountService acmeAccountService) {
+    public void setAcmeAccountService(AcmeAccountExternalService acmeAccountService) {
         this.acmeAccountService = acmeAccountService;
     }
 

@@ -57,13 +57,16 @@ class AcmeAccountServiceTest extends BaseSpringBootTest {
     private AcmeOrderRepository acmeOrderRepository;
 
     @Autowired
-    private AcmeAccountService acmeAccountService;
+    private AcmeAccountExternalService acmeAccountService;
+
+    @Autowired
+    private AcmeAccountInternalService acmeAccountInternalService;
 
     @Autowired
     private AcmeAccountRepository acmeAccountRepository;
 
     @Autowired
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
 
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
@@ -213,11 +216,11 @@ class AcmeAccountServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = acmeAccountService.getResourceObjectInternal(acmeAccount.getUuid());
+        NameAndUuidDto nameAndUuidDto = acmeAccountInternalService.getResourceObjectInternal(acmeAccount.getUuid());
         Assertions.assertEquals(acmeAccount.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(acmeAccount.getAccountId(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = acmeAccountService.getResourceObjectExternal(acmeAccount.getSecuredUuid());
+        nameAndUuidDto = acmeAccountInternalService.getResourceObjectExternal(acmeAccount.getSecuredUuid());
         Assertions.assertEquals(acmeAccount.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(acmeAccount.getAccountId(), nameAndUuidDto.getName());
     }

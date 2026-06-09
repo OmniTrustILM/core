@@ -25,10 +25,12 @@ import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsReposit
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.CmpProfileService;
+import com.czertainly.core.service.CmpProfileExternalService;
+import com.czertainly.core.service.CmpProfileInternalService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
@@ -46,7 +48,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CMP_PROFILE)
 @Transactional
-public class CmpProfileServiceImpl implements CmpProfileService {
+public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CmpProfileServiceImpl.class);
 
@@ -326,6 +328,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<CertificateDto> listCmpSigningCertificates() {
         return certificateService.listCmpSigningCertificates(SecurityFilter.create());
     }

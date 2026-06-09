@@ -19,7 +19,8 @@ import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.AcmeAccountService;
+import com.czertainly.core.service.AcmeAccountExternalService;
+import com.czertainly.core.service.AcmeAccountInternalService;
 import com.czertainly.core.service.PermissionEvaluator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +36,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.ACME_ACCOUNT)
 @Transactional
-public class AcmeAccountServiceImpl implements AcmeAccountService {
+public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeAccountInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeAccountServiceImpl.class);
 

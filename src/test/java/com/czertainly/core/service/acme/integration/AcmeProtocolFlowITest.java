@@ -39,7 +39,7 @@ import com.czertainly.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.AcmeProfileService;
+import com.czertainly.core.service.AcmeProfileExternalService;
 import com.czertainly.core.service.AuthorityInstanceService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.acme.AcmeService;
@@ -108,7 +108,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private RaProfileService raProfileService;
     @Autowired
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
     @Autowired
     private AcmeService acmeService;
     @Autowired
@@ -234,7 +234,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
      *
      * <p>When an ACME account is created through the ACME-Profile-based flow it is marked with
      * {@code isDefaultRaProfile = true}. If the ACME Profile is later updated to a different RA Profile
-     * via {@link AcmeProfileService#updateRaProfile}, all such accounts must have their RA profiles updated
+     * via {@link AcmeProfileExternalService#updateRaProfile}, all such accounts must have their RA profiles updated
      * so that subsequent certificate operations are issued under the new RA Profile.
      *
      * <p>This test verifies that after switching the ACME Profile from

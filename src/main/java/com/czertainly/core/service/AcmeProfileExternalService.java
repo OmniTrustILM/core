@@ -11,7 +11,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface AcmeProfileService extends ResourceExtensionService {
+public interface AcmeProfileExternalService {
 
     List<AcmeProfileListDto> listAcmeProfile(SecurityFilter filter);
 

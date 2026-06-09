@@ -16,7 +16,7 @@ import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.AcmeProfileService;
+import com.czertainly.core.service.AcmeProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,10 +28,10 @@ import java.util.List;
 @RestController
 public class AcmeProfileControllerImpl implements AcmeProfileController {
 
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
 
     @Autowired
-    public void setAcmeProfileService(AcmeProfileService acmeProfileService) {
+    public void setAcmeProfileService(AcmeProfileExternalService acmeProfileService) {
         this.acmeProfileService = acmeProfileService;
     }
 

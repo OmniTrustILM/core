@@ -12,7 +12,7 @@ import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface CmpProfileService extends ResourceExtensionService {
+public interface CmpProfileExternalService {
 
     // TODO: Update the return type and parameters of the methods according to the business logic
 

@@ -16,7 +16,7 @@ import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.CmpProfileService;
+import com.czertainly.core.service.CmpProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,10 +30,10 @@ public class CmpProfileControllerImpl implements CmpProfileController {
 
     // injectors
 
-    private final CmpProfileService cmpProfileService;
+    private final CmpProfileExternalService cmpProfileService;
 
     @Autowired
-    public CmpProfileControllerImpl(CmpProfileService cmpProfileService) {
+    public CmpProfileControllerImpl(CmpProfileExternalService cmpProfileService) {
         this.cmpProfileService = cmpProfileService;
     }
 

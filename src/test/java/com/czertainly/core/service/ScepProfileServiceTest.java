@@ -57,7 +57,10 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     private CertificateService certificateService;
 
     @Autowired
-    private ScepProfileService scepProfileService;
+    private ScepProfileExternalService scepProfileService;
+
+    @Autowired
+    private ScepProfileInternalService scepProfileInternalService;
 
     @Autowired
     private ScepProfileRepository scepProfileRepository;
@@ -377,17 +380,17 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = scepProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = scepProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = scepProfileService.getResourceObjectInternal(scepProfile.getUuid());
+        NameAndUuidDto nameAndUuidDto = scepProfileInternalService.getResourceObjectInternal(scepProfile.getUuid());
         Assertions.assertEquals(scepProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(scepProfile.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = scepProfileService.getResourceObjectExternal(scepProfile.getSecuredUuid());
+        nameAndUuidDto = scepProfileInternalService.getResourceObjectExternal(scepProfile.getSecuredUuid());
         Assertions.assertEquals(scepProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(scepProfile.getName(), nameAndUuidDto.getName());
     }

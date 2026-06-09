@@ -54,7 +54,10 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
     private CertificateService certificateService;
 
     @Autowired
-    private CmpProfileService cmpProfileService;
+    private CmpProfileExternalService cmpProfileService;
+
+    @Autowired
+    private CmpProfileInternalService cmpProfileInternalService;
 
     @Autowired
     private CmpProfileRepository cmpProfileRepository;
@@ -204,11 +207,11 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = cmpProfileService.getResourceObjectInternal(cmpProfile.getUuid());
+        NameAndUuidDto nameAndUuidDto = cmpProfileInternalService.getResourceObjectInternal(cmpProfile.getUuid());
         Assertions.assertEquals(cmpProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cmpProfile.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = cmpProfileService.getResourceObjectExternal(cmpProfile.getSecuredUuid());
+        nameAndUuidDto = cmpProfileInternalService.getResourceObjectExternal(cmpProfile.getSecuredUuid());
         Assertions.assertEquals(cmpProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cmpProfile.getName(), nameAndUuidDto.getName());
     }

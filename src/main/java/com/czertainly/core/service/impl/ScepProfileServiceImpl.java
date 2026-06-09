@@ -23,6 +23,7 @@ import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsReposit
 import com.czertainly.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
@@ -43,7 +44,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.SCEP_PROFILE)
 @Transactional
-public class ScepProfileServiceImpl implements ScepProfileService {
+public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ScepProfileServiceImpl.class);
     private final ScepProfileRepository scepProfileRepository;
@@ -392,6 +393,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<CertificateDto> listScepCaCertificates(boolean intuneEnabled) {
         return certificateService.listScepCaCertificates(SecurityFilter.create(), intuneEnabled);
     }
