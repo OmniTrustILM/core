@@ -40,7 +40,6 @@ public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
 
-    @Value("${certificate.validation.batch-size:10}")
     private int validationBatchSize;
 
     private AttributeEngine attributeEngine;
@@ -65,6 +64,7 @@ public class CertificateHandler {
         this.validationProducer = validationProducer;
     }
 
+    @Value("${certificate.validation.batch-size:10}")
     public void setValidationBatchSize(int validationBatchSize) {
         if (validationBatchSize <= 0) throw new IllegalArgumentException("validationBatchSize must be positive");
         this.validationBatchSize = validationBatchSize;
