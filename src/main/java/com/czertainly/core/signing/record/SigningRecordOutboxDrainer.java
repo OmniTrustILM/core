@@ -7,6 +7,8 @@ import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.mapper.signing.SigningRecordMapper;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -37,6 +39,9 @@ import java.util.UUID;
 @Slf4j
 @Component
 public class SigningRecordOutboxDrainer {
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private final SigningRecordOutboxRepository outboxRepo;
     private final SigningRecordWriter writer;
@@ -89,6 +94,9 @@ public class SigningRecordOutboxDrainer {
         do {
             List<UUID> batch = outboxRepo.findDrainableBatch(poisonThreshold, batchSize);
             drained = drainRows(batch);
+            // Evict this batch's blob entities from the long-lived outer PC; left managed they would pin up to
+            // maxBatchesPerRun × maxBatchSize in heap.
+            entityManager.clear();
             batchesRun++;
         } while (drained == batchSize && batchesRun < maxBatchesPerRun);
 
