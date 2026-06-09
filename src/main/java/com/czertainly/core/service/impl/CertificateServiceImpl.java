@@ -634,7 +634,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotFoundException, NotSupportedException {
+    public void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotSupportedException {
         log.info("Bulk updating certificate objects: RA {} groups {} owner {}", request.getRaProfileUuid(), request.getGroupUuids(), request.getOwnerUuid());
         setupSecurityFilter(filter);
         Set<UUID> groupUuids = null;
@@ -996,40 +996,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
         resultDto.setValidationTimestamp(certificate.getStatusValidationTimestamp());
         return resultDto;
-    }
-
-    /**
-     * Check if the X.509 certificate is self-signed
-     *
-     * @param certificate entity
-     * @return true if the certificate is self-signed, false otherwise
-     * @throws CertificateException if the certificate cannot be parsed
-     */
-    private boolean isSelfSigned(Certificate certificate) throws CertificateException {
-        return isSelfSigned(getX509(certificate.getCertificateContent().getContent()), certificate.getUuid());
-    }
-
-    private boolean isSelfSigned(X509Certificate x509Certificate, UUID certificateUuid) throws CertificateException {
-        // we check the signature with the certificate public key
-        try {
-            x509Certificate.verify(x509Certificate.getPublicKey());
-            return true;
-        } catch (NoSuchAlgorithmException | NoSuchProviderException e) {
-            log.debug("Unable to verify if the certificate {} is self-signed: {}", certificateUuid, e.getMessage());
-            throw new CertificateException(e);
-        } catch (SignatureException | InvalidKeyException e) {
-            // if the certificate is not self-signed, the verification will fail
-            return false;
-        }
-    }
-
-    private boolean verifySignature(X509Certificate subjectCertificate, X509Certificate issuerCertificate) {
-        try {
-            subjectCertificate.verify(issuerCertificate.getPublicKey());
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private X509Certificate getX509(String certificate) throws CertificateException {
@@ -2042,71 +2008,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 log.debug("Error when checking compliance: {}", e.getMessage());
             }
         }
-    }
-
-    private List<String> downloadChainFromAia(Certificate certificate, X509Certificate certX509) {
-        List<String> chainCertificates = new ArrayList<>();
-        String chainUrl;
-        try {
-            while (true) {
-                chainUrl = OcspUtil.getChainFromAia(certX509);
-                if (chainUrl == null || chainUrl.isEmpty()) {
-                    break;
-                }
-                String chainContent = downloadChain(chainUrl);
-                if (chainContent.isEmpty()) {
-                    break;
-                }
-                log.info("Certificate {} downloaded from Authority Information Access extension URL {}", certX509.getSubjectX500Principal().getName(), chainUrl);
-
-                chainCertificates.add(chainContent);
-                certX509 = getX509(chainContent);
-
-                // if self-signed, do not attempt to download itself
-                if (verifySignature(certX509, certX509)) {
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Unable to get the chain of certificate {} from Authority Information Access", certificate.getUuid(), e);
-        }
-        return chainCertificates;
-    }
-
-    private String downloadChain(String chainUrl) {
-        try {
-            CertificateFactory fac = CertificateFactory.getInstance("X509");
-            X509Certificate cert;
-            // Handle ldap protocol
-
-            if (chainUrl.startsWith("ldap://") || chainUrl.startsWith("ldaps://")) {
-                byte[] certificate = LdapUtils.downloadFromLdap(chainUrl);
-                if (certificate == null) return "";
-                cert = (X509Certificate) fac.generateCertificate(new ByteArrayInputStream(certificate));
-            } else {
-                URL url = URI.create(chainUrl).toURL();
-                URLConnection urlConnection = url.openConnection();
-                urlConnection.setConnectTimeout(1000);
-                urlConnection.setReadTimeout(1000);
-                try (InputStream in = url.openStream()) {
-                    cert = (X509Certificate) fac.generateCertificate(in);
-                } catch (Exception e) {
-                    log.error(e.getMessage());
-                    return "";
-                }
-            }
-            final StringWriter writer = new StringWriter();
-            final JcaPEMWriter pemWriter = new JcaPEMWriter(writer);
-            pemWriter.writeObject(cert);
-            pemWriter.flush();
-            pemWriter.close();
-            writer.close();
-
-            return writer.toString();
-        } catch (Exception e) {
-            log.error(e.getMessage());
-        }
-        return "";
     }
 
     public void switchRaProfile(SecuredUUID uuid, SecuredUUID raProfileUuid) throws NotFoundException, CertificateOperationException, AttributeException {
