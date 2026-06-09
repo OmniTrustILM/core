@@ -100,21 +100,16 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
-## New `@Value` parameters belong in application.yml
+## New operator-facing settings go through the Settings UI, not env vars
 
-Whenever you introduce a `@Value("${some.property:default}")` injection, add the matching key to
-`src/main/resources/application.yml`. Don't rely on the inline default alone — the yml is the discoverable, documented
-surface for operators, and every sibling parameter is declared there with an env-var override. Mirror the existing
-convention for the surrounding block: `key: ${ENV_VAR_NAME:default}`, with the same default as the code annotation and
-an `UPPER_SNAKE_CASE` env override named after the property path. Place the key under the property's existing
-namespace (e.g. a new `signing-record.delete-after-retrieval.*` key goes in that block, not at the root).
+An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
+`application.yml` / a `@Value` injection. Under SaaS, customers can't touch yml or env vars — the Settings UI is their
+only configuration surface, so anything living solely in yml/env is unreachable for them.
 
-When the new yml key introduces an env-var override (`${ENV_VAR_NAME:default}`), that env var also has to be wired into
-the Helm charts (separate repo) — otherwise operators can't configure it through the chart. The Core repo can't make
-that change itself, so **warn the user** that the chart needs updating and hand them a ready-to-run prompt they can
-paste into a Claude Code session in the Helm chart repo. The prompt should name the env var, its default, and the source
-property, and ask the agent to add it following the chart's existing convention for the matching deployment. Don't
-assume the chart's structure from here — let the agent in that repo discover it.
+Reserve `@Value`/`application.yml` for things that genuinely can't be runtime settings: bootstrap/infrastructure wiring
+needed before the settings store exists, or per-environment plumbing (datasource, ports). When unsure, ask rather than
+default to `@Value`. If you do add a deploy-time env-var override (`${ENV_VAR_NAME:default}`), it must also be wired
+into the Helm charts (separate repo) — **warn the user** and hand them a prompt for a Claude Code session in that repo.
 
 ## Don't leak runtime details to the wire
 
