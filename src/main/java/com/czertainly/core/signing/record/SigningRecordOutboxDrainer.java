@@ -8,7 +8,6 @@ import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.mapper.signing.SigningRecordMapper;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -40,9 +39,7 @@ import java.util.UUID;
 @Component
 public class SigningRecordOutboxDrainer {
 
-    @PersistenceContext
-    private EntityManager entityManager;
-
+    private final EntityManager entityManager;
     private final SigningRecordOutboxRepository outboxRepo;
     private final SigningRecordWriter writer;
     private final ClusterOperationSynchronizer clusterSynchronizer;
@@ -52,11 +49,13 @@ public class SigningRecordOutboxDrainer {
     private final int poisonThreshold;
     private final int maxBatchesPerRun;
 
-    public SigningRecordOutboxDrainer(SigningRecordOutboxRepository outboxRepo,
+    public SigningRecordOutboxDrainer(EntityManager entityManager,
+                                      SigningRecordOutboxRepository outboxRepo,
                                       SigningRecordWriter writer,
                                       ClusterOperationSynchronizer clusterSynchronizer,
                                       SigningRecordMetrics metrics,
                                       SigningRecordOutboxProperties properties) {
+        this.entityManager = entityManager;
         this.outboxRepo = outboxRepo;
         this.writer = writer;
         this.clusterSynchronizer = clusterSynchronizer;

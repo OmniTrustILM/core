@@ -5,6 +5,7 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.SigningRecordOutbox;
 import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
+import jakarta.persistence.EntityManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -273,8 +274,8 @@ class SigningRecordOutboxDrainerUnitTest {
     }
 
     private SigningRecordOutboxDrainer createDrainer(int batchSize, int poisonThreshold, int maxBatchesPerRun) {
-        return new SigningRecordOutboxDrainer(outboxRepo, writer, clusterSynchronizer, metrics,
-                new SigningRecordOutboxProperties(1L, batchSize, maxBatchesPerRun, poisonThreshold));
+        return new SigningRecordOutboxDrainer(mock(EntityManager.class), outboxRepo, writer, clusterSynchronizer,
+                metrics, new SigningRecordOutboxProperties(1L, batchSize, maxBatchesPerRun, poisonThreshold));
     }
 
     private UUID aUuid() {
