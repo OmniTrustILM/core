@@ -431,8 +431,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
               AND c.archived = false
               AND c.certificate_content_id IS NOT NULL
               AND c.validation_status NOT IN (
-                  ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).REVOKED.name()},
-                  ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).EXPIRED.name()}
+                  ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).REVOKED.name()},
+                  ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).EXPIRED.name()}
               )
               AND (
                   (rp.validation_enabled IS NULL AND :platformEnabled = true)
