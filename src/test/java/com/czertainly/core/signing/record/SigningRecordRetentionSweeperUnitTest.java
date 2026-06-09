@@ -124,7 +124,8 @@ class SigningRecordRetentionSweeperUnitTest {
     }
 
     private SigningRecordRetentionSweeper createSweeper() {
-        return new SigningRecordRetentionSweeper(writer, metrics, clusterSynchronizer, BATCH_SIZE, MAX_BATCHES_PER_SWEEP);
+        return new SigningRecordRetentionSweeper(writer, metrics, clusterSynchronizer,
+                new SigningRecordRetentionProperties(1, BATCH_SIZE, MAX_BATCHES_PER_SWEEP));
     }
 
     private double retentionDeleted() {

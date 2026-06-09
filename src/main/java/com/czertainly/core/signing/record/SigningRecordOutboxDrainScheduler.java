@@ -25,7 +25,7 @@ public class SigningRecordOutboxDrainScheduler {
         this.drainer = drainer;
     }
 
-    @Scheduled(fixedDelayString = "${signing-record.outbox.flush-interval-ms:500}")
+    @Scheduled(fixedDelayString = "${signing-record.outbox.flush-interval-ms}")
     public void drainScheduled() {
         drainer.drainOnce();
     }

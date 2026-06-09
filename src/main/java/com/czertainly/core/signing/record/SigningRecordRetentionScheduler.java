@@ -25,7 +25,7 @@ public class SigningRecordRetentionScheduler {
         this.sweeper = sweeper;
     }
 
-    @Scheduled(fixedDelayString = "${signing-record.retention.sweep-interval-minutes:60}",
+    @Scheduled(fixedDelayString = "${signing-record.retention.sweep-interval-minutes}",
             timeUnit = TimeUnit.MINUTES)
     public void sweepScheduled() {
         sweeper.sweep();

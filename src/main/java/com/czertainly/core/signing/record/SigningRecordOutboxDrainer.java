@@ -8,7 +8,6 @@ import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.czertainly.core.mapper.signing.SigningRecordMapper;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,20 +51,14 @@ public class SigningRecordOutboxDrainer {
                                       SigningRecordWriter writer,
                                       ClusterOperationSynchronizer clusterSynchronizer,
                                       SigningRecordMetrics metrics,
-                                      @Value("${signing-record.outbox.max-batch-size:200}") int batchSize,
-                                      @Value("${signing-record.outbox.poison-threshold:10}") int poisonThreshold,
-                                      @Value("${signing-record.outbox.max-batches-per-run:10}") int maxBatchesPerRun) {
-        if (batchSize < 1) {
-            throw new IllegalArgumentException(
-                    "signing-record.outbox.max-batch-size must be >= 1, was " + batchSize);
-        }
+                                      SigningRecordOutboxProperties properties) {
         this.outboxRepo = outboxRepo;
         this.writer = writer;
         this.clusterSynchronizer = clusterSynchronizer;
         this.metrics = metrics;
-        this.batchSize = batchSize;
-        this.poisonThreshold = poisonThreshold;
-        this.maxBatchesPerRun = maxBatchesPerRun;
+        this.batchSize = properties.maxBatchSize();
+        this.poisonThreshold = properties.poisonThreshold();
+        this.maxBatchesPerRun = properties.maxBatchesPerRun();
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

@@ -39,7 +39,8 @@ class SigningRecordBestEffortFlusherTest {
         var flushIntervalMs = 50L;
         var strategy = mock(BestEffortSigningRecordStrategy.class);
         blockForPollTimeout(strategy);
-        flusher = new SigningRecordBestEffortFlusher(strategy, flushIntervalMs);
+        flusher = new SigningRecordBestEffortFlusher(strategy,
+                new SigningRecordBestEffortProperties(1, BestEffortBackpressurePolicy.DROP_OLDEST, flushIntervalMs, 1));
 
         // when
         flusher.start();
@@ -56,7 +57,8 @@ class SigningRecordBestEffortFlusherTest {
         var invocations = new AtomicInteger();
         var strategy = mock(BestEffortSigningRecordStrategy.class);
         countAndBlockForPollTimeout(strategy, invocations);
-        flusher = new SigningRecordBestEffortFlusher(strategy, flushIntervalMs);
+        flusher = new SigningRecordBestEffortFlusher(strategy,
+                new SigningRecordBestEffortProperties(1, BestEffortBackpressurePolicy.DROP_OLDEST, flushIntervalMs, 1));
         flusher.start();
         awaitLoopRunning(invocations);
 

@@ -8,7 +8,6 @@ import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepositor
 import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,15 +34,14 @@ public class SigningRecordRetrievalHook {
                                       SigningRecordWriter deletionWriter,
                                       SigningRecordMetrics metrics,
                                       ClusterOperationSynchronizer clusterSynchronizer,
-                                      @Value("${signing-record.delete-after-retrieval.batch-size:1000}") int batchSize,
-                                      @Value("${signing-record.delete-after-retrieval.max-batches-per-sweep:10}") int maxBatchesPerSweep) {
+                                      SigningRecordDeleteAfterRetrievalProperties properties) {
         this.repository = repository;
         this.versionRepository = versionRepository;
         this.deletionWriter = deletionWriter;
         this.metrics = metrics;
         this.clusterSynchronizer = clusterSynchronizer;
-        this.batchSize = batchSize;
-        this.maxBatchesPerSweep = maxBatchesPerSweep;
+        this.batchSize = properties.batchSize();
+        this.maxBatchesPerSweep = properties.maxBatchesPerSweep();
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

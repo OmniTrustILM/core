@@ -311,7 +311,7 @@ signing-record:
     max-batch-size: ${SIGNING_RECORD_BEST_EFFORT_MAX_BATCH_SIZE:200}
   retention:
     sweep-interval-minutes: ${SIGNING_RECORD_RETENTION_SWEEP_INTERVAL_MINUTES:60}
-    batch-size: ${SIGNING_RECORD_RETENTION_BATCH_SIZE:10000}
+    batch-size: ${SIGNING_RECORD_RETENTION_BATCH_SIZE:1000}
     max-batches-per-sweep: ${SIGNING_RECORD_RETENTION_MAX_BATCHES_PER_SWEEP:10}
   delete-after-retrieval:
     fallback-cron: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_CRON:0 0 3 * * *}

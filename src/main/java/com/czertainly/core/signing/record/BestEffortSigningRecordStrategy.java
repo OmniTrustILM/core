@@ -5,7 +5,6 @@ import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.mapper.signing.SigningRecordInputMapper;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -33,18 +32,13 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
             SigningRecordWriter writer,
             SigningRecordInputMapper mapper,
             BestEffortSigningRecordQueue queue,
-            @Value("${signing-record.best-effort.backpressure-policy:DROP_OLDEST}") BestEffortBackpressurePolicy policy,
-            @Value("${signing-record.best-effort.max-batch-size:200}") int maxBatchSize) {
+            SigningRecordBestEffortProperties properties) {
         super(metrics);
-        if (maxBatchSize < 1) {
-            throw new IllegalArgumentException(
-                    "signing-record.best-effort.max-batch-size must be >= 1, was " + maxBatchSize);
-        }
         this.writer = writer;
         this.mapper = mapper;
-        this.policy = policy;
+        this.policy = properties.backpressurePolicy();
         this.queue = queue;
-        this.maxBatchSize = maxBatchSize;
+        this.maxBatchSize = properties.maxBatchSize();
     }
 
     @Override

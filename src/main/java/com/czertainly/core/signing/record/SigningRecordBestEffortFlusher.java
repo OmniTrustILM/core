@@ -3,7 +3,6 @@ package com.czertainly.core.signing.record;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,9 +22,9 @@ public class SigningRecordBestEffortFlusher {
 
     public SigningRecordBestEffortFlusher(
             BestEffortSigningRecordStrategy strategy,
-            @Value("${signing-record.best-effort.flush-interval-ms:200}") long flushIntervalMs) {
+            SigningRecordBestEffortProperties properties) {
         this.strategy = strategy;
-        this.flushIntervalMs = flushIntervalMs;
+        this.flushIntervalMs = properties.flushIntervalMs();
     }
 
     @PostConstruct

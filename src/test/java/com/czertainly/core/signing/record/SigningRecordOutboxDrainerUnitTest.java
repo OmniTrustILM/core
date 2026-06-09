@@ -274,7 +274,7 @@ class SigningRecordOutboxDrainerUnitTest {
 
     private SigningRecordOutboxDrainer createDrainer(int batchSize, int poisonThreshold, int maxBatchesPerRun) {
         return new SigningRecordOutboxDrainer(outboxRepo, writer, clusterSynchronizer, metrics,
-                batchSize, poisonThreshold, maxBatchesPerRun);
+                new SigningRecordOutboxProperties(1L, batchSize, maxBatchesPerRun, poisonThreshold));
     }
 
     private UUID aUuid() {

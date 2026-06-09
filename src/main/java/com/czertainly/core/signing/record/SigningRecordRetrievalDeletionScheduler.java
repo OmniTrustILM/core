@@ -23,7 +23,7 @@ public class SigningRecordRetrievalDeletionScheduler {
         this.hook = hook;
     }
 
-    @Scheduled(cron = "${signing-record.delete-after-retrieval.fallback-cron:0 0 3 * * *}")
+    @Scheduled(cron = "${signing-record.delete-after-retrieval.fallback-cron}")
     public void runFallbackSweepScheduled() {
         hook.runFallbackSweep();
     }

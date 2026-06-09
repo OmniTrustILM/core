@@ -4,7 +4,6 @@ import com.czertainly.core.dao.repository.signing.SigningRecordOutboxRepository;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -18,10 +17,10 @@ public class SigningRecordOutboxGauges {
     private final int poisonThreshold;
 
     public SigningRecordOutboxGauges(MeterRegistry registry, SigningRecordOutboxRepository repository,
-                                     @Value("${signing-record.outbox.poison-threshold:10}") int poisonThreshold) {
+                                     SigningRecordOutboxProperties properties) {
         this.registry = registry;
         this.repository = repository;
-        this.poisonThreshold = poisonThreshold;
+        this.poisonThreshold = properties.poisonThreshold();
     }
 
     @PostConstruct

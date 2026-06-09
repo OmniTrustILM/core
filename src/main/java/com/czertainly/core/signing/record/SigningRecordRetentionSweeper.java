@@ -3,7 +3,6 @@ package com.czertainly.core.signing.record;
 import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,13 +20,12 @@ public class SigningRecordRetentionSweeper {
     public SigningRecordRetentionSweeper(SigningRecordWriter writer,
                                          SigningRecordMetrics metrics,
                                          ClusterOperationSynchronizer clusterSynchronizer,
-                                         @Value("${signing-record.retention.batch-size:10000}") int batchSize,
-                                         @Value("${signing-record.retention.max-batches-per-sweep:10}") int maxBatchesPerSweep) {
+                                         SigningRecordRetentionProperties properties) {
         this.writer = writer;
         this.metrics = metrics;
         this.clusterSynchronizer = clusterSynchronizer;
-        this.batchSize = batchSize;
-        this.maxBatchesPerSweep = maxBatchesPerSweep;
+        this.batchSize = properties.batchSize();
+        this.maxBatchesPerSweep = properties.maxBatchesPerSweep();
     }
 
     /**

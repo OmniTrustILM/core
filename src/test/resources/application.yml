@@ -59,6 +59,26 @@ scheduled-tasks:
 scheduler:
   base-url: http://localhost:8080
 
+signing-record:
+  outbox:
+    flush-interval-ms: 500
+    max-batch-size: 200
+    max-batches-per-run: 10
+    poison-threshold: 10
+  best-effort:
+    queue-capacity: 10000
+    backpressure-policy: DROP_OLDEST
+    flush-interval-ms: 200
+    max-batch-size: 200
+  retention:
+    sweep-interval-minutes: 60
+    batch-size: 1000
+    max-batches-per-sweep: 10
+  delete-after-retrieval:
+    fallback-cron: 0 0 3 * * *
+    batch-size: 1000
+    max-batches-per-sweep: 10
+
 secrets:
   encryption:
     key: test123
