@@ -27,6 +27,7 @@ import java.util.UUID;
  * @param enabledProtocols  Protocols enabled on this profile (e.g. TSP).
  * @param workflow          Workflow-type-specific configuration.
  * @param signingScheme     Signing scheme configuration.
+ * @param recordPolicy      Signing record policy (what is captured, retention, persistence mode).
  * @param <W>               Concrete {@link SigningWorkflow} subtype.
  * @param <SM>              Concrete {@link SigningSchemeModel} subtype.
  */
@@ -39,5 +40,6 @@ public record SigningProfileModel<W extends SigningWorkflow, SM extends SigningS
         boolean enabled,
         List<SigningProtocol> enabledProtocols,
         W workflow,
-        SM signingScheme
+        SM signingScheme,
+        SigningRecordPolicyModel recordPolicy
 ) {}

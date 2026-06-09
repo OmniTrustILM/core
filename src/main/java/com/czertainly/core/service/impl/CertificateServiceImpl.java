@@ -80,6 +80,7 @@ import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.*;
 import com.czertainly.core.validation.certificate.ICertificateValidator;
 import jakarta.persistence.criteria.*;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.cms.ContentInfo;
@@ -89,8 +90,6 @@ import org.bouncycastle.cms.CMSProcessableByteArray;
 import org.bouncycastle.cms.CMSSignedDataGenerator;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MarkerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -127,13 +126,15 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CERTIFICATE)
 @Transactional
+@Slf4j
 public class CertificateServiceImpl implements CertificateService, AttributeResourceService {
+
+    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
 
     // batch size will prevent bloating size of enqueued message and better utilize parallel processing
     // NOTE: improve handling of large batches vs many produced messages to queue
-    private static final int VALIDATION_BATCH_SIZE = 10;
-    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
-    private static final Logger logger = LoggerFactory.getLogger(CertificateServiceImpl.class);
+    @Value("${certificate.validation.batch-size:10}")
+    private int validationBatchSize;
 
     @Value("${spring.jpa.properties.hibernate.jdbc.batch_size:500}")
     private int bulkDeleteBatchSize;
@@ -560,7 +561,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE)
     public void updateCertificateObjects(SecuredUUID uuid, CertificateUpdateObjectsDto request) throws NotFoundException, CertificateOperationException, AttributeException {
-        logger.debug("Updating certificate objects: RA {} groups {} owner {}", request.getRaProfileUuid(), request.getGroupUuids(), request.getOwnerUuid());
+        log.debug("Updating certificate objects: RA {} groups {} owner {}", request.getRaProfileUuid(), request.getGroupUuids(), request.getOwnerUuid());
         if (request.getRaProfileUuid() != null) {
             switchRaProfile(uuid, request.getRaProfileUuid().isEmpty() ? null : SecuredUUID.fromString(request.getRaProfileUuid()));
         }
@@ -575,6 +576,18 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
     }
 
+    /**
+     * Sets the trusted-CA mark on the given certificate and immediately triggers revalidation for the CA and all
+     * eligible descendants.
+     *
+     * <p>The {@link CertificateValidationEvent} is published via Spring so that
+     * {@code CertificateHandler.handleCertificateValidationEvent} (a {@code @TransactionalEventListener(AFTER_COMMIT)})
+     * only enqueues validation messages after the {@code trustedCa} flag is committed — preventing validators from
+     * reading the stale value.</p>
+     *
+     * @throws ValidationException if the certificate is archived or is not a CA
+     * @throws NotFoundException   if the certificate does not exist
+     */
     private void updateTrustedCaMark(SecuredUUID uuid, Boolean trustedCa) throws NotFoundException {
         Certificate certificate = getCertificateEntity(uuid);
         if (certificate.isArchived()) {
@@ -583,15 +596,52 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (certificate.getTrustedCa() == null) {
             throw new ValidationException("Trying to mark certificate as trusted CA when certificate is not CA.");
         }
+        if (Objects.equals(certificate.getTrustedCa(), trustedCa)) {
+            return;
+        }
         certificate.setTrustedCa(trustedCa);
+        triggerSubtreeRevalidation(certificate);
+    }
+
+    private void triggerSubtreeRevalidation(Certificate ca) {
+        boolean platformEnabled = SettingsCache.<PlatformSettingsDto>getSettings(SettingsSection.PLATFORM)
+                .getCertificates().getValidation().getEnabled();
+        List<UUID> toRevalidate = new ArrayList<>();
+        if (isEligibleForRevalidation(ca, platformEnabled)) {
+            toRevalidate.add(ca.getUuid());
+        }
+        toRevalidate.addAll(certificateRepository.findAllDescendantCertificatesEligibleForValidation(ca.getUuid(), platformEnabled, certificateChainMaxDepth));
+        if (!toRevalidate.isEmpty()) {
+            log.debug("Publishing certificate validation event for CA subtree revalidation. caUuid={}, certificateCount={}", ca.getUuid(), toRevalidate.size());
+            applicationEventPublisher.publishEvent(new CertificateValidationEvent(toRevalidate));
+        }
+    }
+
+    /**
+     * Applies the same four eligibility rules to the CA node itself that
+     * {@link CertificateRepository#findAllDescendantCertificatesEligibleForValidation} applies to its
+     * descendants in SQL: not archived, certificate content present, validation status not REVOKED/EXPIRED,
+     * and RA-profile validation flag (falling back to the platform flag when unset). Keep both in sync.
+     */
+    private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
+        if (certificate.isArchived() || certificate.getCertificateContent() == null) {
+            return false;
+        }
+        CertificateValidationStatus status = certificate.getValidationStatus();
+        if (status == CertificateValidationStatus.REVOKED || status == CertificateValidationStatus.EXPIRED) {
+            return false;
+        }
+        RaProfile raProfile = certificate.getRaProfile();
+        Boolean rpEnabled = raProfile != null ? raProfile.getValidationEnabled() : null;
+        return rpEnabled == null ? platformEnabled : rpEnabled;
     }
 
     @Async
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.UPDATE, parentResource = Resource.RA_PROFILE, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotFoundException, NotSupportedException {
-        logger.info("Bulk updating certificate objects: RA {} groups {} owner {}", request.getRaProfileUuid(), request.getGroupUuids(), request.getOwnerUuid());
+    public void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotSupportedException {
+        log.info("Bulk updating certificate objects: RA {} groups {} owner {}", request.getRaProfileUuid(), request.getGroupUuids(), request.getOwnerUuid());
         setupSecurityFilter(filter);
         Set<UUID> groupUuids = null;
         if (request.getGroupUuids() != null)
@@ -617,7 +667,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 transactionManager.commit(status);
             } catch (Exception e) {
                 transactionManager.rollback(status);
-                logger.error("Error occurred when updating certificate with UUID {}: {}", certificateUuidString, e.getMessage());
+                log.error("Error occurred when updating certificate with UUID {}: {}", certificateUuidString, e.getMessage());
                 if (loggedUserUuid == null) {
                     loggedUserUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
                 }
@@ -658,7 +708,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                     transactionManager.commit(txStatus);
                 } catch (Exception e) {
                     transactionManager.rollback(txStatus);
-                    logger.error("Failed to process bulk deletion batch: {}", e.getMessage(), e);
+                    log.error("Failed to process bulk deletion batch: {}", e.getMessage(), e);
                     notificationProducer.produceInternalNotificationMessage(Resource.CERTIFICATE,
                             batchUuids.getFirst(),
                             NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
@@ -666,7 +716,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                             e.getMessage());
                 }
             }
-            logger.debug("Bulk deleted {} of {} certificates.", deletedCount, totalToDelete);
+            log.debug("Bulk deleted {} of {} certificates.", deletedCount, totalToDelete);
         } else {
             throw new NotSupportedException("Bulk delete of certificates by filters is not supported.");
         }
@@ -680,7 +730,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         nonPermittedUuids.removeAll(permittedUuids);
 
         for (UUID nonPermitted : nonPermittedUuids) {
-            logger.error("Unable to delete certificate {}. The certificate cannot be found or cannot be authorized for deletion.", nonPermitted);
+            log.error("Unable to delete certificate {}. The certificate cannot be found or cannot be authorized for deletion.", nonPermitted);
             notificationProducer.produceInternalNotificationMessage(Resource.CERTIFICATE, nonPermitted,
                     NotificationRecipient.buildUserNotificationRecipient(loggedUserUuid),
                     "Unable to delete certificate " + nonPermitted,
@@ -774,7 +824,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
         searchFieldDataByGroupDtos.add(new SearchFieldDataByGroupDto(fields, FilterFieldSource.PROPERTY));
 
-        logger.debug("Searchable Fields by Groups: {}", searchFieldDataByGroupDtos);
+        log.debug("Searchable Fields by Groups: {}", searchFieldDataByGroupDtos);
         return searchFieldDataByGroupDtos;
     }
 
@@ -918,7 +968,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         try {
             newStatus = certificateValidator.validateCertificate(certificate, isCompleteChain);
         } catch (Exception e) {
-            logger.warn("Unable to validate the certificate {}: {}", certificate, e.getMessage());
+            log.warn("Unable to validate the certificate {}: {}", certificate, e.getMessage());
             newStatus = CertificateValidationStatus.FAILED;
             OffsetDateTime now = OffsetDateTime.now();
             validationWriter.applyValidationResult(certificate.getUuid(), newStatus, now, null);
@@ -948,7 +998,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             Map<CertificateValidationCheck, CertificateValidationCheckDto> validationChecks = MetaDefinitions.deserializeValidation(validationResult);
             resultDto.setValidationChecks(validationChecks);
         } catch (IllegalStateException e) {
-            logger.error(e.getMessage());
+            log.error(e.getMessage());
         }
         resultDto.setValidationTimestamp(certificate.getStatusValidationTimestamp());
         return resultDto;
@@ -970,7 +1020,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
         if (!certificateType.equals(CertificateType.X509)) {
             String message = "Unsupported type of the certificate: " + certificateType;
-            logger.debug(message);
+            log.debug(message);
             throw new com.otilm.api.exception.CertificateException(message);
         } else {
             X509Certificate certificate;
@@ -978,7 +1028,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 certificate = getX509(certificateData);
             } catch (CertificateException e) {
                 String message = "Failed to get parse the certificate " + certificateData + " > " + e.getMessage();
-                logger.error("message");
+                log.error(message);
                 throw new com.otilm.api.exception.CertificateException(message);
             }
             try {
@@ -986,12 +1036,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
 
                 if (existingCertificate.isPresent()) {
-                    logger.debug("Returning existing certificate with fingerprint {}", fingerprint);
+                    log.debug("Returning existing certificate with fingerprint {}", fingerprint);
                     return existingCertificate.get();
                 }
             } catch (NoSuchAlgorithmException | CertificateException e) {
                 String message = "Failed to get thumbprint for certificate " + certificate.getSerialNumber() + " > " + e.getMessage();
-                logger.error("message");
+                log.error(message);
                 throw new com.otilm.api.exception.CertificateException(message);
             }
 
@@ -1011,7 +1061,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     public Certificate createCertificateEntity(X509Certificate certificate) {
-        logger.debug("Making a new entry for a certificate: subject={}, serialNumber={}",
+        log.debug("Making a new entry for a certificate: subject={}, serialNumber={}",
                 certificate.getSubjectX500Principal(),
                 certificate.getSerialNumber()
         );
@@ -1025,7 +1075,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 return existingCertificate.get();
             }
         } catch (CertificateEncodingException | NoSuchAlgorithmException e) {
-            logger.error("Unable to calculate sha 256 thumbprint");
+            log.error("Unable to calculate sha 256 thumbprint");
         }
 
         CertificateUtil.prepareIssuedCertificate(modal, certificate);
@@ -1052,14 +1102,14 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             try {
                 altPublicKey = CertificateUtil.getAltPublicKey(altPublicKeyEncoded);
             } catch (NoSuchAlgorithmException | InvalidKeySpecException | IOException e) {
-                logger.error("Could not retrieve alternative public key from the certificate: {}", e.getMessage());
+                log.error("Could not retrieve alternative public key from the certificate: {}", e.getMessage());
                 return;
             }
             String fingerprint = null;
             try {
                 fingerprint = CertificateUtil.getThumbprint(Base64.getEncoder().encodeToString(altPublicKey.getEncoded()).getBytes(StandardCharsets.UTF_8));
             } catch (NoSuchAlgorithmException e) {
-                logger.error("Cannot create fingerprint for Alternative Public Key: {}", e.getMessage());
+                log.error("Cannot create fingerprint for Alternative Public Key: {}", e.getMessage());
             }
             UUID altKeyUuid = cryptographicKeyService.findKeyByFingerprint(fingerprint);
             int keyLength = KeySizeUtil.getKeyLength(altPublicKey);
@@ -1173,7 +1223,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             certificate.setState(CertificateState.REVOKED);
             certificateRepository.save(certificate);
         } catch (NotFoundException e) {
-            logger.warn("Unable to find the certificate with serialNumber {}", serialNumber);
+            log.warn("Unable to find the certificate with serialNumber {}", serialNumber);
         }
         if (certificate != null) {
             if (certificate.getUserUuid() != null) {
@@ -1216,7 +1266,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 Certificate certificateEntity = getCertificateEntity(SecuredUUID.fromString(uuid));
                 complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificateEntity.getUuid());
             } catch (Exception e) {
-                logger.error("Compliance check failed.", e);
+                log.error("Compliance check failed.", e);
             }
         }
     }
@@ -1243,7 +1293,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         // process 1/24 of eligible certificates for status update
         final List<UUID> certificateUuids = certificateRepository.findCertificatesToCheckStatus(before, skipStatuses, platformEnabled, PageRequest.of(0, maxCertsToValidate));
 
-        logger.info(MarkerFactory.getMarker("scheduleInfo"), "Scheduled certificate status update. Batch size {}/{} certificates", certificateUuids.size(), totalCertificates);
+        log.info(MarkerFactory.getMarker("scheduleInfo"), "Scheduled certificate status update. Batch size {}/{} certificates", certificateUuids.size(), totalCertificates);
         sendValidationBatches(certificateUuids); // send in batches
         return certificateUuids.size();
     }
@@ -1251,8 +1301,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private void sendValidationBatches(List<UUID> certificateUuids) {
         if (certificateUuids == null || certificateUuids.isEmpty()) return;
         final int size = certificateUuids.size();
-        for (int i = 0; i < size; i += VALIDATION_BATCH_SIZE) {
-            List<UUID> batch = certificateUuids.subList(i, Math.min(i + VALIDATION_BATCH_SIZE, size));
+        for (int i = 0; i < size; i += validationBatchSize) {
+            List<UUID> batch = certificateUuids.subList(i, Math.min(i + validationBatchSize, size));
             validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch, null, null, null, null));
         }
     }
@@ -1282,7 +1332,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             certificateRepository.save(certificate);
             authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
         } catch (NotFoundException e) {
-            logger.warn("No Certificate found for the user with UUID {}", userUuid);
+            log.warn("No Certificate found for the user with UUID {}", userUuid);
         }
     }
 
@@ -1357,9 +1407,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             processFutures(futures);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.error("Certificate statistics calculation was interrupted", e);
+            log.error("Certificate statistics calculation was interrupted", e);
         }
-        logger.debug("Certificate statistics calculated in {} ms", (System.nanoTime() - start) / 1_000_000L);
+        log.debug("Certificate statistics calculated in {} ms", (System.nanoTime() - start) / 1_000_000L);
         return dto;
     }
 
@@ -1368,7 +1418,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             try {
                 future.get();
             } catch (ExecutionException ex) {
-                logger.error("An error occurred during calculation of certificate statistics", ex.getCause());
+                log.error("An error occurred during calculation of certificate statistics", ex.getCause());
             }
         }
     }
@@ -1474,7 +1524,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 dto.setCertificateContent(certificate.getCertificateContent().getContent());
                 response.add(dto);
             } catch (Exception e) {
-                logger.error("Unable to get the certificate content {}. Exception: {}", uuid, e.getMessage());
+                log.error("Unable to get the certificate content {}. Exception: {}", uuid, e.getMessage());
             }
         }
         return response;
@@ -1605,7 +1655,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 "Certificate request created", ""
         );
 
-        logger.info("Certificate request submitted and certificate created {}", certificate);
+        log.info("Certificate request submitted and certificate created {}", certificate);
 
         return dto;
     }
@@ -1716,7 +1766,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         attributeEngine.updateMetadataAttributes(meta, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
         certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.SUCCESS, "Issued using RA Profile " + certificate.getRaProfile().getName(), "");
 
-        logger.info("Certificate was successfully issued. {}", certificate.getUuid());
+        log.info("Certificate was successfully issued. {}", certificate.getUuid());
 
         CertificateDetailDto dto = certificate.mapToDto();
         if (dto.getCertificateRequest() != null) {
@@ -1961,7 +2011,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             try {
                 complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
-                logger.debug("Error when checking compliance: {}", e.getMessage());
+                log.debug("Error when checking compliance: {}", e.getMessage());
             }
         }
     }
@@ -2026,7 +2076,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             try {
                 complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
             } catch (Exception e) {
-                logger.error("Error when checking compliance:", e);
+                log.error("Error when checking compliance:", e);
             }
         }
 

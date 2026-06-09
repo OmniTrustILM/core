@@ -4,6 +4,7 @@ import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
@@ -28,7 +29,8 @@ class SigningProfileResolverFactoryTest {
                 "1.2.3", List.of(), List.of(), Boolean.FALSE);
         return new SigningProfileModel<>(
                 UUID.randomUUID(), "test-profile", null, 1, true,
-                List.of(SigningProtocol.TSP), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()));
+                List.of(SigningProtocol.TSP), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
+                SigningRecordPolicyModelBuilder.notRecording().build());
     }
 
     @Test

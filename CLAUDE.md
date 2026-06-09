@@ -100,6 +100,17 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
+## New operator-facing settings go through the Settings UI, not env vars
+
+An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
+`application.yml` / a `@Value` injection. Under SaaS, customers can't touch yml or env vars — the Settings UI is their
+only configuration surface, so anything living solely in yml/env is unreachable for them.
+
+Reserve `@Value`/`application.yml` for things that genuinely can't be runtime settings: bootstrap/infrastructure wiring
+needed before the settings store exists, or per-environment plumbing (datasource, ports). When unsure, ask rather than
+default to `@Value`. If you do add a deploy-time env-var override (`${ENV_VAR_NAME:default}`), it must also be wired
+into the Helm charts (separate repo) — **warn the user** and hand them a prompt for a Claude Code session in that repo.
+
 ## Don't leak runtime details to the wire
 
 Never forward raw `Exception.getMessage()` to a client / protocol response / external API. Runtime exceptions can carry SQL fragments (`DataIntegrityViolationException`), stack-frame class names, internal table or column identifiers, or upstream error detail that should not be exposed.

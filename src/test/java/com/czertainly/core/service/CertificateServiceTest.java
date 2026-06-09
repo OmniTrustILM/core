@@ -142,6 +142,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateRelationRepository certificateRelationRepository;
     @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
+    @Autowired
     private AuthenticationCache authenticationCache;
     @MockitoBean
     private NotificationProducer notificationProducer;
@@ -421,8 +423,57 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetCertificate_withCertificateRequest() throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, AttributeException {
+        CertificateRequestEntity csrEntity = new CertificateRequestEntity();
+        csrEntity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
+        csrEntity.setContent(SAMPLE_PKCS10);
+        certificateRequestRepository.save(csrEntity);
+
+        certificate.setCertificateRequest(csrEntity);
+        certificate.setCertificateRequestUuid(csrEntity.getUuid());
+        certificateRepository.save(certificate);
+
+        // definitions are wiped by truncateTables() in BaseSpringBootTest, so register them explicitly
+        attributeEngine.updateDataAttributeDefinitions(null, null, CsrAttributes.csrAttributes());
+
+        // store a csr attribute in the no-operation slot
+        RequestAttributeV2 commonNameAttr = new RequestAttributeV2();
+        commonNameAttr.setUuid(UUID.fromString(CsrAttributes.COMMON_NAME_UUID));
+        commonNameAttr.setName(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
+        commonNameAttr.setContentType(AttributeContentType.STRING);
+        commonNameAttr.setContent(List.of(new StringAttributeContentV2("czertainly.com", "czertainly.com")));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, csrEntity.getUuid()).build(),
+                List.of(commonNameAttr)
+        );
+
+        CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+
+        Assertions.assertNotNull(dto.getCertificateRequest());
+        // stored attribute appears in the correct slot
+        Assertions.assertEquals(1, dto.getCertificateRequest().getAttributes().size());
+        Assertions.assertEquals(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME, dto.getCertificateRequest().getAttributes().getFirst().getName());
+        // no bleeding into the operation-scoped slots
+        Assertions.assertTrue(dto.getCertificateRequest().getSignatureAttributes().isEmpty());
+        Assertions.assertTrue(dto.getCertificateRequest().getAltSignatureAttributes().isEmpty());
+    }
+
+    @Test
     void testGetCertificate_notFound() {
         Assertions.assertThrows(NotFoundException.class, () -> certificateService.getCertificate(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
+    void checkCertificateExistsByFingerprint_returnsTrueWhenFound() {
+        certificate.setFingerprint("abc123");
+        certificateRepository.save(certificate);
+
+        Assertions.assertTrue(certificateService.checkCertificateExistsByFingerprint("abc123"));
+    }
+
+    @Test
+    void checkCertificateExistsByFingerprint_returnsFalseWhenNotFound() {
+        Assertions.assertFalse(certificateService.checkCertificateExistsByFingerprint("nonexistent"));
     }
 
     @Test

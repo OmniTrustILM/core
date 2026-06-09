@@ -10,6 +10,7 @@ import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.entity.notifications.Notification;
 import com.czertainly.core.dao.entity.scep.ScepProfile;
 import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningRecord;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.dao.entity.signing.TspProfile;
 
@@ -62,6 +63,7 @@ public enum ResourceToClass {
 
     // SIGNING
     SIGNING_PROFILE(Resource.SIGNING_PROFILE, SigningProfile.class),
+    SIGNING_RECORD(Resource.SIGNING_RECORD, SigningRecord.class),
     TSP_PROFILE(Resource.TSP_PROFILE, TspProfile.class),
     TIME_QUALITY_CONFIGURATION(Resource.TIME_QUALITY_CONFIGURATION, TimeQualityConfiguration.class),
     ;

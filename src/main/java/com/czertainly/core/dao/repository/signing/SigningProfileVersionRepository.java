@@ -5,7 +5,6 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -27,12 +26,4 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
     @Modifying
     @Query("DELETE FROM SigningProfileVersion v WHERE v.signingProfileUuid = :signingProfileUuid")
     void deleteAllBySigningProfileUuid(UUID signingProfileUuid);
-
-    /**
-     * Acquires a PostgreSQL transaction-scoped advisory lock keyed on {@code lockKey}.
-     * The lock is automatically released when the surrounding transaction commits or rolls back.
-     * Used to serialize the version-bump decision in {@code updateSigningProfile}.
-     */
-    @Query(value = "SELECT 1 FROM pg_advisory_xact_lock(hashtext(:lockKey))", nativeQuery = true)
-    void acquireAdvisoryLock(@Param("lockKey") String lockKey);
 }

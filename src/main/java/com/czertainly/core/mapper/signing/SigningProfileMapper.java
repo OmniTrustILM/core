@@ -21,6 +21,7 @@ import com.czertainly.core.model.signing.scheme.ManagedSigning;
 import com.czertainly.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.czertainly.core.model.signing.workflow.ManagedTimestampingWorkflow;
+import org.jspecify.annotations.NonNull;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.ArrayList;
@@ -102,7 +103,22 @@ public class SigningProfileMapper {
             dto.getEnabledProtocols().add(SigningProtocol.TSP);
         }
 
+        SigningRecordPolicyDto policy = getSigningRecordPolicyDto(version);
+        dto.setRecordPolicy(policy);
         return dto;
+    }
+
+    private static @NonNull SigningRecordPolicyDto getSigningRecordPolicyDto(SigningProfileVersion version) {
+        SigningRecordPolicyDto policy = new SigningRecordPolicyDto();
+        policy.setRecordingEnabled(version.isRecordingEnabled());
+        policy.setRecordRequestMetadata(version.isRecordRequestMetadata());
+        policy.setRecordSignature(version.isRecordSignature());
+        policy.setRecordSignedDocument(version.isRecordSignedDocument());
+        policy.setRecordDtbs(version.isRecordDtbs());
+        policy.setRetentionDays(version.getRetentionDays());
+        policy.setDeleteAfterRetrieval(version.isDeleteAfterRetrieval());
+        policy.setPersistenceMode(version.getPersistenceMode());
+        return policy;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -138,7 +154,8 @@ public class SigningProfileMapper {
                 header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), protocols,
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
-                buildManagedSchemeModel(version, signingOperationAttributes));
+                buildManagedSchemeModel(version, signingOperationAttributes),
+                buildRecordPolicyModel(version));
     }
 
     public static SigningProfileListDto toListDto(SigningProfile profile) {
@@ -254,6 +271,18 @@ public class SigningProfileMapper {
                     version.getCsrTemplateUuid(),
                     cacheSafeList(signingOperationAttributes));
         };
+    }
+
+    private static SigningRecordPolicyModel buildRecordPolicyModel(SigningProfileVersion version) {
+        return new SigningRecordPolicyModel(
+                version.isRecordingEnabled(),
+                version.isRecordRequestMetadata(),
+                version.isRecordSignature(),
+                version.isRecordSignedDocument(),
+                version.isRecordDtbs(),
+                version.getRetentionDays(),
+                version.isDeleteAfterRetrieval(),
+                version.getPersistenceMode());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

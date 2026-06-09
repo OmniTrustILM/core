@@ -12,6 +12,7 @@ import com.czertainly.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.model.signing.SigningCertificateBuilder;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.DelegatedSigning;
@@ -75,7 +76,8 @@ class StaticKeyManagedTimestampingResolverTest {
         return new SigningProfileModel<>(
                 UUID.fromString("99999999-9999-9999-9999-999999999999"),
                 "ts-profile", "a description", 2, true,
-                List.of(SigningProtocol.TSP), workflow, scheme);
+                List.of(SigningProtocol.TSP), workflow, scheme,
+                SigningRecordPolicyModelBuilder.notRecording().build());
     }
 
     private static ManagedTimestampingWorkflow managedTimestampingWorkflow(UUID timeQualityConfigurationUuid) {

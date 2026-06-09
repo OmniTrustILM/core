@@ -21,6 +21,7 @@ import com.czertainly.core.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -38,6 +39,8 @@ import java.util.*;
 public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
+
+    private int validationBatchSize;
 
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
@@ -59,6 +62,12 @@ public class CertificateHandler {
     @Autowired
     public void setValidationProducer(ValidationProducer validationProducer) {
         this.validationProducer = validationProducer;
+    }
+
+    @Value("${certificate.validation.batch-size:10}")
+    public void setValidationBatchSize(int validationBatchSize) {
+        if (validationBatchSize <= 0) throw new IllegalArgumentException("validationBatchSize must be positive");
+        this.validationBatchSize = validationBatchSize;
     }
 
     @Autowired
@@ -203,7 +212,12 @@ public class CertificateHandler {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleCertificateValidationEvent(CertificateValidationEvent event) {
-        ValidationMessage validationMessage = new ValidationMessage(Resource.CERTIFICATE, event.certificateUuids(), event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName());
-        validationProducer.produceMessage(validationMessage);
+        List<UUID> uuids = event.certificateUuids();
+        int size = uuids.size();
+        for (int i = 0; i < size; i += validationBatchSize) {
+            List<UUID> batch = uuids.subList(i, Math.min(i + validationBatchSize, size));
+            validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch,
+                    event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName()));
+        }
     }
 }
