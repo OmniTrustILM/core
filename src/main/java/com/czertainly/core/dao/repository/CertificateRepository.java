@@ -397,7 +397,11 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      *       includes; {@code false} always excludes.</li>
      * </ul>
      *
-     * <p>The CA certificate itself is not included in the result; callers are expected to add it separately.</p>
+     * <p>The CA certificate itself is not included in the result; callers are expected to add it separately.
+     * The eligibility rules in the {@code WHERE} clause below (not archived, certificate content present,
+     * validation status not REVOKED/EXPIRED, RA-profile flag falling back to the platform flag) mirror
+     * {@code CertificateServiceImpl.isEligibleForRevalidation}, which applies the same rules to the CA node.
+     * Keep both in sync.</p>
      *
      * <p>Traversal is capped at {@code maxDepth} levels. PostgreSQL's native {@code CYCLE} clause detects cycles
      * in corrupt data (e.g. a self-signed root whose {@code issuer_certificate_uuid} points back to itself).</p>

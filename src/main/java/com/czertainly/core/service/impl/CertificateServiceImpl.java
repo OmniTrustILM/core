@@ -617,6 +617,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         }
     }
 
+    /**
+     * Applies the same four eligibility rules to the CA node itself that
+     * {@link CertificateRepository#findAllDescendantCertificatesEligibleForValidation} applies to its
+     * descendants in SQL: not archived, certificate content present, validation status not REVOKED/EXPIRED,
+     * and RA-profile validation flag (falling back to the platform flag when unset). Keep both in sync.
+     */
     private boolean isEligibleForRevalidation(Certificate certificate, boolean platformEnabled) {
         if (certificate.isArchived() || certificate.getCertificateContent() == null) {
             return false;
