@@ -1,8 +1,7 @@
 package com.czertainly.core.signing.record;
 
 import com.czertainly.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Shared skeleton for the {@link SigningRecordStrategy} implementations: the recording-disabled guard and the
@@ -14,9 +13,8 @@ import org.slf4j.LoggerFactory;
  * operation produces a record carrying at least its intrinsic metadata (who, when, which profile/version),
  * with the per-field {@code record*} content toggles deciding only which optional payload columns are filled.</p>
  */
+@Slf4j
 public abstract class AbstractSigningRecordStrategy implements SigningRecordStrategy {
-
-    private static final Logger logger = LoggerFactory.getLogger(AbstractSigningRecordStrategy.class);
 
     protected final SigningRecordMetrics metrics;
 
@@ -28,7 +26,7 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
     public final void recordSigning(SigningRecordInput input) {
         metrics.intake(mode().name()).increment();
         if (!input.getSigningProfile().recordPolicy().recordingEnabled()) {
-            logger.debug("Signing Record creation is disabled for signing profile {}; skipping the {} record.",
+            log.debug("Signing Record creation is disabled for signing profile {}; skipping the {} record.",
                     input.getSigningProfile().uuid(), mode().name());
             metrics.intakeSkipped(mode().name()).increment();
             return;
