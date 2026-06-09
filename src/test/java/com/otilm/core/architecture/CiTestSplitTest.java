@@ -62,7 +62,7 @@ class CiTestSplitTest {
     @Test
     void everyRunnableTestInServicePackageMustMatchSplitPattern() throws IOException {
         List<String> splitSuffixes = List.of("Test.java", "Tests.java", "ITest.java");
-        Path serviceDir = Path.of("src/test/java/com/czertainly/core/service");
+        Path serviceDir = Path.of("src/test/java/com/otilm/core/service");
 
         List<String> violations;
         try (Stream<Path> stream = Files.walk(serviceDir)) {
