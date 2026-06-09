@@ -1,23 +1,26 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.connector.compliance.v2.ComplianceRuleResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.compliance.*;
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.service.handler.ComplianceProfileRuleHandler;
 import com.czertainly.core.service.handler.ComplianceSubjectHandler;
 import org.slf4j.Logger;
@@ -33,7 +36,7 @@ import java.util.*;
 
 @Service
 @Transactional
-public class ComplianceServiceImpl implements ComplianceService {
+public class ComplianceServiceImpl implements ComplianceExternalService, ComplianceInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceServiceImpl.class);
     private static final String COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE = "Cannot check compliance for resource %s. Resource does not support compliance check";
@@ -136,8 +139,39 @@ public class ComplianceServiceImpl implements ComplianceService {
         this.ruleHandler = ruleHandler;
     }
 
+    /**
+     * Authorized external read. The {@code authorizableResource} and {@code authorizableObjectUuid} parameters are
+     * intentionally unused in the body: their sole purpose is to be resolved by the {@link ExternalAuthorizationDynamic}
+     * interceptor as the OPA authorization subject.
+     */
+    @Override
+    @ExternalAuthorizationDynamic(action = ResourceAction.DETAIL)
+    public ComplianceCheckResultDto getComplianceCheckResult(SecuredResource authorizableResource, SecuredUUID authorizableObjectUuid,
+                                                             Resource resource, UUID objectUuid) throws NotFoundException {
+        return doGetComplianceCheckResult(resource, objectUuid);
+    }
+
+    @Override
+    public SecuredUUID resolveComplianceAuthorizableObject(Resource resource, UUID objectUuid) {
+        if (objectUuid == null) {
+            return null;
+        }
+        return switch (resource) {
+            case CERTIFICATE, SECRET -> SecuredUUID.fromUUID(objectUuid);
+            case CRYPTOGRAPHIC_KEY_ITEM -> cryptographicKeyItemRepository.findByUuid(objectUuid)
+                    .map(item -> SecuredUUID.fromUUID(item.getKeyUuid()))
+                    .orElse(null);
+            // CERTIFICATE_REQUEST (and any other) carry their own compliance result with no stable owning object,
+            default -> null;
+        };
+    }
+
     @Override
     public ComplianceCheckResultDto getComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException {
+        return doGetComplianceCheckResult(resource, objectUuid);
+    }
+
+    private ComplianceCheckResultDto doGetComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException {
         logger.debug("Get Compliance Check Result called for resource={} uuid={}", resource.getLabel(), objectUuid);
         if (!resource.complianceSubject() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM) {
             throw new ValidationException("Cannot get compliance result for resource %s. Resource does not support compliance check".formatted(resource.getLabel()));
@@ -285,7 +319,17 @@ public class ComplianceServiceImpl implements ComplianceService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.CHECK_COMPLIANCE)
     public void checkResourceObjectsComplianceValidation(Resource resource, List<UUID> objectUuids) throws ValidationException, NotFoundException {
+        doCheckResourceObjectsComplianceValidation(resource, objectUuids);
+    }
+
+    @Override
+    public void checkResourceObjectsComplianceValidationAsSystem(Resource resource, List<UUID> objectUuids) throws ValidationException, NotFoundException {
+        doCheckResourceObjectsComplianceValidation(resource, objectUuids);
+    }
+
+    private void doCheckResourceObjectsComplianceValidation(Resource resource, List<UUID> objectUuids) throws ValidationException, NotFoundException {
         if (resource == Resource.CERTIFICATE_REQUEST || (!resource.complianceSubject() && !resource.hasComplianceProfiles() && resource != Resource.CRYPTOGRAPHIC_KEY_ITEM)) {
             throw new ValidationException("Cannot check compliance for resource %s. Resource does not support compliance check or does not allow association of compliance profiles".formatted(resource.getLabel()));
         }
@@ -301,7 +345,7 @@ public class ComplianceServiceImpl implements ComplianceService {
                 case TOKEN_PROFILE ->
                         complianceProfileAssociationRepository.countByResourceAndObjectUuid(Resource.TOKEN_PROFILE, objectUuid) > 0;
                 case VAULT_PROFILE ->
-                    complianceProfileAssociationRepository.countByResourceAndObjectUuid(Resource.VAULT_PROFILE, objectUuid) > 0;
+                        complianceProfileAssociationRepository.countByResourceAndObjectUuid(Resource.VAULT_PROFILE, objectUuid) > 0;
                 default ->
                         throw new ValidationException(COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE.formatted(resource.getLabel()));
             };
@@ -448,8 +492,7 @@ public class ComplianceServiceImpl implements ComplianceService {
                     associationResource == Resource.CERTIFICATE || associationResource == Resource.CERTIFICATE_REQUEST || associationResource == Resource.RA_PROFILE;
             case CRYPTOGRAPHIC_KEY, CRYPTOGRAPHIC_KEY_ITEM ->
                     associationResource == Resource.CRYPTOGRAPHIC_KEY || associationResource == Resource.CRYPTOGRAPHIC_KEY_ITEM || associationResource == Resource.TOKEN_PROFILE;
-            case SECRET ->
-                    associationResource == Resource.VAULT_PROFILE || associationResource == Resource.SECRET;
+            case SECRET -> associationResource == Resource.VAULT_PROFILE || associationResource == Resource.SECRET;
             default -> false;
         };
     }

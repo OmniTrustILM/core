@@ -1,9 +1,10 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.ExternalAuthorizationConfigAttribute;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
 import com.czertainly.core.security.authz.GroupParentUUIDGetter;
 import com.czertainly.core.security.authz.NoOpParentUUIDGetter;
 import com.czertainly.core.security.authz.ParentUUIDGetter;
@@ -53,6 +54,22 @@ class OpaSecuredAnnotationMetadataExtractorTest {
 
         // then
         assertAttributePresent("parentUUIDGetter", GroupParentUUIDGetter.class, attributes);
+    }
+
+    @Test
+    void extractsResolvedResourceAndActionForDynamicAnnotation() {
+        // given
+        ExternalAuthorizationDynamic dynamic = new TestExternalAuthorizationDynamic(ResourceAction.LIST);
+
+        // when
+        Collection<ExternalAuthorizationConfigAttribute> attributes =
+                metadataExtractor.extractAttributes(dynamic, Resource.RA_PROFILE);
+
+        // then
+        assertAttributePresent("name", Resource.RA_PROFILE.getCode(), attributes);
+        assertAttributePresent("action", ResourceAction.LIST.getCode(), attributes);
+        assertAttributePresent("parentName", Resource.NONE.getCode(), attributes);
+        assertAttributePresent("parentAction", ResourceAction.NONE.getCode(), attributes);
     }
 
     void assertAttributePresent(String attributeName, Object attributeValue, Collection<ExternalAuthorizationConfigAttribute> attributes) {
@@ -126,6 +143,35 @@ class OpaSecuredAnnotationMetadataExtractorTest {
         @Override
         public Class<? extends Annotation> annotationType() {
             return ExternalAuthorization.class;
+        }
+    }
+
+    @SuppressWarnings("ClassExplicitlyAnnotation")
+    static class TestExternalAuthorizationDynamic implements ExternalAuthorizationDynamic {
+        private final ResourceAction action;
+
+        TestExternalAuthorizationDynamic(ResourceAction action) {
+            this.action = action;
+        }
+
+        @Override
+        public ResourceAction action() {
+            return action;
+        }
+
+        @Override
+        public Resource parentResource() {
+            return Resource.NONE;
+        }
+
+        @Override
+        public ResourceAction parentAction() {
+            return ResourceAction.NONE;
+        }
+
+        @Override
+        public Class<? extends Annotation> annotationType() {
+            return ExternalAuthorizationDynamic.class;
         }
     }
 }

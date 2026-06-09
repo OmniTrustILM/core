@@ -14,8 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import com.czertainly.api.exception.CbomRepositoryException;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.api.ScheduledJobSkippedException;
 import com.czertainly.core.model.ScheduledTaskResult;
 import com.czertainly.core.service.CbomService;

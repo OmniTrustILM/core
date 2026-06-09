@@ -1,36 +1,38 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
+import com.czertainly.core.attribute.CsrAttributes;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.certificate.group.GroupDto;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.enums.CertificateProtocol;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.certificate.group.GroupDto;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
@@ -39,8 +41,8 @@ import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
-import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -108,6 +110,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
+    private CertificateEventHistoryRepository certificateEventHistoryRepository;
+    @Autowired
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -139,6 +143,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
     @Autowired
     private CertificateRelationRepository certificateRelationRepository;
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
     @Autowired
     private AuthenticationCache authenticationCache;
     @MockitoBean
@@ -419,8 +425,57 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetCertificate_withCertificateRequest() throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, AttributeException {
+        CertificateRequestEntity csrEntity = new CertificateRequestEntity();
+        csrEntity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
+        csrEntity.setContent(SAMPLE_PKCS10);
+        certificateRequestRepository.save(csrEntity);
+
+        certificate.setCertificateRequest(csrEntity);
+        certificate.setCertificateRequestUuid(csrEntity.getUuid());
+        certificateRepository.save(certificate);
+
+        // definitions are wiped by truncateTables() in BaseSpringBootTest, so register them explicitly
+        attributeEngine.updateDataAttributeDefinitions(null, null, CsrAttributes.csrAttributes());
+
+        // store a csr attribute in the no-operation slot
+        RequestAttributeV2 commonNameAttr = new RequestAttributeV2();
+        commonNameAttr.setUuid(UUID.fromString(CsrAttributes.COMMON_NAME_UUID));
+        commonNameAttr.setName(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
+        commonNameAttr.setContentType(AttributeContentType.STRING);
+        commonNameAttr.setContent(List.of(new StringAttributeContentV2("czertainly.com", "czertainly.com")));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, csrEntity.getUuid()).build(),
+                List.of(commonNameAttr)
+        );
+
+        CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+
+        Assertions.assertNotNull(dto.getCertificateRequest());
+        // stored attribute appears in the correct slot
+        Assertions.assertEquals(1, dto.getCertificateRequest().getAttributes().size());
+        Assertions.assertEquals(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME, dto.getCertificateRequest().getAttributes().getFirst().getName());
+        // no bleeding into the operation-scoped slots
+        Assertions.assertTrue(dto.getCertificateRequest().getSignatureAttributes().isEmpty());
+        Assertions.assertTrue(dto.getCertificateRequest().getAltSignatureAttributes().isEmpty());
+    }
+
+    @Test
     void testGetCertificate_notFound() {
         Assertions.assertThrows(NotFoundException.class, () -> certificateService.getCertificate(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
+    void checkCertificateExistsByFingerprint_returnsTrueWhenFound() {
+        certificate.setFingerprint("abc123");
+        certificateRepository.save(certificate);
+
+        Assertions.assertTrue(certificateService.checkCertificateExistsByFingerprint("abc123"));
+    }
+
+    @Test
+    void checkCertificateExistsByFingerprint_returnsFalseWhenNotFound() {
+        Assertions.assertFalse(certificateService.checkCertificateExistsByFingerprint("nonexistent"));
     }
 
     @Test
@@ -1012,7 +1067,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUploadCertificateKey() throws com.czertainly.api.exception.CertificateException, CertificateEncodingException, NotFoundException {
+    void testUploadCertificateKey() throws com.otilm.api.exception.CertificateException, CertificateEncodingException, NotFoundException {
         Certificate certificateWithKey = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
         UUID keyUuid = certificateWithKey.getKeyUuid();
         Assertions.assertNotNull(keyUuid);
@@ -1023,7 +1078,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testDeleteCertificateWithUser() throws CertificateEncodingException, com.czertainly.api.exception.CertificateException {
+    void testDeleteCertificateWithUser() throws CertificateEncodingException, com.otilm.api.exception.CertificateException {
         Certificate certificateNew = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
         certificateNew.setUserUuid(UUID.randomUUID());
         certificateRepository.save(certificateNew);
@@ -1032,7 +1087,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void bulkUpdate() throws CertificateException, com.czertainly.api.exception.CertificateException, NotFoundException, IOException {
+    void bulkUpdate() throws CertificateException, com.otilm.api.exception.CertificateException, NotFoundException, IOException {
         Certificate certificateNew = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
 
         MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();
@@ -1043,6 +1098,69 @@ class CertificateServiceTest extends BaseSpringBootTest {
         CertificateDetailDto detailDto = certificateService.getCertificate(certificateNew.getSecuredUuid());
         Assertions.assertEquals(1, detailDto.getGroups().size());
         Assertions.assertEquals(group.getUuid().toString(), detailDto.getGroups().getFirst().getUuid());
+    }
+
+    @Test
+    void bulkUpdateRaProfileFailureIsRecordedInEventHistory() throws NotFoundException, NotSupportedException {
+        // The authority of the new RA profile does not identify the certificate,
+        // so switching the RA profile fails for every selected certificate.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();
+        request.setCertificateUuids(List.of(certificate.getUuid().toString()));
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        UUID originalRaProfileUuid = certificate.getRaProfileUuid();
+        certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
+
+        // The per-certificate transaction rolled back: the RA profile must be unchanged.
+        Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(originalRaProfileUuid, reloaded.getRaProfileUuid());
+
+        // The failed bulk attempt must be recorded in the certificate event history.
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed bulk RA profile override must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void updateRaProfileFailureIsRecordedInEventHistory() {
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.jsonResponse("{\"message\": \"Object of type 'Certificate' not identified.\"}", 404)));
+
+        CertificateUpdateObjectsDto request = new CertificateUpdateObjectsDto();
+        request.setRaProfileUuid(raProfile.getUuid().toString());
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(CertificateOperationException.class,
+                () -> certificateService.updateCertificateObjects(certificateSecuredUuid, request));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_RA_PROFILE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Failed RA profile update must produce a FAILED UPDATE_RA_PROFILE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
+    }
+
+    @Test
+    void deleteCertificateUsedByUserFailureIsRecordedInEventHistory() {
+        certificate.setUserUuid(UUID.randomUUID());
+        certificateRepository.save(certificate);
+
+        SecuredUUID certificateSecuredUuid = certificate.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> certificateService.deleteCertificate(certificateSecuredUuid));
+
+        List<CertificateEventHistory> history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(history.stream().anyMatch(h -> h.getEvent() == CertificateEvent.DELETE
+                        && h.getStatus() == CertificateEventStatus.FAILED),
+                "Refused certificate deletion must produce a FAILED DELETE history record; history: "
+                        + history.stream().map(h -> h.getEvent() + "/" + h.getStatus()).toList());
     }
 
     @Test
@@ -1383,6 +1501,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(certificate.getSerialNumber(), nameAndUuidDto.getName());
     }
 
+    @Test
+    void testListResourceObjects() {
+        Certificate notNullCommonName = createCertificateEntity("notNullCommonName", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate blankCommonName = createCertificateEntity("", null, CertificateState.ISSUED, CertificateValidationStatus.VALID, false);
+        Certificate nullSerialNumber = new Certificate();
+        nullSerialNumber.setCommonName("nullSerialNumber");
+        nullSerialNumber.setSerialNumber(null);
+        nullSerialNumber.setState(CertificateState.ISSUED);
+        nullSerialNumber.setValidationStatus(CertificateValidationStatus.VALID);
+        nullSerialNumber.setArchived(false);
+        certificateRepository.save(nullSerialNumber);
+        List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
+        Assertions.assertFalse(resourceObjects.isEmpty());
+        Assertions.assertEquals(4, resourceObjects.size());
+        String name = "%s (%s)";
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber()))));
+        Assertions.assertTrue(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued"))));
+    }
+
 
     @ParameterizedTest
     @MethodSource("com.czertainly.core.util.CertificateTestData#provideScepCaCertificateTestData")
@@ -1431,7 +1570,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cryptographicKeyRepository.save(key);
     }
 
-    private void createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
+    private Certificate createCertificateEntity(String commonName, CryptographicKey key, CertificateState state, CertificateValidationStatus validationStatus, boolean archived) {
         Certificate cert = new Certificate();
         cert.setCommonName(commonName);
         String serialNumber = commonName.toLowerCase().replace(" ", "-") + "-serial" + UUID.randomUUID();
@@ -1442,6 +1581,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         cert.setValidationStatus(validationStatus);
         cert.setArchived(archived);
         certificateRepository.save(cert);
+        return cert;
     }
 
     @NotNull

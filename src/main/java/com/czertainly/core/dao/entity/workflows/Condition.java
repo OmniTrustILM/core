@@ -1,9 +1,9 @@
 
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.workflows.ConditionDto;
-import com.czertainly.api.model.core.workflows.ConditionType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.workflows.ConditionDto;
+import com.otilm.api.model.core.workflows.ConditionType;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;

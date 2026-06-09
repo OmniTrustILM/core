@@ -1,6 +1,6 @@
 package com.czertainly.core.exception;
 
-import com.czertainly.api.exception.PlatformException;
+import com.otilm.api.exception.PlatformException;
 
 /**
  * Thrown by AuthorityProviderAdapterFactory when no adapter is registered for the

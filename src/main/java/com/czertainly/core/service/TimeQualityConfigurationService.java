@@ -1,19 +1,21 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationDto;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationDto;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationListDto;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface TimeQualityConfigurationService extends ResourceExtensionService {
 
@@ -28,6 +30,11 @@ public interface TimeQualityConfigurationService extends ResourceExtensionServic
     TimeQualityConfigurationDto updateTimeQualityConfiguration(SecuredUUID uuid, TimeQualityConfigurationRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
 
     void deleteTimeQualityConfiguration(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Returns the cached model for the given UUID.
+     */
+    TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteTimeQualityConfigurations(List<SecuredUUID> uuids);
 }

@@ -1,28 +1,28 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.ConnectorProblemException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.interfaces.client.v3.AuthoritySyncApiClient;
-import com.czertainly.api.interfaces.client.v3.CertificateSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.error.ErrorCode;
-import com.czertainly.api.model.connector.v3.certificate.CertificateAttributeListRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateDataResponseDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationCancelRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateRegistrationRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateRenewRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateRevocationRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateSignRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
+import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRenewRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRevocationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
@@ -70,7 +70,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateSignRequestDto wire = new CertificateSignRequestDto();
+        CertificateSignRequestDtoV3 wire = new CertificateSignRequestDtoV3();
         wire.setRequest(cert.getCertificateRequest().getContent());
         wire.setFormat(cert.getCertificateRequest().getCertificateRequestFormat());
         wire.setAttributes(issueAttributesFor(cert, authority));
@@ -91,7 +91,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateRenewRequestDto wire = new CertificateRenewRequestDto();
+        CertificateRenewRequestDtoV3 wire = new CertificateRenewRequestDtoV3();
         if (newCert.getCertificateRequest() != null) {
             wire.setRequest(newCert.getCertificateRequest().getContent());
             wire.setFormat(newCert.getCertificateRequest().getCertificateRequestFormat());
@@ -112,7 +112,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateRevocationRequestDto wire = new CertificateRevocationRequestDto();
+        CertificateRevocationRequestDtoV3 wire = new CertificateRevocationRequestDtoV3();
         wire.setCertificate(cert.getCertificateContent().getContent());
         wire.setReason(req.getReason());
         wire.setAttributes(req.getAttributes());
@@ -181,7 +181,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateRegistrationRequestDto wire = new CertificateRegistrationRequestDto();
+        CertificateRegistrationRequestDtoV3 wire = new CertificateRegistrationRequestDtoV3();
         if (req != null) {
             wire.setSubjectDn(req.getSubjectDn());
             wire.setSubjectAltName(req.getSubjectAltName());
@@ -212,7 +212,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateOperationStatusRequestDto wire = new CertificateOperationStatusRequestDto();
+        CertificateOperationStatusRequestDtoV3 wire = new CertificateOperationStatusRequestDtoV3();
         wire.setMeta(loadMeta(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
@@ -232,7 +232,7 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateOperationCancelRequestDto wire = new CertificateOperationCancelRequestDto();
+        CertificateOperationCancelRequestDtoV3 wire = new CertificateOperationCancelRequestDtoV3();
         wire.setMeta(loadMeta(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
@@ -311,8 +311,8 @@ public class AuthorityProviderV3Adapter
      * authority-wide listing flows that don't exist today — callers go through the operator
      * controller which always carries a profile.
      */
-    private CertificateAttributeListRequestDto attributeListRequest(AuthorityInstanceReference authority, RaProfile raProfile) {
-        CertificateAttributeListRequestDto dto = new CertificateAttributeListRequestDto();
+    private CertificateAttributeListRequestDtoV3 attributeListRequest(AuthorityInstanceReference authority, RaProfile raProfile) {
+        CertificateAttributeListRequestDtoV3 dto = new CertificateAttributeListRequestDtoV3();
         dto.setAuthorityAttributes(authorityAttributesFor(authority));
         dto.setRaProfileAttributes(raProfile != null ? raProfileAttributesFor(raProfile, authority) : List.of());
         return dto;

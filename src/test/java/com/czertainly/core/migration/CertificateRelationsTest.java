@@ -1,7 +1,7 @@
 package com.czertainly.core.migration;
 
-import com.czertainly.api.model.core.certificate.CertificateRelationType;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.CertificateRelation;

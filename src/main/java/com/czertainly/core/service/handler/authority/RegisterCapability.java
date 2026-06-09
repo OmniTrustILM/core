@@ -1,8 +1,8 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.RaProfile;

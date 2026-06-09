@@ -1,10 +1,10 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.core.auth.*;
 import com.czertainly.core.auth.ContextRefreshListener;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
@@ -22,10 +22,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @Transactional
 public class AuthServiceImpl implements AuthExternalService {
+
+    private static final List<Resource> DEFAULT_ALLOWED_LISTINGS = List.of(Resource.DASHBOARD, Resource.APPROVAL);
 
     private UserManagementApiClient userManagementApiClient;
     private ResourceApiClient resourceApiClient;
@@ -91,7 +94,7 @@ public class AuthServiceImpl implements AuthExternalService {
                 .map(syncResource -> Resource.findByCode(syncResource.getName().getCode())).sorted(Comparator.comparing(Resource::getCode)).toList();
 
         if (Boolean.TRUE.equals(userProfileDto.getPermissions().getAllowAllResources())) {
-            return allListings;
+            return withDefaultListings(allListings);
         }
 
         Map<Resource, ResourcePermissionsDto> mappedUserPermissions = userProfileDto.getPermissions().getResources().stream().collect(Collectors.toMap(resource -> Resource.findByCode(resource.getName()), resource -> resource));
@@ -116,7 +119,16 @@ public class AuthServiceImpl implements AuthExternalService {
                 allowedListings.add(resource);
             }
         }
-        return allowedListings;
+        return withDefaultListings(allowedListings);
+    }
+
+    private List<Resource> withDefaultListings(List<Resource> listings) {
+        // append the missing defaults, then keep deterministic by-code order
+        return Stream.concat(
+                        listings.stream(),
+                        DEFAULT_ALLOWED_LISTINGS.stream().filter(defaultListing -> !listings.contains(defaultListing)))
+                .sorted(Comparator.comparing(Resource::getCode))
+                .toList();
     }
 
 }

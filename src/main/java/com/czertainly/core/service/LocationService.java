@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.LocationsResponseDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.location.AddLocationRequestDto;
-import com.czertainly.api.model.client.location.EditLocationRequestDto;
-import com.czertainly.api.model.client.location.IssueToLocationRequestDto;
-import com.czertainly.api.model.client.location.PushToLocationRequestDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.location.LocationDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.LocationsResponseDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.location.AddLocationRequestDto;
+import com.otilm.api.model.client.location.EditLocationRequestDto;
+import com.otilm.api.model.client.location.IssueToLocationRequestDto;
+import com.otilm.api.model.client.location.PushToLocationRequestDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.CertificateLocationId;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

@@ -1,11 +1,11 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.ConnectorInterfaceEntity;

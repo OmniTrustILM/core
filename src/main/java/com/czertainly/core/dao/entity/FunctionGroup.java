@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.FunctionGroupDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.FunctionGroupDto;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;

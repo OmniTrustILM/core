@@ -1,29 +1,31 @@
 package com.czertainly.core.enums;
 
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.secrets.SecretType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
-import com.czertainly.api.model.core.enums.CertificateProtocol;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.oid.OidCategory;
-import com.czertainly.api.model.core.secret.SecretState;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.secret.SecretState;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.acme.AcmeAccount_;
 import com.czertainly.core.dao.entity.acme.AcmeProfile_;
@@ -31,9 +33,11 @@ import com.czertainly.core.dao.entity.cmp.CmpProfile_;
 import com.czertainly.core.dao.entity.oid.CustomOidEntry_;
 import com.czertainly.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry_;
 import com.czertainly.core.dao.entity.scep.ScepProfile_;
+import com.czertainly.core.dao.entity.signing.SigningProfile_;
+import com.czertainly.core.dao.entity.signing.SigningRecord_;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration_;
 import com.czertainly.core.dao.entity.signing.TspProfile_;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import jakarta.persistence.metamodel.Attribute;
 import lombok.Getter;
 
@@ -212,6 +216,14 @@ public enum FilterField {
     CBOM_CRYPTO_MATERIAL_COUNT(Resource.CBOM, null, null, Cbom_.cryptoMaterialCount, "Crypto Material Count", SearchFieldTypeEnum.NUMBER),
     CBOM_TOTAL_ASSETS_COUNT(Resource.CBOM, null, null, Cbom_.totalAssetsCount, "Total Assets Count", SearchFieldTypeEnum.NUMBER),
 
+    // Signing Profile
+    SIGNING_PROFILE_NAME(Resource.SIGNING_PROFILE, null, null, SigningProfile_.name, "Name", SearchFieldTypeEnum.STRING),
+    SIGNING_PROFILE_ENABLED(Resource.SIGNING_PROFILE, null, null, SigningProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
+    SIGNING_PROFILE_SIGNING_SCHEME(Resource.SIGNING_PROFILE, null, null, SigningProfile_.signingScheme, "Signing Scheme", SearchFieldTypeEnum.LIST, SigningScheme.class),
+    SIGNING_PROFILE_WORKFLOW_TYPE(Resource.SIGNING_PROFILE, null, null, SigningProfile_.workflowType, "Workflow Type", SearchFieldTypeEnum.LIST, SigningWorkflowType.class),
+    SIGNING_PROFILE_TSP_PROFILE(Resource.SIGNING_PROFILE, Resource.TSP_PROFILE, List.of(SigningProfile_.tspProfile), TspProfile_.name, "TSP Profile", SearchFieldTypeEnum.LIST),
+    SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION(Resource.SIGNING_PROFILE, Resource.TIME_QUALITY_CONFIGURATION, List.of(SigningProfile_.timeQualityConfiguration), TimeQualityConfiguration_.name, "Time Quality Configuration", SearchFieldTypeEnum.LIST),
+
     // Time Quality Configuration
     TIME_QUALITY_CONFIGURATION_NAME(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.name, "Name", SearchFieldTypeEnum.STRING),
     TIME_QUALITY_CONFIGURATION_LEAP_SECOND_GUARD(Resource.TIME_QUALITY_CONFIGURATION, null, null, TimeQualityConfiguration_.leapSecondGuard, "Leap Second Guard", SearchFieldTypeEnum.BOOLEAN),
@@ -222,6 +234,15 @@ public enum FilterField {
     // TSP Profile
     TSP_PROFILE_NAME(Resource.TSP_PROFILE, null, null, TspProfile_.name, "Name", SearchFieldTypeEnum.STRING),
     TSP_PROFILE_ENABLED(Resource.TSP_PROFILE, null, null, TspProfile_.enabled, Constants.ENABLED, SearchFieldTypeEnum.BOOLEAN),
+    TSP_PROFILE_DEFAULT_SIGNING_PROFILE(Resource.TSP_PROFILE, Resource.SIGNING_PROFILE, List.of(TspProfile_.defaultSigningProfile), SigningProfile_.name, "Default Signing Profile", SearchFieldTypeEnum.LIST),
+
+    // Signing Record
+    SIGNING_RECORD_NAME(Resource.SIGNING_RECORD, null, null, SigningRecord_.name, "Name", SearchFieldTypeEnum.STRING),
+    SIGNING_RECORD_SIGNING_PROFILE(Resource.SIGNING_RECORD, Resource.SIGNING_PROFILE, List.of(SigningRecord_.signingProfile), SigningProfile_.name, "Signing Profile", SearchFieldTypeEnum.LIST),
+    SIGNING_RECORD_SIGNING_PROFILE_VERSION(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingProfileVersion, "Signing Profile Version", SearchFieldTypeEnum.NUMBER),
+    SIGNING_RECORD_SIGNING_TIME(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingTime, "Signing Time", SearchFieldTypeEnum.DATETIME),
+    SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT(Resource.SIGNING_RECORD, null, null, SigningRecord_.signedDocumentRetrievedAt, "Signed Document Retrieved At", SearchFieldTypeEnum.DATETIME),
+    SIGNING_RECORD_CREATED(Resource.SIGNING_RECORD, null, null, Audited_.created, "Created At", SearchFieldTypeEnum.DATETIME),
     ;
 
     private static final FilterField[] VALUES;

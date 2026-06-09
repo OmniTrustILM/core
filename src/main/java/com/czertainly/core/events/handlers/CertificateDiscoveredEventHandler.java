@@ -1,11 +1,11 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.model.common.events.data.CertificateDiscoveredEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.EventStatus;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.model.common.events.data.CertificateDiscoveredEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.EventStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.DiscoveryCertificate;
 import com.czertainly.core.dao.entity.DiscoveryHistory;
@@ -47,7 +47,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -222,12 +221,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             }
         }
 
-        eventHistoryDiscovery.setStatus(EventStatus.FINISHED);
-        eventHistoryPlatform.setStatus(EventStatus.FINISHED);
-        eventHistoryPlatform.setFinishedAt(OffsetDateTime.now());
-        eventHistoryDiscovery.setFinishedAt(OffsetDateTime.now());
-        eventHistoryRepository.save(eventHistoryDiscovery);
-        eventHistoryRepository.save(eventHistoryPlatform);
+        saveEventHistory(eventHistoryDiscovery, EventStatus.FINISHED);
+        saveEventHistory(eventHistoryPlatform, EventStatus.FINISHED);
 
         // trigger other events
         eventProducer.produceMessage(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), context.getUserUuid(), context.getScheduledJobInfo(), new DiscoveryResult(DiscoveryStatus.PROCESSING, originalMessage)));
@@ -286,6 +281,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
                 eventData.setDiscoveryConnectorUuid(discovery.getConnectorUuid());
                 eventData.setDiscoveryConnectorName(discovery.getConnectorName());
 
+                certificateHandler.updateDiscoveredCertificate(discovery, certificate, discoveryCertificate.getMeta());
+
                 for (TriggerAssociation triggerAssociation : mergedTriggers) {
                     // Create trigger history entry
                     Trigger trigger = triggerAssociation.getTrigger();
@@ -293,7 +290,6 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
                     eventContext.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, certificate, discoveryCertificate.getUuid(), eventData, eventHistory);
                 }
 
-                certificateHandler.updateDiscoveredCertificate(discovery, certificate, discoveryCertificate.getMeta());
                 keysToCertificatesMap.computeIfAbsent(x509Cert.getPublicKey(), k -> new ArrayList<>()).add(certificate.getUuid());
                 byte[] altPublicKey = x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
                 if (altPublicKey != null) {

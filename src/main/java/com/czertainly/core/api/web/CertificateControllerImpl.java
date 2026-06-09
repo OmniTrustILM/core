@@ -1,25 +1,25 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.CertificateController;
-import com.czertainly.api.model.client.approval.ApprovalResponseDto;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.location.LocationDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.CertificateController;
+import com.otilm.api.model.client.approval.ApprovalResponseDto;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ApprovalExternalService;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryExternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.converter.CertificateFormatConverter;
@@ -46,7 +46,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     private CertificateService certificateService;
 
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
 
     private ClientOperationService clientOperationService;
 
@@ -249,7 +249,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryExternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 

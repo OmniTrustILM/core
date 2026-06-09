@@ -1,12 +1,12 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.ActionController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.ActionController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.ActionExternalService;
@@ -53,7 +53,7 @@ public class ActionControllerImpl implements ActionController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.EXECUTION, operation = Operation.UPDATE)
-    public ExecutionDto updateExecution(@LogResource(uuid = true) String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException {
+    public ExecutionDto updateExecution(@LogResource(uuid = true) String executionUuid, UpdateExecutionRequestDto request) throws NotFoundException, AlreadyExistException {
         return actionService.updateExecution(executionUuid, request);
     }
 
@@ -83,7 +83,7 @@ public class ActionControllerImpl implements ActionController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.ACTION, operation = Operation.UPDATE)
-    public ActionDetailDto updateAction(@LogResource(uuid = true) String actionUuid, UpdateActionRequestDto request) throws NotFoundException {
+    public ActionDetailDto updateAction(@LogResource(uuid = true) String actionUuid, UpdateActionRequestDto request) throws NotFoundException, AlreadyExistException {
         return actionService.updateAction(actionUuid, request);
     }
 

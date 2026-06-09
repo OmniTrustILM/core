@@ -1,27 +1,28 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.CustomAttributeController;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
-import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.CustomAttribute;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.CustomAttributeController;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.CustomAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.AttributeService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.AttributeContentTypeConverter;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,7 @@ import java.util.UUID;
 public class CustomAttributeControllerImpl implements CustomAttributeController {
 
     private AttributeService attributeService;
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
     public void setAttributeService(AttributeService attributeService) {
@@ -47,7 +48,7 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -152,7 +153,7 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
             List<AttributeContent> request
     ) throws NotFoundException, AttributeException {
         return resourceService.updateAttributeContentForObject(
-                resourceName,
+                SecuredResource.fromResource(resourceName),
                 SecuredUUID.fromString(objectUuid),
                 UUID.fromString(attributeUuid),
                 request
@@ -167,7 +168,7 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
             @LogResource(uuid = true) String attributeUuid
     ) throws NotFoundException, AttributeException {
         return resourceService.updateAttributeContentForObject(
-                resourceName,
+                SecuredResource.fromResource(resourceName),
                 SecuredUUID.fromString(objectUuid),
                 UUID.fromString(attributeUuid),
                 null

@@ -1,24 +1,24 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.ConnectorProblemException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.client.v3.AuthoritySyncApiClient;
-import com.czertainly.api.interfaces.client.v3.CertificateSyncApiClient;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.common.error.ErrorCode;
-import com.czertainly.api.model.common.error.ProblemDetailExtended;
-import com.czertainly.api.model.connector.v3.certificate.CertificateDataResponseDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationCancelRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusRequestDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
-import com.czertainly.api.model.connector.v3.certificate.CertificateSignRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
+import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
@@ -128,7 +128,7 @@ class AuthorityProviderV3AdapterTest {
     void issueMaps200ToSyncOk() throws ConnectorException {
         CertificateDataResponseDto body = new CertificateDataResponseDto();
         body.setCertificateData("issuedCert==");
-        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDto.class)))
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(body));
 
         AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
@@ -145,7 +145,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateDataResponseDto body = new CertificateDataResponseDto();
         List<MetadataAttribute> trackingMeta = List.of();
         body.setMeta(trackingMeta);
-        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDto.class)))
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.status(202).body(body));
 
         AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
@@ -176,7 +176,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateDataResponseDto faultyBody = spy(new CertificateDataResponseDto());
         doThrow(new RuntimeException("synthetic local failure")).when(faultyBody).getCertificateData();
         when(faultyResponse.getBody()).thenReturn(faultyBody);
-        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDto.class)))
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(faultyResponse);
 
         assertThrows(ConnectorAcceptedButLocalFailureException.class,
@@ -245,7 +245,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateOperationStatusResponseDto resp = new CertificateOperationStatusResponseDto();
         resp.setStatus(CertificateOperationStatus.COMPLETED);
         resp.setCertificateData("completedCert==");
-        when(certClientV3.getIssueStatus(eq(connectorInfo), any(CertificateOperationStatusRequestDto.class)))
+        when(certClientV3.getIssueStatus(eq(connectorInfo), any(CertificateOperationStatusRequestDtoV3.class)))
                 .thenReturn(resp);
 
         StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.ISSUE);
@@ -258,7 +258,7 @@ class AuthorityProviderV3AdapterTest {
 
     @Test
     void cancelMapsSuccessToCancelled() throws ConnectorException {
-        when(certClientV3.cancelIssue(eq(connectorInfo), any(CertificateOperationCancelRequestDto.class)))
+        when(certClientV3.cancelIssue(eq(connectorInfo), any(CertificateOperationCancelRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.noContent().build());
 
         CancelResult result = adapter.cancel(cert, CertificateOperation.ISSUE);

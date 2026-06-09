@@ -1,16 +1,16 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.events.data.CertificateNotCompliantEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.evaluator.CertificateTriggerEvaluator;
 import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.messaging.model.EventMessage;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -20,10 +20,10 @@ import java.util.UUID;
 @Component(ResourceEvent.Codes.CERTIFICATE_NOT_COMPLIANT)
 public class CertificateNotCompliantEventHandler extends CertificateEventsHandler {
 
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 

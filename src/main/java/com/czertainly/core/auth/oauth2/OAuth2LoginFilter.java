@@ -1,16 +1,16 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authn.client.CzertainlyAuthenticationClient;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.OAuth2Constants;
 import com.czertainly.core.util.OAuth2Util;
@@ -52,10 +52,10 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
     private CzertainlyClientRegistrationRepository clientRegistrationRepository;
     private OAuth2AuthorizedClientProvider authorizedClientProvider;
 
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 

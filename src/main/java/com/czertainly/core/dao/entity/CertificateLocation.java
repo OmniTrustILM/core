@@ -1,9 +1,9 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.v2.BaseAttributeV2;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v2.BaseAttributeV2;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;

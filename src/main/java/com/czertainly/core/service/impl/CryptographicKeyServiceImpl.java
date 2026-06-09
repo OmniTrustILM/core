@@ -1,30 +1,30 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.cryptography.CryptographicKeyResponseDto;
-import com.czertainly.api.model.client.cryptography.key.*;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.czertainly.api.model.connector.cryptography.key.CreateKeyRequestDto;
-import com.czertainly.api.model.connector.cryptography.key.KeyData;
-import com.czertainly.api.model.connector.cryptography.key.KeyDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.key.KeyPairDataResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.cryptography.key.*;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
+import com.otilm.api.model.client.cryptography.key.*;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
+import com.otilm.api.model.connector.cryptography.key.KeyData;
+import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
+import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.api.model.core.cryptography.key.*;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
@@ -34,7 +34,7 @@ import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.messaging.model.NotificationRecipient;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -53,8 +53,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
+import com.czertainly.core.config.cache.CacheEvictor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.lang.NonNull;
@@ -65,8 +65,6 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
@@ -119,7 +117,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private NotificationProducer notificationProducer;
 
     private UserManagementApiClient userManagementApiClient;
-    private CacheManager cacheManager;
+    private CacheEvictor cacheEvictor;
     // --------------------------------------------------------------------------------
     // Repositories
     // --------------------------------------------------------------------------------
@@ -190,8 +188,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired
@@ -704,13 +702,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private SecurityFilter createSecurityFilterFor(@NonNull Resource resource, @NonNull ResourceAction action,
                                                    @Nullable Resource parentResource, @Nullable ResourceAction parentAction, @Nullable String parentRefProperty) {
         SecurityFilter filter = SecurityFilter.create();
-        Map<String, String> properties = new HashMap<>(Map.of(
-                "name", resource.getCode(),
-                "action", action.getCode(),
-                "parentName", parentResource != null ? parentResource.getCode() : Resource.NONE.getCode(),
-                "parentAction", parentAction != null ? parentAction.getCode() : ResourceAction.NONE.getCode()
-        ));
-        objectFilterAspect.populateSecurityFilter(properties, filter);
+        objectFilterAspect.populateSecurityFilter(resource, action, parentResource, parentAction, filter);
 
         if (parentRefProperty != null) {
             filter.setParentRefProperty(parentRefProperty);
@@ -926,13 +918,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @Cacheable(value = CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, key = "#keyItemUuid", sync = true)
+    @Transactional(readOnly = true)
     public CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException {
-        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        if (cache != null) {
-            CryptographicKeyItemModel cached = cache.get(keyItemUuid, CryptographicKeyItemModel.class);
-            if (cached != null)
-                return cached;
-        }
         CryptographicKeyItem keyItem = cryptographicKeyItemRepository
                 .findWithConnectorByUuid(keyItemUuid)
                 .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
@@ -949,34 +937,26 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
         }
         UUID tokenInstanceUuid = UUID.fromString(tokenInstanceReference.getTokenInstanceUuid());
 
-        CryptographicKeyItemModel model = new CryptographicKeyItemModel(
+        String pqcParameterSpecName = keyItem.getType() == KeyType.PUBLIC_KEY
+                ? CryptographyUtil.resolvePqcParameterSpecName(keyItem.getKeyAlgorithm(), keyItem.getKeyData())
+                : null;
+
+        return new CryptographicKeyItemModel(
                 keyItem.getUuid(),
-                keyItem.getState(),
                 keyItem.isEnabled(),
-                keyItem.getUsage(),
                 keyItem.getKeyAlgorithm(),
+                keyItem.getState(),
+                keyItem.getType(),
+                keyItem.getUsage(),
+                pqcParameterSpecName,
                 keyItem.getKeyReferenceUuid(),
                 tokenInstanceReference.getConnectorUuid(),
                 tokenInstanceUuid
         );
-        if (cache != null)
-            cache.put(keyItemUuid, model);
-        return model;
     }
 
     private void evictKeyItemCache(UUID keyItemUuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        if (cache == null) return;
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(keyItemUuid);
-                }
-            });
-        } else {
-            cache.evict(keyItemUuid);
-        }
+        cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, keyItemUuid);
     }
 
     @Override

@@ -1,11 +1,11 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepDto;
-import com.czertainly.api.model.common.events.data.ApprovalEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepDto;
+import com.otilm.api.model.common.events.data.ApprovalEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.entity.ApprovalStep;
@@ -50,7 +50,7 @@ public class ApprovalRequestedEventHandler extends EventHandler<Approval> {
 
         List<NotificationRecipient> recipients = List.of(new NotificationRecipient(eventData.getRecipientType(), eventData.getRecipientUuid()));
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.APPROVAL, approval.getUuid(), null, recipients, eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
 
         // produce only for certificates for now until refactoring and uniting of event history for all resources
         if (approval.getResource() == Resource.CERTIFICATE) {

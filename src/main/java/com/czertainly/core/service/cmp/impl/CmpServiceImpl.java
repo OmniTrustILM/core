@@ -1,16 +1,16 @@
 package com.czertainly.core.service.cmp.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.cmp.PkiMessageError;
-import com.czertainly.api.interfaces.core.cmp.error.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
-import com.czertainly.api.model.core.cmp.ProtectionMethod;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.cmp.PkiMessageError;
+import com.otilm.api.interfaces.core.cmp.error.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.dao.entity.cmp.CmpTransaction;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.service.CertificateService;
@@ -34,7 +34,8 @@ import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.repository.RaProfileRepository;
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
 import com.czertainly.core.service.cmp.CmpService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
@@ -448,7 +449,7 @@ public class CmpServiceImpl implements CmpService {
                         certificateContent);
             }
 
-            if (!CertificateUtil.isCertificateCmpAcceptable(cmpCaCertificate)) {
+            if (!CertificateEligibilityUtil.isCertificateCmpAcceptable(cmpCaCertificate)) {
                 throw new CmpConfigurationException(PKIFailureInfo.systemFailure, "CMP Profile does not have associated acceptable CA certificate");
             }
         }

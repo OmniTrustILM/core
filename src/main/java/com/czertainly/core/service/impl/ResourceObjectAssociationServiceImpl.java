@@ -1,12 +1,12 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.RoleDetailDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDto;
-import com.czertainly.api.model.core.notification.RecipientType;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.RoleDetailDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDto;
+import com.otilm.api.model.core.notification.RecipientType;
 import com.czertainly.core.dao.entity.Group;
 import com.czertainly.core.dao.entity.GroupAssociation;
 import com.czertainly.core.dao.entity.OwnerAssociation;

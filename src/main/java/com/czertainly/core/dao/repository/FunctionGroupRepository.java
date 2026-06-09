@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.dao.entity.FunctionGroup;
 import org.springframework.stereotype.Repository;
 

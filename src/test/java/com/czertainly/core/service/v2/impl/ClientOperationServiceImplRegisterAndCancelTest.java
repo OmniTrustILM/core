@@ -1,13 +1,13 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.v2.AvailableOperationsDto;
-import com.czertainly.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.AvailableOperationsDto;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.RaProfile;
@@ -19,7 +19,7 @@ import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.service.handler.ConnectorCapabilityService;
 import com.czertainly.core.service.handler.authority.AdapterOperationResult;
@@ -67,7 +67,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
     @Mock CertificateStatusPollProducer pollProducer;
     @Mock AttributeEngine attributeEngine;
     @Mock CertificateService certificateService;
-    @Mock CertificateEventHistoryService certificateEventHistoryService;
+    @Mock CertificateEventHistoryInternalService certificateEventHistoryService;
     @Mock EventProducer eventProducer;
     @Mock PlatformTransactionManager transactionManager;
     @Mock jakarta.persistence.EntityManager entityManager;
@@ -254,7 +254,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
         when(certificateRepository.findWithAssociationsByUuid(cert.getUuid()))
                 .thenReturn(Optional.of(cert));
 
-        var cancelReq = new com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto();
+        var cancelReq = new com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto();
         var certUuid = cert.getUuid().toString();
 
         assertThrows(ValidationException.class, () ->
@@ -286,7 +286,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
 
         doNothing().when(certificateService).checkIssuePermissions();
 
-        var cancelReq = new com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto();
+        var cancelReq = new com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto();
         service.cancelPendingCertificateOperation(authorityUuid, raProfileUuid, cert.getUuid().toString(), cancelReq);
 
         verify(stateMachine).transition(eq(freshCert), eq(CertificateState.FAILED), any(), any());
@@ -309,7 +309,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
 
         doNothing().when(certificateService).checkIssuePermissions();
 
-        var cancelReq = new com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto();
+        var cancelReq = new com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto();
         ValidationException ex = assertThrows(ValidationException.class, () ->
                 service.cancelPendingCertificateOperation(authorityUuid, raProfileUuid, cert.getUuid().toString(), cancelReq));
 

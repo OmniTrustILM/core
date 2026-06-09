@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.czertainly.core.dao.entity.Setting;
 import org.springframework.stereotype.Repository;
 

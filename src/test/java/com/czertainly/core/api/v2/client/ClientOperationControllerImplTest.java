@@ -1,8 +1,8 @@
 package com.czertainly.core.api.v2.client;
 
-import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.v2.ClientOperationService;

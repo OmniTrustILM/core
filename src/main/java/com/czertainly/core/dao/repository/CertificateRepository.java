@@ -1,7 +1,8 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
@@ -18,29 +19,25 @@ import org.springframework.stereotype.Repository;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Spring Data repository for {@link Certificate} entities.
  *
  * <p><strong>Cache eviction:</strong>
- * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts every
- * {@code save*}, {@code delete*} and {@code insert*} call on this bean and evicts the
- * certificate-chain cache automatically — callers do not need to evict manually after those
- * operations. This covers {@link #insertWithFingerprintConflictResolve}, which writes the
- * chain-defining {@code issuer_certificate_uuid} and {@code certificate_content_id} columns
- * via a native upsert.
+ * {@link com.czertainly.core.aop.CertificateRepositoryCacheEvictionAspect} intercepts mutations on this
+ * bean and evicts both the certificate-chain cache and the signing-certificate cache automatically —
+ * callers do not need to evict manually.
  *
- * <p>The remaining {@code @Modifying} bulk-update methods in this interface are <em>not</em>
- * matched by that aspect (the pointcut targets only the {@code save*}/{@code delete*}/{@code insert*}
- * naming convention), but they do not need manual cache eviction either: they only modify columns
- * that are not part of chain traversal ({@code keyUuid}/{@code altKeyUuid},
- * {@code hybridCertificate}, {@code archived}, {@code subjectDn}/{@code issuerDn} display strings).
- * The chain cache is built from {@code issuer_certificate_uuid} and {@code certificate_content_id}
- * — none of those columns are touched by these queries.
+ * <p>The naming convention is the contract: any new mutating method must begin with one of the verb
+ * prefixes matched by the aspect's pointcut. Over-matching a read-only method is harmless; under-matching
+ * a mutation leaves stale entries cached for up to the TTL.
  */
 @Repository
 public interface CertificateRepository extends SecurityFilterRepository<Certificate, UUID>, CustomCertificateRepository {
+
+    List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 
     @EntityGraph(attributePaths = {"certificateContent"})
     Optional<Certificate> findByUuid(UUID uuid);
@@ -89,6 +86,9 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     /** Batch variant used when preloading a list of chain ancestors in one round-trip for {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
     List<Certificate> findChainWithAssociationsByUuidIn(List<UUID> uuids);
+
+    @EntityGraph(attributePaths = {"key", "key.items"})
+    Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
@@ -204,6 +204,72 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @Query("UPDATE Certificate c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
 
+    /**
+     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
+     * refreshing {@code i_upd} explicitly.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateIssuerReference(@Param("uuid") UUID uuid,
+                               @Param("serial") String serial,
+                               @Param("issuerUuid") UUID issuerUuid);
+
+    /**
+     * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " +
+            "SET c.issuerSerialNumber = NULL, c.issuerCertificateUuid = NULL, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void clearIssuerReference(@Param("uuid") UUID uuid);
+
+    /**
+     * Writes the three validation-result columns on a single certificate row, refreshing {@code i_upd} explicitly.
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.validationStatus = :status, " +
+            "    c.statusValidationTimestamp = :timestamp, " +
+            "    c.certificateValidationResult = :result, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid")
+    void updateValidationResult(@Param("uuid") UUID uuid,
+                                @Param("status") CertificateValidationStatus status,
+                                @Param("timestamp") OffsetDateTime timestamp,
+                                @Param("result") String result);
+
+    /**
+     * Conditionally transitions a single certificate row from {@code ISSUED} to {@code REVOKED}.
+     * Returns the number of affected rows:
+     * <ul>
+     *     <li>1 if the transition was successful</li>
+     *     <li>0 if the transition state was not {@code ISSUED} - some concurrent update has already set the state</li>
+     * </ul>
+     *
+     * <p>{@code clearAutomatically = true} detaches <em>all</em> managed entities in the calling persistence context - not
+     * only the updated row. Do not call this method from a transaction that relies on other attached managed entities.</p>
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Certificate c " +
+            "SET c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).REVOKED}, " +
+            "    c.updated = CURRENT_TIMESTAMP " +
+            "WHERE c.uuid = :uuid " +
+            "  AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).ISSUED}")
+    int transitionIssuedToRevoked(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the current {@code state} of a certificate row by UUID.
+     */
+    @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
+
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}certificate (
@@ -238,7 +304,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                 FROM Certificate c
                 LEFT JOIN CertificateRelation cr
                     ON cr.id.predecessorCertificateUuid = c.uuid
-                WHERE c.validationStatus = ?#{T(com.czertainly.api.model.core.certificate.CertificateValidationStatus).EXPIRING}
+                WHERE c.validationStatus = ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).EXPIRING}
                   AND c.archived = false
                   AND (
                       cr.id.predecessorCertificateUuid IS NULL
@@ -247,7 +313,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                                     FROM CertificateRelation scr
                                     JOIN Certificate sc ON sc.uuid = scr.id.successorCertificateUuid
                                     WHERE scr.id.predecessorCertificateUuid = c.uuid
-                                        AND sc.state = ?#{T(com.czertainly.api.model.core.certificate.CertificateState).ISSUED}
+                                        AND sc.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).ISSUED}
                               )
                   )
             """)
@@ -331,6 +397,66 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
             """, nativeQuery = true)
     List<String> findCertificateChainContents(@Param("startUuid") UUID startUuid, @Param("maxDepth") int maxDepth);
 
+    /**
+     * Returns the UUIDs of all certificates issued directly or transitively by the given CA that are eligible for
+     * validation, in a single recursive CTE query.
+     *
+     * <p>Eligibility filters applied:</p>
+     * <ul>
+     *   <li>{@code archived = false} — archived certificates are excluded from all automated validation flows.</li>
+     *   <li>{@code certificate_content_id IS NOT NULL} — cannot validate without content.</li>
+     *   <li>{@code validation_status NOT IN ('REVOKED', 'EXPIRED')} — terminal statuses; CA trust cannot change them.</li>
+     *   <li>{@code (rp.validation_enabled IS NULL AND platformEnabled) OR rp.validation_enabled = true} — mirrors
+     *       the scheduler's two-branch rule: {@code NULL} defers to the platform default; {@code true} always
+     *       includes; {@code false} always excludes.</li>
+     * </ul>
+     *
+     * <p>The CA certificate itself is not included in the result; callers are expected to add it separately.
+     * The eligibility rules in the {@code WHERE} clause below (not archived, certificate content present,
+     * validation status not REVOKED/EXPIRED, RA-profile flag falling back to the platform flag) mirror
+     * {@code CertificateServiceImpl.isEligibleForRevalidation}, which applies the same rules to the CA node.
+     * Keep both in sync.</p>
+     *
+     * <p>Traversal is capped at {@code maxDepth} levels. PostgreSQL's native {@code CYCLE} clause detects cycles
+     * in corrupt data (e.g. a self-signed root whose {@code issuer_certificate_uuid} points back to itself).</p>
+     *
+     * @param caUuid          UUID of the issuing CA certificate
+     * @param platformEnabled value of the platform-level certificate validation {@code enabled} flag;
+     *                        applied to certificates whose RA profile has no explicit {@code validation_enabled} override
+     * @param maxDepth        maximum number of hops to follow (safety cap against circular references)
+     * @return unordered set of UUIDs for all eligible descendants
+     */
+    @Query(value = """
+            WITH RECURSIVE subtree AS (
+                SELECT uuid, 0 AS depth
+                FROM {h-schema}certificate
+                WHERE issuer_certificate_uuid = :caUuid
+                UNION ALL
+                SELECT c.uuid, subtree.depth + 1
+                FROM {h-schema}certificate c
+                INNER JOIN subtree ON c.issuer_certificate_uuid = subtree.uuid
+                WHERE subtree.depth < :maxDepth
+            )
+            CYCLE uuid SET is_cycle USING path
+            SELECT s.uuid FROM subtree s
+            INNER JOIN {h-schema}certificate c ON c.uuid = s.uuid
+            LEFT JOIN {h-schema}ra_profile rp ON rp.uuid = c.ra_profile_uuid
+            WHERE NOT s.is_cycle
+              AND c.archived = false
+              AND c.certificate_content_id IS NOT NULL
+              AND c.validation_status NOT IN (
+                  ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).REVOKED.name()},
+                  ?#{T(com.otilm.api.model.core.certificate.CertificateValidationStatus).EXPIRED.name()}
+              )
+              AND (
+                  (rp.validation_enabled IS NULL AND :platformEnabled = true)
+                  OR rp.validation_enabled = true
+              )
+            """, nativeQuery = true)
+    Set<UUID> findAllDescendantCertificatesEligibleForValidation(@Param("caUuid") UUID caUuid,
+                                                                 @Param("platformEnabled") boolean platformEnabled,
+                                                                 @Param("maxDepth") int maxDepth);
+
     @Query(
             value = """
                         UPDATE {h-schema}certificate
@@ -354,7 +480,7 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * <p>Groups need to be retrieved separately and set to the DTO.</p>
      */
     @Query("""
-            SELECT new com.czertainly.api.model.core.certificate.CertificateDto(
+            SELECT new com.otilm.api.model.core.certificate.CertificateDto(
                 c.uuid, c.commonName, c.serialNumber, c.issuerCommonName, c.issuerDn, c.subjectDn, c.notBefore, c.notAfter,
                 c.publicKeyAlgorithm, c.altPublicKeyAlgorithm, c.signatureAlgorithm, c.altSignatureAlgorithm, c.hybridCertificate,
                 c.keySize, c.altKeySize, c.state, c.validationStatus,
@@ -363,8 +489,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                 c.issuerCertificateUuid,
                 (CASE WHEN c.keyUuid IS NOT NULL AND EXISTS
                     (SELECT 1 FROM CryptographicKeyItem i WHERE i.keyUuid = c.keyUuid
-                        AND i.type = ?#{T(com.czertainly.api.model.common.enums.cryptography.KeyType).PRIVATE_KEY}
-                        AND i.state = ?#{T(com.czertainly.api.model.core.cryptography.key.KeyState).ACTIVE}
+                        AND i.type = ?#{T(com.otilm.api.model.common.enums.cryptography.KeyType).PRIVATE_KEY}
+                        AND i.state = ?#{T(com.otilm.api.model.core.cryptography.key.KeyState).ACTIVE}
                     )
                     THEN true ELSE false END
                 ),

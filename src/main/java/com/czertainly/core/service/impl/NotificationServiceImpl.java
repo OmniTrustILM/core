@@ -1,12 +1,12 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.notification.NotificationDto;
-import com.czertainly.api.model.client.notification.NotificationRequestDto;
-import com.czertainly.api.model.client.notification.NotificationResponseDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.notification.NotificationDto;
+import com.otilm.api.model.client.notification.NotificationRequestDto;
+import com.otilm.api.model.client.notification.NotificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
 import com.czertainly.core.dao.entity.notifications.Notification;
 import com.czertainly.core.dao.entity.notifications.NotificationRecipient;
 import com.czertainly.core.dao.repository.notifications.NotificationRecipientRepository;
@@ -14,7 +14,7 @@ import com.czertainly.core.dao.repository.notifications.NotificationRepository;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.czertainly.core.security.authz.SelfPrincipalEndpoint;
 import com.czertainly.core.service.NotificationExternalService;
 import com.czertainly.core.service.NotificationInternalService;
 import com.czertainly.core.util.AuthHelper;
@@ -103,7 +103,7 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public NotificationResponseDto listNotifications(NotificationRequestDto request) {
         RequestValidatorHelper.revalidatePaginationRequestDto(request);
         final Pageable pageable = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
@@ -124,11 +124,15 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void deleteNotification(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
-        notification.getNotificationRecipients().removeIf(r -> r.getUserUuid().equals(loggedUserUuid));
+        boolean removed = notification.getNotificationRecipients().removeIf(r -> r.getUserUuid().equals(loggedUserUuid));
+        if (!removed) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
+        }
         if (notification.getNotificationRecipients().isEmpty()) {
             notificationRepository.delete(notification);
         } else {
@@ -137,12 +141,14 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void markNotificationAsRead(String uuid) throws NotFoundException {
         final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
         Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
+        boolean found = false;
         for (NotificationRecipient recipient : notification.getNotificationRecipients()) {
             if (recipient.getUserUuid().equals(loggedUserUuid)) {
+                found = true;
                 if (recipient.getReadAt() == null) {
                     recipient.setReadAt(new Date());
                     notificationRepository.save(notification);
@@ -150,10 +156,14 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
                 break;
             }
         }
+        if (!found) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
+        }
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void bulkDeleteNotifications(List<String> uuids) {
         for (String uuid : uuids) {
             try {
@@ -165,7 +175,7 @@ public class NotificationServiceImpl implements NotificationExternalService, Not
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @SelfPrincipalEndpoint
     public void bulkMarkNotificationAsRead(List<String> uuids) {
         for (String uuid : uuids) {
             try {

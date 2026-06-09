@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.jms.producers;
 
-import com.czertainly.api.model.common.events.data.InternalNotificationEventData;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.common.events.data.InternalNotificationEventData;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
@@ -12,6 +12,8 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Objects;
@@ -37,6 +39,11 @@ public class NotificationProducer {
                     });
             return null;
         });
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onNotificationMessage(NotificationMessage notificationMessage) {
+        produceMessage(notificationMessage);
     }
 
     public void produceMessage(@NonNull final NotificationMessage notificationMessage) {

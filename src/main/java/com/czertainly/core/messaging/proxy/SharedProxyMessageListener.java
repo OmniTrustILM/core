@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.exception.MessageHandlingException;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.exception.MessageHandlingException;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;
 import com.czertainly.core.messaging.proxy.handler.MessageTypeHandlerRegistry;
 import lombok.extern.slf4j.Slf4j;

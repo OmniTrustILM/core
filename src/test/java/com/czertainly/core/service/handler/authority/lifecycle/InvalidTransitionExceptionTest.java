@@ -1,7 +1,7 @@
 package com.czertainly.core.service.handler.authority.lifecycle;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;

@@ -1,7 +1,7 @@
 package com.czertainly.core.service.cmp.message.validator.impl;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpCrmfValidationException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.*;

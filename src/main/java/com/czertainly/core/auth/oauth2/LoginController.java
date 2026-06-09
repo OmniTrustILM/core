@@ -1,13 +1,13 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.LoginProviderDto;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.LoginProviderDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.czertainly.core.auth.oauth2.v2.OAuth2LoginControllerImpl;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
-import com.czertainly.core.service.AuditLogService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.service.v2.OAuth2LoginService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.OAuth2Constants;
@@ -32,11 +32,11 @@ import java.util.List;
 @Controller
 public class LoginController {
 
-    private AuditLogService auditLogService;
+    private AuditLogInternalService auditLogService;
     private OAuth2LoginService oauth2LoginService;
 
     @Autowired
-    public void setAuditLogService(AuditLogService auditLogService) {
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
         this.auditLogService = auditLogService;
     }
 

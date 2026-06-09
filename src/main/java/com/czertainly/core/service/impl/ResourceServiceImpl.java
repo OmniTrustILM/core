@@ -1,37 +1,42 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallbackMapping;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeValueTarget;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v3.content.ResourceObjectContent;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceDto;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.other.ResourceEventDto;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallbackMapping;
+import com.otilm.api.model.common.attribute.common.callback.AttributeValueTarget;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceDto;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEventDto;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;
+import com.otilm.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
+import com.czertainly.core.security.authz.ObjectFilterAspect;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.SearchHelper;
 import jakarta.persistence.EntityManager;
@@ -49,7 +54,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class ResourceServiceImpl implements ResourceService {
+public class ResourceServiceImpl implements ResourceExternalService, ResourceInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ResourceServiceImpl.class);
 
     private AttributeEngine attributeEngine;
@@ -78,7 +83,15 @@ public class ResourceServiceImpl implements ResourceService {
         this.attributeEngine = attributeEngine;
     }
 
+    private ObjectFilterAspect objectFilterAspect;
+
+    @Autowired
+    public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
+        this.objectFilterAspect = objectFilterAspect;
+    }
+
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceDto> listResources() {
         List<ResourceDto> resources = new ArrayList<>();
 
@@ -124,16 +137,30 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
-    public List<NameAndUuidDto> getResourceObjects(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
-        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
-        if (resourceExtensionService == null)
-            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
-        return resourceExtensionService.listResourceObjects(SecurityFilter.create(), filters, pagination);
+    @ExternalAuthorizationDynamic(action = ResourceAction.LIST)
+    public List<NameAndUuidDto> getResourceObjects(SecuredResource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource.getResource(), filter, filters, pagination);
     }
 
     @Override
-    public List<ResponseAttribute> updateAttributeContentForObject(Resource resource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
-        logger.info("Updating the attribute {} for resource {} with value {}", attributeUuid, resource, attributeUuid);
+    public List<NameAndUuidDto> getResourceObjectsInternal(Resource resource, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        return doListResourceObjects(resource, SecurityFilter.create(), filters, pagination);
+    }
+
+    private List<NameAndUuidDto> doListResourceObjects(Resource resource, SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) throws NotSupportedException {
+        ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
+        if (resourceExtensionService == null) {
+            throw new NotSupportedException("Cannot list objects for requested resource: " + resource.getLabel());
+        }
+        return resourceExtensionService.listResourceObjects(filter, filters, pagination);
+    }
+
+    @Override
+    @ExternalAuthorizationDynamic(action = ResourceAction.UPDATE)
+    public List<ResponseAttribute> updateAttributeContentForObject(SecuredResource securedResource, SecuredUUID objectUuid, UUID attributeUuid, List<? extends AttributeContent> attributeContentItems) throws NotFoundException, AttributeException {
+        Resource resource = securedResource.getResource();
+        logger.info("Updating the attribute {} for resource {} with {} content item(s)", attributeUuid, resource,
+                attributeContentItems == null ? 0 : attributeContentItems.size());
         ResourceExtensionService resourceExtensionService = resourceExtensionServices.get(resource.getCode());
         if (!resource.hasCustomAttributes() || resourceExtensionService == null)
             throw new NotSupportedException("Cannot update custom attribute for requested resource: " + resource.getCode());
@@ -144,6 +171,7 @@ public class ResourceServiceImpl implements ResourceService {
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public List<SearchFieldDataByGroupDto> listResourceRuleFilterFields(Resource resource, boolean settable) throws NotFoundException {
 
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(resource, settable);
@@ -165,7 +193,7 @@ public class ResourceServiceImpl implements ResourceService {
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, filterField.getEnumClass().getEnumConstants()));
                     // Filter field has values of all objects of another entity
                 else if (filterField.getFieldResource() != null)
-                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, getResourceObjects(filterField.getFieldResource(), null, null)));
+                    fieldDataDtos.add(SearchHelper.prepareSearch(filterField, listScopedFieldResourceObjects(filterField.getFieldResource())));
                     // Filter field has values of all possible values of a property
                 else {
                     fieldDataDtos.add(SearchHelper.prepareSearch(filterField, FilterPredicatesBuilder.getAllValuesOfProperty(FilterPredicatesBuilder.buildPathToProperty(filterField.getJoinAttributes(), filterField.getFieldAttribute()), resource, entityManager).getResultList()));
@@ -179,12 +207,20 @@ public class ResourceServiceImpl implements ResourceService {
         return searchFieldDataByGroupDtos;
     }
 
+    private List<NameAndUuidDto> listScopedFieldResourceObjects(Resource fieldResource) throws NotSupportedException {
+        SecurityFilter fieldFilter = SecurityFilter.create();
+        objectFilterAspect.populateSecurityFilter(fieldResource, ResourceAction.LIST, null, null, fieldFilter);
+        return doListResourceObjects(fieldResource, fieldFilter, null, null);
+    }
+
     @Override
+    @AnyPrincipalEndpoint
     public List<ResourceEventDto> listResourceEvents(Resource resource) {
         return ResourceEvent.listEventsByResource(resource).stream().map(ResourceEventDto::new).toList();
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public Map<ResourceEvent, List<ResourceEventDto>> listAllResourceEvents() {
         return Arrays.stream(ResourceEvent.values())
                 .collect(Collectors.groupingBy(

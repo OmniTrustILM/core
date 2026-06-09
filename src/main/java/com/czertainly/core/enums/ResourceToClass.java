@@ -1,14 +1,18 @@
 package com.czertainly.core.enums;
 
-import com.czertainly.api.model.common.attribute.v2.BaseAttributeV2;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.RoleDto;
-import com.czertainly.api.model.core.auth.UserDto;
+import com.otilm.api.model.common.attribute.v2.BaseAttributeV2;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.RoleDto;
+import com.otilm.api.model.core.auth.UserDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.acme.AcmeAccount;
 import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.entity.notifications.Notification;
 import com.czertainly.core.dao.entity.scep.ScepProfile;
+import com.czertainly.core.dao.entity.signing.SigningProfile;
+import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
+import com.czertainly.core.dao.entity.signing.TspProfile;
 
 public enum ResourceToClass {
 
@@ -56,6 +60,12 @@ public enum ResourceToClass {
     // APPROVALS
     APPROVAL_PROFILE(Resource.APPROVAL_PROFILE, ApprovalProfile.class),
     APPROVAL(Resource.APPROVAL, Approval.class),
+
+    // SIGNING
+    SIGNING_PROFILE(Resource.SIGNING_PROFILE, SigningProfile.class),
+    SIGNING_RECORD(Resource.SIGNING_RECORD, SigningRecord.class),
+    TSP_PROFILE(Resource.TSP_PROFILE, TspProfile.class),
+    TIME_QUALITY_CONFIGURATION(Resource.TIME_QUALITY_CONFIGURATION, TimeQualityConfiguration.class),
     ;
 
     private static final ResourceToClass[] VALUES;

@@ -1,7 +1,7 @@
 package com.czertainly.core.model.auth;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -80,7 +80,9 @@ public enum Resource {
 
     // SIGNING
     TIME_QUALITY_CONFIGURATION("timeQualityConfigurations"),
-    TSP_PROFILE("tspProfiles")
+    TSP_PROFILE("tspProfiles"),
+    SIGNING_PROFILE("signingProfiles"),
+    SIGNING_RECORD("signingRecords"),
     ;
 
     @Schema(description = "Resource Name",

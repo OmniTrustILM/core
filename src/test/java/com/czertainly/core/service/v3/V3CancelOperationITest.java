@@ -1,8 +1,8 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.exception.ValidationException;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

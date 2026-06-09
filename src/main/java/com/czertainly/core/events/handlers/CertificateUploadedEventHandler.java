@@ -1,14 +1,14 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.events.data.CertificateEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.EventStatus;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.events.data.CertificateEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.EventStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
@@ -24,7 +24,7 @@ import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import com.czertainly.core.service.CertificateService;
 import com.czertainly.core.util.CertificateUtil;
 import com.czertainly.core.util.X509ObjectToString;
@@ -47,7 +47,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     private final CertificateRepository certificateRepository;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
 
@@ -58,7 +58,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -173,6 +173,6 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         final Certificate certificate = eventContext.getResourceObjects().getFirst();
         final Object eventData = getEventData(certificate, eventContext.getData());
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(certificate.getUserUuid()), eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
     }
 }

@@ -1,14 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRelationDto;
-import com.czertainly.api.model.client.compliance.SimplifiedComplianceProfileDto;
-import com.czertainly.api.model.client.raprofile.*;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.raprofile.RaProfileDto;
-import com.czertainly.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileRelationDto;
+import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
+import com.otilm.api.model.client.raprofile.*;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

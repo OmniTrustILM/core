@@ -1,22 +1,22 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.content.ResourceObjectContent;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.CoreCallbackService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,10 +32,10 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
 
     private CredentialService credentialService;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -81,7 +81,7 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
                 filters.add(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, filterFieldString, operator, callback.getFilter().get(filterDefinition)));
             }
         }
-        return resourceService.getResourceObjects(Resource.findByCode(resource.getCode()), filters, callback.getPagination())
+        return resourceService.getResourceObjectsInternal(Resource.findByCode(resource.getCode()), filters, callback.getPagination())
                 .stream()
                 .map(id -> {
                     ResourceObjectContentData data = new ResourceObjectContentData(resource);

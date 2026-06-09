@@ -1,13 +1,13 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
-import com.czertainly.api.model.core.connector.v2.ConnectorRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
+import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.czertainly.core.security.authz.UnauthenticatedEndpoint;
 import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import com.czertainly.core.service.v2.ConnectorService;
@@ -32,7 +32,7 @@ public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationEx
 
     @Override
     @UnauthenticatedEndpoint
-    public UuidDto registerConnector(com.czertainly.api.model.client.connector.ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+    public UuidDto registerConnector(com.otilm.api.model.client.connector.ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         ConnectorRequestDto requestV2 = new ConnectorRequestDto();
         requestV2.setName(request.getName());
         requestV2.setUrl(request.getUrl());

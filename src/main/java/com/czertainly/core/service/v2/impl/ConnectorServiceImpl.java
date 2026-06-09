@@ -1,25 +1,25 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.connector.ConnectRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorInfo;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.connector.v2.HealthInfo;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.ConnectorApiClientDtoV1;
-import com.czertainly.api.model.core.connector.v2.*;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.ConnectRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInfo;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.HealthInfo;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.ConnectorApiClientDtoV1;
+import com.otilm.api.model.core.connector.v2.*;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
@@ -27,14 +27,14 @@ import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.events.transaction.TransactionHandler;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ConnectorAuthInternalService;
 import com.czertainly.core.service.handler.ConnectorAdapter;
 import com.czertainly.core.service.v2.ConnectorService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.FilterPredicatesBuilder;
 import com.czertainly.core.util.RequestValidatorHelper;
 import com.czertainly.core.util.SearchHelper;
@@ -48,14 +48,11 @@ import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
+import com.czertainly.core.config.cache.CacheEvictor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import reactor.core.Exceptions;
 
 import java.util.*;
@@ -85,11 +82,11 @@ public class ConnectorServiceImpl implements ConnectorService {
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
 
-    private CacheManager cacheManager;
+    private CacheEvictor cacheEvictor;
 
     @Autowired
-    public void setCacheManager(CacheManager cacheManager) {
-        this.cacheManager = cacheManager;
+    public void setCacheEvictor(CacheEvictor cacheEvictor) {
+        this.cacheEvictor = cacheEvictor;
     }
 
     @Autowired
@@ -656,19 +653,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     void evictConnectorCache(UUID uuid) {
-        Cache cache = cacheManager.getCache(CacheConfig.CONNECTOR_API_CLIENT_CACHE);
-        Objects.requireNonNull(cache);
-
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(uuid);
-                }
-            });
-        } else {
-            cache.evict(uuid);
-        }
+        cacheEvictor.evict(CacheConfig.CONNECTOR_API_CLIENT_CACHE, uuid);
     }
 
 }

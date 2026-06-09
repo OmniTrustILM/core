@@ -1,6 +1,6 @@
 package com.czertainly.core.migration;
 
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceReference;
 import com.czertainly.core.dao.entity.notifications.NotificationProfile;
 import com.czertainly.core.dao.entity.workflows.*;

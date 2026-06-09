@@ -1,11 +1,11 @@
 package com.czertainly.core.service.handler.authority.lifecycle;
 
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -21,13 +21,13 @@ import static org.mockito.Mockito.*;
 class CertificateStateMachineTest {
 
     private CertificateRepository certificateRepository;
-    private CertificateEventHistoryService eventHistoryService;
+    private CertificateEventHistoryInternalService eventHistoryService;
     private CertificateStateMachine sm;
 
     @BeforeEach
     void setUp() {
         certificateRepository = mock(CertificateRepository.class);
-        eventHistoryService = mock(CertificateEventHistoryService.class);
+        eventHistoryService = mock(CertificateEventHistoryInternalService.class);
         sm = new CertificateStateMachine(certificateRepository, eventHistoryService);
     }
 

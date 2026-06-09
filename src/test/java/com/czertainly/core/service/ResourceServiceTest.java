@@ -1,33 +1,34 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallbackMapping;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeValueTarget;
-import com.czertainly.api.model.common.attribute.common.callback.RequestAttributeCallback;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
-import com.czertainly.api.model.common.attribute.v3.content.ResourceObjectContent;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.other.ResourceDto;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.other.ResourceEventDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallbackMapping;
+import com.otilm.api.model.common.attribute.common.callback.AttributeValueTarget;
+import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.other.ResourceDto;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceEventDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.dao.entity.AttributeDefinition;
@@ -38,8 +39,11 @@ import com.czertainly.core.dao.repository.AttributeDefinitionRepository;
 import com.czertainly.core.dao.repository.AttributeRelationRepository;
 import com.czertainly.core.dao.repository.CertificateContentRepository;
 import com.czertainly.core.dao.repository.CertificateRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
 import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -74,7 +78,9 @@ class ResourceServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
+    @Autowired
+    private ResourceInternalService resourceInternalService;
 
     @Autowired
     private CertificateContentRepository certificateContentRepository;
@@ -86,6 +92,8 @@ class ResourceServiceTest extends BaseSpringBootTest {
     private AttributeDefinitionRepository attributeDefinitionRepository;
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private RaProfileRepository raProfileRepository;
     @Autowired
     private AttributeContentItemRepository attributeContentItemRepository;
     @Autowired
@@ -230,13 +238,55 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         for (Resource resource : resources) {
             // Call the method to test and check that it does not throw an exception
-            Assertions.assertDoesNotThrow(() -> resourceService.getResourceObjects(resource, null, null), "Should not throw exception for resource: " + resource);
+            Assertions.assertDoesNotThrow(() -> resourceInternalService.getResourceObjectsInternal(resource, null, null), "Should not throw exception for resource: " + resource);
         }
 
         // Throw NotFoundException for unsupported resource
         Resource unsupportedResource = Resource.ROLE;
-        Assertions.assertThrows(NotSupportedException.class, () -> resourceService.getResourceObjects(unsupportedResource, null, null), "Should throw NotSupportedException for unsupported resource: " + unsupportedResource);
-        Assertions.assertThrows(NotSupportedException.class, () -> resourceService.getResourceObjects(Resource.RULE, null, null), "Should throw NotSupportedException for unsupported resource: " + Resource.RULE);
+        Assertions.assertThrows(NotSupportedException.class, () -> resourceInternalService.getResourceObjectsInternal(unsupportedResource, null, null), "Should throw NotSupportedException for unsupported resource: " + unsupportedResource);
+        Assertions.assertThrows(NotSupportedException.class, () -> resourceInternalService.getResourceObjectsInternal(Resource.RULE, null, null), "Should throw NotSupportedException for unsupported resource: " + Resource.RULE);
+    }
+
+    @Test
+    void getResourceObjectsRespectsCallerScope() throws NotSupportedException, NotFoundException {
+        RaProfile inScope = new RaProfile();
+        inScope.setName("In scope RA profile");
+        inScope = raProfileRepository.save(inScope);
+
+        RaProfile outOfScope = new RaProfile();
+        outOfScope.setName("Out of scope RA profile");
+        raProfileRepository.save(outOfScope);
+
+        UUID inScopeUuid = inScope.getUuid();
+
+        // OPA OBJECTS policy allows the caller to see only the in-scope RA profile for the LIST action.
+        // The ObjectFilterAspect reads this result and narrows the SecurityFilter accordingly.
+        OpaObjectAccessResult scopedAccess = new OpaObjectAccessResult();
+        scopedAccess.setActionAllowedForGroupOfObjects(false);
+        scopedAccess.setAllowedObjects(List.of(inScopeUuid.toString()));
+        scopedAccess.setForbiddenObjects(List.of());
+        Mockito.when(
+                opaClient.checkObjectAccess(
+                        Mockito.any(),
+                        Mockito.argThat(req -> isObjectAccessRequestForResource(req, Resource.RA_PROFILE, ResourceAction.LIST)),
+                        Mockito.any(),
+                        Mockito.any()
+                )
+        ).thenReturn(scopedAccess);
+
+        List<NameAndUuidDto> objects = resourceService.getResourceObjects(
+                SecuredResource.fromResource(Resource.RA_PROFILE), SecurityFilter.create(), null, null);
+
+        Assertions.assertNotNull(objects);
+        Assertions.assertEquals(1, objects.size(), "Listing must be narrowed to the single in-scope RA profile");
+        Assertions.assertEquals(inScopeUuid.toString(), objects.getFirst().getUuid(),
+                "Only the in-scope RA profile must be returned");
+    }
+
+    private static boolean isObjectAccessRequestForResource(OpaRequestedResource requestedResource, Resource resource, ResourceAction action) {
+        return requestedResource != null && requestedResource.getProperties() != null &&
+                (requestedResource.getProperties().containsKey("name") && requestedResource.getProperties().get("name").equals(resource.getCode())) &&
+                (requestedResource.getProperties().containsKey("action") && requestedResource.getProperties().get("action").equals(action.getCode()));
     }
 
     @Test
@@ -245,7 +295,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
         UUID attributeUuid = UUID.fromString(ATTRIBUTE_UUID);
         List<BaseAttributeContentV3<?>> request = List.of(new StringAttributeContentV3("test3"));
         List<ResponseAttribute> responseAttributes = resourceService.updateAttributeContentForObject(
-                Resource.CERTIFICATE,
+                SecuredResource.fromResource(Resource.CERTIFICATE),
                 certificateUuid,
                 attributeUuid,
                 request
@@ -255,7 +305,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         List<BaseAttributeContentV2<?>> requestV2 = List.of(new StringAttributeContentV2("test2"));
         responseAttributes = resourceService.updateAttributeContentForObject(
-                Resource.CERTIFICATE,
+                SecuredResource.fromResource(Resource.CERTIFICATE),
                 certificateUuid,
                 attributeUuid,
                 requestV2
@@ -264,15 +314,17 @@ class ResourceServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals("test2", ((ResponseAttributeV3) responseAttributes.getFirst()).getContent().getFirst().getData());
 
         // Should throw NotSupported
+        SecuredResource attributeResource = SecuredResource.fromResource(Resource.ATTRIBUTE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                Resource.ATTRIBUTE,
+                attributeResource,
                 certificateUuid,
                 attributeUuid,
                 request
         ));
 
+        SecuredResource ruleResource = SecuredResource.fromResource(Resource.RULE);
         Assertions.assertThrows(NotSupportedException.class, () -> resourceService.updateAttributeContentForObject(
-                Resource.RULE,
+                ruleResource,
                 certificateUuid,
                 attributeUuid,
                 request
@@ -339,7 +391,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
         resourceAttribute.setProperties(properties);
         properties.setResource(AttributeResource.CERTIFICATE);
 
-        resourceService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
+        resourceInternalService.loadResourceObjectContentData(List.of(nonResourceAttribute, resourceAttribute));
         Assertions.assertNull(nonResourceAttribute.getContent());
         Assertions.assertEquals(2, resourceAttribute.getContent().size());
         ResourceCertificateContentData dataWithResource = (ResourceCertificateContentData) resourceAttribute.getContent().getFirst().getData();
@@ -365,10 +417,10 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         RequestAttributeCallback requestAttributeCallback = new RequestAttributeCallback();
         Map<String, AttributeResource> authorityMap = Map.of("to", AttributeResource.AUTHORITY);
-        resourceService.loadResourceObjectContentData(null, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(null, requestAttributeCallback, authorityMap);
         Assertions.assertNull(requestAttributeCallback.getBody());
         AttributeCallback attributeCallback = new AttributeCallback();
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         Assertions.assertNull(requestAttributeCallback.getBody());
         AttributeCallbackMapping stringMapping = new AttributeCallbackMapping();
         stringMapping.setAttributeContentType(AttributeContentType.STRING);
@@ -382,37 +434,37 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         body.put(resourceMapping.getTo(), (Serializable) Map.of("uuid", authorityInstance.getUuid().toString(), "name", authorityInstance.getName()));
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
         Assertions.assertEquals("name", ((ResourceSimpleContentData) requestAttributeCallback.getBody().get(resourceMapping.getTo())).getAttributes().getFirst().getName());
 
 
         body.put(resourceMapping.getTo(), (Serializable) List.of(Map.of("uuid", authorityInstance.getUuid().toString(), "name", authorityInstance.getName())));
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
         Assertions.assertEquals("name", ((ResourceSimpleContentData) requestAttributeCallback.getBody().get(resourceMapping.getTo())).getAttributes().getFirst().getName());
 
 
         body.put(resourceMapping.getTo(), (Serializable) Map.of("name", authorityInstance.getName()));
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), (Serializable) List.of(Map.of("name", authorityInstance.getName())));
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), 1);
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), "notUuid");
         requestAttributeCallback.setBody(body);
-        Assertions.assertThrows(ValidationException.class, () -> resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
+        Assertions.assertThrows(ValidationException.class, () -> resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap));
 
         body.put(resourceMapping.getTo(), authorityInstance.getUuid().toString());
         requestAttributeCallback.setBody(body);
-        resourceService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
+        resourceInternalService.loadResourceObjectContentData(attributeCallback, requestAttributeCallback, authorityMap);
         assertCorrectBodyData(requestAttributeCallback, resourceMapping, authorityInstance);
 
     }
@@ -444,13 +496,13 @@ class ResourceServiceTest extends BaseSpringBootTest {
 
         UUID objectUuid = UUID.randomUUID();
         for (Resource resource : allowedResources) {
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObject(resource, objectUuid));
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObjectInternal(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObject(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObjectInternal(resource, objectUuid));
         }
 
         for (Resource resource : notAllowedResources) {
-            Assertions.assertThrows(AuthorizationDeniedException.class, () -> resourceService.getResourceObject(resource, objectUuid));
-            Assertions.assertThrows(NotFoundException.class, () -> resourceService.getResourceObjectInternal(resource, objectUuid));
+            Assertions.assertThrows(AuthorizationDeniedException.class, () -> resourceInternalService.getResourceObject(resource, objectUuid));
+            Assertions.assertThrows(NotFoundException.class, () -> resourceInternalService.getResourceObjectInternal(resource, objectUuid));
         }
     }
 

@@ -1,8 +1,8 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.common.enums.PlatformEnum;
-import com.czertainly.api.model.core.enums.EnumItemDto;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.common.enums.PlatformEnum;
+import com.otilm.api.model.core.enums.EnumItemDto;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.service.EnumExternalService;
 import jakarta.transaction.Transactional;

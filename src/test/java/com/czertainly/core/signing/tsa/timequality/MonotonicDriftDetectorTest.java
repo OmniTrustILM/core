@@ -13,7 +13,7 @@ class MonotonicDriftDetectorTest {
     private static final UUID PROFILE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
     @Test
-    void returnsFalseWhenNoClockJump() {
+    void returnsFalse_whenNoClockJump() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -29,7 +29,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void detectsClockJumpForward() {
+    void detectsDrift_whenClockJumpsForward() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -45,7 +45,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void detectsClockJumpBackward() {
+    void detectsDrift_whenClockJumpsBackward() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -60,7 +60,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void allowsDriftWithinThreshold() {
+    void allowsDrift_whenWithinThreshold() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -76,7 +76,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void rejectsJustOverThreshold() {
+    void detectsDrift_whenJustOverThreshold() {
         // given
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -92,7 +92,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void allowsAtExactThreshold() {
+    void allowsDrift_whenExactlyAtThreshold() {
         // given — the check is `Math.abs(drift) > maxDrift`, so exactly-at-threshold must NOT trip
         var clock = TestClockSource.aTestClock();
         var detector = new MonotonicDriftDetector(clock);
@@ -108,7 +108,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void returnsTrueWhenNoReferenceCaptured() {
+    void returnsTrue_whenNoReferenceCaptured() {
         // given — detector created but no reference captured
         var detector = new MonotonicDriftDetector(TestClockSource.aTestClock());
 
@@ -117,7 +117,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void returnsTrueAfterClearReference() {
+    void returnsTrue_afterClearReference() {
         // given
         var detector = new MonotonicDriftDetector(TestClockSource.aTestClock());
 
@@ -131,7 +131,7 @@ class MonotonicDriftDetectorTest {
     }
 
     @Test
-    void returnsTrueAfterRemove() {
+    void returnsTrue_afterRemove() {
         // given
         var detector = new MonotonicDriftDetector(TestClockSource.aTestClock());
 

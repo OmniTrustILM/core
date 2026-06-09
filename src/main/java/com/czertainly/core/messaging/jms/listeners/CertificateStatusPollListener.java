@@ -1,12 +1,12 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.ConnectorProblemException;
-import com.czertainly.api.exception.MessageHandlingException;
-import com.czertainly.api.model.common.error.ErrorCode;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.MessageHandlingException;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;

@@ -1,7 +1,7 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;

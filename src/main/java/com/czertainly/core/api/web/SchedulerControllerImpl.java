@@ -1,27 +1,27 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.SchedulerException;
-import com.czertainly.api.interfaces.core.web.SchedulerController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.scheduler.ScheduledJobDetailDto;
-import com.czertainly.api.model.core.scheduler.ScheduledJobHistoryResponseDto;
-import com.czertainly.api.model.core.scheduler.ScheduledJobsResponseDto;
-import com.czertainly.api.model.scheduler.UpdateScheduledJob;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.SchedulerException;
+import com.otilm.api.interfaces.core.web.SchedulerController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobHistoryResponseDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobsResponseDto;
+import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.SchedulerService;
+import com.czertainly.core.service.SchedulerExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class SchedulerControllerImpl implements SchedulerController {
 
-    private SchedulerService schedulerService;
+    private SchedulerExternalService schedulerService;
 
     @Override
     @AuditLogged(module = Module.SCHEDULER, resource = Resource.SCHEDULED_JOB, operation = Operation.LIST)
@@ -68,7 +68,7 @@ public class SchedulerControllerImpl implements SchedulerController {
     // SETTERs
 
     @Autowired
-    public void setSchedulerService(SchedulerService schedulerService) {
+    public void setSchedulerService(SchedulerExternalService schedulerService) {
         this.schedulerService = schedulerService;
     }
 }

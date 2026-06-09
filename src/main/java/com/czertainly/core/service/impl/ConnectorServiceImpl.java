@@ -1,26 +1,26 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.connector.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.HealthDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.*;
-import com.czertainly.api.model.core.connector.v2.ConnectInfo;
-import com.czertainly.api.model.core.connector.v2.ConnectInfoV1;
-import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.connector.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.HealthDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.*;
+import com.otilm.api.model.core.connector.v2.ConnectInfo;
+import com.otilm.api.model.core.connector.v2.ConnectInfoV1;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -84,8 +84,14 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    public Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException {
+        return connectorRepository.findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
+    }
+
+    @Override
     public ConnectorDto createConnector(ConnectorRequestDto request) throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-        var requestV2 = new com.czertainly.api.model.core.connector.v2.ConnectorRequestDto();
+        var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
         requestV2.setName(request.getName());
         requestV2.setUrl(request.getUrl());
         requestV2.setVersion(ConnectorVersion.V1);
@@ -101,7 +107,7 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     @Override
     public ConnectorDto editConnector(SecuredUUID uuid, ConnectorUpdateRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
-        var requestV2 = new com.czertainly.api.model.core.connector.v2.ConnectorUpdateRequestDto();
+        var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto();
         requestV2.setUrl(request.getUrl());
         requestV2.setAuthType(request.getAuthType());
         requestV2.setAuthAttributes(request.getAuthAttributes());

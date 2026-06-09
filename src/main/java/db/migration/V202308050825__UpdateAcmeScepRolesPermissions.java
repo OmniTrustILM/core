@@ -1,9 +1,9 @@
 package db.migration;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.*;
 import com.czertainly.core.model.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
@@ -60,7 +60,7 @@ public class V202308050825__UpdateAcmeScepRolesPermissions extends BaseJavaMigra
         // seed issue action for certificate
         List<ResourceSyncRequestDto> resources = new ArrayList<>();
         ResourceSyncRequestDto resourceSyncRequestDto = new ResourceSyncRequestDto();
-        resourceSyncRequestDto.setName(com.czertainly.core.model.auth.Resource.findByCode(com.czertainly.api.model.core.auth.Resource.CERTIFICATE.getCode()));
+        resourceSyncRequestDto.setName(com.czertainly.core.model.auth.Resource.findByCode(com.otilm.api.model.core.auth.Resource.CERTIFICATE.getCode()));
         resourceSyncRequestDto.setActions(List.of(ResourceAction.ISSUE.getCode()));
         resources.add(resourceSyncRequestDto);
         resourceApiClient.addResources(resources);
@@ -91,7 +91,7 @@ public class V202308050825__UpdateAcmeScepRolesPermissions extends BaseJavaMigra
         for (ResourcePermissionsDto resourcePermissions: permissions.getResources()) {
             ResourcePermissionsRequestDto requestDto = new ResourcePermissionsRequestDto();
             requestDto.setName(resourcePermissions.getName());
-            requestDto.setActions(resourcePermissions.getName().equals(com.czertainly.api.model.core.auth.Resource.CERTIFICATE.getCode()) ? certificatePermissions : resourcePermissions.getActions());
+            requestDto.setActions(resourcePermissions.getName().equals(com.otilm.api.model.core.auth.Resource.CERTIFICATE.getCode()) ? certificatePermissions : resourcePermissions.getActions());
             requestDto.setAllowAllActions(resourcePermissions.getAllowAllActions());
             requestDto.setObjects(List.of());
             resourcePermissionsRequests.add(requestDto);

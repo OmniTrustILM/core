@@ -1,11 +1,11 @@
 package com.czertainly.core.security.authz;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.config.OpaSecuredAnnotationMetadataExtractor;
 import com.czertainly.core.dao.repository.GroupAssociationRepository;
 import com.czertainly.core.dao.repository.OwnerAssociationRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authz.opa.OpaClient;
@@ -57,10 +57,32 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
         this.metadataExtractor = metadataExtractor;
     }
 
+    private List<ExternalAuthorizationConfigAttribute> resolveAttributes(MethodInvocation methodInvocation) {
+        ExternalAuthorization staticAnnotation = AnnotationUtils.findAnnotation(methodInvocation.getMethod(), ExternalAuthorization.class);
+        if (staticAnnotation != null) {
+            return metadataExtractor.extractAttributes(staticAnnotation);
+        }
+
+        ExternalAuthorizationDynamic dynamicAnnotation = AnnotationUtils.findAnnotation(methodInvocation.getMethod(), ExternalAuthorizationDynamic.class);
+        if (dynamicAnnotation != null) {
+            try {
+                Resource resolved = SecuredResource.fromArguments(methodInvocation.getArguments()).getResource();
+                return metadataExtractor.extractAttributes(dynamicAnnotation, resolved);
+            } catch (ValidationException e) {
+                log.warn(String.format("Unable to resolve dynamic authorization resource for method '%s'. Voting to deny access.", methodInvocation.getMethod().getName()));
+                return null;
+            }
+        }
+
+        return List.of();
+    }
+
     @Override
     protected AuthorizationDecision checkInternal(CzertainlyAuthenticationToken auth, MethodInvocation methodInvocation) {
-        ExternalAuthorization annotation = AnnotationUtils.findAnnotation(methodInvocation.getMethod(), ExternalAuthorization.class);
-        List<ExternalAuthorizationConfigAttribute> attributes = metadataExtractor.extractAttributes(annotation);
+        List<ExternalAuthorizationConfigAttribute> attributes = resolveAttributes(methodInvocation);
+        if (attributes == null) {
+            return new AuthorizationDecision(false);
+        }
         AuthorizationDecision result = this.check(auth.getPrincipal().getRawData(), methodInvocation, attributes);
         if (!result.isGranted()) {
             return checkGroupOwnerAssociations(auth.getPrincipal(), methodInvocation, attributes);
@@ -70,8 +92,10 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
 
     @Override
     protected AuthorizationDecision checkInternal(AnonymousAuthenticationToken authenticationToken, MethodInvocation methodInvocation) {
-        ExternalAuthorization annotation = AnnotationUtils.findAnnotation(methodInvocation.getMethod(), ExternalAuthorization.class);
-        List<ExternalAuthorizationConfigAttribute> attributes = metadataExtractor.extractAttributes(annotation);
+        List<ExternalAuthorizationConfigAttribute> attributes = resolveAttributes(methodInvocation);
+        if (attributes == null) {
+            return new AuthorizationDecision(false);
+        }
         try {
             return this.check(om.writeValueAsString(new AnonymousPrincipal(authenticationToken.getName())), methodInvocation, attributes);
         } catch (JsonProcessingException e) {
@@ -253,8 +277,8 @@ public class ExternalMethodAuthorizationManager extends AbstractExternalAuthoriz
             return this.opaClient.checkResourceAccess(OpaPolicy.METHOD.policyName, resource, principal, new OpaRequestDetails(null));
         } catch (Exception e) {
             log.error(
-                    
-                            "An error occurred during the authorization request to the OPA policy '%s'.".formatted(
+
+                    "An error occurred during the authorization request to the OPA policy '%s'.".formatted(
                             OpaPolicy.METHOD.policyName),
                     e
             );

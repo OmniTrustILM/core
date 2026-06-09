@@ -1,33 +1,39 @@
 package com.czertainly.core.evaluator;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.notification.NotificationProfileDetailDto;
-import com.czertainly.api.model.client.notification.NotificationProfileRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.common.enums.BitMaskEnum;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateKeyUsage;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.enums.CertificateProtocol;
-import com.czertainly.api.model.core.notification.RecipientType;
-import com.czertainly.api.model.core.workflows.ExecutionType;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.TriggerType;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.notification.NotificationProfileDetailDto;
+import com.otilm.api.model.client.notification.NotificationProfileRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.notification.RecipientType;
+import com.otilm.api.model.core.workflows.ExecutionType;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.TriggerType;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
@@ -571,25 +577,193 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testCertificateRuleEvaluatorCustomAttributes() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+    void testCertificateRuleEvaluatorCustomAttributeList() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
         Certificate newCertificate = new Certificate();
         certificateRepository.save(newCertificate);
 
-        CustomAttributeCreateRequestDto customAttributeRequest = new CustomAttributeCreateRequestDto();
-        customAttributeRequest.setName("custom");
-        customAttributeRequest.setLabel("custom");
-        customAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
-        customAttributeRequest.setContentType(AttributeContentType.STRING);
+        CustomAttributeCreateRequestDto listAttributeRequest = new CustomAttributeCreateRequestDto();
+        listAttributeRequest.setName("customList");
+        listAttributeRequest.setLabel("customList");
+        listAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        listAttributeRequest.setContentType(AttributeContentType.STRING);
+        listAttributeRequest.setList(true);
 
-        CustomAttributeDefinitionDetailDto customAttribute = attributeService.createCustomAttribute(customAttributeRequest);
-        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, customAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data1"), new StringAttributeContentV3("ref", "data")));
+        CustomAttributeDefinitionDetailDto listAttribute = attributeService.createCustomAttribute(listAttributeRequest);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, listAttribute.getName(),
+                List.of(new StringAttributeContentV3("ref", "data1"), new StringAttributeContentV3("ref", "data")));
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
-        newCondition.setFieldIdentifier("custom");
+        newCondition.setFieldIdentifier("customList|STRING");
+
+        // EQUALS: true if any item equals the value
         newCondition.setOperator(FilterConditionOperator.EQUALS);
         newCondition.setValue("data");
         Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_EQUALS: true only if no item equals the value — "data" is present so NOT_EQUALS "data" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // CONTAINS: true if any item contains the substring
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_CONTAINS: true only if no item contains the substring — both "data1" and "data" contain "at", so NOT_CONTAINS "at" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_MATCHES: true only if no item matches the pattern — "data" matches "^dat.$", so NOT_MATCHES "^dat.$" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — neither "data1" nor "data" matches
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character — matches "data"
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeSingleString() throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto singleAttributeRequest = new CustomAttributeCreateRequestDto();
+        singleAttributeRequest.setName("customSingle");
+        singleAttributeRequest.setLabel("customSingle");
+        singleAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        singleAttributeRequest.setContentType(AttributeContentType.STRING);
+        singleAttributeRequest.setList(false);
+
+        CustomAttributeDefinitionDetailDto singleAttribute = attributeService.createCustomAttribute(singleAttributeRequest);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, singleAttribute.getName(),
+                List.of(new StringAttributeContentV3("ref", "data")));
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customSingle|STRING");
+
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.STARTS_WITH);
+        newCondition.setValue("da");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.ENDS_WITH);
+        newCondition.setValue("ta");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches "data"
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data"
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data", so NOT_MATCHES is true
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches "data", so NOT_MATCHES is false
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeAbsent() throws AlreadyExistException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        // Create the attribute definition but do not assign any content to the certificate —
+        // mirrors the NOT EXISTS semantics of FilterPredicatesBuilder for objects missing the attribute entirely.
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("customAbsent");
+        request.setLabel("customAbsent");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        attributeService.createCustomAttribute(request);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customAbsent");
+
+        // Absent attribute has no content — EMPTY is satisfied
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // Absent attribute has no content — NOT_EMPTY is not satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists that equals/contains/matches the value — negated operators are satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists — positive operators are not satisfied
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("dat");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
     }
 
     @Test
@@ -760,6 +934,193 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
         TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
         Assertions.assertEquals(0, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMetadata() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("metaSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2("ref", "copiedValue")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("metaSource");
+        metaAttr.setProperties(props);
+        attributeEngine.updateMetadataAttributes(List.of(metaAttr),
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                        .connector(connector.getUuid()).build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("metaSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget")).findFirst().orElseThrow();
+        Assertions.assertEquals("copiedValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromCustomAttribute() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        CustomAttributeCreateRequestDto sourceDto = new CustomAttributeCreateRequestDto();
+        sourceDto.setName("customSource");
+        sourceDto.setContentType(AttributeContentType.STRING);
+        sourceDto.setLabel("customSource");
+        sourceDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(sourceDto);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null,
+                "customSource", List.of(new StringAttributeContentV3("ref", "sourceValue")));
+
+        CustomAttributeCreateRequestDto targetDto = new CustomAttributeCreateRequestDto();
+        targetDto.setName("customTarget2");
+        targetDto.setContentType(AttributeContentType.STRING);
+        targetDto.setLabel("customTarget2");
+        targetDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(targetDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget2|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setSourceFieldIdentifier("customSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget2")).findFirst().orElseThrow();
+        Assertions.assertEquals("sourceValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMissingSourceDoesNotSetAttribute() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget3");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget3");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget3|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("nonExistentMeta|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertTrue(result.stream().noneMatch(a -> a.getName().equals("customTarget3")));
+        Assertions.assertEquals(1, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttribute() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        DataAttributeV3 dataAttribute = new DataAttributeV3();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSource");
+        dataAttribute.setType(AttributeType.DATA);
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSource");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(dataAttribute));
+
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "dataValue")));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                        .connector(connector.getUuid()).build(),
+                List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget4");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget4");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget4|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget4")).findFirst().orElseThrow();
+        Assertions.assertEquals("dataValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttributeV2() throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        DataAttributeV2 dataAttribute = new DataAttributeV2();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSourceV2");
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSourceV2");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(dataAttribute));
+
+        // RequestAttributeV2 content must use BaseAttributeContentV2, not StringAttributeContentV2,
+        // because the V2 format has no type discriminator and won't round-trip through JSON as the
+        // concrete subtype.
+        BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        content.setReference("ref");
+        content.setData("dataValueV2");
+        RequestAttributeV2 requestAttribute = new RequestAttributeV2();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(content));
+        attributeEngine.updateObjectDataAttributesContent(
+                ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(),
+                List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget5");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget5");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget5|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSourceV2|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result.stream()
+                .filter(a -> a.getName().equals("customTarget5")).findFirst().orElseThrow();
+        Assertions.assertEquals("dataValueV2", attr.getContent().getFirst().getData().toString());
     }
 
 }

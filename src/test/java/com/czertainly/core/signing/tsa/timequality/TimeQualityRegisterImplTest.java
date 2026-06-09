@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa.timequality;
 
-import com.czertainly.api.model.messaging.timequality.LeapSecondWarning;
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.LeapSecondWarning;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfigurationBuilder;
 import com.czertainly.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
 import com.czertainly.core.util.clocksource.TestClockSource;
@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfigurationBuilder.anExplicitTimeQualityConfiguration;
 import static com.czertainly.core.signing.tsa.timequality.builders.TimeQualityResultBuilder.aTimeQualityResult;
@@ -21,11 +22,13 @@ class TimeQualityRegisterImplTest {
     private static final Instant FIXED_NOW = Instant.parse("2026-03-04T10:05:00Z");
     private static final Duration MAX_DRIFT_500MS = Duration.ofMillis(500);
 
+    // ── GetStatus ─────────────────────────────────────────────────────────────
+
     @Nested
     class GetStatus {
 
         @Test
-        void returnsDegradedWhenNoResultExists() {
+        void returnsDegraded_whenNoResultExists() {
             // given
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -38,7 +41,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsOkForFreshOkResult() {
+        void returnsOk_forFreshOkResult() {
             // given — result timestamp is 3 minutes ago, maxAge is 5 minutes → fresh
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -53,7 +56,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsDegradedForFreshDegradedResult() {
+        void returnsDegraded_forFreshDegradedResult() {
             // given — result is fresh but status is DEGRADED
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -68,7 +71,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsDegradedForStaleResult() {
+        void returnsDegraded_forStaleResult() {
             // given — result timestamp is 6 minutes ago, maxAge is 5 minutes → stale
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -83,7 +86,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsDegradedWhenClockDriftsAboveThreshold() {
+        void returnsDegraded_whenClockDriftsAboveThreshold() {
             // given — OK result received, then wall clock jumps forward beyond maxClockDrift
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var profile = anExplicitTimeQualityConfiguration().withDefaults().name("rfc3161").maxClockDrift(MAX_DRIFT_500MS).build();
@@ -102,7 +105,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsOkWhenClockDriftWithinThreshold() {
+        void returnsOk_whenClockDriftWithinThreshold() {
             // given — small drift within threshold
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var profile = anExplicitTimeQualityConfiguration().withDefaults().name("rfc3161").maxClockDrift(MAX_DRIFT_500MS).build();
@@ -122,7 +125,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsDegradedWhenInLeapSecondGuardWindow() {
+        void returnsDegraded_whenInLeapSecondGuardWindow() {
             // given — wall clock at 23:59:59 UTC, leap indicator POSITIVE, guard enabled
             var midnight = Instant.parse("2026-06-30T23:59:59Z");
             var clock = TestClockSource.ofWallTimeMillis(midnight.toEpochMilli());
@@ -139,7 +142,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void returnsOkWhenLeapSecondGuardDisabled() {
+        void returnsOk_whenLeapSecondGuardDisabled() {
             // given — in guard window with POSITIVE indicator, but guard disabled
             var midnight = Instant.parse("2026-06-30T23:59:59Z");
             var clock = TestClockSource.ofWallTimeMillis(midnight.toEpochMilli());
@@ -156,7 +159,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void alwaysReturnsOkForLocalClockTimeQualityConfiguration() {
+        void alwaysReturnsOk_forLocalClockTimeQualityConfiguration() {
             // given — result timestamp is 3 minutes ago, maxAge is 5 minutes → fresh
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -171,11 +174,13 @@ class TimeQualityRegisterImplTest {
         }
     }
 
+    // ── Update ────────────────────────────────────────────────────────────────
+
     @Nested
     class Update {
 
         @Test
-        void storesResultForKnownProfile() {
+        void storesResult_forKnownProfile() {
             // given
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -207,7 +212,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void degradedResultClearsReferencePair() {
+        void clearsReferencePair_whenDegradedResultArrives() {
             // given — OK result sets reference pair, DEGRADED clears it
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -224,7 +229,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void removeClearsAllPerKeyState() {
+        void clearsAllPerKeyState_onRemove() {
             // given — register holds an OK result and a captured drift reference for an id
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -241,7 +246,7 @@ class TimeQualityRegisterImplTest {
         }
 
         @Test
-        void concurrentUpdatesDoNotLoseData() throws InterruptedException {
+        void storesResult_whenUpdatesRunConcurrently() throws Exception {
             // given
             var clock = TestClockSource.ofWallTime(FIXED_NOW);
             var register = new TimeQualityRegisterImpl(clock);
@@ -258,7 +263,9 @@ class TimeQualityRegisterImplTest {
                         latch.countDown();
                     });
                 }
-                latch.await();
+                assertThat(latch.await(30, TimeUnit.SECONDS))
+                        .as("All virtual threads should complete within 30 s")
+                        .isTrue();
             }
 
             // then — entry exists and has a valid status

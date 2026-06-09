@@ -1,11 +1,11 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.core.authority.AuthorityInstanceDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.authority.AuthorityInstanceDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
 import com.czertainly.core.dao.entity.ConnectorInterfaceEntity;
@@ -180,8 +180,8 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         mockServer.stubFor(WireMock.put(WireMock.urlPathMatching("/v1/authorityProvider/authorities/.*"))
                 .willReturn(WireMock.okJson("{ \"id\": 999 }")));
 
-        com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto req =
-                new com.czertainly.api.model.client.authority.AuthorityInstanceUpdateRequestDto();
+        com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto req =
+                new com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto();
         req.setAttributes(List.of());
         req.setCustomAttributes(List.of());
 
@@ -209,7 +209,7 @@ class V3AuthorityCreationITest extends BaseV3ITest {
         req.setCustomAttributes(List.of());
 
         org.junit.jupiter.api.Assertions.assertThrows(
-                com.czertainly.api.exception.ValidationException.class,
+                com.otilm.api.exception.ValidationException.class,
                 () -> authorityInstanceService.createAuthorityInstance(req));
     }
 }

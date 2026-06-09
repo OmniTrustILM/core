@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ErrorCode;
 
 /**
  * Shared classification of connector error codes that recur across the adapter and the async

@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository.workflows;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.workflows.Trigger;
 import com.czertainly.core.dao.repository.SecurityFilterRepository;
 import org.springframework.stereotype.Repository;
@@ -12,6 +12,8 @@ import java.util.UUID;
 public interface TriggerRepository extends SecurityFilterRepository<Trigger, UUID> {
 
     boolean existsByName(String name);
+
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
 
     List<Trigger> findAllByResource(Resource resource);
 

@@ -1,22 +1,22 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.clients.mq.ProxyClient;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.connector.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorInfo;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterfaceInfo;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.HealthDto;
-import com.czertainly.api.model.common.HealthStatus;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.clients.mq.ProxyClient;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.connector.*;
+import com.otilm.api.model.client.connector.v2.ConnectorInfo;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.HealthDto;
+import com.otilm.api.model.common.HealthStatus;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
 import com.czertainly.core.dao.entity.FunctionGroup;
@@ -218,6 +218,19 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetConnectorEntity() throws NotFoundException {
+        Connector entity = connectorService.getConnectorEntity(connector.getSecuredUuid());
+        Assertions.assertNotNull(entity);
+        Assertions.assertEquals(connector.getUuid(), entity.getUuid());
+        Assertions.assertEquals(connector.getName(), entity.getName());
+    }
+
+    @Test
+    void testGetConnectorEntity_notFound() {
+        Assertions.assertThrows(NotFoundException.class, () -> connectorService.getConnectorEntity(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
     void testAddConnector() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException, JsonProcessingException {
         List<ConnectorInterfaceInfo> connectorInterfaceInfos = new ArrayList<>();
         List<ConnectorInterface> connectorInterfaces = List.of(ConnectorInterface.INFO, ConnectorInterface.HEALTH, ConnectorInterface.HEALTH, ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
@@ -229,7 +242,7 @@ class ConnectorServiceTest extends BaseSpringBootTest {
             connectorInterfaceInfos.add(info);
         }
 
-        var infoResponse = new com.czertainly.api.model.client.connector.v2.InfoResponse();
+        var infoResponse = new com.otilm.api.model.client.connector.v2.InfoResponse();
         infoResponse.setConnector(new ConnectorInfo());
         infoResponse.setInterfaces(connectorInterfaceInfos);
         String jsonBody = objectMapper.writeValueAsString(infoResponse);
@@ -237,7 +250,7 @@ class ConnectorServiceTest extends BaseSpringBootTest {
                 .get("/v2/info")
                 .willReturn(WireMock.okJson(jsonBody)));
 
-        var request = new com.czertainly.api.model.core.connector.v2.ConnectorRequestDto();
+        var request = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
         request.setName("testConnector2");
         request.setUrl("http://localhost:" + mockServer.port());
         request.setVersion(ConnectorVersion.V2);

@@ -1,27 +1,27 @@
 package com.czertainly.core.service.v2.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.compliance.v2.*;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.connector.compliance.ComplianceGroupsResponseDto;
-import com.czertainly.api.model.connector.compliance.ComplianceRulesResponseDto;
-import com.czertainly.api.model.connector.compliance.v2.*;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.v2.*;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.workflows.ConditionItemRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.compliance.v2.*;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.connector.compliance.ComplianceGroupsResponseDto;
+import com.otilm.api.model.connector.compliance.ComplianceRulesResponseDto;
+import com.otilm.api.model.connector.compliance.v2.*;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.v2.*;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.workflows.ConditionItem;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.dao.repository.workflows.ConditionItemRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -49,7 +49,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
     private ComplianceInternalRuleRepository internalRuleRepository;
     private ConditionItemRepository conditionItemRepository;
@@ -78,7 +78,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileService {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

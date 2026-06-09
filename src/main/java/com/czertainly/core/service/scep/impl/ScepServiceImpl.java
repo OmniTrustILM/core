@@ -1,22 +1,22 @@
 package com.czertainly.core.service.scep.impl;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scep.FailInfo;
-import com.czertainly.api.model.core.scep.MessageType;
-import com.czertainly.api.model.core.scep.PkiStatus;
-import com.czertainly.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.api.model.core.scep.MessageType;
+import com.otilm.api.model.core.scep.PkiStatus;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -42,8 +42,9 @@ import com.czertainly.core.service.scep.ScepService;
 import com.czertainly.core.service.scep.message.ScepRequest;
 import com.czertainly.core.service.scep.message.ScepResponse;
 import com.czertainly.core.service.v2.ClientOperationService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.CertificateRequestUtils;
 import com.czertainly.core.util.RandomUtil;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -253,7 +254,7 @@ public class ScepServiceImpl implements ScepService {
         if (scepProfile.getCaCertificate() == null) {
             throw new ScepException("SCEP Profile does not have any associated CA certificate", FailInfo.BAD_REQUEST);
         }
-        if (!CertificateUtil.isCertificateScepCaCertAcceptable(scepProfile.getCaCertificate(), scepProfile.isIntuneEnabled())) {
+        if (!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(scepProfile.getCaCertificate(), scepProfile.isIntuneEnabled())) {
             throw new ScepException("SCEP Profile does not have associated acceptable CA certificate", FailInfo.BAD_REQUEST);
         }
         if (!raProfileBased && scepProfile.getRaProfile() == null) {

@@ -1,8 +1,8 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.MessageHandlingException;
-import com.czertainly.api.model.client.approval.ApprovalStatusEnum;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.MessageHandlingException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.Approval;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.entity.ApprovalProfileRelation;
@@ -11,7 +11,7 @@ import com.czertainly.core.dao.repository.ApprovalProfileRelationRepository;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.service.ApprovalInternalService;
 import com.czertainly.core.service.SecretService;
 import com.czertainly.core.service.v2.ClientOperationService;
@@ -220,7 +220,7 @@ class ActionsListenerTest {
     }
 
     @Test
-    void processMessage_certificateRevoke_rejected_doesNotCallAnyOperation() throws Exception {
+    void processMessage_certificateRevoke_rejected_callsRevokeCertificateRejectedAction() throws Exception {
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.REVOKE, resourceUuid, userUuid,
@@ -228,7 +228,8 @@ class ActionsListenerTest {
 
         listener.processMessage(msg);
 
-        // REVOKE is not in the rejected-action allowlist (ISSUE/RENEW/REKEY only) — it logs and returns.
+        verify(clientOperationService).revokeCertificateRejectedAction(resourceUuid);
+        // A rejected REVOKE must not run the issue-rejection path nor the actual revoke.
         verify(clientOperationService, never()).issueCertificateRejectedAction(any());
         verify(clientOperationService, never()).revokeCertificateAction(any(), any(), anyBoolean());
     }

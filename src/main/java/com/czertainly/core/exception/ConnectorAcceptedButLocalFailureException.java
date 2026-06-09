@@ -1,6 +1,6 @@
 package com.czertainly.core.exception;
 
-import com.czertainly.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorException;
 
 /**
  * Thrown by the v3 authority adapter when the connector has accepted the operation (200/202)

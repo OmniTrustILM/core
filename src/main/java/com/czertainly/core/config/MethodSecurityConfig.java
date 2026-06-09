@@ -1,6 +1,7 @@
 package com.czertainly.core.config;
 
 import com.czertainly.core.security.authz.ExternalAuthorization;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
 import com.czertainly.core.security.authz.ExternalMethodAuthorizationManager;
 import org.aopalliance.intercept.MethodInvocation;
 import org.springframework.aop.Advisor;
@@ -30,6 +31,13 @@ public class MethodSecurityConfig {
     @Role(ROLE_INFRASTRUCTURE)
     public Advisor authorizationManagerBeforeMethodInterception(AuthorizationManager<MethodInvocation> authorizationManager) {
         AnnotationMatchingPointcut pointcut = new AnnotationMatchingPointcut(null, ExternalAuthorization.class);
+        return new AuthorizationManagerBeforeMethodInterceptor(pointcut, authorizationManager);
+    }
+
+    @Bean
+    @Role(ROLE_INFRASTRUCTURE)
+    public Advisor dynamicAuthorizationManagerBeforeMethodInterception(AuthorizationManager<MethodInvocation> authorizationManager) {
+        AnnotationMatchingPointcut pointcut = new AnnotationMatchingPointcut(null, ExternalAuthorizationDynamic.class);
         return new AuthorizationManagerBeforeMethodInterceptor(pointcut, authorizationManager);
     }
 

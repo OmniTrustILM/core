@@ -1,12 +1,12 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.content.data.ProtectionLevel;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.common.enums.PlatformEnum;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldType;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.common.enums.PlatformEnum;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldType;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.enums.SearchFieldTypeEnum;

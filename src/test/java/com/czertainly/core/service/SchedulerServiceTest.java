@@ -1,27 +1,27 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.discovery.DiscoveryCertificateResponseDto;
-import com.czertainly.api.model.client.discovery.DiscoveryDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.discovery.DiscoveryCertificateDto;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.scheduler.*;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
-import com.czertainly.api.model.scheduler.UpdateScheduledJob;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
+import com.otilm.api.model.client.discovery.DiscoveryDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.discovery.DiscoveryCertificateDto;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.scheduler.*;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
@@ -70,7 +70,9 @@ class SchedulerServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private SchedulerService schedulerService;
+    private SchedulerExternalService schedulerService;
+    @Autowired
+    private SchedulerInternalService schedulerInternalService;
     @Autowired
     private ScheduledJobsRepository scheduledJobsRepository;
     @Autowired
@@ -280,7 +282,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v1/discoveryProvider/discover/4bd64640-be29-4e14-aad8-5c0ffa55c5bd"))
                 .willReturn(WireMock.okJson(discoveredCertificatesMockResponse)));
 
-        schedulerService.runScheduledJob(jobName);
+        schedulerInternalService.runScheduledJob(jobName);
 
 
         List<DiscoveryHistory> discoveries = discoveryRepository.findAll();
@@ -369,7 +371,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         SystemScheduledJobs systemScheduledJobs = new SystemScheduledJobs();
-        systemScheduledJobs.setSchedulerService(schedulerService);
+        systemScheduledJobs.setSchedulerService(schedulerInternalService);
 
         systemScheduledJobs.registerJobs();
 

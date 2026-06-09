@@ -1,7 +1,7 @@
 package com.czertainly.core.api;
 
-import com.czertainly.api.exception.CbomRepositoryException;
-import com.czertainly.api.model.common.ErrorMessageDto;
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.model.common.ErrorMessageDto;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;

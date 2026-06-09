@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.enums.BitMaskEnum;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
 import com.czertainly.core.service.model.Securable;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;

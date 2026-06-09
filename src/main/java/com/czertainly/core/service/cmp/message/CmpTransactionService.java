@@ -1,6 +1,6 @@
 package com.czertainly.core.service.cmp.message;
 
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.entity.cmp.CmpTransaction;
 import com.czertainly.core.dao.repository.cmp.CmpTransactionRepository;

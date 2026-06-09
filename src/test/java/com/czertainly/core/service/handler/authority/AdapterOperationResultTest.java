@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

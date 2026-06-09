@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorException;
 import com.czertainly.core.dao.entity.Certificate;
 
 /**

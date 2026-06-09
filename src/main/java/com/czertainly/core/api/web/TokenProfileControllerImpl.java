@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.TokenProfileController;
-import com.czertainly.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
-import com.czertainly.api.model.client.cryptography.tokenprofile.BulkTokenProfileKeyUsageRequestDto;
-import com.czertainly.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
-import com.czertainly.api.model.client.cryptography.tokenprofile.TokenProfileKeyUsageRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
-import com.czertainly.api.model.core.cryptography.tokenprofile.TokenProfileDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.TokenProfileController;
+import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
+import com.otilm.api.model.client.cryptography.tokenprofile.BulkTokenProfileKeyUsageRequestDto;
+import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
+import com.otilm.api.model.client.cryptography.tokenprofile.TokenProfileKeyUsageRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
+import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;

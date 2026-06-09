@@ -1,8 +1,8 @@
 package com.czertainly.core.logging;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.Module;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Builder;
 

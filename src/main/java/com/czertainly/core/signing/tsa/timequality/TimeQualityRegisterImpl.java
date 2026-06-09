@@ -1,6 +1,6 @@
 package com.czertainly.core.signing.tsa.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.messaging.model.TimeQualityConfigDeletedEvent;
 import com.czertainly.core.model.signing.timequality.ExplicitTimeQualityConfiguration;
 import com.czertainly.core.model.signing.timequality.LocalClockTimeQualityConfiguration;

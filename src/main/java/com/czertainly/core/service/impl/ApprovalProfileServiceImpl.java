@@ -1,24 +1,24 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.approvalprofile.*;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceObjectDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.approvalprofile.*;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.ApprovalProfileRelationRepository;
 import com.czertainly.core.dao.repository.ApprovalProfileRepository;
 import com.czertainly.core.dao.repository.ApprovalProfileVersionRepository;
 import com.czertainly.core.dao.repository.ApprovalStepRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ApprovalProfileExternalService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.util.ApprovalRecipientHelper;
 import com.czertainly.core.util.RequestValidatorHelper;
 import org.apache.commons.lang3.StringUtils;
@@ -50,7 +50,7 @@ public class ApprovalProfileServiceImpl implements ApprovalProfileExternalServic
 
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Override
     @ExternalAuthorization(resource = Resource.APPROVAL_PROFILE, action = ResourceAction.LIST)
@@ -326,7 +326,7 @@ public class ApprovalProfileServiceImpl implements ApprovalProfileExternalServic
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 

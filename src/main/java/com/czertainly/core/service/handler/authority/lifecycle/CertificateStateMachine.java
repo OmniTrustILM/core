@@ -1,12 +1,12 @@
 package com.czertainly.core.service.handler.authority.lifecycle;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.repository.CertificateRepository;
-import com.czertainly.core.service.CertificateEventHistoryService;
+import com.czertainly.core.service.CertificateEventHistoryInternalService;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
  * <ol>
  *   <li>Validate (from, to) pair against {@link CertificateStateTransition} table — throw on miss</li>
  *   <li>Mutate cert.state + persist via repository</li>
- *   <li>Write audit history entry via {@link CertificateEventHistoryService}</li>
+ *   <li>Write audit history entry via {@link CertificateEventHistoryInternalService}</li>
  * </ol>
  *
  * <p>SM does NOT call entityManager.flush() — callers can mutate the same entity post-transition
@@ -34,10 +34,10 @@ import org.springframework.stereotype.Service;
 public class CertificateStateMachine {
 
     private final CertificateRepository certificateRepository;
-    private final CertificateEventHistoryService eventHistoryService;
+    private final CertificateEventHistoryInternalService eventHistoryService;
 
     public CertificateStateMachine(CertificateRepository certificateRepository,
-                                   CertificateEventHistoryService eventHistoryService) {
+                                   CertificateEventHistoryInternalService eventHistoryService) {
         this.certificateRepository = certificateRepository;
         this.eventHistoryService = eventHistoryService;
     }

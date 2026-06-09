@@ -1,7 +1,7 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.messaging.jms.listeners.CertificateStatusPollListener;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;

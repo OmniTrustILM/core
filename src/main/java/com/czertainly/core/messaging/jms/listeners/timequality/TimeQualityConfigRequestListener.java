@@ -1,11 +1,12 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigRequest;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigRequest;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;
 import com.czertainly.core.messaging.jms.producers.TimeQualityConfigurationProducer;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Slf4j
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 @AllArgsConstructor
 public class TimeQualityConfigRequestListener implements MessageProcessor<TimeQualityConfigRequest> {
 

@@ -1,20 +1,20 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.interfaces.client.v2.CertificateSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.connector.v2.CertRevocationDto;
-import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
-import com.czertainly.api.model.connector.v2.CertificateRenewRequestDto;
-import com.czertainly.api.model.connector.v2.CertificateSignRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.connector.v2.CertRevocationDto;
+import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
+import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -31,7 +31,7 @@ import java.util.List;
 
 /**
  * Adapts the legacy v2 connector clients ({@link CertificateSyncApiClient} and
- * {@link com.czertainly.api.interfaces.client.v1.AuthorityInstanceSyncApiClient}) to the
+ * {@link com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient}) to the
  * {@link AuthorityProviderAdapter} interface shape.
  *
  * <p>Does not alter any v2 wire behavior — it is a pure call-site shape adaptation.
@@ -117,7 +117,7 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getAttributeApiClient(connectorDto)
                 .listAttributeDefinitions(connectorDto,
-                        com.czertainly.api.model.core.connector.FunctionGroupCode.AUTHORITY_PROVIDER,
+                        com.otilm.api.model.core.connector.FunctionGroupCode.AUTHORITY_PROVIDER,
                         authority.getKind());
     }
 

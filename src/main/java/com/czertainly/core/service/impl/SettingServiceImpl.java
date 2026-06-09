@@ -1,21 +1,22 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.AuditLogOutput;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.settings.*;
-import com.czertainly.api.model.core.settings.authentication.*;
-import com.czertainly.api.model.core.settings.logging.AuditLoggingSettingsDto;
-import com.czertainly.api.model.core.settings.logging.LoggingSettingsDto;
-import com.czertainly.api.model.core.settings.logging.ResourceLoggingSettingsDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.settings.*;
+import com.otilm.api.model.core.settings.authentication.*;
+import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.czertainly.core.dao.entity.Setting;
 import com.czertainly.core.dao.repository.SettingRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.service.SettingService;
 import com.czertainly.core.service.TriggerExternalService;
+import com.czertainly.core.service.TriggerInternalService;
 import com.czertainly.core.util.SecretEncodingVersion;
 import com.czertainly.core.util.SecretsUtil;
 import com.czertainly.core.settings.SettingsCache;
@@ -60,6 +61,7 @@ public class SettingServiceImpl implements SettingService {
     private final SettingRepository settingRepository;
 
     private TriggerExternalService triggerService;
+    private TriggerInternalService triggerInternalService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -73,6 +75,11 @@ public class SettingServiceImpl implements SettingService {
     @Autowired
     public void setTriggerService(TriggerExternalService triggerService) {
         this.triggerService = triggerService;
+    }
+
+    @Autowired
+    public void setTriggerInternalService(TriggerInternalService triggerInternalService) {
+        this.triggerInternalService = triggerInternalService;
     }
 
     @PostConstruct
@@ -203,7 +210,7 @@ public class SettingServiceImpl implements SettingService {
 
     // Called directly by internal/scheduled callers to bypass the @ExternalAuthorization proxy on getEventsSettings().
     private EventsSettingsDto loadEventsSettings() {
-        return new EventsSettingsDto(triggerService.getTriggersAssociations(null, null));
+        return new EventsSettingsDto(triggerInternalService.getTriggersAssociations(null, null));
     }
 
     @Override

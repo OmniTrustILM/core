@@ -1,11 +1,12 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigRequest;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigRequest;
 import com.czertainly.core.messaging.jms.configuration.MessagingConcurrencyProperties;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.listeners.AbstractJmsEndpointConfig;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jms.config.SimpleJmsListenerEndpoint;
 import org.springframework.retry.support.RetryTemplate;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Profile("!test")
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 public class TimeQualityConfigurationJmsEndpointConfig extends AbstractJmsEndpointConfig<TimeQualityConfigRequest> {
 
     private final MessagingConcurrencyProperties messagingConcurrencyProperties;

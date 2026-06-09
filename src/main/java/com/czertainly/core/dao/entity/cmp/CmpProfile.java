@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity.cmp;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDetailDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDto;
-import com.czertainly.api.model.core.cmp.CmpProfileVariant;
-import com.czertainly.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.cmp.CmpProfileDetailDto;
+import com.otilm.api.model.core.cmp.CmpProfileDto;
+import com.otilm.api.model.core.cmp.CmpProfileVariant;
+import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.ProtocolCertificateAssociations;
 import com.czertainly.core.dao.entity.RaProfile;

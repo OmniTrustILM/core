@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.producers;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.configuration.StatusPollProperties;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;

@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfig;
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigRequest;
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigSnapshot;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.signing.timequality.TimeQualityConfigurationRequestDto;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfig;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigRequest;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigSnapshot;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.model.TimeQualityConfigChangedEvent;

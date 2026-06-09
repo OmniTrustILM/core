@@ -1,9 +1,9 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.model.common.events.data.ScheduledJobFinishedEventData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.model.common.events.data.ScheduledJobFinishedEventData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.ScheduledJob;
 import com.czertainly.core.dao.repository.ScheduledJobsRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
@@ -42,7 +42,7 @@ public class ScheduledJobFinishedEventHandler extends EventHandler<ScheduledJob>
             final Object eventData = eventContext.getResourceObjectsEventData().getFirst();
 
             NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.SCHEDULED_JOB, scheduledJob.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(scheduledJob.getUserUuid()), eventData);
-            notificationProducer.produceMessage(notificationMessage);
+            applicationEventPublisher.publishEvent(notificationMessage);
         }
     }
 

@@ -88,6 +88,10 @@ try {
 
 Capture entry state before the external call (`final State entryState = entity.getState();`) so the restoration path has something to restore *to*.
 
+## Transactional boundaries live on services, not repositories
+
+Repositories in `com.czertainly.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
+
 ## Race conditions on multi-actor endpoints
 
 When multiple operator endpoints can mutate the same row, plain reads are not race-free even within a fresh transaction — concurrent transactions can both pass a state assertion (each reads "PENDING" before either commits) and then both write, with the second overwriting the first.
@@ -95,6 +99,17 @@ When multiple operator endpoints can mutate the same row, plain reads are not ra
 Use pessimistic locking on the read-and-update path: a custom repository finder annotated with `@Lock(LockModeType.PESSIMISTIC_WRITE)` issues `SELECT … FOR UPDATE`. Combine with a state assertion right after the lock is held — if the state has changed, throw a domain exception with an actionable message ("operation X raced with operation Y; state is now Z").
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
+
+## New operator-facing settings go through the Settings UI, not env vars
+
+An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
+`application.yml` / a `@Value` injection. Under SaaS, customers can't touch yml or env vars — the Settings UI is their
+only configuration surface, so anything living solely in yml/env is unreachable for them.
+
+Reserve `@Value`/`application.yml` for things that genuinely can't be runtime settings: bootstrap/infrastructure wiring
+needed before the settings store exists, or per-environment plumbing (datasource, ports). When unsure, ask rather than
+default to `@Value`. If you do add a deploy-time env-var override (`${ENV_VAR_NAME:default}`), it must also be wired
+into the Helm charts (separate repo) — **warn the user** and hand them a prompt for a Claude Code session in that repo.
 
 ## Don't leak runtime details to the wire
 

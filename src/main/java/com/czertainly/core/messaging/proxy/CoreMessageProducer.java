@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.CoreMessage;
+import com.otilm.api.clients.mq.model.CoreMessage;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;

@@ -1,7 +1,7 @@
 package com.czertainly.core.security.oauth2;
 
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.czertainly.core.auth.oauth2.CzertainlyAuthenticationSuccessHandler;
 import com.czertainly.core.auth.oauth2.CzertainlyClientRegistrationRepository;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;

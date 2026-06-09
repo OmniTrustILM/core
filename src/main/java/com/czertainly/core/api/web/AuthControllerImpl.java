@@ -1,18 +1,20 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.AuthController;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.AuthResourceDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDetailDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.AuthController;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDetailDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
+import com.czertainly.core.security.authz.SecuredResource;
+import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.AuthExternalService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceExternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -26,7 +28,7 @@ import java.util.List;
 public class AuthControllerImpl implements AuthController {
 
     private AuthExternalService authService;
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
     public void setAuthService(AuthExternalService authService) {
@@ -34,7 +36,7 @@ public class AuthControllerImpl implements AuthController {
     }
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -62,7 +64,7 @@ public class AuthControllerImpl implements AuthController {
 
     @Override
     public List<NameAndUuidDto> getObjectsForResource(Resource resourceName) throws NotFoundException {
-        return resourceService.getResourceObjects(resourceName, null, null);
+        return resourceService.getResourceObjects(SecuredResource.fromResource(resourceName), SecurityFilter.create(), null, null);
     }
 
 

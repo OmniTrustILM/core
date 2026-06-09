@@ -1,11 +1,11 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.clients.ConnectorApiClient;
-import com.czertainly.api.model.client.connector.ConnectRequestDto;
-import com.czertainly.api.model.client.connector.InfoResponse;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.ConnectorApiClient;
+import com.otilm.api.model.client.connector.ConnectRequestDto;
+import com.otilm.api.model.client.connector.InfoResponse;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.Endpoint;

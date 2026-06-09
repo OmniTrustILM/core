@@ -1,10 +1,10 @@
 package com.czertainly.core.service.compliance;
 
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateEventHistory;
 import com.czertainly.core.dao.repository.CertificateEventHistoryRepository;

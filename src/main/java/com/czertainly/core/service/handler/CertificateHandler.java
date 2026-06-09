@@ -1,12 +1,12 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.model.common.attribute.common.AttributeContent;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
@@ -21,6 +21,7 @@ import com.czertainly.core.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,12 +40,14 @@ public class CertificateHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CertificateHandler.class);
 
+    private int validationBatchSize;
+
     private AttributeEngine attributeEngine;
     private ValidationProducer validationProducer;
 
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
     private CertificateService certificateService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private CryptographicKeyService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
@@ -61,8 +64,14 @@ public class CertificateHandler {
         this.validationProducer = validationProducer;
     }
 
+    @Value("${certificate.validation.batch-size:10}")
+    public void setValidationBatchSize(int validationBatchSize) {
+        if (validationBatchSize <= 0) throw new IllegalArgumentException("validationBatchSize must be positive");
+        this.validationBatchSize = validationBatchSize;
+    }
+
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
@@ -72,7 +81,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -203,7 +212,12 @@ public class CertificateHandler {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleCertificateValidationEvent(CertificateValidationEvent event) {
-        ValidationMessage validationMessage = new ValidationMessage(Resource.CERTIFICATE, event.certificateUuids(), event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName());
-        validationProducer.produceMessage(validationMessage);
+        List<UUID> uuids = event.certificateUuids();
+        int size = uuids.size();
+        for (int i = 0; i < size; i += validationBatchSize) {
+            List<UUID> batch = uuids.subList(i, Math.min(i + validationBatchSize, size));
+            validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, batch,
+                    event.discoveryUuid(), event.discoveryName(), event.locationUuid(), event.locationName()));
+        }
     }
 }

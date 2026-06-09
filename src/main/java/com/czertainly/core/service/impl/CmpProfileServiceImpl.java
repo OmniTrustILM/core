@@ -1,20 +1,20 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.cmp.CmpProfileEditRequestDto;
-import com.czertainly.api.model.client.cmp.CmpProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDetailDto;
-import com.czertainly.api.model.core.cmp.CmpProfileDto;
-import com.czertainly.api.model.core.cmp.CmpProfileVariant;
-import com.czertainly.api.model.core.cmp.ProtectionMethod;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.cmp.CmpProfileEditRequestDto;
+import com.otilm.api.model.client.cmp.CmpProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.cmp.CmpProfileDetailDto;
+import com.otilm.api.model.core.cmp.CmpProfileDto;
+import com.otilm.api.model.core.cmp.CmpProfileVariant;
+import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -23,7 +23,7 @@ import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.entity.cmp.CmpProfile_;
 import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.czertainly.core.dao.repository.cmp.CmpProfileRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -32,7 +32,7 @@ import com.czertainly.core.service.CmpProfileService;
 import com.czertainly.core.service.RaProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -437,7 +437,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
                     throw new ValidationException(ValidationError.create("Signing certificate cannot be empty"));
                 }
                 Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getSigningCertificateUuid()));
-                if (!CertificateUtil.isCertificateCmpAcceptable(certificate)) {
+                if (!CertificateEligibilityUtil.isCertificateCmpAcceptable(certificate)) {
                     throw new ValidationException(ValidationError.create("Signing certificate cannot be used for CMP Profile"));
                 }
                 cmpProfile.setSigningCertificateUuid(UUID.fromString(request.getSigningCertificateUuid()));

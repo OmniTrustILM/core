@@ -1,15 +1,16 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.connector.InfoResponse;
-import com.czertainly.api.model.client.connector.v2.*;
-import com.czertainly.api.model.core.connector.*;
-import com.czertainly.api.model.core.connector.v2.ConnectInfo;
-import com.czertainly.api.model.core.connector.v2.ConnectInfoV1;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.connector.InfoResponse;
+import com.otilm.api.model.client.connector.v2.*;
+import com.otilm.api.model.core.connector.*;
+import com.otilm.api.model.core.connector.v2.ConnectInfo;
+import com.otilm.api.model.core.connector.v2.ConnectInfoV1;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
@@ -66,7 +67,7 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
 
     @Override
     public ConnectorInfo getInfo(ApiClientConnectorInfo connectorInfo) {
-        throw new UnsupportedOperationException("Getting connector info is not supported for connector version " + getVersion());
+        throw new NotSupportedException("Getting connector info is not supported for connector version " + getVersion());
     }
 
     @Override
@@ -215,7 +216,7 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
 
     }
 
-    private HealthStatus mapHealthStatus(com.czertainly.api.model.common.HealthStatus status) {
+    private HealthStatus mapHealthStatus(com.otilm.api.model.common.HealthStatus status) {
         if (status == null) {
             return HealthStatus.UNKNOWN;
         }

@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity.notifications;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.notification.NotificationInstanceDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.notification.NotificationInstanceDto;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.czertainly.core.util.DtoMapper;

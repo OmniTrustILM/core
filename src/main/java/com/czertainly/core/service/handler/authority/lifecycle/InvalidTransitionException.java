@@ -1,9 +1,9 @@
 package com.czertainly.core.service.handler.authority.lifecycle;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.core.auth.Resource;
 
 import java.util.UUID;
 

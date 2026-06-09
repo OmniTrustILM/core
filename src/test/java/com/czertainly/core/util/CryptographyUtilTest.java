@@ -1,11 +1,11 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.czertainly.core.attribute.EcdsaSignatureAttributes;
 import com.czertainly.core.attribute.RsaSignatureAttributes;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
@@ -284,6 +284,52 @@ class CryptographyUtilTest {
                 () -> CryptographyUtil.resolveSignatureAlgorithmName(unsupported, null, List.of()));
     }
 
+    // --- resolveSignatureAlgorithmName: precomputed-PQC-spec overload ---
+
+    @Test
+    void resolveWithPrecomputedSpec_rsa_resolvesFromAttributes_ignoringSpec() {
+        // given
+        List<RequestAttributeV2> attrs = List.of(
+                RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
+                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256)
+        );
+
+        // when — the precomputed PQC spec is irrelevant for classical algorithms
+        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.RSA, attrs, "ignored-spec");
+
+        // then
+        assertEquals("SHA256WITHRSA", result);
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_ecdsa_resolvesFromAttributes_ignoringSpec() {
+        // given
+        List<RequestAttributeV2> attrs = List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
+
+        // when
+        String result = CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.ECDSA, attrs, "ignored-spec");
+
+        // then
+        assertEquals("SHA384WITHECDSA", result);
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_pqc_returnsSpecVerbatim_withoutParsingPublicKey() {
+        // given / when / then — for FALCON / ML-DSA / SLH-DSA the precomputed parameter-spec name is returned as-is
+        assertEquals("FALCON-512",
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.FALCON, List.of(), "FALCON-512"));
+        assertEquals(MLDSAParameterSpec.ml_dsa_65.getName(),
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLDSA, List.of(), MLDSAParameterSpec.ml_dsa_65.getName()));
+        assertEquals(SLHDSAParameterSpec.slh_dsa_shake_128s.getName(),
+                CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.SLHDSA, List.of(), SLHDSAParameterSpec.slh_dsa_shake_128s.getName()));
+    }
+
+    @Test
+    void resolveWithPrecomputedSpec_unsupportedAlgorithm_throws() {
+        assertThrows(ValidationException.class,
+                () -> CryptographyUtil.resolveSignatureAlgorithmName(KeyAlgorithm.MLKEM, List.of(), null));
+    }
+
     // --- prepareSignatureAlgorithm ---
 
     @Test
@@ -331,6 +377,48 @@ class CryptographyUtilTest {
         // then
         assertNotNull(algId);
         assertNotNull(algId.getAlgorithm());
+    }
+
+    // --- resolvePqcParameterSpecName ---
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForRsa() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.RSA, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForEcdsa() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.ECDSA, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameReturnsNullForMlkem() {
+        assertNull(CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLKEM, null));
+    }
+
+    @Test
+    void resolvePqcSpecNameFalcon1024() throws Exception {
+        String publicKey = generatePublicKeyBase64("Falcon", FalconParameterSpec.falcon_1024, BouncyCastlePQCProvider.PROVIDER_NAME);
+        assertEquals("FALCON-1024", CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.FALCON, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameMlDsa44() throws Exception {
+        String publicKey = generatePublicKeyBase64("ML-DSA", MLDSAParameterSpec.ml_dsa_44, BouncyCastleProvider.PROVIDER_NAME);
+        assertEquals(MLDSAParameterSpec.ml_dsa_44.getName(), CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameSlhDsa() throws Exception {
+        String publicKey = generatePublicKeyBase64("SLH-DSA", SLHDSAParameterSpec.slh_dsa_shake_128s, BouncyCastleProvider.PROVIDER_NAME);
+        assertEquals(SLHDSAParameterSpec.slh_dsa_shake_128s.getName(), CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.SLHDSA, publicKey));
+    }
+
+    @Test
+    void resolvePqcSpecNameThrowsOnInvalidPqcKey() {
+        String invalidKey = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02, 0x03});
+        assertThrows(ValidationException.class,
+                () -> CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, invalidKey));
     }
 
     // --- helpers ---

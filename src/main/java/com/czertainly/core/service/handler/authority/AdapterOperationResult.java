@@ -1,7 +1,7 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.certificate.CertificateType;
 import org.springframework.lang.Nullable;
 
 import java.util.List;

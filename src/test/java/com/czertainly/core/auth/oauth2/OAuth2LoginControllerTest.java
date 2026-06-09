@@ -1,11 +1,12 @@
 package com.czertainly.core.auth.oauth2;
 
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.enums.OperationResult;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
-import com.czertainly.core.service.AuditLogService;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.czertainly.core.service.AuditLogExternalService;
+import com.czertainly.core.service.AuditLogInternalService;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.SessionTableHelper;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -59,7 +60,10 @@ class OAuth2LoginControllerTest {
     private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
-    AuditLogService auditLogService;
+    AuditLogInternalService auditLogService;
+
+    @MockitoBean
+    AuditLogExternalService auditLogExternalService;
 
     private HttpClient http;
 

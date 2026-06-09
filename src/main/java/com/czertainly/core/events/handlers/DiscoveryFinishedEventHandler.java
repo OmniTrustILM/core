@@ -1,10 +1,10 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.czertainly.core.dao.entity.DiscoveryHistory;
 import com.czertainly.core.dao.repository.DiscoveryRepository;
 import com.czertainly.core.evaluator.TriggerEvaluator;
@@ -67,7 +67,7 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         DiscoveryHistory discovery = eventContext.getResourceObjects().getFirst();
         Object eventData = eventContext.getResourceObjectsEventData().getFirst();
         NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.DISCOVERY, discovery.getUuid(), null, NotificationRecipient.buildUserNotificationRecipient(eventContext.getUserUuid()), eventData);
-        notificationProducer.produceMessage(notificationMessage);
+        applicationEventPublisher.publishEvent(notificationMessage);
 
         // if discovery was scheduled, raise application event to notify that scheduled discovery has finished
         if (eventContext.getScheduledJobInfo() != null) {

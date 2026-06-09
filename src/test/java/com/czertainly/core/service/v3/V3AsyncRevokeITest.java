@@ -1,10 +1,10 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.messaging.jms.listeners.CertificateStatusPollListener;

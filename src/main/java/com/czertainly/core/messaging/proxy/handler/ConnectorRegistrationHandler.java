@@ -1,9 +1,9 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ConnectorRegistrationRequest;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.model.client.connector.ConnectorRequestDto;
-import com.czertainly.api.model.core.connector.AuthType;
+import com.otilm.api.clients.mq.model.ConnectorRegistrationRequest;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.model.client.connector.ConnectorRequestDto;
+import com.otilm.api.model.core.connector.AuthType;
 import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;

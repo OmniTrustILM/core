@@ -1,6 +1,6 @@
 package com.czertainly.core.service.scep;
 
-import com.czertainly.api.exception.ScepException;
+import com.otilm.api.exception.ScepException;
 import org.springframework.http.ResponseEntity;
 
 public interface ScepService {

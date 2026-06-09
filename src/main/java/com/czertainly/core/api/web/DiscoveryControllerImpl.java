@@ -1,25 +1,25 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.DiscoveryController;
-import com.czertainly.api.model.client.certificate.DiscoveryResponseDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.discovery.DiscoveryCertificateResponseDto;
-import com.czertainly.api.model.client.discovery.DiscoveryDto;
-import com.czertainly.api.model.client.discovery.DiscoveryHistoryDetailDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scheduler.ScheduleDiscoveryDto;
-import com.czertainly.api.model.core.scheduler.ScheduledJobDetailDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.DiscoveryController;
+import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
+import com.otilm.api.model.client.discovery.DiscoveryDto;
+import com.otilm.api.model.client.discovery.DiscoveryHistoryDetailDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.ScheduleDiscoveryDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.DiscoveryService;
-import com.czertainly.core.service.SchedulerService;
+import com.czertainly.core.service.SchedulerExternalService;
 import com.czertainly.core.tasks.DiscoveryCertificateTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,10 +41,10 @@ public class DiscoveryControllerImpl implements DiscoveryController {
 
     private DiscoveryService discoveryService;
 
-    private SchedulerService schedulerService;
+    private SchedulerExternalService schedulerService;
 
     @Autowired
-    public void setSchedulerService(SchedulerService schedulerService) {
+    public void setSchedulerService(SchedulerExternalService schedulerService) {
         this.schedulerService = schedulerService;
     }
 

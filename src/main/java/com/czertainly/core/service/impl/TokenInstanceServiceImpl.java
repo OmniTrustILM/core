@@ -1,36 +1,36 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.cryptography.token.TokenInstanceRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.czertainly.api.model.connector.cryptography.token.TokenInstanceStatusDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceDetailDto;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceDto;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.cryptography.token.TokenInstanceRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.token.TokenInstanceStatusDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.TokenInstanceReferenceRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
-import com.czertainly.core.service.ResourceService;
+import com.czertainly.core.service.ResourceInternalService;
 import com.czertainly.core.service.TokenInstanceService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,7 +55,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     private ConnectorService connectorService;
     private CredentialService credentialService;
     private AttributeEngine attributeEngine;
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     // --------------------------------------------------------------------------------
     // Repositories
@@ -63,7 +63,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -173,13 +173,13 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
 
-        com.czertainly.api.model.connector.cryptography.token.TokenInstanceRequestDto tokenInstanceRequestDto =
-                new com.czertainly.api.model.connector.cryptography.token.TokenInstanceRequestDto();
+        com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto tokenInstanceRequestDto =
+                new com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto();
         tokenInstanceRequestDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
         tokenInstanceRequestDto.setKind(request.getKind());
         tokenInstanceRequestDto.setName(request.getName());
         logger.debug("Token Instance Request to the connector: {}", tokenInstanceRequestDto);
-        com.czertainly.api.model.connector.cryptography.token.TokenInstanceDto response =
+        com.otilm.api.model.connector.cryptography.token.TokenInstanceDto response =
                 connectorApiFactory.getTokenInstanceApiClient(connector).createTokenInstance(connector, tokenInstanceRequestDto);
         try {
             UUID.fromString(response.getUuid());
@@ -241,13 +241,13 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
 
-        com.czertainly.api.model.connector.cryptography.token.TokenInstanceRequestDto tokenInstanceRequestDto =
-                new com.czertainly.api.model.connector.cryptography.token.TokenInstanceRequestDto();
+        com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto tokenInstanceRequestDto =
+                new com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto();
         tokenInstanceRequestDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
         tokenInstanceRequestDto.setKind(request.getKind());
         tokenInstanceRequestDto.setName(request.getName());
         logger.debug("Token Instance Request to the connector: {}", tokenInstanceRequestDto);
-        com.czertainly.api.model.connector.cryptography.token.TokenInstanceDto response =
+        com.otilm.api.model.connector.cryptography.token.TokenInstanceDto response =
                 connectorApiFactory.getTokenInstanceApiClient(connectorDto).updateTokenInstance(connectorDto, tokenInstanceReference.getTokenInstanceUuid(), tokenInstanceRequestDto);
 
         attributeEngine.updateMetadataAttributes(response.getMetadata(), ObjectAttributeContentInfo.builder(Resource.TOKEN, tokenInstanceReference.getUuid()).connector(tokenInstanceReference.getConnectorUuid()).build());

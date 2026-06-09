@@ -1,25 +1,25 @@
 package com.czertainly.core.service.compliance;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.client.compliance.v2.ComplianceInternalRuleRequestDto;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.connector.secrets.SecretType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDetailDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckRuleDto;
-import com.czertainly.api.model.core.secret.SecretState;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.workflows.ConditionItemDto;
-import com.czertainly.api.model.core.workflows.ConditionItemRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.compliance.v2.ComplianceInternalRuleRequestDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckRuleDto;
+import com.otilm.api.model.core.secret.SecretState;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.workflows.ConditionItemDto;
+import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.events.handlers.CertificateUploadedEventHandler;
@@ -28,16 +28,22 @@ import com.czertainly.core.messaging.model.CertificateUploadEventMessageData;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
 import com.czertainly.core.model.compliance.ComplianceResultProviderRulesDto;
 import com.czertainly.core.model.compliance.ComplianceResultRulesDto;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
+import com.czertainly.core.security.authz.opa.dto.OpaRequestedResource;
+import com.czertainly.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.czertainly.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
@@ -50,7 +56,9 @@ import java.util.UUID;
 class ComplianceServiceTest extends BaseComplianceTest {
 
     @Autowired
-    private ComplianceService complianceService;
+    private ComplianceInternalService complianceService;
+    @Autowired
+    private ComplianceExternalService complianceExternalService;
 
     @Autowired
     private CertificateService certificateService;
@@ -89,7 +97,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
         var v1RuleAssoc = new ComplianceProfileRule();
         v1RuleAssoc.setComplianceProfile(complianceProfile);
         v1RuleAssoc.setComplianceProfileUuid(complianceProfile.getUuid());
-        v1RuleAssoc.setResource(com.czertainly.api.model.core.auth.Resource.CERTIFICATE);
+        v1RuleAssoc.setResource(com.otilm.api.model.core.auth.Resource.CERTIFICATE);
         v1RuleAssoc.setConnectorUuid(connectorV1.getUuid());
         v1RuleAssoc.setKind(KIND_V1);
         v1RuleAssoc.setComplianceRuleUuid(complianceV1RuleUuid);
@@ -107,7 +115,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
         var v2GroupAssoc = new ComplianceProfileRule();
         v2GroupAssoc.setComplianceProfile(complianceProfile);
         v2GroupAssoc.setComplianceProfileUuid(complianceProfile.getUuid());
-        v2GroupAssoc.setResource(com.czertainly.api.model.core.auth.Resource.CERTIFICATE);
+        v2GroupAssoc.setResource(com.otilm.api.model.core.auth.Resource.CERTIFICATE);
         v2GroupAssoc.setConnectorUuid(connectorV2.getUuid());
         v2GroupAssoc.setKind(KIND_V2);
         v2GroupAssoc.setComplianceGroupUuid(complianceV2Group2Uuid);
@@ -241,6 +249,9 @@ class ComplianceServiceTest extends BaseComplianceTest {
 
         CryptographicKey key = cryptographicKeyRepository.findWithAssociationsByUuid(certificate.getKeyUuid()).orElseThrow();
         CryptographicKeyItem keyItem = key.getItems().iterator().next();
+
+        Assertions.assertEquals(key.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid()).getValue(),
+                "A key item must be authorized against its owning key, not its own UUID");
         key.setTokenProfileUuid(tokenProfile.getUuid());
         cryptographicKeyRepository.save(key);
 
@@ -316,8 +327,8 @@ class ComplianceServiceTest extends BaseComplianceTest {
         secret.setLatestVersion(secretVersion);
         secretRepository.save(secret);
 
-        Assertions.assertDoesNotThrow(() -> complianceService.checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, List.of(vaultProfileUuid)));
-        Assertions.assertDoesNotThrow(() -> complianceService.checkResourceObjectsComplianceValidation(Resource.SECRET, List.of(secret.getUuid())));
+        Assertions.assertDoesNotThrow(() -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, List.of(vaultProfileUuid)));
+        Assertions.assertDoesNotThrow(() -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.SECRET, List.of(secret.getUuid())));
         complianceService.checkResourceObjectCompliance(Resource.SECRET, secret.getUuid());
         ComplianceCheckResultDto complianceCheckResult = complianceService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
@@ -331,6 +342,43 @@ class ComplianceServiceTest extends BaseComplianceTest {
         complianceCheckResult = complianceService.getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
         Assertions.assertNotEquals(lastUpdated, complianceCheckResult.getTimestamp());
+
+        Assertions.assertEquals(secret.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.SECRET, secret.getUuid()).getValue(),
+                "A secret is authorized against its own UUID");
+    }
+
+    @Test
+    void resolveComplianceAuthorizableObjectMapsToOwningAuthorizableObject() {
+        UUID certificateUuid = UUID.randomUUID();
+        Assertions.assertEquals(certificateUuid, complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, certificateUuid).getValue(),
+                "A certificate is authorized against its own UUID");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
+                "A certificate request has no stable owning object; authorization is resource-level (null)");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()),
+                "An unknown key item resolves to null (resource-level); the body then throws NotFound post-authorization");
+
+        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, null),
+                "A null object UUID resolves to null (resource-level)");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationDeniedWhenOpaRejectsCheckCompliance() {
+        Mockito.when(opaClient.checkResourceAccess(Mockito.any(),
+                        Mockito.argThat(req -> isRequestFor(req, Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE)), Mockito.any(), Mockito.any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+
+        List<UUID> objectUuids = List.of(UUID.randomUUID());
+        Assertions.assertThrows(AuthorizationDeniedException.class,
+                () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, objectUuids),
+                "checkResourceObjectsComplianceValidation must enforce COMPLIANCE_PROFILE/CHECK_COMPLIANCE");
+    }
+
+    private static boolean isRequestFor(OpaRequestedResource requestedResource, Resource resource, ResourceAction action) {
+        return requestedResource != null && requestedResource.getProperties() != null
+                && resource.getCode().equals(requestedResource.getProperties().get("name"))
+                && action.getCode().equals(requestedResource.getProperties().get("action"));
     }
 
     @Test
@@ -507,19 +555,19 @@ class ComplianceServiceTest extends BaseComplianceTest {
     void testCheckComplianceValidation() {
         // check validation of compliance check request
         List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(UUID.randomUUID()));
-        Assertions.assertThrows(ValidationException.class, () -> complianceService.checkComplianceValidation(uuids, null, "SOME_TYPE"), "Resource must be specified");
+        Assertions.assertThrows(ValidationException.class, () -> complianceExternalService.checkComplianceValidation(uuids, null, "SOME_TYPE"), "Resource must be specified");
         Assertions.assertThrows(ValidationException.class, () -> complianceService.checkCompliance(uuids, null, "SOME_TYPE"), "Resource must be specified");
-        Assertions.assertThrows(ValidationException.class, () -> complianceService.checkComplianceValidation(uuids, Resource.NONE, "SOME_TYPE"), "Resource cannot be NONE, has to be compliance subject or has compliance profiles");
+        Assertions.assertThrows(ValidationException.class, () -> complianceExternalService.checkComplianceValidation(uuids, Resource.NONE, "SOME_TYPE"), "Resource cannot be NONE, has to be compliance subject or has compliance profiles");
         Assertions.assertThrows(ValidationException.class, () -> complianceService.checkCompliance(uuids, Resource.NONE, "SOME_TYPE"), "Resource cannot be NONE, has to be compliance subject or has compliance profiles");
-        Assertions.assertThrows(ValidationException.class, () -> complianceService.checkComplianceValidation(uuids, Resource.CERTIFICATE, "SOME_TYPE"), "Resource CERTIFICATE support only types from CertificateType enum");
+        Assertions.assertThrows(ValidationException.class, () -> complianceExternalService.checkComplianceValidation(uuids, Resource.CERTIFICATE, "SOME_TYPE"), "Resource CERTIFICATE support only types from CertificateType enum");
         Assertions.assertThrows(ValidationException.class, () -> complianceService.checkCompliance(uuids, Resource.CERTIFICATE, "SOME_TYPE"), "Resource CERTIFICATE support only types from CertificateType enum");
-        Assertions.assertThrows(NotFoundException.class, () -> complianceService.checkComplianceValidation(uuids, Resource.CERTIFICATE, CertificateType.X509.getCode()), "No compliance profile found with specified UUID");
+        Assertions.assertThrows(NotFoundException.class, () -> complianceExternalService.checkComplianceValidation(uuids, Resource.CERTIFICATE, CertificateType.X509.getCode()), "No compliance profile found with specified UUID");
 
         // check resource objects compliance validation
         List<UUID> objectUuids = List.of(UUID.randomUUID());
         UUID objectUuid = objectUuids.getFirst();
-        Assertions.assertThrows(ValidationException.class, () -> complianceService.checkResourceObjectsComplianceValidation(Resource.NONE, objectUuids), "Resource cannot be NONE, has to be compliance subject or has compliance profiles");
+        Assertions.assertThrows(ValidationException.class, () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.NONE, objectUuids), "Resource cannot be NONE, has to be compliance subject or has compliance profiles");
         Assertions.assertThrows(ValidationException.class, () -> complianceService.checkResourceObjectCompliance(Resource.NONE, objectUuid), "Resource must be specified");
-        Assertions.assertThrows(NotFoundException.class, () -> complianceService.checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, objectUuids), "No RA Profile found with specified UUID");
+        Assertions.assertThrows(NotFoundException.class, () -> complianceExternalService.checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, objectUuids), "No RA Profile found with specified UUID");
     }
 }

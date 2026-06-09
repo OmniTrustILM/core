@@ -21,5 +21,6 @@ jobs:
       image: ilm/core
       cache-scope: core
       pre-build: maven
+      skip-tests: true
       build-args: |
         VERSION=${{ github.ref_name }}

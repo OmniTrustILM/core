@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.ScepProfileController;
-import com.czertainly.api.model.client.scep.ScepProfileEditRequestDto;
-import com.czertainly.api.model.client.scep.ScepProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scep.ScepProfileDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.scep.ScepProfileDetailDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.ScepProfileController;
+import com.otilm.api.model.client.scep.ScepProfileEditRequestDto;
+import com.otilm.api.model.client.scep.ScepProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scep.ScepProfileDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.scep.ScepProfileDetailDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;

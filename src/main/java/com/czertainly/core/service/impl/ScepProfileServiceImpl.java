@@ -1,18 +1,18 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.scep.ScepProfileEditRequestDto;
-import com.czertainly.api.model.client.scep.ScepProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.scep.ScepProfileDetailDto;
-import com.czertainly.api.model.core.scep.ScepProfileDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.scep.ScepProfileEditRequestDto;
+import com.otilm.api.model.client.scep.ScepProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.scep.ScepProfileDetailDto;
+import com.otilm.api.model.core.scep.ScepProfileDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -21,14 +21,14 @@ import com.czertainly.core.dao.entity.scep.ScepProfile;
 import com.czertainly.core.dao.entity.scep.ScepProfile_;
 import com.czertainly.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.czertainly.core.dao.repository.scep.ScepProfileRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
-import com.czertainly.core.util.CertificateUtil;
+import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.ValidatorUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -120,7 +120,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
 
         boolean intuneEnabled = Boolean.TRUE.equals(request.getEnableIntune());
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getCaCertificateUuid()));
-        if (!CertificateUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
+        if (!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
@@ -184,7 +184,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
 
         boolean intuneEnabled = Boolean.TRUE.equals(request.getEnableIntune());
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(request.getCaCertificateUuid()));
-        if(!CertificateUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
+        if(!CertificateEligibilityUtil.isCertificateScepCaCertAcceptable(certificate, intuneEnabled)) {
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 

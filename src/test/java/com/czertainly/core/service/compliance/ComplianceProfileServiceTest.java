@@ -1,22 +1,23 @@
 package com.czertainly.core.service.compliance;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.compliance.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.connector.compliance.ComplianceRequestRulesDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceProfileDto;
-import com.czertainly.api.model.core.compliance.ComplianceProfilesListDto;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.compliance.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.connector.compliance.ComplianceRequestRulesDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceProfileDto;
+import com.otilm.api.model.core.compliance.ComplianceProfilesListDto;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.ComplianceProfileService;
+import com.czertainly.core.service.ComplianceProfileExternalService;
+import com.czertainly.core.service.ComplianceProfileInternalService;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -38,7 +39,9 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
     private ComplianceProfileRepository complianceProfileRepository;
 
     @Autowired
-    private ComplianceProfileService complianceProfileService;
+    private ComplianceProfileExternalService complianceProfileService;
+    @Autowired
+    private ComplianceProfileInternalService complianceProfileInternalService;
 
     @Autowired
     private ComplianceProfileRuleRepository complianceProfileRuleRepository;
@@ -213,10 +216,10 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
         complianceProfile2.setDescription("Sample Description2");
         complianceProfileRepository.save(complianceProfile2);
 
-        var objects = complianceProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        var objects = complianceProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(2, objects.size());
 
-        var profileInfo = complianceProfileService.getResourceObjectInternal(complianceProfile.getUuid());
+        var profileInfo = complianceProfileInternalService.getResourceObjectInternal(complianceProfile.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), profileInfo.getName());
     }
 
@@ -487,11 +490,11 @@ class ComplianceProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = complianceProfileService.getResourceObjectInternal(complianceProfile.getUuid());
+        NameAndUuidDto nameAndUuidDto = complianceProfileInternalService.getResourceObjectInternal(complianceProfile.getUuid());
         Assertions.assertEquals(complianceProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = complianceProfileService.getResourceObjectExternal(complianceProfile.getSecuredUuid());
+        nameAndUuidDto = complianceProfileInternalService.getResourceObjectExternal(complianceProfile.getSecuredUuid());
         Assertions.assertEquals(complianceProfile.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), nameAndUuidDto.getName());
     }

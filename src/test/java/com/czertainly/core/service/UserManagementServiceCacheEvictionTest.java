@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.core.auth.UserDetailDto;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.util.BaseSpringBootTest;

@@ -1,7 +1,7 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

@@ -1,18 +1,17 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.dao.entity.workflows.*;
 import com.czertainly.core.dao.repository.workflows.*;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.TriggerExternalService;
 import com.czertainly.core.service.TriggerInternalService;
@@ -129,10 +128,17 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
 
     @Override
     @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.UPDATE)
-    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException {
+    public TriggerDetailDto updateTrigger(String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         validateTriggerRequest(request.getType(), request.getEvent(), request.isIgnoreTrigger(), request.getResource(), request.getActionsUuids());
 
         Trigger trigger = triggerRepository.findByUuid(SecuredUUID.fromString(triggerUuid)).orElseThrow(() -> new NotFoundException(Trigger.class, triggerUuid));
+
+        if (request.getName() != null) {
+            if (triggerRepository.existsByNameAndUuidNot(request.getName(), UUID.fromString(triggerUuid))) {
+                throw new AlreadyExistException("Trigger with same name already exists.");
+            }
+            trigger.setName(request.getName());
+        }
 
         trigger.setDescription(request.getDescription());
         trigger.setType(request.getType());
@@ -198,7 +204,12 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
     //region Trigger Associations
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.TRIGGER, action = ResourceAction.LIST)
+    public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
+        return getTriggersAssociations(resource, associationObjectUuid);
+    }
+
+    @Override
     public Map<ResourceEvent, List<UUID>> getTriggersAssociations(Resource resource, UUID associationObjectUuid) {
         List<TriggerAssociation> triggerAssociations = triggerAssociationRepository.findAllByResourceAndObjectUuidOrderByTriggerOrderAsc(resource, associationObjectUuid);
 
@@ -405,6 +416,16 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
         triggerHistoryRecord.setMessage(message);
         triggerHistoryRecordRepository.save(triggerHistoryRecord);
         return triggerHistoryRecord;
+    }
+
+    @Override
+    public void setTriggerHistoryActionsPerformedFalse(UUID triggerHistoryUuid) {
+        triggerHistoryRepository.findById(triggerHistoryUuid).ifPresent(th -> {
+            if (th.isActionsPerformed()) {
+                th.setActionsPerformed(false);
+                triggerHistoryRepository.save(th);
+            }
+        });
     }
 
     //endregion

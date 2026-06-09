@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityResultMessage;
+import com.otilm.api.model.messaging.timequality.TimeQualityResultMessage;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;
 import com.czertainly.core.signing.tsa.timequality.NtpServerResult;
@@ -8,6 +8,7 @@ import com.czertainly.core.signing.tsa.timequality.TimeQualityRegister;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityResult;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import java.util.List;
 @Component
 @Slf4j
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 @AllArgsConstructor
 public class TimeQualityResultListener implements MessageProcessor<TimeQualityResultMessage> {
 

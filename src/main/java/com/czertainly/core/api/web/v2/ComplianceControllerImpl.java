@@ -1,16 +1,18 @@
 package com.czertainly.core.api.web.v2;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.v2.ComplianceController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.v2.ComplianceController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
+import com.czertainly.core.security.authz.SecuredResource;
 import com.czertainly.core.security.authz.SecuredUUID;
-import com.czertainly.core.service.ComplianceService;
+import com.czertainly.core.service.ComplianceExternalService;
+import com.czertainly.core.service.ComplianceInternalService;
 import com.czertainly.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -23,11 +25,17 @@ import java.util.UUID;
 @RestController
 public class ComplianceControllerImpl implements ComplianceController {
 
-    private ComplianceService complianceService;
+    private ComplianceExternalService complianceService;
+    private ComplianceInternalService complianceInternalService;
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceExternalService complianceService) {
         this.complianceService = complianceService;
+    }
+
+    @Autowired
+    public void setComplianceInternalService(ComplianceInternalService complianceInternalService) {
+        this.complianceInternalService = complianceInternalService;
     }
 
     @InitBinder
@@ -60,6 +68,16 @@ public class ComplianceControllerImpl implements ComplianceController {
     @Override
     @AuditLogged(module = Module.COMPLIANCE, resource = Resource.NONE, operation = Operation.GET_COMPLIANCE_RESULT)
     public ComplianceCheckResultDto getComplianceCheckResult(@LogResource(resource = true) Resource resource, @LogResource(uuid = true) UUID objectUuid) throws NotFoundException {
-        return complianceService.getComplianceCheckResult(resource, objectUuid);
+        SecuredResource authorizableResource = SecuredResource.fromResource(authorizableResource(resource));
+        SecuredUUID authorizableObject = complianceInternalService.resolveComplianceAuthorizableObject(resource, objectUuid);
+        return complianceService.getComplianceCheckResult(authorizableResource, authorizableObject, resource, objectUuid);
+    }
+
+    static Resource authorizableResource(Resource resource) {
+        return switch (resource) {
+            case CERTIFICATE_REQUEST -> Resource.CERTIFICATE;
+            case CRYPTOGRAPHIC_KEY_ITEM -> Resource.CRYPTOGRAPHIC_KEY;
+            default -> resource;
+        };
     }
 }

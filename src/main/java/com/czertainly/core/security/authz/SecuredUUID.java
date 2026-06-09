@@ -1,7 +1,7 @@
 package com.czertainly.core.security.authz;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +48,6 @@ public class SecuredUUID {
 
     @Override
     public String toString() {
-        return this.value == null ? null : this.value.toString();
+        return this.value == null ? "SecuredUUID[null]" : this.value.toString();
     }
 }

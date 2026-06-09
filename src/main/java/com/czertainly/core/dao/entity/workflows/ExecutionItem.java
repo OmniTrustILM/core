@@ -1,13 +1,13 @@
 package com.czertainly.core.dao.entity.workflows;
 
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.ExecutionItemDto;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ExecutionItemDto;
 import com.czertainly.core.dao.converter.ObjectToJsonConverter;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.czertainly.core.dao.entity.notifications.NotificationProfile;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,10 +53,19 @@ public class ExecutionItem extends UniquelyIdentified {
     @Convert(converter = ObjectToJsonConverter.class)
     private Object data;
 
+    @Column(name = "source_field_source")
+    @Enumerated(EnumType.STRING)
+    private FilterFieldSource sourceFieldSource;
+
+    @Column(name = "source_field_identifier")
+    private String sourceFieldIdentifier;
+
     public ExecutionItemDto mapToDto() {
         ExecutionItemDto executionItemDto = new ExecutionItemDto();
         executionItemDto.setFieldSource(fieldSource);
         executionItemDto.setFieldIdentifier(fieldIdentifier);
+        executionItemDto.setSourceFieldSource(sourceFieldSource);
+        executionItemDto.setSourceFieldIdentifier(sourceFieldIdentifier);
         if (notificationProfileUuid != null) {
             executionItemDto.setNotificationProfileUuid(notificationProfileUuid.toString());
             executionItemDto.setNotificationProfileName(notificationProfile.getName());

@@ -1,20 +1,22 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.location.LocationDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
+import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
@@ -61,6 +63,16 @@ public interface CertificateService extends ResourceExtensionService {
      */
     List<X509Certificate> getCertificateChainForSigning(UUID certificateUuid, boolean withEndCertificate) throws CertificateException;
 
+    /**
+     * Hot-path accessor for digital signing. Returns an immutable snapshot of the certificate's acceptability data and
+     * structural key references, cached in {@link com.czertainly.core.config.cache.CacheConfig#SIGNING_CERTIFICATE_CACHE}.
+     *
+     * <p>No authorization check — must not be called from REST controllers.
+     *
+     * @throws NotFoundException if no certificate exists for the UUID
+     */
+    SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException;
+
     CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException;
 
     CertificateDownloadResponseDto downloadCertificate(UUID uuid, CertificateFormat certificateFormat, CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException;
@@ -83,14 +95,11 @@ public interface CertificateService extends ResourceExtensionService {
      * @param certificateType Type of the certificate
      * @return Certificate entity
      */
-    Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException;
+    Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.otilm.api.exception.CertificateException;
 
     FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
 
     UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
-
-
-    String upload(String certificateData, List<RequestAttribute> customAttributes, boolean sync) throws CertificateException, AlreadyExistException;
 
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
@@ -320,7 +329,7 @@ public interface CertificateService extends ResourceExtensionService {
      * before the standard issue path takes over. Identity fields and registration metadata on the
      * cert row are preserved; only the CertificateRequestEntity association is set.
      */
-    void addCertificateRequestToExisting(UUID certificateUuid, com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto request)
+    void addCertificateRequestToExisting(UUID certificateUuid, com.otilm.api.model.core.v2.ClientCertificateSignRequestDto request)
             throws NotFoundException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, ConnectorException;
 
     /**
@@ -339,6 +348,17 @@ public interface CertificateService extends ResourceExtensionService {
      * @return List of available signing certificates
      */
     List<CertificateDto> listCmpSigningCertificates(SecurityFilter filter);
+
+    /**
+     * List certificates eligible for digital signing.
+     *
+     * @param filter              security filter
+     * @param signingWorkflowType digital signing workflow type
+     * @param qualifiedTimestamp  when {@code true} and workflow is TIMESTAMPING, restricts results to certificates that satisfy
+     *                            ETSI EN 319 421 qualified timestamp requirements
+     * @return List of available certificates
+     */
+    List<CertificateDto> listDigitalSigningCertificates(SecurityFilter filter, SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp);
 
     /**
      * Find certificates which are expiring and not renewed and trigger event handling these certificates

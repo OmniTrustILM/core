@@ -1,13 +1,13 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.RuleException;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.connector.compliance.v2.ComplianceResponseDto;
-import com.czertainly.api.model.connector.compliance.v2.ComplianceResponseRuleDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.compliance.ComplianceRuleStatus;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.connector.compliance.v2.ComplianceResponseDto;
+import com.otilm.api.model.connector.compliance.v2.ComplianceResponseRuleDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.dao.entity.ComplianceProfile;
 import com.czertainly.core.dao.entity.ComplianceProfileRule;

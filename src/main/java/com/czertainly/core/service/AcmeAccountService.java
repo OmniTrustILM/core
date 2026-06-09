@@ -1,8 +1,8 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.acme.AcmeAccountListResponseDto;
-import com.czertainly.api.model.client.acme.AcmeAccountResponseDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.acme.AcmeAccountListResponseDto;
+import com.otilm.api.model.client.acme.AcmeAccountResponseDto;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;

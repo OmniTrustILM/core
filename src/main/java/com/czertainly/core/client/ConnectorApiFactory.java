@@ -1,41 +1,43 @@
 package com.czertainly.core.client;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.clients.AttributeApiClient;
-import com.czertainly.api.clients.AuthorityInstanceApiClient;
-import com.czertainly.api.clients.CertificateApiClient;
-import com.czertainly.api.clients.ComplianceApiClient;
-import com.czertainly.api.clients.ConnectorApiClient;
-import com.czertainly.api.clients.DiscoveryApiClient;
-import com.czertainly.api.clients.EndEntityApiClient;
-import com.czertainly.api.clients.EndEntityProfileApiClient;
-import com.czertainly.api.clients.EntityInstanceApiClient;
-import com.czertainly.api.clients.HealthApiClient;
-import com.czertainly.api.clients.LocationApiClient;
-import com.czertainly.api.clients.NotificationInstanceApiClient;
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
-import com.czertainly.api.clients.cryptography.KeyManagementApiClient;
-import com.czertainly.api.clients.cryptography.TokenInstanceApiClient;
-import com.czertainly.api.interfaces.client.v1.AttributeSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
-import com.czertainly.api.interfaces.client.v2.CertificateSyncApiClient;
-import com.czertainly.api.interfaces.client.v2.ComplianceSyncApiClient;
-import com.czertainly.api.interfaces.client.v2.HealthSyncApiClient;
-import com.czertainly.api.interfaces.client.v2.InfoSyncApiClient;
-import com.czertainly.api.interfaces.client.v2.MetricsSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.ConnectorSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.DiscoverySyncApiClient;
-import com.czertainly.api.interfaces.client.v1.EndEntityProfileSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.EndEntitySyncApiClient;
-import com.czertainly.api.interfaces.client.v1.EntityInstanceSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.KeyManagementSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.LocationSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
-import com.czertainly.api.interfaces.client.v1.TokenInstanceSyncApiClient;
-import com.czertainly.api.interfaces.client.v3.AuthoritySyncApiClient;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.proxy.ProxyDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.AttributeApiClient;
+import com.otilm.api.clients.AuthorityInstanceApiClient;
+import com.otilm.api.clients.CertificateApiClient;
+import com.otilm.api.clients.ComplianceApiClient;
+import com.otilm.api.clients.ConnectorApiClient;
+import com.otilm.api.clients.DiscoveryApiClient;
+import com.otilm.api.clients.EndEntityApiClient;
+import com.otilm.api.clients.EndEntityProfileApiClient;
+import com.otilm.api.clients.EntityInstanceApiClient;
+import com.otilm.api.clients.HealthApiClient;
+import com.otilm.api.clients.LocationApiClient;
+import com.otilm.api.clients.NotificationInstanceApiClient;
+import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
+import com.otilm.api.clients.cryptography.KeyManagementApiClient;
+import com.otilm.api.clients.cryptography.TokenInstanceApiClient;
+import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.interfaces.client.v1.AttributeSyncApiClient;
+import com.otilm.api.interfaces.client.v1.signing.SignatureFormatterSyncApiClient;
+import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
+import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
+import com.otilm.api.interfaces.client.v2.ComplianceSyncApiClient;
+import com.otilm.api.interfaces.client.v2.HealthSyncApiClient;
+import com.otilm.api.interfaces.client.v2.InfoSyncApiClient;
+import com.otilm.api.interfaces.client.v2.MetricsSyncApiClient;
+import com.otilm.api.interfaces.client.v1.ConnectorSyncApiClient;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.interfaces.client.v1.DiscoverySyncApiClient;
+import com.otilm.api.interfaces.client.v1.EndEntityProfileSyncApiClient;
+import com.otilm.api.interfaces.client.v1.EndEntitySyncApiClient;
+import com.otilm.api.interfaces.client.v1.EntityInstanceSyncApiClient;
+import com.otilm.api.interfaces.client.v1.KeyManagementSyncApiClient;
+import com.otilm.api.interfaces.client.v1.LocationSyncApiClient;
+import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
+import com.otilm.api.interfaces.client.v1.TokenInstanceSyncApiClient;
+import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.proxy.ProxyDto;
 import com.czertainly.core.service.v2.ConnectorService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -83,43 +85,47 @@ public class ConnectorApiFactory {
     private final TokenInstanceApiClient restTokenInstanceApiClient;
     private final KeyManagementApiClient restKeyManagementApiClient;
     private final CryptographicOperationsApiClient restCryptographicOperationsApiClient;
-    private final com.czertainly.api.clients.v2.CertificateApiClient restCertificateApiClientV2;
+    private final com.otilm.api.clients.v2.CertificateApiClient restCertificateApiClientV2;
     private final ComplianceApiClient restComplianceApiClient;
-    private final com.czertainly.api.clients.v2.ComplianceApiClient restComplianceApiClientV2;
-    private final com.czertainly.api.clients.v2.HealthApiClient restHealthApiClientV2;
-    private final com.czertainly.api.clients.v2.InfoApiClient restInfoApiClientV2;
-    private final com.czertainly.api.clients.v2.MetricsApiClient restMetricsApiClientV2;
-    private final com.czertainly.api.clients.v3.CertificateApiClient restCertificateApiClientV3;
-    private final com.czertainly.api.clients.v3.AuthorityApiClient restAuthorityApiClientV3;
+    private final com.otilm.api.clients.v2.ComplianceApiClient restComplianceApiClientV2;
+    private final com.otilm.api.clients.v2.HealthApiClient restHealthApiClientV2;
+    private final com.otilm.api.clients.v2.InfoApiClient restInfoApiClientV2;
+    private final com.otilm.api.clients.v2.MetricsApiClient restMetricsApiClientV2;
+    private final com.otilm.api.clients.v3.CertificateApiClient restCertificateApiClientV3;
+    private final com.otilm.api.clients.v3.AuthorityApiClient restAuthorityApiClientV3;
 
     // MQ clients (optional - Spring injects Optional.empty() if bean is missing)
-    private final Optional<com.czertainly.api.clients.mq.AttributeApiClient> mqAttributeApiClient;
-    private final Optional<com.czertainly.api.clients.mq.AuthorityInstanceApiClient> mqAuthorityInstanceApiClient;
-    private final Optional<com.czertainly.api.clients.mq.CertificateApiClient> mqCertificateApiClient;
-    private final Optional<com.czertainly.api.clients.mq.ConnectorApiClient> mqConnectorApiClient;
-    private final Optional<com.czertainly.api.clients.mq.DiscoveryApiClient> mqDiscoveryApiClient;
-    private final Optional<com.czertainly.api.clients.mq.EndEntityApiClient> mqEndEntityApiClient;
-    private final Optional<com.czertainly.api.clients.mq.EndEntityProfileApiClient> mqEndEntityProfileApiClient;
-    private final Optional<com.czertainly.api.clients.mq.EntityInstanceApiClient> mqEntityInstanceApiClient;
-    private final Optional<com.czertainly.api.clients.mq.HealthApiClient> mqHealthApiClient;
-    private final Optional<com.czertainly.api.clients.mq.LocationApiClient> mqLocationApiClient;
-    private final Optional<com.czertainly.api.clients.mq.NotificationInstanceApiClient> mqNotificationInstanceApiClient;
-    private final Optional<com.czertainly.api.clients.mq.TokenInstanceApiClient> mqTokenInstanceApiClient;
-    private final Optional<com.czertainly.api.clients.mq.KeyManagementApiClient> mqKeyManagementApiClient;
-    private final Optional<com.czertainly.api.clients.mq.CryptographicOperationsApiClient> mqCryptographicOperationsApiClient;
-    private final Optional<com.czertainly.api.clients.mq.v2.CertificateApiClient> mqCertificateApiClientV2;
-    private final Optional<com.czertainly.api.clients.mq.ComplianceApiClient> mqComplianceApiClient;
-    private final Optional<com.czertainly.api.clients.mq.v2.ComplianceApiClient> mqComplianceApiClientV2;
-    private final Optional<com.czertainly.api.clients.mq.v2.HealthApiClient> mqHealthApiClientV2;
-    private final Optional<com.czertainly.api.clients.mq.v2.InfoApiClient> mqInfoApiClientV2;
-    private final Optional<com.czertainly.api.clients.mq.v2.MetricsApiClient> mqMetricsApiClientV2;
-    private final Optional<com.czertainly.api.clients.mq.v3.CertificateApiClient> mqCertificateApiClientV3;
-    private final Optional<com.czertainly.api.clients.mq.v3.AuthorityApiClient> mqAuthorityApiClientV3;
+    private final Optional<com.otilm.api.clients.mq.AttributeApiClient> mqAttributeApiClient;
+    private final Optional<com.otilm.api.clients.mq.AuthorityInstanceApiClient> mqAuthorityInstanceApiClient;
+    private final Optional<com.otilm.api.clients.mq.CertificateApiClient> mqCertificateApiClient;
+    private final Optional<com.otilm.api.clients.mq.ConnectorApiClient> mqConnectorApiClient;
+    private final Optional<com.otilm.api.clients.mq.DiscoveryApiClient> mqDiscoveryApiClient;
+    private final Optional<com.otilm.api.clients.mq.EndEntityApiClient> mqEndEntityApiClient;
+    private final Optional<com.otilm.api.clients.mq.EndEntityProfileApiClient> mqEndEntityProfileApiClient;
+    private final Optional<com.otilm.api.clients.mq.EntityInstanceApiClient> mqEntityInstanceApiClient;
+    private final Optional<com.otilm.api.clients.mq.HealthApiClient> mqHealthApiClient;
+    private final Optional<com.otilm.api.clients.mq.LocationApiClient> mqLocationApiClient;
+    private final Optional<com.otilm.api.clients.mq.NotificationInstanceApiClient> mqNotificationInstanceApiClient;
+    private final Optional<com.otilm.api.clients.mq.TokenInstanceApiClient> mqTokenInstanceApiClient;
+    private final Optional<com.otilm.api.clients.mq.KeyManagementApiClient> mqKeyManagementApiClient;
+    private final Optional<com.otilm.api.clients.mq.CryptographicOperationsApiClient> mqCryptographicOperationsApiClient;
+    private final Optional<com.otilm.api.clients.mq.v2.CertificateApiClient> mqCertificateApiClientV2;
+    private final Optional<com.otilm.api.clients.mq.ComplianceApiClient> mqComplianceApiClient;
+    private final Optional<com.otilm.api.clients.mq.v2.ComplianceApiClient> mqComplianceApiClientV2;
+    private final Optional<com.otilm.api.clients.mq.v2.HealthApiClient> mqHealthApiClientV2;
+    private final Optional<com.otilm.api.clients.mq.v2.InfoApiClient> mqInfoApiClientV2;
+    private final Optional<com.otilm.api.clients.mq.v2.MetricsApiClient> mqMetricsApiClientV2;
+    private final Optional<com.otilm.api.clients.mq.v3.CertificateApiClient> mqCertificateApiClientV3;
+    private final Optional<com.otilm.api.clients.mq.v3.AuthorityApiClient> mqAuthorityApiClientV3;
+
+    // Signing clients
+    private final SignatureFormatterApiClient restSignatureFormatterApiClient;
+    private final Optional<com.otilm.api.clients.mq.signing.SignatureFormatterApiClient> mqSignatureFormatterApiClient;
 
     // Vault/Secret clients
-    private final com.czertainly.api.clients.secret.VaultApiClient restVaultApiClient;
-    private final Optional<com.czertainly.api.clients.mq.secret.VaultApiClient> mqVaultApiClient;
-    private final com.czertainly.api.clients.secret.SecretApiClient restSecretApiClient;
+    private final com.otilm.api.clients.secret.VaultApiClient restVaultApiClient;
+    private final Optional<com.otilm.api.clients.mq.secret.VaultApiClient> mqVaultApiClient;
+    private final com.otilm.api.clients.secret.SecretApiClient restSecretApiClient;
 
     private ConnectorService connectorService;
 
@@ -130,8 +136,8 @@ public class ConnectorApiFactory {
 
     @PostConstruct
     void logInitialization() {
-        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, vault={}, secret(REST-only)={}",
-                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
+        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatter={}, vault={}, secret(REST-only)={}",
+                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormatterApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
     }
 
     /**
@@ -158,7 +164,7 @@ public class ConnectorApiFactory {
         return getClient(connector, restConnectorApiClient, mqConnectorApiClient);
     }
 
-    public com.czertainly.api.interfaces.client.v1.HealthSyncApiClient getHealthApiClient(ApiClientConnectorInfo connector) {
+    public com.otilm.api.interfaces.client.v1.HealthSyncApiClient getHealthApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restHealthApiClient, mqHealthApiClient);
     }
 
@@ -170,7 +176,7 @@ public class ConnectorApiFactory {
         return getClient(connector, restEndEntityProfileApiClient, mqEndEntityProfileApiClient);
     }
 
-    public com.czertainly.api.interfaces.client.v1.CertificateSyncApiClient getCertificateApiClient(ApiClientConnectorInfo connector) {
+    public com.otilm.api.interfaces.client.v1.CertificateSyncApiClient getCertificateApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restCertificateApiClient, mqCertificateApiClient);
     }
 
@@ -209,7 +215,7 @@ public class ConnectorApiFactory {
         return getClient(connector, restCertificateApiClientV2, mqCertificateApiClientV2);
     }
 
-    public com.czertainly.api.interfaces.client.v1.ComplianceSyncApiClient getComplianceApiClient(ApiClientConnectorInfo connector) {
+    public com.otilm.api.interfaces.client.v1.ComplianceSyncApiClient getComplianceApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restComplianceApiClient, mqComplianceApiClient);
     }
 
@@ -237,17 +243,21 @@ public class ConnectorApiFactory {
         return getClient(connector, restNotificationInstanceApiClient, mqNotificationInstanceApiClient);
     }
 
-    public com.czertainly.api.interfaces.client.v1.secret.VaultSyncApiClient getVaultApiClient(ApiClientConnectorInfo connector) {
+    public SignatureFormatterSyncApiClient getSignatureFormatterApiClient(ApiClientConnectorInfo connector) {
+        return getClient(connector, restSignatureFormatterApiClient, mqSignatureFormatterApiClient);
+    }
+
+    public com.otilm.api.interfaces.client.v1.secret.VaultSyncApiClient getVaultApiClient(ApiClientConnectorInfo connector) {
         return getClient(connector, restVaultApiClient, mqVaultApiClient);
     }
 
-    public com.czertainly.api.clients.secret.SecretApiClient getSecretApiClient(ApiClientConnectorInfo connector) {
+    public com.otilm.api.clients.secret.SecretApiClient getSecretApiClient(ApiClientConnectorInfo connector) {
         // REST-only — no MQ implementation exists yet
         Objects.requireNonNull(connector, "connector must not be null");
         return restSecretApiClient;
     }
 
-    public com.czertainly.api.interfaces.client.v3.CertificateSyncApiClient getCertificateApiClientV3(ApiClientConnectorInfo connector) {
+    public com.otilm.api.interfaces.client.v3.CertificateSyncApiClient getCertificateApiClientV3(ApiClientConnectorInfo connector) {
         return getClient(connector, restCertificateApiClientV3, mqCertificateApiClientV3);
     }
 

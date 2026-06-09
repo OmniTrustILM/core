@@ -1,12 +1,12 @@
 package com.czertainly.core.service.handler.authority.lifecycle;
 
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateState;
 
 import java.util.Arrays;
 import java.util.Optional;
 
-import static com.czertainly.api.model.core.certificate.CertificateState.*;
+import static com.otilm.api.model.core.certificate.CertificateState.*;
 
 /**
  * Allowed certificate state transitions, keyed on (from, to) pairs.

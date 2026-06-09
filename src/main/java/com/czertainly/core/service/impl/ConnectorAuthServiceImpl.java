@@ -1,26 +1,23 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.connector.AuthType;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.service.ConnectorAuthExternalService;
 import com.czertainly.core.service.ConnectorAuthInternalService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +28,7 @@ import java.io.ByteArrayInputStream;
 import java.security.KeyStore;
 import java.util.*;
 
-import static com.czertainly.api.clients.BaseApiClient.*;
+import static com.otilm.api.clients.BaseApiClient.*;
 
 @Service
 @Transactional
@@ -42,7 +39,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
 
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public Set<AuthType> getAuthenticationTypes() {
         return EnumSet.allOf(AuthType.class);
     }
@@ -80,7 +77,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getBasicAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -115,14 +112,14 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public Boolean validateBasicAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getBasicAuthAttributes(), attributes);
         return true;
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getCertificateAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -221,7 +218,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public Boolean validateCertificateAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getCertificateAttributes(), attributes);
 
@@ -262,7 +259,7 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getApiKeyAuthAttributes() {
         List<DataAttribute> attrs = new ArrayList<>();
 
@@ -304,20 +301,20 @@ public class ConnectorAuthServiceImpl implements ConnectorAuthExternalService, C
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public Boolean validateApiKeyAuthAttributes(List<RequestAttribute> attributes) {
         AttributeDefinitionUtils.validateAttributes(getApiKeyAuthAttributes(), attributes);
         return true;
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
+    @AnyPrincipalEndpoint
     public List<DataAttribute> getJWTAuthAttributes() {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public Boolean validateJWTAuthAttributes(List<RequestAttribute> attributes) {
         throw new ValidationException(ValidationError.create("Auth type JWT not implemented yet"));
     }

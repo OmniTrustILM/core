@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.czertainly.core.dao.repository.CertificateRepository;
 import com.czertainly.core.helpers.CertificateGeneratorHelper;
 import com.czertainly.core.service.CertificateService;

@@ -1,27 +1,27 @@
 package com.czertainly.core.attribute.engine;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.*;
-import com.czertainly.api.model.client.metadata.MetadataResponseDto;
-import com.czertainly.api.model.client.metadata.ResponseMetadata;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.*;
-import com.czertainly.api.model.common.attribute.common.content.data.ProtectionLevel;
-import com.czertainly.api.model.common.attribute.v2.*;
-import com.czertainly.api.model.common.attribute.common.callback.AttributeCallback;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.content.data.AttributeContentData;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.BaseAttributeContentV3;
-import com.czertainly.api.model.core.auth.AttributeResource;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.*;
+import com.otilm.api.model.client.metadata.MetadataResponseDto;
+import com.otilm.api.model.client.metadata.ResponseMetadata;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.*;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.v2.*;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.content.data.AttributeContentData;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.attribute.engine.records.*;
 import com.czertainly.core.dao.entity.AttributeContent2Object;
 import com.czertainly.core.dao.entity.AttributeContentItem;
@@ -32,13 +32,14 @@ import com.czertainly.core.dao.repository.AttributeContentItemRepository;
 import com.czertainly.core.dao.repository.AttributeDefinitionRepository;
 import com.czertainly.core.dao.repository.AttributeRelationRepository;
 import com.czertainly.core.model.SearchFieldObject;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecurityResourceFilter;
 import com.czertainly.core.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.apache.commons.lang3.StringUtils;
@@ -719,6 +720,14 @@ public class AttributeEngine {
         SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
 
         return getObjectCustomAttributesContent(objectType, objectUuid, securityResourceFilter);
+    }
+
+    /**
+     * For code paths where there is no authenticated user (JMS listeners, scheduled jobs, etc.), and that any code reached from a controller must use the auth-checked variant
+     */
+    public List<ResponseAttribute> getObjectCustomAttributesContentForSystemContext(Resource objectType, UUID objectUuid) {
+        List<ObjectAttributeContent> objectContents = attributeContent2ObjectRepository.getObjectCustomAttributesContent(AttributeType.CUSTOM, objectType, objectUuid, null, null);
+        return getResponseAttributes(objectContents);
     }
 
     private List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid, SecurityResourceFilter securityResourceFilter) {

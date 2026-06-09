@@ -1,20 +1,20 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.connector.notification.NotificationProviderInstanceDto;
-import com.czertainly.api.model.connector.notification.NotificationProviderInstanceRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.notification.AttributeMappingDto;
-import com.czertainly.api.model.core.notification.NotificationInstanceDto;
-import com.czertainly.api.model.core.notification.NotificationInstanceRequestDto;
-import com.czertainly.api.model.core.notification.NotificationInstanceUpdateRequestDto;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.connector.notification.NotificationProviderInstanceDto;
+import com.otilm.api.model.connector.notification.NotificationProviderInstanceRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.notification.AttributeMappingDto;
+import com.otilm.api.model.core.notification.NotificationInstanceDto;
+import com.otilm.api.model.core.notification.NotificationInstanceRequestDto;
+import com.otilm.api.model.core.notification.NotificationInstanceUpdateRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.notifications.NotificationInstanceMappedAttributes;
@@ -22,15 +22,16 @@ import com.czertainly.core.dao.entity.notifications.NotificationInstanceReferenc
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceMappedAttributeRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.czertainly.core.dao.repository.notifications.NotificationProfileVersionRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
+import com.czertainly.core.security.authz.AnyPrincipalEndpoint;
 import com.czertainly.core.security.authz.ExternalAuthorization;
-import com.czertainly.core.security.authz.ExternalAuthorizationMissing;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.ConnectorService;
 import com.czertainly.core.service.CredentialService;
 import com.czertainly.core.service.NotificationInstanceExternalService;
-import com.czertainly.core.service.ResourceService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.czertainly.core.service.ResourceInternalService;
+import com.czertainly.core.service.writer.NotificationProfileVersionWriter;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,11 +55,17 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private CredentialService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
+    private NotificationProfileVersionWriter notificationProfileVersionWriter;
 
-    private ResourceService resourceService;
+    private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceService resourceService) {
+    public void setNotificationProfileVersionWriter(NotificationProfileVersionWriter notificationProfileVersionWriter) {
+        this.notificationProfileVersionWriter = notificationProfileVersionWriter;
+    }
+
+    @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -126,9 +133,17 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
         }
 
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceReference.getConnectorUuid());
-        NotificationProviderInstanceDto notificationProviderInstanceDto = connectorApiFactory.getNotificationInstanceApiClient(connectorDto).getNotificationInstance(
-                connectorDto,
-                notificationInstanceReference.getNotificationInstanceUuid().toString());
+        NotificationProviderInstanceDto notificationProviderInstanceDto;
+        try {
+            notificationProviderInstanceDto = connectorApiFactory.getNotificationInstanceApiClient(connectorDto).getNotificationInstance(
+                    connectorDto,
+                    notificationInstanceReference.getNotificationInstanceUuid().toString());
+        } catch (ConnectorEntityNotFoundException e) {
+            notificationInstanceDto.setName(notificationInstanceReference.getName() + " (Orphaned)");
+            notificationInstanceDto.setAttributes(attributes);
+            logger.warn("Notification Instance {} is not present in the connector.", notificationInstanceReference.getName());
+            return notificationInstanceDto;
+        }
 
         if (attributes.isEmpty() && notificationProviderInstanceDto.getAttributes() != null && !notificationProviderInstanceDto.getAttributes().isEmpty()) {
             try {
@@ -212,7 +227,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<DataAttribute> listMappingAttributes(String connectorUuid, String kind) throws ConnectorException, NotFoundException {
         ConnectorDto connector = connectorService.getConnector(SecuredUUID.fromString(connectorUuid));
         return connectorApiFactory.getNotificationInstanceApiClient(connector).listMappingAttributes(connector, kind);
@@ -260,6 +275,15 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     private void removeNotificationInstance(NotificationInstanceReference notificationInstanceRef) throws ValidationException {
+        // Read before writing: check current-version references that block deletion.
+        List<String> blockingProfiles = notificationProfileVersionRepository
+                .findCurrentVersionProfileNamesByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+        if (!blockingProfiles.isEmpty()) {
+            throw new ValidationException(
+                    "Cannot delete notification instance. Notification profile(s) referencing this notification instance: "
+                            + String.join(", ", blockingProfiles));
+        }
+
         if (notificationInstanceRef.getConnector() != null) {
             try {
                 ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid());
@@ -274,11 +298,10 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
             logger.debug("Deleting notification without connector: {}", notificationInstanceRef);
         }
 
-        // check notification profiles referencing notification instance
-        Long referencesCount = notificationProfileVersionRepository.countByNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
-        if (referencesCount > 0) {
-            throw new ValidationException("Cannot delete notification instance. %d notification profile version(s) are referencing this notification instance".formatted(referencesCount));
-        }
+        // At this point, the notification instance is orphaned and no longer linked to any current profile version, but there might still be historical profile versions linked to it.
+        // Detach the instance from all historical versions to maintain data integrity, since there is no way to update previous versions to remove the instance.
+        int detachedCount = notificationProfileVersionWriter.detachNotificationInstanceRefUuid(notificationInstanceRef.getUuid());
+        logger.debug("Detached {} notification profile version(s) from notification instance {}", detachedCount, notificationInstanceRef.getName());
 
         notificationInstanceReferenceRepository.delete(notificationInstanceRef);
     }

@@ -1,16 +1,16 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.SchedulerApiClient;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.SchedulerException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.scheduler.*;
-import com.czertainly.api.model.scheduler.SchedulerJobDto;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionStatus;
-import com.czertainly.api.model.scheduler.SchedulerRequestDto;
-import com.czertainly.api.model.scheduler.UpdateScheduledJob;
+import com.otilm.api.clients.SchedulerApiClient;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.SchedulerException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.scheduler.*;
+import com.otilm.api.model.scheduler.SchedulerJobDto;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.api.model.scheduler.SchedulerRequestDto;
+import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.czertainly.core.api.ScheduledJobSkippedException;
 import com.czertainly.core.dao.entity.ScheduledJob;
 import com.czertainly.core.dao.entity.ScheduledJobHistory;
@@ -20,11 +20,12 @@ import com.czertainly.core.events.handlers.ScheduledJobFinishedEventHandler;
 import com.czertainly.core.events.transaction.ScheduledJobFinishedEvent;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.model.ScheduledTaskResult;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.SchedulerService;
+import com.czertainly.core.service.SchedulerExternalService;
+import com.czertainly.core.service.SchedulerInternalService;
 import com.czertainly.core.tasks.ScheduledJobInfo;
 import com.czertainly.core.tasks.ScheduledJobTask;
 import com.czertainly.core.util.AuthHelper;
@@ -54,7 +55,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Service
-public class SchedulerServiceImpl implements SchedulerService {
+public class SchedulerServiceImpl implements SchedulerExternalService, SchedulerInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(SchedulerServiceImpl.class);
 
@@ -185,6 +186,7 @@ public class SchedulerServiceImpl implements SchedulerService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.SCHEDULED_JOB, action = ResourceAction.UPDATE)
     public ScheduledJobDetailDto updateScheduledJob(String uuid, UpdateScheduledJob request) throws NotFoundException, SchedulerException {
         ScheduledJob scheduledJob = scheduledJobsRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(ScheduledJob.class, uuid));
         if (scheduledJob.isSystem()) throw new ValidationException("Cannot updated system job.");
@@ -226,6 +228,7 @@ public class SchedulerServiceImpl implements SchedulerService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.SCHEDULED_JOB, action = ResourceAction.CREATE)
     public ScheduledJobDetailDto registerScheduledJob(final Class<? extends ScheduledJobTask> scheduledJobTaskClass, final String jobName, final String cronExpression, final boolean oneTime, final Object taskData) throws SchedulerException {
         final ScheduledJobTask scheduledJobTask = applicationContext.getBean(scheduledJobTaskClass);
         return registerScheduler(scheduledJobTask, jobName, cronExpression, oneTime, taskData);

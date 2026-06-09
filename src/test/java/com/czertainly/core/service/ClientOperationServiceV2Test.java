@@ -1,33 +1,33 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.NameAndIdDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
-import com.czertainly.api.model.core.certificate.CertificateRelationType;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.v2.ClientCertificateRekeyRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRevocationDto;
-import com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.NameAndIdDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
@@ -167,7 +167,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         com.czertainly.core.dao.entity.ConnectorInterfaceEntity v2Interface =
                 new com.czertainly.core.dao.entity.ConnectorInterfaceEntity();
         v2Interface.setConnectorUuid(connector.getUuid());
-        v2Interface.setInterfaceCode(com.czertainly.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
+        v2Interface.setInterfaceCode(com.otilm.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
         v2Interface.setVersion("v2");
         v2Interface.setFeatures(java.util.List.of());
         v2Interface = connectorInterfaceRepository.save(v2Interface);
@@ -984,6 +984,37 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
 
 
+    }
+
+    @Test
+    void testRevokeCertificateRejectedAction_revertsPendingApprovalToIssued() throws NotFoundException {
+        certificate.setState(CertificateState.PENDING_APPROVAL);
+        certificate = certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+
+        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, certificate.getState());
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.REVOKE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "expected a REVOKE/FAILED event in cert history after revocation approval was rejected");
+    }
+
+    @Test
+    void testRevokeCertificateRejectedAction_leavesNonPendingApprovalStateUntouched() throws NotFoundException {
+        certificate.setState(CertificateState.REVOKED);
+        certificate = certificateRepository.save(certificate);
+        UUID certificateUuid = certificate.getUuid();
+
+        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REVOKED, certificate.getState());
     }
 
     /**

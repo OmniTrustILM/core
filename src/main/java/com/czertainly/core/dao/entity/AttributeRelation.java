@@ -1,7 +1,7 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.proxy.HibernateProxy;

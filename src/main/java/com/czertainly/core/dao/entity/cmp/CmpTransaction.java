@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity.cmp;
 
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.UniquelyIdentified;
 import com.fasterxml.jackson.annotation.JsonBackReference;

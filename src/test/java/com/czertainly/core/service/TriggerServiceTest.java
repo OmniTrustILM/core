@@ -1,19 +1,19 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.notification.NotificationProfileDetailDto;
-import com.czertainly.api.model.client.notification.NotificationProfileRequestDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.notification.RecipientType;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.notification.NotificationProfileDetailDto;
+import com.otilm.api.model.client.notification.NotificationProfileRequestDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.notification.RecipientType;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.util.BaseSpringBootTest;
@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @SuppressWarnings("java:S5778")
@@ -126,6 +127,7 @@ class TriggerServiceTest extends BaseSpringBootTest {
         execution = actionService.createExecution(executionRequest);
 
         UpdateActionRequestDto updateActionRequestDto = new UpdateActionRequestDto();
+        updateActionRequestDto.setName("CategorizeCertificatesAction");
         updateActionRequestDto.setExecutionsUuids(List.of(execution.getUuid()));
         actionService.updateAction(action.getUuid(), updateActionRequestDto);
     }
@@ -227,6 +229,13 @@ class TriggerServiceTest extends BaseSpringBootTest {
         actionRequest.setExecutionsUuids(executionsUuids);
 
         return actionService.createAction(actionRequest);
+    }
+
+    @Test
+    void testGetEventTriggersAssociations() {
+        Map<ResourceEvent, List<UUID>> result = triggerService.getEventTriggersAssociations(null, null);
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
     }
 
     @Test

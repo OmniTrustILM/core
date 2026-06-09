@@ -1,11 +1,12 @@
 package com.czertainly.core.messaging.jms.producers;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfig;
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigSnapshot;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfig;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigSnapshot;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Component
+@ConditionalOnProperty(name = "messaging.time-quality.enabled", havingValue = "true")
 @AllArgsConstructor
 @Slf4j
 public class TimeQualityConfigurationProducer {

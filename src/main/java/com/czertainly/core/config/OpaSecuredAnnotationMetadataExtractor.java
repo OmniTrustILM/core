@@ -1,7 +1,9 @@
 package com.czertainly.core.config;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.ExternalAuthorizationConfigAttribute;
+import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;
 import com.czertainly.core.security.authz.NoOpParentUUIDGetter;
 import com.czertainly.core.security.authz.ParentUUIDGetter;
 import org.apache.commons.logging.Log;
@@ -36,8 +38,23 @@ public class OpaSecuredAnnotationMetadataExtractor {
         parentUUIDGetterClass.ifPresent(value -> attributes.add(new ExternalAuthorizationConfigAttribute("parentUUIDGetter", value)));
 
         logger.trace(
-                
-                        "Attributes extracted from secured annotation: [%s]".formatted(
+                "Attributes extracted from secured annotation: [%s]".formatted(
+                        attributes.stream().map(ExternalAuthorizationConfigAttribute::getAttribute).collect(Collectors.joining(","))
+                )
+        );
+
+        return attributes;
+    }
+
+    public List<ExternalAuthorizationConfigAttribute> extractAttributes(ExternalAuthorizationDynamic secured, Resource resolvedResource) {
+        List<ExternalAuthorizationConfigAttribute> attributes = new ArrayList<>(4);
+        attributes.add(new ExternalAuthorizationConfigAttribute("action", secured.action().getCode()));
+        attributes.add(new ExternalAuthorizationConfigAttribute("name", resolvedResource.getCode()));
+        attributes.add(new ExternalAuthorizationConfigAttribute("parentAction", secured.parentAction().getCode()));
+        attributes.add(new ExternalAuthorizationConfigAttribute("parentName", secured.parentResource().getCode()));
+
+        logger.trace(
+                "Attributes extracted from dynamic secured annotation: [%s]".formatted(
                         attributes.stream().map(ExternalAuthorizationConfigAttribute::getAttribute).collect(Collectors.joining(","))
                 )
         );

@@ -1,9 +1,9 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.LeapSecondWarning;
-import com.czertainly.api.model.messaging.timequality.NtpServerMeasurementResult;
-import com.czertainly.api.model.messaging.timequality.TimeQualityResultMessage;
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.LeapSecondWarning;
+import com.otilm.api.model.messaging.timequality.NtpServerMeasurementResult;
+import com.otilm.api.model.messaging.timequality.TimeQualityResultMessage;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityRegister;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityResult;

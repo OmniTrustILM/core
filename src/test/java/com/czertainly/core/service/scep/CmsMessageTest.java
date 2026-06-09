@@ -1,8 +1,7 @@
 package com.czertainly.core.service.scep;
 
-import com.czertainly.api.exception.ScepException;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.scep.MessageType;
+import com.otilm.api.exception.ScepException;
+import com.otilm.api.model.core.scep.MessageType;
 import com.czertainly.core.service.scep.message.ScepConstants;
 import com.czertainly.core.service.scep.message.ScepRequest;
 import com.czertainly.core.util.CertificateUtil;

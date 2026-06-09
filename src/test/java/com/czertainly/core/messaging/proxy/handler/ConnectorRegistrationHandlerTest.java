@@ -1,10 +1,10 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ConnectorRegistrationRequest;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.model.client.connector.ConnectorRequestDto;
-import com.czertainly.api.model.common.UuidDto;
+import com.otilm.api.clients.mq.model.ConnectorRegistrationRequest;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.model.client.connector.ConnectorRequestDto;
+import com.otilm.api.model.common.UuidDto;
 import com.czertainly.core.service.ConnectorRegistrationExternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

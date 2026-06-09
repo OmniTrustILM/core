@@ -1,7 +1,7 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.Certificate;
@@ -62,7 +62,7 @@ class V3MetaPersistenceFailureITest extends BaseV3ITest {
         // empty list through issueRequestedCertificate as a deliberate no-op (state-divergence:
         // cert content + state must commit before the meta write is attempted separately),
         // and matching the empty-list call would spuriously block that path.
-        Mockito.doThrow(new com.czertainly.api.exception.AttributeException("Simulated meta persistence failure"))
+        Mockito.doThrow(new com.otilm.api.exception.AttributeException("Simulated meta persistence failure"))
                 .when(attributeEngine)
                 .updateMetadataAttributes(argThat(list -> list != null && !list.isEmpty()), any(ObjectAttributeContentInfo.class));
 

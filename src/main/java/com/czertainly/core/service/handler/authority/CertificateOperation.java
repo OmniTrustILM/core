@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler.authority;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateState;
 
 public enum CertificateOperation {
     ISSUE,

@@ -1,11 +1,11 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.MessageHandlingException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.connector.v3.certificate.CertificateOperationStatus;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.MessageHandlingException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
@@ -252,7 +252,7 @@ class CertificateStatusPollListenerTest {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
 
-        var meta = List.of(mock(com.czertainly.api.model.common.attribute.common.MetadataAttribute.class));
+        var meta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, meta, null));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))

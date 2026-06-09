@@ -1,33 +1,36 @@
 package com.czertainly.core.service.v2.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.CancelPendingCertificateRequestDto;
-import com.czertainly.api.model.client.certificate.UploadCertificateRequestDto;
-import com.czertainly.api.model.client.location.PushToLocationRequestDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.connector.v2.CertificateDataResponseDto;
-import com.czertainly.api.model.connector.v2.CertificateIdentificationRequestDto;
-import com.czertainly.api.exception.ConnectorClientException;
-import com.czertainly.api.exception.ConnectorCommunicationException;
-import com.czertainly.api.exception.ConnectorEntityNotFoundException;
-import com.czertainly.api.exception.ConnectorServerException;
-import com.czertainly.api.model.connector.v2.CertificateIdentificationResponseDto;
-import com.czertainly.api.model.connector.v2.CertificateOperationCancelRequestDto;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.compliance.v2.ComplianceCheckResultDto;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.enums.OperationResult;
-import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
-import com.czertainly.api.model.core.v2.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.client.location.PushToLocationRequestDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.connector.v2.CertRevocationDto;
+import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
+import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
+import com.otilm.api.model.connector.v2.CertificateOperationCancelRequestDto;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
+import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.v2.*;
 import com.czertainly.core.attribute.CsrAttributes;
 import com.czertainly.core.attribute.engine.AttributeContentPurpose;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -43,7 +46,7 @@ import com.czertainly.core.messaging.jms.producers.ActionProducer;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.request.CertificateRequest;
 import com.czertainly.core.model.request.CrmfCertificateRequest;
 import com.czertainly.core.model.request.Pkcs10CertificateRequest;
@@ -52,10 +55,10 @@ import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
-import com.czertainly.api.model.core.v2.AvailableOperationsDto;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.czertainly.api.model.core.v2.OperationSupport;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.v2.AvailableOperationsDto;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.OperationSupport;
 import com.czertainly.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.czertainly.core.messaging.jms.producers.CertificateStatusPollProducer;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
@@ -73,6 +76,7 @@ import com.czertainly.core.service.handler.authority.lifecycle.CertificateStateM
 import com.czertainly.core.service.v2.ConnectorService;
 import com.czertainly.core.service.v2.ExtendedAttributeService;
 import com.czertainly.core.util.*;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
@@ -123,8 +127,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private CertificateRepository certificateRepository;
     private LocationService locationService;
     private CertificateService certificateService;
-    private ComplianceService complianceService;
-    private CertificateEventHistoryService certificateEventHistoryService;
+    private ComplianceInternalService complianceService;
+    private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -211,12 +215,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Autowired
-    public void setComplianceService(ComplianceService complianceService) {
+    public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
     }
 
     @Autowired
-    public void setCertificateEventHistoryService(CertificateEventHistoryService certificateEventHistoryService) {
+    public void setCertificateEventHistoryService(CertificateEventHistoryInternalService certificateEventHistoryService) {
         this.certificateEventHistoryService = certificateEventHistoryService;
     }
 
@@ -508,12 +512,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         if (e == null) {
             return "unknown error";
         }
-        if (e instanceof com.czertainly.api.exception.ConnectorException
-                || e instanceof com.czertainly.api.exception.ValidationException
-                || e instanceof com.czertainly.api.exception.NotFoundException
-                || e instanceof com.czertainly.api.exception.AttributeException
-                || e instanceof com.czertainly.api.exception.CertificateOperationException
-                || e instanceof com.czertainly.api.exception.AlreadyExistException) {
+        if (e instanceof com.otilm.api.exception.ConnectorException
+                || e instanceof com.otilm.api.exception.ValidationException
+                || e instanceof com.otilm.api.exception.NotFoundException
+                || e instanceof com.otilm.api.exception.AttributeException
+                || e instanceof com.otilm.api.exception.CertificateOperationException
+                || e instanceof com.otilm.api.exception.AlreadyExistException) {
             String msg = e.getMessage();
             return msg != null ? msg : e.getClass().getSimpleName();
         }
@@ -583,7 +587,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private boolean isRequestNotCompliant(UUID certificateUuid, UUID certificateRequestUuid, CertificateEvent certificateEvent) throws NotFoundException {
         // check for compliance of certificate request
         logger.debug("Checking compliance of certificate request for certificate {}", certificateUuid);
-        complianceService.checkResourceObjectsComplianceValidation(Resource.CERTIFICATE, List.of(certificateUuid));
+        complianceService.checkResourceObjectsComplianceValidationAsSystem(Resource.CERTIFICATE, List.of(certificateUuid));
         complianceService.checkResourceObjectComplianceAsSystem(Resource.CERTIFICATE, certificateUuid);
         ComplianceCheckResultDto complianceResult = complianceService.getComplianceCheckResult(Resource.CERTIFICATE_REQUEST, certificateRequestUuid);
         if (complianceResult.getStatus() == ComplianceStatus.NOK || complianceResult.getStatus() == ComplianceStatus.FAILED) {
@@ -1105,6 +1109,18 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.REVOKE));
 
         logger.debug("Certificate revoked: {}", certificate);
+    }
+
+    @Override
+    public void revokeCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
+        final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (certificate.getState() != CertificateState.PENDING_APPROVAL) {
+            logger.debug("Certificate {} is in state {}, not PENDING_APPROVAL; skipping revoke-rejection state restore", certificateUuid, certificate.getState().getLabel());
+            return;
+        }
+        certificate.setState(CertificateState.ISSUED);
+        certificateRepository.save(certificate);
+        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".", "");
     }
 
     /**
@@ -1755,9 +1771,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private Certificate createRegistrationPlaceholder(RaProfile raProfile) {
         Certificate cert = new Certificate();
         cert.setState(CertificateState.REQUESTED);
-        cert.setComplianceStatus(com.czertainly.api.model.core.compliance.ComplianceStatus.NOT_CHECKED);
-        cert.setValidationStatus(com.czertainly.api.model.core.certificate.CertificateValidationStatus.NOT_CHECKED);
-        cert.setCertificateType(com.czertainly.api.model.core.certificate.CertificateType.X509);
+        cert.setComplianceStatus(com.otilm.api.model.core.compliance.ComplianceStatus.NOT_CHECKED);
+        cert.setValidationStatus(com.otilm.api.model.core.certificate.CertificateValidationStatus.NOT_CHECKED);
+        cert.setCertificateType(com.otilm.api.model.core.certificate.CertificateType.X509);
         cert.setRaProfileUuid(raProfile.getUuid());
         cert.setRaProfile(raProfile);
         return certificateRepository.save(cert);

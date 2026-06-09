@@ -1,17 +1,17 @@
 package com.czertainly.core.logging;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.ActorType;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.logging.records.ActorRecord;
-import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
-import com.czertainly.api.model.core.logging.records.ResourceRecord;
-import com.czertainly.api.model.core.logging.records.SourceRecord;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.logging.LoggingSettingsDto;
-import com.czertainly.api.model.core.settings.logging.ResourceLoggingSettingsDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.ActorType;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.logging.records.ResourceRecord;
+import com.otilm.api.model.core.logging.records.SourceRecord;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
+import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.czertainly.core.settings.SettingsCache;
 import com.czertainly.core.util.NullUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,13 +55,18 @@ public class LoggingHelper {
         if (actor == null) {
             return new ActorRecord(ActorType.CORE, AuthMethod.NONE, null, null);
         } else {
+            String authMethod = MDC.get(LOG_ACTOR_AUTH_METHOD);
             return ActorRecord.builder()
                     .type(ActorType.valueOf(actor))
-                    .authMethod(AuthMethod.valueOf(MDC.get(LOG_ACTOR_AUTH_METHOD)))
+                    .authMethod(authMethod == null ? AuthMethod.NONE : AuthMethod.valueOf(authMethod))
                     .uuid(NullUtil.parseUuidOrNull(MDC.get(LOG_ACTOR_UUID)))
                     .name(MDC.get(LOG_ACTOR_NAME))
                     .build();
         }
+    }
+
+    public static boolean hasActorInfo() {
+        return MDC.get(LOG_ACTOR_TYPE) != null;
     }
 
     public static ActorType getActorType() {

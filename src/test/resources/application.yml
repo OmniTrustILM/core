@@ -8,12 +8,24 @@ caching:
   connectors:
     ttl-minutes: 5
     max-size: 100
-  cert-chain:
+  cert-chains:
+    ttl-minutes: 5
+    max-size: 1000
+  signing-certs:
     ttl-minutes: 5
     max-size: 1000
   crypto-keys:
     ttl-minutes: 5
     max-size: 10000
+  tsp-profiles:
+    ttl-minutes: 5
+    max-size: 100
+  signing-profiles:
+    ttl-minutes: 5
+    max-size: 100
+  time-quality-configs:
+    ttl-minutes: 5
+    max-size: 100
 
 auth-service:
   base-url: http://authservice.dev
@@ -46,6 +58,26 @@ scheduled-tasks:
 
 scheduler:
   base-url: http://localhost:8080
+
+signing-record:
+  outbox:
+    flush-interval-ms: 500
+    max-batch-size: 200
+    max-batches-per-run: 10
+    poison-threshold: 10
+  best-effort:
+    queue-capacity: 10000
+    backpressure-policy: DROP_OLDEST
+    flush-interval-ms: 200
+    max-batch-size: 200
+  retention:
+    sweep-interval-minutes: 60
+    batch-size: 1000
+    max-batches-per-sweep: 10
+  delete-after-retrieval:
+    fallback-cron: 0 0 3 * * *
+    batch-size: 1000
+    max-batches-per-sweep: 10
 
 secrets:
   encryption:
@@ -101,10 +133,11 @@ spring:
     username: guest
     password: guest
     amqp-idle-timeout: 120000
+    close-timeout: 5000
     pool:
       max-connections: 1
       connection-idle-timeout: 30000
-      connection-check-interval: 60000
+      connection-check-interval: -1
       max-sessions-per-connection: 5
       use-anonymous-producers: true
     queue:
@@ -142,6 +175,8 @@ spring:
         max-interval: 2000
         multiplier: 2
 messaging:
+  time-quality:
+    enabled: true
   concurrency:
     actions: 10
     events: 5
@@ -164,6 +199,14 @@ settings:
     # Effectively disable the scheduled cache refresh during tests so that
     # in-memory cache values populated by @BeforeEach are not wiped mid-test.
     refresh-interval: 31536000
+
+validation:
+  ocsp:
+    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckTest
+    # (3 s) so the OCSP HTTP call waits for WireMock's response instead of timing out at the
+    # 1 s default. The held OCSP call is what keeps validate()'s would-be row lock observable.
+    read-timeout: 5000
+    connect-timeout: 5000
 
 proxy:
   enabled: true

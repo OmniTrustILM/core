@@ -9,20 +9,38 @@ caching:
     max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
   # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
   connectors:
-    ttl-minutes: ${CONNECTOR_CACHE_TTL_MINUTES:5}
-    max-size: ${CONNECTOR_CACHE_MAX_SIZE:100}
-  # Certificate-chain cache avoids repeated recursive-CTE lookups on the TSP hot path.
-  cert-chain:
-    ttl-minutes: ${CERT_CHAIN_CACHE_TTL_MINUTES:5}
-    max-size: ${CERT_CHAIN_CACHE_MAX_SIZE:1000}
+    ttl-minutes: ${CONNECTORS_CACHE_TTL_MINUTES:5}
+    max-size: ${CONNECTORS_CACHE_MAX_SIZE:100}
+  # Certificate-chain cache avoids repeated recursive-CTE lookups on the signing hot path.
+  cert-chains:
+    ttl-minutes: ${CERT_CHAINS_CACHE_TTL_MINUTES:5}
+    max-size: ${CERT_CHAINS_CACHE_MAX_SIZE:1000}
+  # Signing-certificate cache holds certificate data + structural references for the signing hot path.
+  signing-certs:
+    ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
+    max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}
   # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
     max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
+  # TSP Profile cache caches TSP Profile by profile name for the timestamping hot path
+  tsp-profiles:
+    ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
+    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+  # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
+  signing-profiles:
+    ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
+    max-size: ${SIGNING_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached signing profile models
+  # TQC cache caches TimeQualityConfigurationModel by UUID for the signing pipeline
+  time-quality-configs:
+    ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
+    max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
 
 certificate:
   chain:
     max-depth: 20
+  validation:
+    batch-size: 10
 
 # Authentication and authorization
 auth-service:
@@ -230,6 +248,9 @@ spring:
     default-timeout: 120
 
 messaging:
+  # Enables Core's messaging integration with the external Time Quality Monitor (TQM) service.
+  time-quality:
+    enabled: ${MESSAGING_TIME_QUALITY_ENABLED:false}
   concurrency:
     actions: 10
     events: 5
@@ -301,3 +322,23 @@ provider:
           - PT2M
           - PT5M
         max-attempts: 50
+
+signing-record:
+  outbox:
+    flush-interval-ms: ${SIGNING_RECORD_OUTBOX_FLUSH_INTERVAL_MS:500}
+    max-batch-size: ${SIGNING_RECORD_OUTBOX_MAX_BATCH_SIZE:200}
+    max-batches-per-run: ${SIGNING_RECORD_OUTBOX_MAX_BATCHES_PER_RUN:10}
+    poison-threshold: ${SIGNING_RECORD_OUTBOX_POISON_THRESHOLD:10}
+  best-effort:
+    queue-capacity: ${SIGNING_RECORD_BEST_EFFORT_QUEUE_CAPACITY:10000}
+    backpressure-policy: ${SIGNING_RECORD_BEST_EFFORT_BACKPRESSURE_POLICY:DROP_OLDEST}
+    flush-interval-ms: ${SIGNING_RECORD_BEST_EFFORT_FLUSH_INTERVAL_MS:200}
+    max-batch-size: ${SIGNING_RECORD_BEST_EFFORT_MAX_BATCH_SIZE:200}
+  retention:
+    sweep-interval-minutes: ${SIGNING_RECORD_RETENTION_SWEEP_INTERVAL_MINUTES:60}
+    batch-size: ${SIGNING_RECORD_RETENTION_BATCH_SIZE:1000}
+    max-batches-per-sweep: ${SIGNING_RECORD_RETENTION_MAX_BATCHES_PER_SWEEP:10}
+  delete-after-retrieval:
+    fallback-cron: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_CRON:0 0 3 * * *}
+    batch-size: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_BATCH_SIZE:1000}
+    max-batches-per-sweep: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_MAX_BATCHES_PER_SWEEP:10}

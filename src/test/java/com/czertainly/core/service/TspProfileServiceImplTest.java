@@ -1,23 +1,23 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.client.attribute.ResponseAttributeV3;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileListDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.AttributeDefinition;
 import com.czertainly.core.dao.entity.AttributeRelation;
 import com.czertainly.core.dao.entity.signing.TspProfile;
@@ -47,7 +47,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     private TspProfileService tspService;
 
     @Autowired
-    private ResourceService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
     private TspProfileRepository tspRepository;
@@ -147,6 +147,58 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         Assertions.assertThrows(NotFoundException.class,
                 () -> tspService.getTspProfile(
                         SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+    }
+
+    @Test
+    void testGetTspProfileEntity_returnsCorrectEntity() throws NotFoundException {
+        TspProfile entity = tspService.getTspProfileEntity(savedTspProfile.getSecuredUuid());
+
+        Assertions.assertNotNull(entity);
+        Assertions.assertEquals(savedTspProfile.getUuid(), entity.getUuid());
+        Assertions.assertEquals(savedTspProfile.getName(), entity.getName());
+    }
+
+    @Test
+    void testGetTspProfileEntity_notFound() {
+        Assertions.assertThrows(NotFoundException.class,
+                () -> tspService.getTspProfileEntity(
+                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Find all names
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void testFindAllNames_returnsExistingNames() {
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertEquals(1, names.size());
+        Assertions.assertTrue(names.contains(savedTspProfile.getName()));
+    }
+
+    @Test
+    void testFindAllNames_returnsAllWhenMultipleExist() {
+        TspProfile second = new TspProfile();
+        second.setName("second-tsp-profile");
+        tspRepository.save(second);
+
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertEquals(2, names.size());
+        Assertions.assertTrue(names.contains(savedTspProfile.getName()));
+        Assertions.assertTrue(names.contains("second-tsp-profile"));
+    }
+
+    @Test
+    void testFindAllNames_emptyWhenNoneExist() {
+        tspRepository.delete(savedTspProfile);
+
+        List<String> names = tspService.findAllNames();
+
+        Assertions.assertNotNull(names);
+        Assertions.assertTrue(names.isEmpty());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

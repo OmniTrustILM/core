@@ -1,22 +1,22 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.AttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.metadata.ConnectorMetadataResponseDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.DataAttributeV2;
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.AttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.metadata.ConnectorMetadataResponseDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataCreateRequestDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataUpdateRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.czertainly.core.dao.entity.AttributeDefinition;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.repository.*;
@@ -137,6 +137,7 @@ class GlobalMetadataServiceTest extends BaseSpringBootTest {
         Assertions.assertFalse(metadata.isEmpty());
         Assertions.assertEquals(1, metadata.size());
         Assertions.assertEquals(metaDefinition.getUuid().toString(), metadata.get(0).getUuid());
+        Assertions.assertEquals(((MetadataAttributeV2) metaDefinition.getDefinition()).getProperties().getLabel(), metadata.getFirst().getLabel());
     }
 
     @Test

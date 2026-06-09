@@ -1,21 +1,21 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
-import com.czertainly.api.model.client.cryptography.key.BulkKeyItemUsageRequestDto;
-import com.czertainly.api.model.client.cryptography.key.EditKeyItemDto;
-import com.czertainly.api.model.client.cryptography.key.EditKeyRequestDto;
-import com.czertainly.api.model.client.cryptography.key.KeyCompromiseReason;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyFormat;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
+import com.otilm.api.model.client.cryptography.key.BulkKeyItemUsageRequestDto;
+import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
+import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
+import com.otilm.api.model.client.cryptography.key.KeyCompromiseReason;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
@@ -23,6 +23,8 @@ import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.util.BaseSpringBootTest;
+import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +32,9 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.security.KeyPairGenerator;
+import java.security.Security;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -233,6 +238,52 @@ class CryptographicKeyItemCacheTest extends BaseSpringBootTest {
 
         // then - cache entry is gone
         assertThat(cache.get(keyItem.getUuid(), CryptographicKeyItemModel.class)).isNull();
+    }
+
+    @Test
+    void notFoundExceptionPropagatesOnCacheMiss() {
+        UUID unknownUuid = UUID.randomUUID();
+        org.junit.jupiter.api.Assertions.assertThrows(
+                NotFoundException.class,
+                () -> cryptographicKeyService.getKeyItemModel(unknownUuid)
+        );
+    }
+
+    @Test
+    void modelCarriesTypeForPrivateKeyAndNullPqcSpec() throws NotFoundException {
+        CryptographicKeyItemModel model = cryptographicKeyService.getKeyItemModel(keyItem.getUuid());
+
+        assertThat(model.keyType()).isEqualTo(KeyType.PRIVATE_KEY);
+        assertThat(model.pqcParameterSpecName()).isNull(); // RSA private key → no PQC spec
+    }
+
+    @Test
+    void modelCarriesPqcSpecForMlDsaPublicKey() throws Exception {
+        if (Security.getProvider("BC") == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME);
+        kpg.initialize(MLDSAParameterSpec.ml_dsa_44);
+        String publicKeyB64 = Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
+
+        CryptographicKeyItem pub = new CryptographicKeyItem();
+        pub.setName("mldsaPublic");
+        pub.setKey(key);
+        pub.setKeyUuid(key.getUuid());
+        pub.setType(KeyType.PUBLIC_KEY);
+        pub.setState(KeyState.ACTIVE);
+        pub.setEnabled(true);
+        pub.setKeyAlgorithm(KeyAlgorithm.MLDSA);
+        pub.setFormat(KeyFormat.SPKI);
+        pub.setKeyData(publicKeyB64);
+        pub = cryptographicKeyItemRepository.saveAndFlush(pub);
+        pub.setKeyReferenceUuid(pub.getUuid());
+        pub = cryptographicKeyItemRepository.saveAndFlush(pub);
+
+        CryptographicKeyItemModel model = cryptographicKeyService.getKeyItemModel(pub.getUuid());
+
+        assertThat(model.keyType()).isEqualTo(KeyType.PUBLIC_KEY);
+        assertThat(model.pqcParameterSpecName()).isEqualTo(MLDSAParameterSpec.ml_dsa_44.getName());
     }
 
     @Test

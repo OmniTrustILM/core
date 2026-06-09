@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.client.acme.AcmeAccountListResponseDto;
-import com.czertainly.api.model.client.acme.AcmeAccountResponseDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.acme.AccountStatus;
-import com.czertainly.api.model.core.acme.OrderStatus;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.acme.AcmeAccountListResponseDto;
+import com.otilm.api.model.client.acme.AcmeAccountResponseDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.acme.AccountStatus;
+import com.otilm.api.model.core.acme.OrderStatus;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;

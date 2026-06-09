@@ -1,19 +1,19 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.cryptography.operations.*;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.cryptography.operations.data.CipherRequestData;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.cryptography.key.KeyEvent;
-import com.czertainly.api.model.core.cryptography.key.KeyEventStatus;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.cryptography.operations.*;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.operations.data.CipherRequestData;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cryptography.key.KeyEvent;
+import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.czertainly.core.attribute.*;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.czertainly.core.config.TokenContentSigner;
@@ -22,7 +22,7 @@ import com.czertainly.core.dao.entity.CryptographicKeyItem;
 import com.czertainly.core.dao.entity.TokenInstanceReference;
 import com.czertainly.core.dao.repository.CryptographicKeyItemRepository;
 import com.czertainly.core.dao.repository.CryptographicKeyRepository;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -33,7 +33,7 @@ import com.czertainly.core.service.CryptographicOperationService;
 import com.czertainly.core.service.PermissionEvaluator;
 import com.czertainly.core.service.TokenInstanceService;
 import com.czertainly.core.service.v2.ConnectorService;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.czertainly.core.util.CertificateRequestUtils;
 import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.x509.Extension;
@@ -141,19 +141,19 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
-        if (!key.usage().contains(KeyUsage.ENCRYPT)) {
+        if (!key.keyUsage().contains(KeyUsage.ENCRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support encryption"
                     )
             );
         }
-        com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto();
+        com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto();
         requestDto.setCipherData(request.getCipherData().stream().map(e -> {
                     CipherRequestData cipherRequestData = new CipherRequestData();
                     cipherRequestData.setData(base64EncodedToByteArray(e.getData()));
@@ -166,7 +166,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
             CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-            com.czertainly.api.model.connector.cryptography.operations.EncryptDataResponseDto response = apiClient.encryptData(
+            com.otilm.api.model.connector.cryptography.operations.EncryptDataResponseDto response = apiClient.encryptData(
                     connectorDto,
                     key.tokenInstanceUuid().toString(),
                     key.keyReferenceUuid().toString(),
@@ -198,19 +198,19 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
-        if (!key.usage().contains(KeyUsage.DECRYPT)) {
+        if (!key.keyUsage().contains(KeyUsage.DECRYPT)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support decryption"
                     )
             );
         }
-        com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.CipherDataRequestDto();
+        com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.CipherDataRequestDto();
         requestDto.setCipherData(request.getCipherData().stream().map(e -> {
                     CipherRequestData cipherRequestData = new CipherRequestData();
                     cipherRequestData.setData(base64EncodedToByteArray(e.getData()));
@@ -223,7 +223,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
             CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-            com.czertainly.api.model.connector.cryptography.operations.DecryptDataResponseDto response = apiClient.decryptData(
+            com.otilm.api.model.connector.cryptography.operations.DecryptDataResponseDto response = apiClient.decryptData(
                     connectorDto,
                     key.tokenInstanceUuid().toString(),
                     key.keyReferenceUuid().toString(),
@@ -286,19 +286,19 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     private SignDataResponseDto executeSignData(CryptographicKeyItemModel key, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
-        if (!key.usage().contains(KeyUsage.SIGN)) {
+        if (!key.keyUsage().contains(KeyUsage.SIGN)) {
             throw new ValidationException(ValidationError.create("Key Usage of the certificate does not support signing"));
         }
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
-        com.czertainly.api.model.connector.cryptography.operations.SignDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.SignDataRequestDto();
+        com.otilm.api.model.connector.cryptography.operations.SignDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.SignDataRequestDto();
         requestDto.setSignatureAttributes(request.getSignatureAttributes());
         requestDto.setData(request.getData().stream().map(e -> {
-                    com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData();
+                    com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData();
                     signatureRequestData.setData(base64EncodedToByteArray(e.getData()));
                     signatureRequestData.setIdentifier(e.getIdentifier());
                     return signatureRequestData;
@@ -307,7 +307,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         logger.debug("Request to the connector: {}", requestDto);
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
         CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-        com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto response = apiClient.signData(
+        com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto response = apiClient.signData(
                 connectorDto,
                 key.tokenInstanceUuid().toString(),
                 key.keyReferenceUuid().toString(),
@@ -331,30 +331,30 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         permissionEvaluator.tokenProfile(tokenProfileUuid);
         logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        verifyActive(key.state(), key.enabled());
+        verifyActive(key.keyState(), key.enabled());
         logger.debug("Key details: {}", key);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
         }
         validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes());
-        if (!key.usage().contains(KeyUsage.VERIFY)) {
+        if (!key.keyUsage().contains(KeyUsage.VERIFY)) {
             throw new ValidationException(
                     ValidationError.create(
                             "Key Usage of the certificate does not support verification"
                     )
             );
         }
-        com.czertainly.api.model.connector.cryptography.operations.VerifyDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.VerifyDataRequestDto();
+        com.otilm.api.model.connector.cryptography.operations.VerifyDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.VerifyDataRequestDto();
         requestDto.setSignatureAttributes(request.getSignatureAttributes());
         if (request.getData() != null) requestDto.setData(request.getData().stream().map(e -> {
-                    com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData();
+                    com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData();
                     signatureRequestData.setData(base64EncodedToByteArray(e.getData()));
                     signatureRequestData.setIdentifier(e.getIdentifier());
                     return signatureRequestData;
                 }).toList()
         );
         requestDto.setSignatures(request.getSignatures().stream().map(e -> {
-                    com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData();
+                    com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData signatureRequestData = new com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData();
                     signatureRequestData.setData(base64EncodedToByteArray(e.getData()));
                     signatureRequestData.setIdentifier(e.getIdentifier());
                     return signatureRequestData;
@@ -364,7 +364,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         try {
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(key.connectorUuid());
             CryptographicOperationsSyncApiClient apiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto);
-            com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto response = apiClient.verifyData(
+            com.otilm.api.model.connector.cryptography.operations.VerifyDataResponseDto response = apiClient.verifyData(
                     connectorDto,
                     key.tokenInstanceUuid().toString(),
                     key.keyReferenceUuid().toString(),
@@ -410,12 +410,12 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         logger.info("Requesting attributes for random generation for token Instance: {}", tokenInstanceUuid);
         TokenInstanceReference tokenInstanceReference = tokenInstanceService.getTokenInstanceEntity(tokenInstanceUuid);
         logger.debug("Token Instance details: {}", tokenInstanceReference);
-        com.czertainly.api.model.connector.cryptography.operations.RandomDataRequestDto requestDto = new com.czertainly.api.model.connector.cryptography.operations.RandomDataRequestDto();
+        com.otilm.api.model.connector.cryptography.operations.RandomDataRequestDto requestDto = new com.otilm.api.model.connector.cryptography.operations.RandomDataRequestDto();
         requestDto.setAttributes(request.getAttributes());
         requestDto.setLength(request.getLength());
         logger.debug("Request to the connector: {}", requestDto);
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
-        com.czertainly.api.model.connector.cryptography.operations.RandomDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).randomData(
+        com.otilm.api.model.connector.cryptography.operations.RandomDataResponseDto response = connectorApiFactory.getCryptographicOperationsApiClient(connectorDto).randomData(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid(),
                 requestDto
@@ -577,7 +577,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Override
-    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) {
+    public List<BaseAttribute> listSignatureAttributes(KeyAlgorithm keyAlgorithm) throws ValidationException {
         // we need to list based on the key algorithm
         switch (keyAlgorithm) {
             case RSA -> {

@@ -1,8 +1,8 @@
 package com.czertainly.core.service.v3;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.messaging.jms.listeners.CertificateStatusPollListener;
 import com.czertainly.core.messaging.model.CertificateStatusPollMessage;
@@ -99,10 +99,10 @@ class V3RegisterThenIssueITest extends BaseV3ITest {
         // issueExistingCertificate accepts {REQUESTED, REGISTERED} and, for REGISTERED, attaches
         // the supplied CSR to the existing cert row before firing the ISSUE ActionMessage.
         String csrB64 = Base64.getEncoder().encodeToString(V3TestCertHelper.generateSelfSignedCsrDer());
-        com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto signReq =
-                new com.czertainly.api.model.core.v2.ClientCertificateSignRequestDto();
+        com.otilm.api.model.core.v2.ClientCertificateSignRequestDto signReq =
+                new com.otilm.api.model.core.v2.ClientCertificateSignRequestDto();
         signReq.setRequest(csrB64);
-        signReq.setFormat(com.czertainly.api.model.core.enums.CertificateRequestFormat.PKCS10);
+        signReq.setFormat(com.otilm.api.model.core.enums.CertificateRequestFormat.PKCS10);
 
         clientOperationService.issueExistingCertificate(
                 SecuredParentUUID.fromUUID(authority.getUuid()),

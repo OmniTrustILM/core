@@ -1,13 +1,13 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.TriggerController;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.TriggerController;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.workflows.*;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.logging.LogResource;
 import com.czertainly.core.service.TriggerExternalService;
@@ -56,7 +56,7 @@ public class TriggerControllerImpl implements TriggerController {
 
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.TRIGGER, operation = Operation.UPDATE)
-    public TriggerDetailDto updateTrigger(@LogResource(uuid = true) String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException {
+    public TriggerDetailDto updateTrigger(@LogResource(uuid = true) String triggerUuid, UpdateTriggerRequestDto request) throws NotFoundException, AlreadyExistException {
         return triggerService.updateTrigger(triggerUuid, request);
     }
 
@@ -87,6 +87,6 @@ public class TriggerControllerImpl implements TriggerController {
     @Override
     @AuditLogged(module = Module.WORKFLOWS, resource = Resource.TRIGGER, operation = Operation.LIST_ASSOCIATIONS)
     public Map<ResourceEvent, List<UUID>> getEventTriggersAssociations(Resource resource, UUID associationObjectUuid) {
-        return triggerService.getTriggersAssociations(resource, associationObjectUuid);
+        return triggerService.getEventTriggersAssociations(resource, associationObjectUuid);
     }
 }

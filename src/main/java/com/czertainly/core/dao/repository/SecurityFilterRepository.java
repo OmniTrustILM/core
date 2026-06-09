@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import jakarta.persistence.criteria.*;
@@ -50,5 +50,9 @@ public interface SecurityFilterRepository<T, ID> extends JpaRepository<T, ID> {
 
     List<NameAndUuidDto> listResourceObjects(SecurityFilter securityFilter, SingularAttribute<T, String> nameAttribute, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause, PaginationRequestDto page);
 
+    List<NameAndUuidDto> listResourceObjects(SecurityFilter securityFilter, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory, TriFunction<Root<T>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause, PaginationRequestDto page);
+
     NameAndUuidDto findResourceObject(UUID uuid, SingularAttribute<T, String> nameAttribute) throws NotFoundException;
+
+    NameAndUuidDto findResourceObject(UUID uuid, BiFunction<Root<T>, CriteriaBuilder, Expression<String>> nameExpressionFactory) throws NotFoundException;
 }

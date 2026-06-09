@@ -1,22 +1,22 @@
 package com.czertainly.core.service.acme.integration;
 
-import com.czertainly.api.model.client.acme.AcmeProfileRequestDto;
-import com.czertainly.api.model.client.authority.AuthorityInstanceRequestDto;
-import com.czertainly.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
-import com.czertainly.api.model.client.raprofile.AddRaProfileRequestDto;
-import com.czertainly.api.model.core.acme.Account;
-import com.czertainly.api.model.core.acme.AcmeProfileDto;
-import com.czertainly.api.model.core.acme.Authorization;
-import com.czertainly.api.model.core.acme.AuthorizationStatus;
-import com.czertainly.api.model.core.acme.Challenge;
-import com.czertainly.api.model.core.acme.ChallengeStatus;
-import com.czertainly.api.model.core.acme.ChallengeType;
-import com.czertainly.api.model.core.acme.OrderStatus;
-import com.czertainly.api.model.core.authority.AuthorityInstanceDto;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.raprofile.RaProfileDto;
+import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
+import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
+import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
+import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
+import com.otilm.api.model.core.acme.Account;
+import com.otilm.api.model.core.acme.AcmeProfileDto;
+import com.otilm.api.model.core.acme.Authorization;
+import com.otilm.api.model.core.acme.AuthorizationStatus;
+import com.otilm.api.model.core.acme.Challenge;
+import com.otilm.api.model.core.acme.ChallengeStatus;
+import com.otilm.api.model.core.acme.ChallengeType;
+import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.authority.AuthorityInstanceDto;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Connector2FunctionGroup;
@@ -36,7 +36,7 @@ import com.czertainly.core.dao.repository.acme.AcmeNonceRepository;
 import com.czertainly.core.dao.repository.acme.AcmeOrderRepository;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.jms.producers.ActionProducer;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.SecuredParentUUID;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.AcmeProfileService;
@@ -215,7 +215,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         awaitOrderStatus(order.orderId, OrderStatus.VALID);
 
         // ── Step 7: Verify order status ───────────────────────────────────────
-        ResponseEntity<com.czertainly.api.model.core.acme.Order> orderResponse = acmeService.getOrder(
+        ResponseEntity<com.otilm.api.model.core.acme.Order> orderResponse = acmeService.getOrder(
                 ACME_PROFILE_NAME, order.orderId,
                 new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
         Assertions.assertNotNull(orderResponse.getBody());
@@ -330,7 +330,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         com.czertainly.core.dao.entity.ConnectorInterfaceEntity v2Iface =
                 new com.czertainly.core.dao.entity.ConnectorInterfaceEntity();
         v2Iface.setConnectorUuid(connector.getUuid());
-        v2Iface.setInterfaceCode(com.czertainly.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
+        v2Iface.setInterfaceCode(com.otilm.api.model.client.connector.v2.ConnectorInterface.AUTHORITY);
         v2Iface.setVersion("v2");
         v2Iface.setFeatures(List.of());
         v2Iface = connectorInterfaceRepository.save(v2Iface);
@@ -409,7 +409,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     // ── ACME flow helpers ─────────────────────────────────────────────────────
 
     private record OrderAndId(
-            com.czertainly.api.model.core.acme.Order order,
+            com.otilm.api.model.core.acme.Order order,
             String orderId) {
     }
 
@@ -443,12 +443,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("identifiers", List.of(identifier));
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/new-order", accountId);
-        ResponseEntity<com.czertainly.api.model.core.acme.Order> response = acmeService.newOrder(
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService.newOrder(
                 ACME_PROFILE_NAME, jws,
                 new URI("/acme/" + ACME_PROFILE_NAME + "/new-order"), false);
         Assertions.assertEquals(201, response.getStatusCode().value());
 
-        com.czertainly.api.model.core.acme.Order order = response.getBody();
+        com.otilm.api.model.core.acme.Order order = response.getBody();
         Assertions.assertNotNull(order);
         Assertions.assertNotNull(response.getHeaders().getLocation());
         String orderLocation = response.getHeaders().getLocation().toString();
@@ -493,7 +493,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         acmeAuthorizationRepository.save(acmeAuthorization);
         acmeOrderRepository.save(acmeOrder);
 
-        ResponseEntity<com.czertainly.api.model.core.acme.Order> updatedOrder = acmeService.getOrder(
+        ResponseEntity<com.otilm.api.model.core.acme.Order> updatedOrder = acmeService.getOrder(
                 ACME_PROFILE_NAME, order.orderId,
                 new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + order.orderId), false);
         Assertions.assertNotNull(updatedOrder.getBody());
@@ -518,7 +518,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("csr", base64Csr);
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize", accountId);
-        ResponseEntity<com.czertainly.api.model.core.acme.Order> response = acmeService.finalizeOrder(
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService.finalizeOrder(
                 ACME_PROFILE_NAME, orderId, jws,
                 new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
         Assertions.assertEquals(200, response.getStatusCode().value());
@@ -538,12 +538,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
                 .pollInSameThread()
                 .failFast("Order reached INVALID status",
                         () -> {
-                            ResponseEntity<com.czertainly.api.model.core.acme.Order> r =
+                            ResponseEntity<com.otilm.api.model.core.acme.Order> r =
                                     acmeService.getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
                             return r.getBody() != null && r.getBody().getStatus() == OrderStatus.INVALID;
                         })
                 .until(() -> {
-                    ResponseEntity<com.czertainly.api.model.core.acme.Order> r =
+                    ResponseEntity<com.otilm.api.model.core.acme.Order> r =
                             acmeService.getOrder(ACME_PROFILE_NAME, orderId, orderUri, false);
                     return r.getBody() != null && r.getBody().getStatus() == expected;
                 });

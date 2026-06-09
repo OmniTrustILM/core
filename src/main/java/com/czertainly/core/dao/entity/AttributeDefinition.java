@@ -1,17 +1,17 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.AttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
-import com.czertainly.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.attribute.common.*;
-import com.czertainly.api.model.common.attribute.common.content.data.ProtectionLevel;
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.client.attribute.AttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDto;
+import com.otilm.api.model.client.attribute.metadata.GlobalMetadataDefinitionDetailDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.*;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.czertainly.core.attribute.engine.AttributeVersionHelper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;
@@ -138,6 +138,7 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     public CustomAttributeDefinitionDto mapToCustomAttributeDefinitionDto() {
         CustomAttributeDefinitionDto dto = new CustomAttributeDefinitionDto();
         CustomAttributeV3 attribute = (CustomAttributeV3) this.definition;
+        dto.setLabel(label);
         dto.setUuid(attribute.getUuid());
         dto.setName(attribute.getName());
         dto.setDescription(attribute.getDescription());
@@ -152,6 +153,7 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
         AttributeDefinitionDto dto = new AttributeDefinitionDto();
         MetadataAttributeV2 attribute = (MetadataAttributeV2) this.definition;
         dto.setUuid(uuid.toString());
+        dto.setLabel(label);
         dto.setName(attribute.getName());
         dto.setContentType(attribute.getContentType());
         dto.setDescription(attribute.getDescription());

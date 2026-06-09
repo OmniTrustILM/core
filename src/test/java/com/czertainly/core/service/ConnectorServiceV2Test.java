@@ -1,14 +1,14 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.connector.v2.*;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.v2.*;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.v2.*;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.v2.*;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -308,6 +308,14 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
     }
 
     @Test
+    void testGetInfoV1() {
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        SecuredUUID securedUuid = connector.getSecuredUuid();
+        Assertions.assertThrows(NotSupportedException.class, () -> connectorService.getInfo(securedUuid));
+    }
+
+    @Test
     void testApproveConnector() throws NotFoundException {
         Connector waitingConnector = new Connector();
         waitingConnector.setName("waitingConnector");
@@ -360,7 +368,7 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
         mockServer.stubFor(WireMock.get("/v1")
                 .willReturn(WireMock.aResponse().withStatus(404).withBody("Not Found")));
 
-        var request = new com.czertainly.api.model.client.connector.ConnectRequestDto();
+        var request = new com.otilm.api.model.client.connector.ConnectRequestDto();
         request.setUrl("http://localhost:" + mockServer.port());
         request.setAuthType(AuthType.NONE);
 
