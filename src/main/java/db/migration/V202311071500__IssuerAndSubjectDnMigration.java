@@ -1,9 +1,9 @@
 package db.migration;
 
-import com.czertainly.core.util.CertificateUtil;
-import com.czertainly.core.util.CertificateRequestUtils;
-import com.czertainly.core.util.CzertainlyX500NameStyle;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.CzertainlyX500NameStyle;
+import com.otilm.core.util.DatabaseMigration;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.flywaydb.core.api.migration.BaseJavaMigration;

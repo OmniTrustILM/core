@@ -1,0 +1,18 @@
+package com.otilm.core.service;
+
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.notification.NotificationDto;
+import com.otilm.api.model.core.auth.Resource;
+
+import java.util.List;
+
+public interface NotificationInternalService {
+
+    NotificationDto createNotificationForUser(String message, String detail, String userUuid, Resource target, String targetUuids) throws ValidationException;
+
+    NotificationDto createNotificationForUsers(String message, String detail, List<String> userUuids, Resource target, String targetUuids) throws ValidationException;
+
+    NotificationDto createNotificationForGroup(String message, String detail, String groupUuid, Resource target, String targetUuids) throws ValidationException;
+
+    NotificationDto createNotificationForRole(String message, String detail, String roleUuid, Resource target, String targetUuids) throws ValidationException;
+}

@@ -1,6 +1,6 @@
 package db.migration;
 
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.DatabaseMigration;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.api.migration.BaseJavaMigration;

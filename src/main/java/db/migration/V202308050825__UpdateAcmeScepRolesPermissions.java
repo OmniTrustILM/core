@@ -2,14 +2,13 @@ package db.migration;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.*;
-import com.czertainly.core.model.auth.Resource;
+import com.otilm.core.model.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
-import com.czertainly.core.model.auth.ResourceSyncRequestDto;
-import com.czertainly.core.security.authn.client.ResourceApiClient;
-import com.czertainly.core.security.authn.client.RoleManagementApiClient;
-import com.czertainly.core.security.authn.client.UserManagementApiClient;
-import com.czertainly.core.util.AuthHelper;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.model.auth.ResourceSyncRequestDto;
+import com.otilm.core.security.authn.client.ResourceApiClient;
+import com.otilm.core.security.authn.client.RoleManagementApiClient;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -20,7 +19,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -60,7 +58,7 @@ public class V202308050825__UpdateAcmeScepRolesPermissions extends BaseJavaMigra
         // seed issue action for certificate
         List<ResourceSyncRequestDto> resources = new ArrayList<>();
         ResourceSyncRequestDto resourceSyncRequestDto = new ResourceSyncRequestDto();
-        resourceSyncRequestDto.setName(com.czertainly.core.model.auth.Resource.findByCode(com.otilm.api.model.core.auth.Resource.CERTIFICATE.getCode()));
+        resourceSyncRequestDto.setName(Resource.findByCode(com.otilm.api.model.core.auth.Resource.CERTIFICATE.getCode()));
         resourceSyncRequestDto.setActions(List.of(ResourceAction.ISSUE.getCode()));
         resources.add(resourceSyncRequestDto);
         resourceApiClient.addResources(resources);
