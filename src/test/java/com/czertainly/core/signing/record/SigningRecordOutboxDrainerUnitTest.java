@@ -246,7 +246,7 @@ class SigningRecordOutboxDrainerUnitTest {
      * shares its originating outbox row's UUID, so this discriminates the per-row writer call by identity.
      */
     private static SigningRecord recordFor(UUID uuid) {
-        return argThat(record -> record != null && uuid.equals(record.getUuid()));
+        return argThat(signingRecord -> signingRecord != null && uuid.equals(signingRecord.getUuid()));
     }
 
     private SigningRecordOutbox aClaimableRow(UUID uuid) {
