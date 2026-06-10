@@ -47,8 +47,8 @@ public class CmpTestUtil {
         WireMock.configureFor("localhost", mockServer.port());
 
         // -- if there is a need something to sign (mock server is called)
-        // see https://docs.czertainly.com/api/core-cryptographic-operations/#tag/Cryptographic-Operations-Controller/operation/signData
-        // see https://docs.czertainly.com/api/connector-cryptography-provider/#tag/Cryptographic-Operations/operation/signData
+        // see https://docs.otilm.com/api/core-cryptographic-operations/#tag/Cryptographic-Operations-Controller/operation/signData
+        // see https://docs.otilm.com/api/connector-cryptography-provider/#tag/Cryptographic-Operations/operation/signData
         SignDataResponseDto singDataRsp = new SignDataResponseDto();
         SignatureResponseData singedDataAsBytes = new SignatureResponseData();
         singedDataAsBytes.setData("test".getBytes());
@@ -66,8 +66,8 @@ public class CmpTestUtil {
         WireMock.configureFor("localhost", mockServer.port());
 
         // -- if there is a need something to sign (mock server is called)
-        // see https://docs.czertainly.com/api/core-cryptographic-operations/#tag/Cryptographic-Operations-Controller/operation/signData
-        // see https://docs.czertainly.com/api/connector-cryptography-provider/#tag/Cryptographic-Operations/operation/signData
+        // see https://docs.otilm.com/api/core-cryptographic-operations/#tag/Cryptographic-Operations-Controller/operation/signData
+        // see https://docs.otilm.com/api/connector-cryptography-provider/#tag/Cryptographic-Operations/operation/signData
         SignDataResponseDto singDataRsp = new SignDataResponseDto();
         SignatureResponseData singedDataAsBytes = new SignatureResponseData();
         singedDataAsBytes.setData("test".getBytes());
