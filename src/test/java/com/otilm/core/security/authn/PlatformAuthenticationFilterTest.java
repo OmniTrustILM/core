@@ -121,7 +121,7 @@ class PlatformAuthenticationFilterTest {
     // --- exception handling ---
 
     @Test
-    void czertainlyAuthException_clearsContextAndContinuesChain() {
+    void authException_clearsContextAndContinuesChain() {
         // given
         when(authClient.authenticate(any(), any(), anyBoolean()))
                 .thenThrow(new PlatformAuthenticationException("auth service unreachable"));
