@@ -70,6 +70,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
@@ -315,8 +317,8 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         List<SearchFilterRequestDto> testFilters = new ArrayList<>();
         testFilters.add(aPropertyEqualsFilter(FilterField.SUBJECTDN, "test"));
         testFilters.add(aPropertyEqualsFilter(FilterField.COMMON_NAME, "test"));
-        testFilters.add(aSearchFilter().withFieldSource(FilterFieldSource.META).withField(FilterField.CKI_LENGTH).withAttributeContentType(AttributeContentType.STRING).withValue(1).build());
-        testFilters.add(aSearchFilter().withFieldSource(FilterFieldSource.CUSTOM).withField(FilterField.SERIAL_NUMBER).withAttributeContentType(AttributeContentType.INTEGER).withCondition(FilterConditionOperator.NOT_EQUALS).withValue("123").build());
+        testFilters.add(aMetaAttributeFilter("CKI_LENGTH", AttributeContentType.STRING, FilterConditionOperator.EQUALS, 1));
+        testFilters.add(aCustomAttributeFilter("SERIAL_NUMBER", AttributeContentType.INTEGER, FilterConditionOperator.NOT_EQUALS, "123"));
 
         final SqmJunctionPredicate filterPredicate = (SqmJunctionPredicate) FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, criteriaQuery, root, testFilters);
         Assertions.assertEquals(4, (filterPredicate.getPredicates().size()));
@@ -1200,6 +1202,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         // NOT_CONTAINS must delegate to getNotPresentPredicate(isJsonArray=true) which
         // produces OR(= '[]', IS NULL, = '[null]') — three checks for an empty JSON array.
         SearchFilterRequestDto filterDto = aSearchFilter()
+                .withFieldSource(FilterFieldSource.PROPERTY)
                 .withField(FilterField.AUDIT_LOG_RESOURCE_NAME)
                 .withCondition(FilterConditionOperator.NOT_CONTAINS)
                 .withValue("target-name")
@@ -1271,7 +1274,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
             case GREATER, GREATER_OR_EQUAL, LESSER, LESSER_OR_EQUAL -> testDateValue;
             default -> testValue;
         };
-        return aSearchFilter().withField(field).withCondition(condition).withValue(value).build();
+        return aSearchFilter().withFieldSource(FilterFieldSource.PROPERTY).withField(field).withCondition(condition).withValue(value).build();
     }
 
     private CustomAttributeDefinitionDetailDto createCustomAttribute(String name, AttributeContentType contentType) throws AlreadyExistException, AttributeException {
