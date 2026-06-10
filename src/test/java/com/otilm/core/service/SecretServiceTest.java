@@ -29,8 +29,6 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.secret.*;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.messaging.jms.listeners.ActionsListener;
 import com.otilm.core.messaging.model.ActionMessage;

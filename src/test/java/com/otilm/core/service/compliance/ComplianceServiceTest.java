@@ -22,8 +22,6 @@ import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;

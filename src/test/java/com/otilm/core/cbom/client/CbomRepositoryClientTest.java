@@ -6,7 +6,6 @@ import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.core.model.cbom.*;
-import com.otilm.core.model.cbom.*;
 import com.otilm.core.settings.SettingsCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;

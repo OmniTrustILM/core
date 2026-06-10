@@ -17,7 +17,6 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.DiscoveryHistory;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;

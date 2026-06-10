@@ -25,8 +25,6 @@ import com.otilm.api.model.scheduler.UpdateScheduledJob;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.workflows.TriggerAssociationRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.data.DiscoveryResult;

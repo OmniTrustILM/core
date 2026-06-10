@@ -1,7 +1,6 @@
 package com.otilm.core.config;
 
 import com.otilm.core.auth.oauth2.*;
-import com.otilm.core.auth.oauth2.*;
 import com.otilm.core.security.authn.PlatformAuthenticationFilter;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.util.AuthHelper;

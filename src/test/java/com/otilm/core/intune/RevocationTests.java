@@ -32,8 +32,6 @@ package com.otilm.core.intune;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.otilm.core.intune.scepvalidation.*;
-
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;

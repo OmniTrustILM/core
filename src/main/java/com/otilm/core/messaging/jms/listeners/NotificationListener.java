@@ -19,7 +19,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.notifications.*;
-import com.otilm.core.dao.entity.notifications.*;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;

@@ -13,8 +13,6 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.service.v2.ComplianceProfileService;
 import com.otilm.core.util.BaseSpringBootTest;

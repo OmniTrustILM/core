@@ -16,7 +16,6 @@ import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.*;
 import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;

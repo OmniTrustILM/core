@@ -4,7 +4,6 @@ import com.otilm.api.exception.RuleException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.workflows.*;
-import com.otilm.core.dao.entity.workflows.*;
 
 import java.util.Set;
 import java.util.UUID;

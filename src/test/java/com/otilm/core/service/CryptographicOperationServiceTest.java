@@ -16,8 +16,6 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;

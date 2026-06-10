@@ -2,7 +2,6 @@ package com.otilm.core.security.authz.opa;
 
 import com.otilm.core.security.authz.opa.dto.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.core.security.authz.opa.dto.*;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.annotation.Autowired;

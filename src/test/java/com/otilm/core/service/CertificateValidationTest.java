@@ -15,8 +15,6 @@ import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettings
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.security.authz.SecuredUUID;
