@@ -14,6 +14,7 @@ import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.Audited_;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.czertainly.core.dao.entity.signing.SigningRecord_;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.mapper.signing.SigningRecordMapper;
 import com.czertainly.core.mapper.workflows.PaginationResponseMapper;
@@ -91,6 +92,23 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
                 (root, cb, cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+        List<SigningRecordListDto> dtos = signingRecordRepository.findUsingSecurityFilter(filter, List.of(), predicate, p,
+                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
+                .stream().map(SigningRecordMapper::toListDto).toList();
+        long totalItems = signingRecordRepository.countUsingSecurityFilter(filter, predicate);
+        return PaginationResponseMapper.toDto(dtos, request.getPageNumber(), request.getItemsPerPage(), totalItems);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
+    @Transactional(readOnly = true)
+    public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter) {
+        filter.setParentRefProperty("signingProfileUuid");
+        Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
+                (root, cb, cq) -> cb.and(
+                        cb.equal(root.get(SigningRecord_.signingProfileUuid), signingProfileUuid),
+                        FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters()));
         List<SigningRecordListDto> dtos = signingRecordRepository.findUsingSecurityFilter(filter, List.of(), predicate, p,
                         (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
                 .stream().map(SigningRecordMapper::toListDto).toList();

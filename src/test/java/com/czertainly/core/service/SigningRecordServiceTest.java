@@ -2,27 +2,29 @@ package com.czertainly.core.service;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
-import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
-import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
-import com.czertainly.core.dao.entity.signing.SigningProfile;
-import com.czertainly.core.dao.entity.signing.SigningProfileVersion;
 import com.czertainly.core.dao.entity.signing.SigningRecord;
-import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
-import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
-import com.czertainly.core.dao.repository.signing.SigningRecordRepository;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
+import com.czertainly.core.service.v2.ConnectorService;
+import com.czertainly.core.service.writer.signingrecord.SigningRecordWriter;
 import com.czertainly.core.util.BaseSpringBootTest;
 import com.czertainly.core.util.SearchRequestDtoBuilder;
+import com.czertainly.core.util.mocks.SignerConnectorMock;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +34,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
+import static com.czertainly.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
+import static com.czertainly.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
+import static com.czertainly.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequestFromExistingProfile;
+import static com.czertainly.core.util.builders.SigningRecordEntityBuilder.aSigningRecord;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,6 +45,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Drives {@link SigningRecordService} end to end: signing profiles are created through {@link SigningProfileService}
+ * against a live {@link SignerConnectorMock}, signing records are persisted through {@link SigningRecordWriter}, and
+ * every assertion reads back through the service under test. Nothing touches a repository directly.
+ */
 class SigningRecordServiceTest extends BaseSpringBootTest {
 
     private static final String ALPHA_PROFILE = "alpha-profile";
@@ -51,406 +62,457 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
 
     @Autowired
     private SigningRecordService signingRecordService;
-    @Autowired
-    private SigningRecordRepository signingRecordRepository;
-    @Autowired
-    private SigningProfileRepository signingProfileRepository;
-    @Autowired
-    private SigningProfileVersionRepository signingProfileVersionRepository;
 
-    private SigningProfile alphaProfile;
-    private SigningProfile betaProfile;
-    private SigningRecord alphaRecordV1;
+    @Autowired
+    private SigningProfileService signingProfileService;
 
-    /**
-     * Two profiles with three signing-profile versions between them, and one record per version:
-     * alpha-profile has versions 1 and 2 (records {@value ALPHA_RECORD_V1}, {@value ALPHA_RECORD_V2}),
-     * beta-profile has version 1 (record {@value BETA_RECORD_V1}). This lets the list/filter/existence
-     * assertions span multiple names, profiles, and versions.
-     */
+    @Autowired
+    private SigningRecordWriter signingRecordWriter;
+
+    @Autowired
+    private ConnectorService connectorService;
+
+    private SignerConnectorMock signerConnectorMock;
+    private ConnectorDetailDto signerConnector;
+    private SigningProfileDto defaultProfile;
+
     @BeforeEach
-    void seedRecordsAcrossProfilesAndVersions() {
-        alphaProfile = insertProfile(ALPHA_PROFILE);
-        insertProfileVersion(alphaProfile, VERSION_1);
-        insertProfileVersion(alphaProfile, VERSION_2);
-        betaProfile = insertProfile(BETA_PROFILE);
-        insertProfileVersion(betaProfile, VERSION_1);
+    void setUp() throws Exception {
+        signerConnectorMock = SignerConnectorMock.start();
+        signerConnector = connectorService.createConnector(
+                aV2ConnectorRequest()
+                        .withName("signer")
+                        .withUrl(signerConnectorMock.getUrl())
+                        .build()
+        );
+        defaultProfile = createSigningProfile("default-profile");
+    }
 
-        alphaRecordV1 = aRecord(alphaProfile, VERSION_1)
-                .withName(ALPHA_RECORD_V1)
-                .withSignatureValue("alpha-v1-signature".getBytes())
-                .withDtbs("alpha-v1-dtbs".getBytes())
-                .withSignedDocument("alpha-v1-signed-document".getBytes())
-                .withRequestMetadataJson("{\"alg\":\"SHA256\"}")
-                .withRequestedByUuid(UUID.fromString("99999999-9999-9999-9999-999999999999"))
-                .withRequestedByUsername("alice")
-                .withSignedDocumentRetrievedAt(Instant.now().truncatedTo(ChronoUnit.MILLIS))
-                .insert();
-        aRecord(alphaProfile, VERSION_2).withName(ALPHA_RECORD_V2).insert();
-        aRecord(betaProfile, VERSION_1).withName(BETA_RECORD_V1).insert();
+    @AfterEach
+    void tearDown() {
+        signerConnectorMock.stop();
+    }
+
+    @Nested
+    class SearchableFieldsTests {
+
+        @Test
+        void returnsSinglePropertyGroupWithEverySigningRecordField() {
+            // when
+            List<SearchFieldDataByGroupDto> groups = signingRecordService.getSearchableFieldInformation();
+
+            // then
+            assertEquals(1, groups.stream()
+                    .filter(g -> g.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                    .count());
+            assertEquals(FilterField.getEnumsForResource(Resource.SIGNING_RECORD).size(), propertyFieldsOf(groups).size());
+        }
+
+        @Test
+        void exposesExpectedPropertyFieldIdentifiers() {
+            // when
+            List<SearchFieldDataByGroupDto> groups = signingRecordService.getSearchableFieldInformation();
+
+            // then
+            List<String> identifiers = propertyFieldsOf(groups).stream()
+                    .map(SearchFieldDataDto::getFieldIdentifier)
+                    .toList();
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_NAME.name()));
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name()));
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name()));
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_TIME.name()));
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT.name()));
+            assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_CREATED.name()));
+        }
+
+        @Test
+        void signingProfileDropdownContainsExistingProfileNames() {
+            // when
+            List<SearchFieldDataByGroupDto> groups = signingRecordService.getSearchableFieldInformation();
+
+            // then
+            SearchFieldDataDto signingProfileField = propertyFieldsOf(groups).stream()
+                    .filter(f -> f.getFieldIdentifier().equals(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name()))
+                    .findFirst()
+                    .orElseThrow();
+            assertTrue(((List<?>) signingProfileField.getValue()).contains(defaultProfile.getName()));
+        }
+
+        private List<SearchFieldDataDto> propertyFieldsOf(List<SearchFieldDataByGroupDto> groups) {
+            return groups.stream()
+                    .filter(g -> g.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                    .map(SearchFieldDataByGroupDto::getSearchFieldData)
+                    .flatMap(List::stream)
+                    .toList();
+        }
+    }
+
+    @Nested
+    class ListTests {
+
+        @Test
+        void returnsEmptyList_whenNoRecordsExist() {
+            // given no records seeded
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+            // then
+            assertEquals(0, response.getTotalItems());
+            assertTrue(response.getItems().isEmpty());
+        }
+
+        @Test
+        void returnsAllRecordsAcrossProfilesAndVersions() throws Exception {
+            // given
+            seedRecordsAcrossProfilesAndVersions();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+            // then
+            assertEquals(3, response.getTotalItems());
+            List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
+            assertTrue(names.contains(ALPHA_RECORD_V1));
+            assertTrue(names.contains(ALPHA_RECORD_V2));
+            assertTrue(names.contains(BETA_RECORD_V1));
+        }
+
+        @Test
+        void filtersByName() throws Exception {
+            // given
+            seedRecordsAcrossProfilesAndVersions();
+            SearchRequestDto onlyAlphaV1 = SearchRequestDtoBuilder.aSearchRequest()
+                    .propertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(onlyAlphaV1, SecurityFilter.create());
+
+            // then
+            assertEquals(1, response.getTotalItems());
+            assertEquals(ALPHA_RECORD_V1, response.getItems().getFirst().getName());
+        }
+
+        @Test
+        void filtersBySigningProfile() throws Exception {
+            // given
+            seedRecordsAcrossProfilesAndVersions();
+            SearchRequestDto onlyAlphaProfile = SearchRequestDtoBuilder.aSearchRequest()
+                    .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(onlyAlphaProfile, SecurityFilter.create());
+
+            // then
+            assertEquals(2, response.getTotalItems());
+            List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
+            assertTrue(names.contains(ALPHA_RECORD_V1));
+            assertTrue(names.contains(ALPHA_RECORD_V2));
+        }
+
+        @Test
+        void filtersBySigningProfileVersion() throws Exception {
+            // given
+            seedRecordsAcrossProfilesAndVersions();
+            SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
+                    .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(onlyVersion2, SecurityFilter.create());
+
+            // then
+            assertEquals(1, response.getTotalItems());
+            assertEquals(ALPHA_RECORD_V2, response.getItems().getFirst().getName());
+        }
+
+        @Test
+        void paginatesResults() throws Exception {
+            // given
+            seedRecordsAcrossProfilesAndVersions();
+            SearchRequestDto firstPageOfTwo = SearchRequestDtoBuilder.aSearchRequest()
+                    .pageNumber(1)
+                    .itemsPerPage(2)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecords(firstPageOfTwo, SecurityFilter.create());
+
+            // then
+            assertEquals(3, response.getTotalItems());
+            assertEquals(2, response.getItems().size());
+        }
+    }
+
+    @Nested
+    class ListByProfileTests {
+
+        @Test
+        void returnsOnlyRecordsForRequestedSigningProfile() throws Exception {
+            // given
+            SigningProfileDto targetProfile = createSigningProfile("target-profile");
+            insertRecord(targetProfile, VERSION_1, "target-record");
+            insertRecord(defaultProfile, VERSION_1, "other-record");
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response = signingRecordService.listSigningRecordsForProfile(
+                    UUID.fromString(targetProfile.getUuid()), SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+            // then
+            assertEquals(1, response.getTotalItems());
+            assertEquals("target-record", response.getItems().getFirst().getName());
+        }
+
+        @Test
+        void returnsEmptyList_whenNoRecordsForProfile() throws Exception {
+            // given
+            SigningProfileDto profileWithNoRecords = createSigningProfile("profile-with-no-records");
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response = signingRecordService.listSigningRecordsForProfile(
+                    UUID.fromString(profileWithNoRecords.getUuid()), SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+            // then
+            assertTrue(response.getItems().isEmpty());
+        }
+    }
+
+    @Nested
+    class GetTests {
+
+        @Test
+        void returnsRecordDetailWithAllProperties() throws NotFoundException {
+            // given
+            var signingTime = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+            var retrievedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+            var requestedByUuid = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            var requestedByUsername = "alice";
+            SigningRecord record = aSigningRecord()
+                    .withSigningProfile(defaultProfile)
+                    .withName(ALPHA_RECORD_V1)
+                    .withSigningTime(signingTime)
+                    .withSignatureValue("alpha-v1-signature".getBytes())
+                    .withDtbs("alpha-v1-dtbs".getBytes())
+                    .withSignedDocument("alpha-v1-signed-document".getBytes())
+                    .withRequestMetadataJson("{\"alg\":\"SHA256\"}")
+                    .withRequestedByUuid(requestedByUuid)
+                    .withRequestedByUsername(requestedByUsername)
+                    .withSignedDocumentRetrievedAt(retrievedAt)
+                    .build();
+            signingRecordWriter.insert(record);
+
+            // when
+            SigningRecordDto dto = signingRecordService.getSigningRecord(SecuredUUID.fromUUID(record.getUuid()));
+
+            // then
+            assertEquals(record.getUuid().toString(), dto.getUuid());
+            assertEquals(ALPHA_RECORD_V1, dto.getName());
+            assertEquals(signingTime, dto.getSigningTime());
+            assertArrayEquals(record.getSignatureValue(), dto.getSignatureValue());
+            assertArrayEquals(record.getDtbs(), dto.getDtbs());
+            assertArrayEquals(record.getSignedDocument(), dto.getSignedDocument());
+            // requestMetadataJson is stored in a JSONB column, which re-serializes (normalizes whitespace),
+            // so assert on content rather than byte-exact equality
+            assertTrue(dto.getRequestMetadataJson().contains("\"alg\""));
+            assertTrue(dto.getRequestMetadataJson().contains("SHA256"));
+            assertEquals(requestedByUuid.toString(), dto.getRequestedBy().getUuid());
+            assertEquals(requestedByUsername, dto.getRequestedBy().getName());
+            assertEquals(retrievedAt, dto.getSignedDocumentRetrievedAt());
+            assertNotNull(dto.getCreatedAt());
+        }
+
+        @Test
+        void throwsNotFoundException_whenRecordMissing() {
+            // given
+            SecuredUUID nonExistentUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+            // when
+            Executable get = () -> signingRecordService.getSigningRecord(nonExistentUuid);
+
+            // then
+            assertThrows(NotFoundException.class, get);
+        }
+    }
+
+    @Nested
+    class DeleteTests {
+
+        @Test
+        void removesOnlyTheTargetedRecord() throws NotFoundException {
+            // given
+            SigningRecord keep = aSigningRecord().withSigningProfile(defaultProfile).withName("keep").build();
+            SigningRecord remove = aSigningRecord().withSigningProfile(defaultProfile).withName("remove").build();
+            signingRecordWriter.insert(keep);
+            signingRecordWriter.insert(remove);
+
+            // when
+            signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(remove.getUuid()));
+
+            // then
+            PaginationResponseDto<SigningRecordListDto> remaining =
+                    signingRecordService.listSigningRecords(SearchRequestDtoBuilder.all(), SecurityFilter.create());
+            assertEquals(1, remaining.getTotalItems());
+            assertEquals(keep.getUuid().toString(), remaining.getItems().getFirst().getUuid());
+        }
+
+        @Test
+        void throwsNotFoundException_whenRecordMissing() {
+            // given
+            SecuredUUID nonExistentUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+            // when
+            Executable delete = () -> signingRecordService.deleteSigningRecord(nonExistentUuid);
+
+            // then
+            assertThrows(NotFoundException.class, delete);
+        }
+    }
+
+    @Nested
+    class BulkDeleteTests {
+
+        @Test
+        void deletesAllAndReportsNoFailures() {
+            // given
+            SigningRecord first = aSigningRecord().withSigningProfile(defaultProfile).withName("first").build();
+            SigningRecord second = aSigningRecord().withSigningProfile(defaultProfile).withName("second").build();
+            signingRecordWriter.insert(first);
+            signingRecordWriter.insert(second);
+            List<SecuredUUID> allRecords = List.of(
+                    SecuredUUID.fromUUID(first.getUuid()), SecuredUUID.fromUUID(second.getUuid()));
+
+            // when
+            List<BulkActionMessageDto> messages = signingRecordService.bulkDeleteSigningRecords(allRecords);
+
+            // then
+            assertTrue(messages.isEmpty());
+            assertEquals(0, signingRecordService.listSigningRecords(
+                    SearchRequestDtoBuilder.all(), SecurityFilter.create()).getTotalItems());
+        }
+
+        @Test
+        void reportsFailureForMissingRecordButDeletesExisting() {
+            // given
+            SigningRecord existing = aSigningRecord().withSigningProfile(defaultProfile).withName("existing").build();
+            signingRecordWriter.insert(existing);
+            SecuredUUID existingUuid = SecuredUUID.fromUUID(existing.getUuid());
+            SecuredUUID missingUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+            // when
+            List<BulkActionMessageDto> messages =
+                    signingRecordService.bulkDeleteSigningRecords(List.of(existingUuid, missingUuid));
+
+            // then
+            assertEquals(1, messages.size());
+            assertEquals(missingUuid.toString(), messages.getFirst().getUuid());
+            assertEquals(0, signingRecordService.listSigningRecords(
+                    SearchRequestDtoBuilder.all(), SecurityFilter.create()).getTotalItems());
+        }
+    }
+
+    @Nested
+    class ExistsForVersionTests {
+
+        @Test
+        void trueForProfileVersionThatHasRecords() throws Exception {
+            // given
+            Fixture fixture = seedRecordsAcrossProfilesAndVersions();
+
+            // when
+            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+                    UUID.fromString(fixture.alpha().getUuid()), VERSION_2);
+
+            // then
+            assertTrue(exists);
+        }
+
+        @Test
+        void falseForProfileVersionWithoutRecords() throws Exception {
+            // given
+            Fixture fixture = seedRecordsAcrossProfilesAndVersions();
+            int versionWithoutRecords = 3;
+
+            // when
+            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+                    UUID.fromString(fixture.alpha().getUuid()), versionWithoutRecords);
+
+            // then
+            assertFalse(exists);
+        }
+
+        @Test
+        void isScopedToTheProfile() throws Exception {
+            // beta-profile has no version-2 record even though alpha-profile does
+            // given
+            Fixture fixture = seedRecordsAcrossProfilesAndVersions();
+
+            // when
+            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+                    UUID.fromString(fixture.beta().getUuid()), VERSION_2);
+
+            // then
+            assertFalse(exists);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // getSearchableFieldInformation
+    // Fixtures — all seeding goes through the signing-profile service and the record writer
     // ──────────────────────────────────────────────────────────────────────────
 
-    @Test
-    void getSearchableFieldInformation_exposesSigningRecordPropertyFields() {
-        // when
-        List<SearchFieldDataByGroupDto> groups = signingRecordService.getSearchableFieldInformation();
+    /**
+     * Two profiles spanning three signing-profile versions with one record each: alpha-profile holds versions 1 and 2
+     * (records {@value ALPHA_RECORD_V1}, {@value ALPHA_RECORD_V2}) and beta-profile holds version 1 (record
+     * {@value BETA_RECORD_V1}). The alpha version-2 row is produced by an actual {@code updateSigningProfile} bump,
+     * which the service performs precisely because alpha version 1 already has a record.
+     */
+    private Fixture seedRecordsAcrossProfilesAndVersions() throws Exception {
+        SigningProfileDto alpha = createSigningProfile(ALPHA_PROFILE);
+        insertRecord(alpha, VERSION_1, ALPHA_RECORD_V1);
+        bumpToNextVersion(alpha);
+        insertRecord(alpha, VERSION_2, ALPHA_RECORD_V2);
 
-        // then
-        List<String> identifiers = groups.stream()
-                .flatMap(g -> g.getSearchFieldData().stream())
-                .map(SearchFieldDataDto::getFieldIdentifier)
-                .toList();
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_NAME.name()));
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name()));
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name()));
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNING_TIME.name()));
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT.name()));
-        assertTrue(identifiers.contains(FilterField.SIGNING_RECORD_CREATED.name()));
+        SigningProfileDto beta = createSigningProfile(BETA_PROFILE);
+        insertRecord(beta, VERSION_1, BETA_RECORD_V1);
+
+        return new Fixture(alpha, beta);
     }
 
-    @Test
-    void getSearchableFieldInformation_signingProfileDropdownContainsExistingProfileNames() {
-        // when
-        List<SearchFieldDataByGroupDto> groups = signingRecordService.getSearchableFieldInformation();
-
-        // then
-        SearchFieldDataDto profileField = groups.stream()
-                .flatMap(g -> g.getSearchFieldData().stream())
-                .filter(f -> f.getFieldIdentifier().equals(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name()))
-                .findFirst()
-                .orElseThrow();
-        List<?> dropdownValues = (List<?>) profileField.getValue();
-        assertTrue(dropdownValues.contains(ALPHA_PROFILE));
-        assertTrue(dropdownValues.contains(BETA_PROFILE));
+    private record Fixture(SigningProfileDto alpha, SigningProfileDto beta) {
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // listSigningRecords
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    void listSigningRecords_returnsAllRecordsAcrossProfilesAndVersions() {
-        // given: profiles create in setup method
-
-        // when
-        PaginationResponseDto<SigningRecordListDto> response =
-                signingRecordService.listSigningRecords(SearchRequestDtoBuilder.all(), SecurityFilter.create());
-
-        // then
-        assertEquals(3, response.getTotalItems());
-        List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
-        assertTrue(names.contains(ALPHA_RECORD_V1));
-        assertTrue(names.contains(ALPHA_RECORD_V2));
-        assertTrue(names.contains(BETA_RECORD_V1));
-    }
-
-    @Test
-    void listSigningRecords_filtersByName() {
-        // given
-        SearchRequestDto onlyAlphaV1 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
-                .build();
-
-        // when
-        PaginationResponseDto<SigningRecordListDto> response =
-                signingRecordService.listSigningRecords(onlyAlphaV1, SecurityFilter.create());
-
-        // then
-        assertEquals(1, response.getTotalItems());
-        assertEquals(ALPHA_RECORD_V1, response.getItems().getFirst().getName());
-    }
-
-    @Test
-    void listSigningRecords_filtersBySigningProfile() {
-        // given
-        SearchRequestDto onlyAlphaProfile = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
-                .build();
-
-        // when
-        PaginationResponseDto<SigningRecordListDto> response =
-                signingRecordService.listSigningRecords(onlyAlphaProfile, SecurityFilter.create());
-
-        // then
-        assertEquals(2, response.getTotalItems());
-        List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
-        assertTrue(names.contains(ALPHA_RECORD_V1));
-        assertTrue(names.contains(ALPHA_RECORD_V2));
-    }
-
-    @Test
-    void listSigningRecords_filtersBySigningProfileVersion() {
-        // given
-        SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
-                .build();
-
-        // when
-        PaginationResponseDto<SigningRecordListDto> response =
-                signingRecordService.listSigningRecords(onlyVersion2, SecurityFilter.create());
-
-        // then
-        assertEquals(1, response.getTotalItems());
-        assertEquals(ALPHA_RECORD_V2, response.getItems().getFirst().getName());
-    }
-
-    @Test
-    void listSigningRecords_paginatesResults() {
-        // given
-        SearchRequestDto firstPageOfTwo = SearchRequestDtoBuilder.aSearchRequest()
-                .pageNumber(1)
-                .itemsPerPage(2)
-                .build();
-
-        // when
-        PaginationResponseDto<SigningRecordListDto> response =
-                signingRecordService.listSigningRecords(firstPageOfTwo, SecurityFilter.create());
-
-        // then
-        assertEquals(3, response.getTotalItems());
-        assertEquals(2, response.getItems().size());
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // getSigningRecord
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    void getSigningRecord_returnsRecordDetailWithAllProperties() throws NotFoundException {
-        // when
-        SigningRecordDto dto = signingRecordService.getSigningRecord(SecuredUUID.fromUUID(alphaRecordV1.getUuid()));
-
-        // then
-        assertEquals(alphaRecordV1.getUuid().toString(), dto.getUuid());
-        assertEquals(ALPHA_RECORD_V1, dto.getName());
-        assertEquals(alphaRecordV1.getSigningTime(), dto.getSigningTime());
-        assertArrayEquals(alphaRecordV1.getSignatureValue(), dto.getSignatureValue());
-        assertArrayEquals(alphaRecordV1.getDtbs(), dto.getDtbs());
-        assertArrayEquals(alphaRecordV1.getSignedDocument(), dto.getSignedDocument());
-        // requestMetadataJson is stored in a JSONB column, which re-serializes (normalizes whitespace),
-        // so assert on content rather than byte-exact equality
-        assertTrue(dto.getRequestMetadataJson().contains("\"alg\""));
-        assertTrue(dto.getRequestMetadataJson().contains("SHA256"));
-        assertEquals(alphaRecordV1.getRequestedByUuid().toString(), dto.getRequestedBy().getUuid());
-        assertEquals(alphaRecordV1.getRequestedByUsername(), dto.getRequestedBy().getName());
-        assertEquals(alphaRecordV1.getSignedDocumentRetrievedAt(), dto.getSignedDocumentRetrievedAt());
-        assertNotNull(dto.getCreatedAt());
-    }
-
-    @Test
-    void getSigningRecord_throwsNotFoundException_whenRecordMissing() {
-        // given
-        SecuredUUID nonExistentUuid = SecuredUUID.fromUUID(UUID.randomUUID());
-
-        // when
-        Executable get = () -> signingRecordService.getSigningRecord(nonExistentUuid);
-
-        // then
-        assertThrows(NotFoundException.class, get);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // deleteSigningRecord
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    void deleteSigningRecord_removesOnlyTheTargetedRecord() throws NotFoundException {
-        // when
-        signingRecordService.deleteSigningRecord(SecuredUUID.fromUUID(alphaRecordV1.getUuid()));
-
-        // then
-        assertFalse(signingRecordRepository.existsById(alphaRecordV1.getUuid()));
-        assertEquals(2, signingRecordRepository.count());
-    }
-
-    @Test
-    void deleteSigningRecord_throwsNotFoundException_whenRecordMissing() {
-        // given
-        SecuredUUID nonExistentUuid = SecuredUUID.fromUUID(UUID.randomUUID());
-
-        // when
-        Executable delete = () -> signingRecordService.deleteSigningRecord(nonExistentUuid);
-
-        // then
-        assertThrows(NotFoundException.class, delete);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // bulkDeleteSigningRecords
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    void bulkDeleteSigningRecords_deletesAllAndReportsNoFailures() {
-        // given
-        List<SecuredUUID> allRecords = signingRecordRepository.findAll().stream()
-                .map(r -> SecuredUUID.fromUUID(r.getUuid()))
-                .toList();
-
-        // when
-        List<BulkActionMessageDto> messages = signingRecordService.bulkDeleteSigningRecords(allRecords);
-
-        // then
-        assertTrue(messages.isEmpty());
-        assertEquals(0, signingRecordRepository.count());
-    }
-
-    @Test
-    void bulkDeleteSigningRecords_reportsFailureForMissingRecordButDeletesExisting() {
-        // given
-        SecuredUUID existingUuid = SecuredUUID.fromUUID(alphaRecordV1.getUuid());
-        SecuredUUID missingUuid = SecuredUUID.fromUUID(UUID.randomUUID());
-
-        // when
-        List<BulkActionMessageDto> messages = signingRecordService.bulkDeleteSigningRecords(List.of(existingUuid, missingUuid));
-
-        // then
-        assertFalse(signingRecordRepository.existsById(alphaRecordV1.getUuid()));
-        assertEquals(1, messages.size());
-        assertEquals(missingUuid.toString(), messages.getFirst().getUuid());
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // doesSigningRecordExistInternal
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    void doesSigningRecordExist_trueForProfileVersionThatHasRecords() {
-        // when
-        boolean exists = signingRecordService.doesSigningRecordExistInternal(alphaProfile.getUuid(), VERSION_2);
-
-        // then
-        assertTrue(exists);
-    }
-
-    @Test
-    void doesSigningRecordExist_falseForProfileVersionWithoutRecords() {
-        // given
-        var versionWithoutRecords = 3;
-
-        // when
-        boolean exists = signingRecordService.doesSigningRecordExistInternal(alphaProfile.getUuid(), versionWithoutRecords);
-
-        // then
-        assertFalse(exists);
-    }
-
-    @Test
-    void doesSigningRecordExist_isScopedToTheProfile() {
-        // beta-profile has no version-2 record even though alpha-profile does
-        // when
-        boolean exists = signingRecordService.doesSigningRecordExistInternal(betaProfile.getUuid(), VERSION_2);
-
-        // then
-        assertFalse(exists);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Fixtures
-    // ──────────────────────────────────────────────────────────────────────────
-
-    private SigningProfile insertProfile(String name) {
-        SigningProfile profile = new SigningProfile();
-        profile.setName(name);
-        profile.setEnabled(false);
-        profile.setSigningScheme(SigningScheme.DELEGATED);
-        profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
-        profile.setLatestVersion(1);
-        return signingProfileRepository.saveAndFlush(profile);
-    }
-
-    private void insertProfileVersion(SigningProfile profile, int version) {
-        SigningProfileVersion profileVersion = new SigningProfileVersion();
-        profileVersion.setSigningProfile(profile);
-        profileVersion.setVersion(version);
-        profileVersion.setSigningScheme(SigningScheme.DELEGATED);
-        profileVersion.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
-        signingProfileVersionRepository.saveAndFlush(profileVersion);
-    }
-
-    private RecordBuilder aRecord(SigningProfile profile, int version) {
-        return new RecordBuilder(profile, version);
+    private SigningProfileDto createSigningProfile(String name) throws Exception {
+        return signingProfileService.createSigningProfile(
+                aSigningProfileRequest()
+                        .withName(name)
+                        .withDelegatedSigning(signerConnector.getUuid())
+                        .withRawSigning()
+                        .build()
+        );
     }
 
     /**
-     * Builds a {@link SigningRecord} with valid, unremarkable defaults; tests override only the fields
-     * whose values drive the assertion under test.
+     * Bumps {@code profile} to its next version through the service. The bump only materialises a new version row
+     * when records already exist for the current version, so callers must seed a record first.
      */
-    private final class RecordBuilder {
-        private final SigningProfile profile;
-        private final int version;
-        private String name = "signing-record-" + UUID.randomUUID();
-        private Instant signingTime = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        private byte[] signatureValue = null;
-        private byte[] dtbs = null;
-        private byte[] signedDocument = null;
-        private String requestMetadataJson = null;
-        private UUID requestedByUuid = null;
-        private String requestedByUsername = null;
-        private Instant signedDocumentRetrievedAt = null;
+    private void bumpToNextVersion(SigningProfileDto profile) throws Exception {
+        signingProfileService.updateSigningProfile(
+                SecuredUUID.fromString(profile.getUuid()),
+                aSigningProfileRequestFromExistingProfile(profile).build());
+    }
 
-        private RecordBuilder(SigningProfile profile, int version) {
-            this.profile = profile;
-            this.version = version;
-        }
-
-        private RecordBuilder withName(String name) {
-            this.name = name;
-            return this;
-        }
-
-        private RecordBuilder withSignatureValue(byte[] signatureValue) {
-            this.signatureValue = signatureValue;
-            return this;
-        }
-
-        private RecordBuilder withDtbs(byte[] dtbs) {
-            this.dtbs = dtbs;
-            return this;
-        }
-
-        private RecordBuilder withSignedDocument(byte[] signedDocument) {
-            this.signedDocument = signedDocument;
-            return this;
-        }
-
-        private RecordBuilder withRequestMetadataJson(String requestMetadataJson) {
-            this.requestMetadataJson = requestMetadataJson;
-            return this;
-        }
-
-        private RecordBuilder withRequestedByUuid(UUID requestedByUuid) {
-            this.requestedByUuid = requestedByUuid;
-            return this;
-        }
-
-        private RecordBuilder withRequestedByUsername(String requestedByUsername) {
-            this.requestedByUsername = requestedByUsername;
-            return this;
-        }
-
-        private RecordBuilder withSignedDocumentRetrievedAt(Instant signedDocumentRetrievedAt) {
-            this.signedDocumentRetrievedAt = signedDocumentRetrievedAt;
-            return this;
-        }
-
-        private SigningRecord insert() {
-            SigningRecord signingRecord = new SigningRecord();
-            signingRecord.setSigningProfileUuid(profile.getUuid());
-            signingRecord.setSigningProfileVersion(version);
-            signingRecord.setName(name);
-            signingRecord.setSigningTime(signingTime);
-            signingRecord.setSignatureValue(signatureValue);
-            signingRecord.setDtbs(dtbs);
-            signingRecord.setSignedDocument(signedDocument);
-            signingRecord.setRequestMetadataJson(requestMetadataJson);
-            signingRecord.setRequestedByUuid(requestedByUuid);
-            signingRecord.setRequestedByUsername(requestedByUsername);
-            signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
-            return signingRecordRepository.saveAndFlush(signingRecord);
-        }
+    private void insertRecord(SigningProfileDto profile, int version, String name) {
+        signingRecordWriter.insert(aSigningRecord()
+                .withSigningProfile(profile)
+                .withVersion(version)
+                .withName(name)
+                .build());
     }
 }
