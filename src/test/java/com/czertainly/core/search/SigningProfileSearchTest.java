@@ -37,6 +37,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
@@ -372,10 +373,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertEquals(1, results.size(),
                 "Expected exactly the profile tagged with the custom attribute value");
@@ -385,10 +383,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.NOT_EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.NOT_EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("profile-alpha")),
                 "Profile with the custom attribute value must be excluded by NOT_EQUALS");

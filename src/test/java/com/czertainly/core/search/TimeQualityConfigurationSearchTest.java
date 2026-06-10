@@ -12,7 +12,6 @@ import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -31,6 +30,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
@@ -316,10 +316,7 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_exactMatch_returnsOnlyTaggedConfiguration() {
         List<TimeQualityConfigurationListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("strict-tqc", results.getFirst().getName());
@@ -328,10 +325,7 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_notEquals_excludesTaggedConfiguration() {
         List<TimeQualityConfigurationListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.NOT_EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.NOT_EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("strict-tqc")));
     }

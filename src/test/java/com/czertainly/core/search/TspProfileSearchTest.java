@@ -14,7 +14,6 @@ import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
@@ -34,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 import java.util.UUID;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
@@ -234,10 +234,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("alpha-tsp", results.getFirst().getName());
@@ -246,10 +243,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
-                        CUSTOM_ATTR_NAME + "|TEXT",
-                        FilterConditionOperator.NOT_EQUALS,
-                        CUSTOM_ATTR_VALUE));
+                aCustomAttributeFilter(CUSTOM_ATTR_NAME, AttributeContentType.TEXT, FilterConditionOperator.NOT_EQUALS, CUSTOM_ATTR_VALUE));
 
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("alpha-tsp")));
     }
