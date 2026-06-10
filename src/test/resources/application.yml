@@ -100,7 +100,7 @@ spring:
       connection-timeout: 10000
       idle-timeout: 30000
       max-lifetime: 60000
-    url: jdbc:tc:postgresql:17-alpine://localhost:55432/czertainly-test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
+    url: jdbc:tc:postgresql:17-alpine://localhost:55432/test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
     password: test
     username: test
   flyway:
