@@ -621,66 +621,6 @@ public class CertificateUtil {
         return certificateHolderChain;
     }
 
-    public static String generateRandomX509CertificateBase64(KeyPair keyPair) throws CertificateException, NoSuchAlgorithmException, SignatureException, InvalidKeyException, NoSuchProviderException, OperatorCreationException {
-        return Base64.getEncoder().encodeToString(generateRandomX509Certificate(keyPair).getEncoded());
-    }
-
-    public static X509Certificate generateRandomX509Certificate(KeyPair keyPair) throws NoSuchAlgorithmException, CertificateException, SignatureException, InvalidKeyException, NoSuchProviderException, OperatorCreationException {
-        SecureRandom random = new SecureRandom();
-
-        X500Name owner = new X500Name("CN=generatedCertificate,O=random");
-
-        // Current time minus 1 year, just in case software clock goes back due to time synchronization
-        Date notBefore = new Date(System.currentTimeMillis() - 86400000L * 365);
-        // Random date between the generated time and 1 year from now
-        Date notAfter = between(new Date(System.currentTimeMillis() - 86400000L * 365),
-                new Date(System.currentTimeMillis() + 86400000L * 365));
-
-        if (keyPair == null) {
-            keyPair = generateRandomKeyPair();
-        }
-
-        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
-                owner, new BigInteger(64, random), notBefore, notAfter, owner, keyPair.getPublic());
-
-        PrivateKey privateKey = keyPair.getPrivate();
-        ContentSigner signer = new JcaContentSignerBuilder("SHA512WithRSAEncryption").build(privateKey);
-        X509CertificateHolder certHolder = builder.build(signer);
-        X509Certificate cert = new JcaX509CertificateConverter()
-                .setProvider(new BouncyCastleProvider())
-                .getCertificate(certHolder);
-
-        //check so that cert is valid
-        cert.verify(keyPair.getPublic());
-
-        return cert;
-    }
-
-    public static Date between(Date startInclusive, Date endExclusive) {
-        long startMillis = startInclusive.getTime();
-        long endMillis = endExclusive.getTime();
-        long randomMillisSinceEpoch = ThreadLocalRandom
-                .current()
-                .nextLong(startMillis, endMillis);
-
-        return new Date(randomMillisSinceEpoch);
-    }
-
-    public static KeyPair generateRandomKeyPair() throws NoSuchAlgorithmException {
-        SecureRandom random = new SecureRandom();
-
-        KeyPair keyPair;
-        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
-
-        List<Integer> keySizeList = Arrays.asList(1024, 2048, 4096);
-        int randomKeySize = keySizeList.get(random.nextInt(keySizeList.size()));
-
-        keyPairGenerator.initialize(randomKeySize);
-        keyPair = keyPairGenerator.generateKeyPair();
-
-        return keyPair;
-    }
-
     /**
      * Function to convert: from list of X509 certificates to list of CMPCertificates
      *

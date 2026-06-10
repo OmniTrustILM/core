@@ -13,6 +13,7 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.*;
 import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
 import org.bouncycastle.asn1.x509.qualified.QCStatement;
+import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -28,8 +29,10 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class CertificateTestUtil {
 
@@ -318,5 +321,40 @@ public class CertificateTestUtil {
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME).build(keyPair.getPrivate());
         return new JcaX509CertificateConverter().setProvider(BouncyCastleProvider.PROVIDER_NAME)
                 .getCertificate(certBuilder.build(signer));
+    }
+
+    public static X509Certificate generateRandomX509Certificate(KeyPair keyPair) throws NoSuchAlgorithmException, CertificateException, SignatureException, InvalidKeyException, NoSuchProviderException, OperatorCreationException {
+        SecureRandom random = new SecureRandom();
+        X500Name owner = new X500Name("CN=generatedCertificate,O=random");
+        // Current time minus 1 year, just in case software clock goes back due to time synchronization
+        Date notBefore = new Date(System.currentTimeMillis() - 86400000L * 365);
+        // Random date between the generated time and 1 year from now
+        Date notAfter = between(new Date(System.currentTimeMillis() - 86400000L * 365),
+                new Date(System.currentTimeMillis() + 86400000L * 365));
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                owner, new BigInteger(64, random), notBefore, notAfter, owner, keyPair.getPublic());
+
+        PrivateKey privateKey = keyPair.getPrivate();
+        ContentSigner signer = new JcaContentSignerBuilder("SHA512WithRSAEncryption").build(privateKey);
+        X509CertificateHolder certHolder = builder.build(signer);
+        X509Certificate cert = new JcaX509CertificateConverter()
+                .setProvider(new BouncyCastleProvider())
+                .getCertificate(certHolder);
+
+        //check so that cert is valid
+        cert.verify(keyPair.getPublic());
+
+        return cert;
+    }
+
+    public static Date between(Date startInclusive, Date endExclusive) {
+        long startMillis = startInclusive.getTime();
+        long endMillis = endExclusive.getTime();
+        long randomMillisSinceEpoch = ThreadLocalRandom
+                .current()
+                .nextLong(startMillis, endMillis);
+
+        return new Date(randomMillisSinceEpoch);
     }
 }

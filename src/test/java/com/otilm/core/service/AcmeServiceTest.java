@@ -23,7 +23,7 @@ import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeService;
 import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CertificateTestUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -149,7 +149,7 @@ class AcmeServiceTest extends BaseSpringBootTest {
         newRsa2048Signer = new RSASSASigner(newRsa2048JWK);
 
         KeyPair keyPair = rsa2048JWK.toKeyPair();
-        X509Certificate x509Certificate = CertificateUtil.generateRandomX509Certificate(keyPair);
+        X509Certificate x509Certificate = CertificateTestUtil.generateRandomX509Certificate(keyPair);
         String b64Certificate = Base64.getEncoder().encodeToString(x509Certificate.getEncoded());
         b64UrlCertificate = Base64.getUrlEncoder().encodeToString(x509Certificate.getEncoded());
 
@@ -280,7 +280,7 @@ class AcmeServiceTest extends BaseSpringBootTest {
         certificateRepository.save(certificate);
 
         // create certificate without ACME protocol association
-        X509Certificate nonAcmeX509Certificate = CertificateUtil.generateRandomX509Certificate(keyPair);
+        X509Certificate nonAcmeX509Certificate = CertificateTestUtil.generateRandomX509Certificate(keyPair);
         String nonAcmeB64Certificate = Base64.getEncoder().encodeToString(nonAcmeX509Certificate.getEncoded());
         nonAcmeB64UrlCertificate = Base64.getUrlEncoder().encodeToString(nonAcmeX509Certificate.getEncoded());
 
