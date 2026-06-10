@@ -5,6 +5,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.config.CookieConfig;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
@@ -321,7 +322,7 @@ class OAuth2LoginControllerTest {
         Optional<String> match = setCookies.stream()
                 .map(HttpCookie::parse)
                 .flatMap(List::stream)
-                .filter(c -> c.getName().equalsIgnoreCase("JSESSIONID") || c.getName().equalsIgnoreCase("SESSION") || c.getName().equalsIgnoreCase("czertainly-session"))
+                .filter(c -> c.getName().equalsIgnoreCase("JSESSIONID") || c.getName().equalsIgnoreCase("SESSION") || c.getName().equalsIgnoreCase(CookieConfig.COOKIE_NAME))
                 .findFirst()
                 .map(c -> c.getName() + "=" + c.getValue());
 
