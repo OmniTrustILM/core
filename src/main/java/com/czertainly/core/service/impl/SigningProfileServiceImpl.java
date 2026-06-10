@@ -1,6 +1,5 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.AlreadyExistException;
@@ -16,7 +15,11 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.*;
+import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.WorkflowRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
@@ -40,6 +43,7 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.czertainly.core.cluster.ClusterOperationSynchronizer;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.config.cache.CacheEvictor;
@@ -48,6 +52,7 @@ import com.czertainly.core.service.*;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.SearchHelper;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -249,7 +254,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     // Package-private internal cache loader, self-invoked.
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
-    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException, IllegalStateException {
         SigningProfile profile = signingProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
         SigningProfileVersion currentVersion = profile.getVersions().stream()
@@ -581,6 +586,19 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
         evictSigningProfileCache(profile.getName());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Signing records scoped to profile
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(
+            SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException {
+        SigningProfile profile = findByUuid(uuid);
+        return signingRecordService.listSigningRecordsForProfile(profile.getUuid(), request, filter);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

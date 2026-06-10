@@ -19,6 +19,13 @@ public interface SigningRecordService {
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecords(SearchRequestDto request, SecurityFilter filter);
 
+    /**
+     * Lists signing records scoped to a single signing profile. Authorized independently as a
+     * {@code SIGNING_RECORD/LIST} operation (with row-level access delegated to the parent signing
+     * profile), so signing-record visibility is required even when reached via a profile-scoped endpoint.
+     */
+    PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter);
+
     SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
     void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException;

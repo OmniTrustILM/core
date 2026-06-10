@@ -13,6 +13,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -142,6 +143,12 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, UUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
         return signingProfileService.listSignatureFormatterConnectorAttributes(connectorUuid, SecuredUUID.fromUUID(signingProfileUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.DETAIL)
+    public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(@LogResource(uuid = true) UUID uuid, SearchRequestDto request) throws NotFoundException {
+        return signingProfileService.listSigningRecordsForSigningProfile(SecuredUUID.fromUUID(uuid), request, SecurityFilter.create());
     }
 
     @Override

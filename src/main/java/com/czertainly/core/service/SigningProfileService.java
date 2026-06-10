@@ -13,6 +13,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -45,7 +46,7 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     // The model is a sealed generic record whose concrete type parameters are resolved by the caller via pattern matching.
     @SuppressWarnings("java:S1452")
-    SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException;
+    SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException, IllegalStateException;
 
     List<String> findAllNames();
 
@@ -72,6 +73,8 @@ public interface SigningProfileService extends ResourceExtensionService {
     List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException;
 
     List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException;
+
+    PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException;
 
     TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid) throws NotFoundException;
 
