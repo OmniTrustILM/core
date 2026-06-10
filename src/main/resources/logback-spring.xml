@@ -38,5 +38,5 @@
             <appender-ref ref="SpanEvents" />
         </if>
     </root>
-    <logger name="com.czertainly" level="INFO"/>
+    <logger name="com.otilm" level="INFO"/>
 </configuration>
