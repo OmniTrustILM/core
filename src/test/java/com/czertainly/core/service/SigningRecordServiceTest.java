@@ -21,7 +21,7 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.util.BaseSpringBootTest;
-import com.czertainly.core.util.SearchRequestDtoBuilder;
+import com.czertainly.core.util.builders.SearchRequestDtoBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -152,7 +152,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersByName() {
         // given
         SearchRequestDto onlyAlphaV1 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
                 .build();
 
         // when
@@ -168,7 +168,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersBySigningProfile() {
         // given
         SearchRequestDto onlyAlphaProfile = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
                 .build();
 
         // when
@@ -186,7 +186,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersBySigningProfileVersion() {
         // given
         SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
                 .build();
 
         // when
@@ -202,8 +202,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_paginatesResults() {
         // given
         SearchRequestDto firstPageOfTwo = SearchRequestDtoBuilder.aSearchRequest()
-                .pageNumber(1)
-                .itemsPerPage(2)
+                .withPageNumber(1)
+                .withItemsPerPage(2)
                 .build();
 
         // when

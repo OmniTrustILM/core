@@ -27,7 +27,7 @@ import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
-import static com.czertainly.core.util.SearchRequestDtoBuilder.aSearchRequest;
+import static com.czertainly.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;

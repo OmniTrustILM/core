@@ -34,6 +34,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 import java.util.UUID;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
+
 class TspProfileSearchTest extends BaseSpringBootTest {
 
     private static final String CUSTOM_ATTR_NAME = "tsp-tag";
@@ -139,8 +143,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_equals_returnsSingleMatch() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_NAME.name(),
-                        FilterConditionOperator.EQUALS, "beta-tsp"));
+                aPropertyEqualsFilter(FilterField.TSP_PROFILE_NAME, "beta-tsp"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("beta-tsp", results.getFirst().getName());
@@ -149,8 +152,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_contains_returnsAllMatches() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_NAME.name(),
-                        FilterConditionOperator.CONTAINS, "-tsp"));
+                aPropertyFilter(FilterField.TSP_PROFILE_NAME, FilterConditionOperator.CONTAINS, "-tsp"));
 
         Assertions.assertEquals(3, results.size());
     }
@@ -158,8 +160,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_startsWith_returnsMatchingProfiles() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_NAME.name(),
-                        FilterConditionOperator.STARTS_WITH, "al"));
+                aPropertyFilter(FilterField.TSP_PROFILE_NAME, FilterConditionOperator.STARTS_WITH, "al"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("alpha-tsp", results.getFirst().getName());
@@ -168,8 +169,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_notEquals_returnsOtherProfiles() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_NAME.name(),
-                        FilterConditionOperator.NOT_EQUALS, "alpha-tsp"));
+                aPropertyNotEqualsFilter(FilterField.TSP_PROFILE_NAME, "alpha-tsp"));
 
         Assertions.assertEquals(2, results.size());
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("alpha-tsp")));
@@ -182,8 +182,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByEnabled_true_returnsEnabledOnly() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, true));
+                aPropertyEqualsFilter(FilterField.TSP_PROFILE_ENABLED, true));
 
         Assertions.assertEquals(2, results.size());
         Assertions.assertTrue(results.stream().allMatch(TspProfileListDto::isEnabled));
@@ -192,8 +191,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByEnabled_false_returnsDisabledOnly() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, false));
+                aPropertyEqualsFilter(FilterField.TSP_PROFILE_ENABLED, false));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("beta-tsp", results.getFirst().getName());
@@ -206,8 +204,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByDefaultSigningProfile_equals_returnsOnlyAssociated() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_DEFAULT_SIGNING_PROFILE.name(),
-                        FilterConditionOperator.EQUALS, "default-signing"));
+                aPropertyEqualsFilter(FilterField.TSP_PROFILE_DEFAULT_SIGNING_PROFILE, "default-signing"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("alpha-tsp", results.getFirst().getName());
@@ -221,10 +218,8 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     void filterByNameContainsAndEnabled_returnsIntersection() {
         SearchRequestDto request = new SearchRequestDto();
         request.setFilters(List.of(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_NAME.name(),
-                        FilterConditionOperator.CONTAINS, "-tsp"),
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.TSP_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, true)
+                aPropertyFilter(FilterField.TSP_PROFILE_NAME, FilterConditionOperator.CONTAINS, "-tsp"),
+                aPropertyEqualsFilter(FilterField.TSP_PROFILE_ENABLED, true)
         ));
         PaginationResponseDto<TspProfileListDto> response = tspProfileService.listTspProfiles(request, SecurityFilter.create());
 
@@ -239,7 +234,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
                         CUSTOM_ATTR_NAME + "|TEXT",
                         FilterConditionOperator.EQUALS,
                         CUSTOM_ATTR_VALUE));
@@ -251,7 +246,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
         List<TspProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
                         CUSTOM_ATTR_NAME + "|TEXT",
                         FilterConditionOperator.NOT_EQUALS,
                         CUSTOM_ATTR_VALUE));
