@@ -8,7 +8,7 @@ import org.springframework.session.web.http.DefaultCookieSerializer;
 @Configuration
 public class CookieConfig {
 
-    public static final String COOKIE_NAME = "ilm-session";
+    public static final String COOKIE_NAME = "session-id";
 
     @Bean
     public CookieSerializer cookieSerializer() {
