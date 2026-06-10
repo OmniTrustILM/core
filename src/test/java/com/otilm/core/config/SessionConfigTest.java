@@ -140,7 +140,7 @@ class SessionConfigTest extends BaseSpringBootTestNoAuth {
     // ── Non-TSP tests ─────────────────────────────────────────────────────────
 
     /**
-     * For non-TSP endpoints the {@code czertainly-session} cookie must be forwarded to the session repository so that existing sessions can be resumed.
+     * For non-TSP endpoints the {@code session-id} cookie must be forwarded to the session repository so that existing sessions can be resumed.
      */
     @Test
     void nonTspRequest_resolvesIncomingSessionCookie() throws Exception {

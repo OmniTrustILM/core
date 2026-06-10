@@ -49,7 +49,7 @@ public class PlatformCipherSpi extends CipherSpi {
     protected int engineDoFinal(byte[] input, int inputOffset, int inputLen, byte[] output, int outputOffset) throws ShortBufferException, IllegalBlockSizeException, BadPaddingException {
         // Method is not implemented. The current implementation involves only for SCEP related items
         // And this method is not used.
-        // This method should be implemented when the complete encryption and decryption is processed through the CZERTAINLY Provider
+        // This method should be implemented when the complete encryption and decryption is processed through the Platform Provider
         return 0;
     }
 

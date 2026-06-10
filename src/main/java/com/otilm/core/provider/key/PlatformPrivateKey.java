@@ -28,7 +28,7 @@ public class PlatformPrivateKey implements PrivateKey {
 
     @Override
     public String getFormat() {
-        return "CZERTAINLY";
+        return "Platform";
     }
 
     @Override

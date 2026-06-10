@@ -181,8 +181,8 @@ class ProxyCodeHelperTest {
     void testCalculateCode_CzechCompanyName() {
         ProxyCodeHelper helper = new ProxyCodeHelper("proxy-");
 
-        String result = helper.calculateCode("ČZERTAINLY s.r.o.");
+        String result = helper.calculateCode("ČESKA s.r.o.");
 
-        assertEquals("proxy-czertainly-sro", result);
+        assertEquals("proxy-ceska-sro", result);
     }
 }

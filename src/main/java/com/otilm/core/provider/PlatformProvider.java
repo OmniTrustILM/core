@@ -16,7 +16,7 @@ public class PlatformProvider extends Provider {
     private static final Logger logger = LoggerFactory.getLogger(PlatformProvider.class);
 
     private PlatformProvider(String name, CryptographicOperationsSyncApiClient apiClient) {
-        super(name, "1.0", "CZERTAINLY Provider");
+        super(name, "1.0", "Platform Provider");
         this.init(apiClient);
     }
 

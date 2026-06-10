@@ -80,8 +80,8 @@ public class AuthHelper {
     }
 
     @Autowired
-    public void setAuthenticationClient(PlatformAuthenticationClient czertainlyAuthenticationClient) {
-        this.authenticationClient = czertainlyAuthenticationClient;
+    public void setAuthenticationClient(PlatformAuthenticationClient authenticationClient) {
+        this.authenticationClient = authenticationClient;
     }
 
     public void authenticateAsSystemUser(String username) {
@@ -159,14 +159,14 @@ public class AuthHelper {
 
     public SecurityResourceFilter loadObjectPermissions(Resource resource, ResourceAction resourceAction) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (!(auth instanceof PlatformAuthenticationToken czertainlyAuthenticationToken)) {
+        if (!(auth instanceof PlatformAuthenticationToken authenticationToken)) {
             // return filter with empty permissions (no objects allowed)
             return new SecurityResourceFilter(List.of(), List.of(), true);
         }
 
         Map<String, String> properties = Map.of("name", resource.getCode(), "action", resourceAction.getCode());
         OpaRequestedResource resourceProps = new OpaRequestedResource(properties);
-        OpaObjectAccessResult result = opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, resourceProps, czertainlyAuthenticationToken.getPrincipal().getRawData(), new OpaRequestDetails(null));
+        OpaObjectAccessResult result = opaClient.checkObjectAccess(OpaPolicy.OBJECTS.policyName, resourceProps, authenticationToken.getPrincipal().getRawData(), new OpaRequestDetails(null));
 
         SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
         resourceFilter.setResource(resource);
