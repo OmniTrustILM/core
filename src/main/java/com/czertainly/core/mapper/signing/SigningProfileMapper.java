@@ -100,10 +100,7 @@ public class SigningProfileMapper {
             case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormatterConnectorAttributes);
         });
 
-        // Enabled protocols from header (unversioned)
-        if (header.getTspProfileUuid() != null) {
-            dto.getEnabledProtocols().add(SigningProtocol.TSP);
-        }
+        dto.setEnabledProtocols(detectEnabledProtocols(header));
 
         SigningRecordPolicyDto policy = getSigningRecordPolicyDto(version);
         dto.setRecordPolicy(policy);
@@ -121,6 +118,13 @@ public class SigningProfileMapper {
         policy.setDeleteAfterRetrieval(version.isDeleteAfterRetrieval());
         policy.setPersistenceMode(version.getPersistenceMode());
         return policy;
+    }
+
+    /**
+     * Detects the protocols a Signing Profile is enabled for.
+     */
+    private static List<SigningProtocol> detectEnabledProtocols(SigningProfile header) {
+        return header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -151,10 +155,9 @@ public class SigningProfileMapper {
             throw new IllegalArgumentException("Signing Profile '%s' does not use a managed signing scheme".formatted(header.getName()));
         }
 
-        List<SigningProtocol> protocols = header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
         return new SigningProfileModel<>(
                 header.getUuid(), header.getName(), header.getDescription(),
-                version.getVersion(), header.isEnabled(), protocols,
+                version.getVersion(), header.isEnabled(), detectEnabledProtocols(header),
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes),
                 buildRecordPolicyModel(version));
@@ -168,6 +171,7 @@ public class SigningProfileMapper {
         dto.setVersion(profile.getLatestVersion());
         dto.setSigningWorkflowType(profile.getWorkflowType());
         dto.setEnabled(profile.isEnabled());
+        dto.setEnabledProtocols(detectEnabledProtocols(profile));
         return dto;
     }
 
