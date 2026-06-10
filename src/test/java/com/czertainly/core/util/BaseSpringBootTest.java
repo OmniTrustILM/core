@@ -1,9 +1,11 @@
 package com.czertainly.core.util;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.messaging.jms.producers.AuditLogsProducer;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
 import com.czertainly.core.security.authn.CzertainlyUserDetails;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
@@ -97,6 +99,33 @@ public class BaseSpringBootTest {
         Mockito.when(
                 opaClient.checkObjectAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
         ).thenReturn(objectAccessAllowed);
+    }
+
+    protected void denyResourceAccess(Resource resource, ResourceAction action) {
+        OpaResourceAccessResult denied = new OpaResourceAccessResult();
+        denied.setAuthorized(false);
+        Mockito.when(opaClient.checkResourceAccess(
+                Mockito.any(),
+                Mockito.argThat(req -> req != null
+                        && req.getProperties() != null
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && action.getCode().equals(req.getProperties().get("action"))),
+                Mockito.any(), Mockito.any())
+        ).thenReturn(denied);
+    }
+
+    protected void allowResourceAccess(Resource resource, ResourceAction action) {
+        OpaResourceAccessResult allowed = new OpaResourceAccessResult();
+        allowed.setAuthorized(true);
+        allowed.setAllow(List.of());
+        Mockito.when(opaClient.checkResourceAccess(
+                Mockito.any(),
+                Mockito.argThat(req -> req != null
+                        && req.getProperties() != null
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && action.getCode().equals(req.getProperties().get("action"))),
+                Mockito.any(), Mockito.any())
+        ).thenReturn(allowed);
     }
 
     protected void injectAuthentication() {
