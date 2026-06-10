@@ -66,6 +66,9 @@ public class SearchFilterRequestDtoBuilder {
     }
 
     public SearchFilterRequestDto build() {
+        if (field == null) {
+            throw new IllegalStateException("Field must be set before calling build()");
+        }
         return new SearchFilterRequestDto(fieldSource, fieldIdentifier(), condition, value);
     }
 
