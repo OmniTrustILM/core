@@ -643,7 +643,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, "^name[12]$")));
         Assertions.assertEquals(Set.of(), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, "^\\\\d"))); // stars with a number
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, "^\\\\d"))); // starts with a number
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
         searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "[abc"))); // invalid regex
@@ -655,7 +655,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\\\Qabc"))); // double escape should pass
         Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(securityFilter, searchRequestDto));
 
-        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\\\\\Qabc"))); // double escape should pass
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\\\\\Qabc"))); // triple escape should fail
         Assertions.assertThrows(ValidationException.class, () -> certificateService.listCertificates(securityFilter, searchRequestDto));
     }
 
