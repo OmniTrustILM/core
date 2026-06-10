@@ -154,7 +154,7 @@ spring:
       initial-interval: 1000
       multiplier: 1.5
       max-interval: 5000
-    exchange: czertainly
+    exchange: platform
     routing-key:
       actions: action
       audit-logs: audit-logs
