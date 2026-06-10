@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.api.model.core.location.LocationDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.RaProfile;
@@ -95,7 +95,7 @@ public interface CertificateService extends ResourceExtensionService {
      * @param certificateType Type of the certificate
      * @return Certificate entity
      */
-    Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.czertainly.api.exception.CertificateException;
+    Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.otilm.api.exception.CertificateException;
 
     FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
 

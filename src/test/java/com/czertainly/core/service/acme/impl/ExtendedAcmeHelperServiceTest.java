@@ -1,6 +1,6 @@
 package com.czertainly.core.service.acme.impl;
 
-import com.czertainly.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 

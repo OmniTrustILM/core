@@ -1,6 +1,6 @@
 package com.czertainly.core.service.cmp;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpBaseException;
+import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
 import org.springframework.http.ResponseEntity;
 
 public interface CmpService {

@@ -1,8 +1,8 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.SchedulerException;
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionMessage;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.SchedulerException;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionMessage;
 import com.czertainly.core.service.SchedulerInternalService;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;

@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.dao.entity.Proxy;
 import com.czertainly.core.dao.repository.ProxyRepository;
 import org.junit.jupiter.api.BeforeEach;

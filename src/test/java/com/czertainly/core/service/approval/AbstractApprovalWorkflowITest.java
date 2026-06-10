@@ -1,15 +1,15 @@
 package com.czertainly.core.service.approval;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.approvalprofile.ApprovalProfileRequestDto;
-import com.czertainly.api.model.client.approvalprofile.ApprovalStepRequestDto;
-import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.auth.UserProfileDto;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.approvalprofile.ApprovalProfileRequestDto;
+import com.otilm.api.model.client.approvalprofile.ApprovalStepRequestDto;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.api.model.core.auth.UserProfileDto;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.dao.entity.ApprovalProfile;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;

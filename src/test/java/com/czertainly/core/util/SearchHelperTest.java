@@ -1,16 +1,16 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.common.content.data.ProtectionLevel;
-import com.czertainly.api.model.common.attribute.common.properties.CustomAttributeProperties;
-import com.czertainly.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.CustomAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.DataAttributeV3;
-import com.czertainly.api.model.common.attribute.v3.content.DateAttributeContentV3;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.model.SearchFieldObject;
 import org.junit.jupiter.api.Assertions;

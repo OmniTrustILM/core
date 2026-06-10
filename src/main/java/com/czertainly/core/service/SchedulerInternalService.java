@@ -1,8 +1,8 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.SchedulerException;
-import com.czertainly.api.model.core.scheduler.ScheduledJobDetailDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.SchedulerException;
+import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.czertainly.core.tasks.ScheduledJobTask;
 
 public interface SchedulerInternalService {

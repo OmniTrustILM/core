@@ -1,7 +1,7 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.ExternalAuthorizationConfigAttribute;
 import com.czertainly.core.security.authz.ExternalAuthorizationDynamic;

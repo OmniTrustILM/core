@@ -1,6 +1,6 @@
 package com.czertainly.core.validation.certificate;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateState;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullSource;

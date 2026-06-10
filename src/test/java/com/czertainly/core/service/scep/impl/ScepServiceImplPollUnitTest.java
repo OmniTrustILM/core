@@ -1,7 +1,7 @@
 package com.czertainly.core.service.scep.impl;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.scep.PkiStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.scep.PkiStatus;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.scep.ScepProfile;
 import com.czertainly.core.dao.entity.scep.ScepTransaction;

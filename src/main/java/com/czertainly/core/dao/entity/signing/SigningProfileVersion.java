@@ -1,8 +1,9 @@
 package com.czertainly.core.dao.entity.signing;
 
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.czertainly.core.dao.entity.*;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -18,7 +19,13 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "signing_profile_version")
+@Table(
+        name = "signing_profile_version",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_signing_profile_version",
+                columnNames = {"signing_profile_uuid", "version"}
+        )
+)
 public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
 
     @Column(name = "signing_profile_uuid", nullable = false)
@@ -107,6 +114,33 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
 
     @Column(name = "validate_token_signature")
     private Boolean validateTokenSignature;
+
+    @Column(name = "recording_enabled", nullable = false)
+    private boolean recordingEnabled = true;
+
+    @Column(name = "record_request_metadata", nullable = false)
+    private boolean recordRequestMetadata = false;
+
+    @Column(name = "record_signature", nullable = false)
+    private boolean recordSignature = false;
+
+    @Column(name = "record_signed_document", nullable = false)
+    private boolean recordSignedDocument = false;
+
+    @Column(name = "record_dtbs", nullable = false)
+    private boolean recordDtbs = false;
+
+    // ── Operational policy (authoritative, versioned) ───────────────────────
+
+    @Column(name = "retention_days")
+    private Integer retentionDays;
+
+    @Column(name = "delete_after_retrieval", nullable = false)
+    private boolean deleteAfterRetrieval = false;
+
+    @Column(name = "persistence_mode", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private SigningRecordPersistenceMode persistenceMode = SigningRecordPersistenceMode.DEFERRED_DURABLE;
 
     // ── Setter helpers ──────────────────────────────────────────────────────
 

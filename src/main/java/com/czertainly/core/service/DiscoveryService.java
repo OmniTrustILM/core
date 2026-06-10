@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.certificate.DiscoveryResponseDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.discovery.DiscoveryCertificateResponseDto;
-import com.czertainly.api.model.client.discovery.DiscoveryDto;
-import com.czertainly.api.model.client.discovery.DiscoveryHistoryDetailDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.certificate.DiscoveryResponseDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.discovery.DiscoveryCertificateResponseDto;
+import com.otilm.api.model.client.discovery.DiscoveryDto;
+import com.otilm.api.model.client.discovery.DiscoveryHistoryDetailDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 import com.czertainly.core.tasks.ScheduledJobInfo;

@@ -1,8 +1,8 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.trustedcertificate.TrustedCertificateDto;
-import com.czertainly.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateDto;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
 import com.czertainly.core.provisioning.ProvisioningException;
 import com.czertainly.core.provisioning.TrustedCertificateProvisioningDTO;
 import com.czertainly.core.provisioning.TrustedCertificateProvisioningRequestDTO;

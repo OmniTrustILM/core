@@ -1,17 +1,18 @@
 package com.czertainly.core.signing.tsa.resolver;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.tsp.error.TspException;
-import com.czertainly.api.interfaces.core.tsp.error.TspFailureInfo;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
+import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModel;
 import com.czertainly.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.czertainly.core.model.signing.SigningCertificate;
 import com.czertainly.core.model.signing.SigningCertificateBuilder;
 import com.czertainly.core.model.signing.SigningProfileModel;
+import com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder;
 import com.czertainly.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.czertainly.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.czertainly.core.model.signing.scheme.DelegatedSigning;
@@ -75,7 +76,8 @@ class StaticKeyManagedTimestampingResolverTest {
         return new SigningProfileModel<>(
                 UUID.fromString("99999999-9999-9999-9999-999999999999"),
                 "ts-profile", "a description", 2, true,
-                List.of(SigningProtocol.TSP), workflow, scheme);
+                List.of(SigningProtocol.TSP), workflow, scheme,
+                SigningRecordPolicyModelBuilder.notRecording().build());
     }
 
     private static ManagedTimestampingWorkflow managedTimestampingWorkflow(UUID timeQualityConfigurationUuid) {

@@ -1,15 +1,15 @@
 package com.czertainly.core.provider;
 
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.RsaSignatureScheme;
-import com.czertainly.api.model.connector.cryptography.operations.SignDataRequestDto;
-import com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.operations.VerifyDataRequestDto;
-import com.czertainly.api.model.connector.cryptography.operations.VerifyDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.operations.data.SignatureRequestData;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
+import com.otilm.api.model.connector.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.connector.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.connector.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData;
 import com.czertainly.core.attribute.EcdsaSignatureAttributes;
 import com.czertainly.core.attribute.RsaSignatureAttributes;
 import com.czertainly.core.provider.key.CzertainlyPrivateKey;

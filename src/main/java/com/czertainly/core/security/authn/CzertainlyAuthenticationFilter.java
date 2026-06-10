@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn;
 
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authn.client.CzertainlyAuthenticationClient;
 import com.czertainly.core.util.AuthHelper;

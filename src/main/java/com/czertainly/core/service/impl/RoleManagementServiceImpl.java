@@ -1,13 +1,13 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.auth.RoleRequestDto;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.*;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.auth.RoleRequestDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.*;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
@@ -62,7 +62,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.CREATE)
     public RoleDetailDto createRole(RoleRequestDto request) throws NotFoundException, AttributeException {
         attributeEngine.validateCustomAttributesContent(Resource.ROLE, request.getCustomAttributes());
-        com.czertainly.api.model.core.auth.RoleRequestDto requestDto = new com.czertainly.api.model.core.auth.RoleRequestDto();
+        com.otilm.api.model.core.auth.RoleRequestDto requestDto = new com.otilm.api.model.core.auth.RoleRequestDto();
         requestDto.setName(request.getName());
         requestDto.setDescription(request.getDescription());
         requestDto.setEmail(request.getEmail());
@@ -76,7 +76,7 @@ public class RoleManagementServiceImpl implements RoleManagementService {
     @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
     public RoleDetailDto updateRole(String roleUuid, RoleRequestDto request) throws NotFoundException, AttributeException {
         attributeEngine.validateCustomAttributesContent(Resource.ROLE, request.getCustomAttributes());
-        com.czertainly.api.model.core.auth.RoleRequestDto requestDto = new com.czertainly.api.model.core.auth.RoleRequestDto();
+        com.otilm.api.model.core.auth.RoleRequestDto requestDto = new com.otilm.api.model.core.auth.RoleRequestDto();
         requestDto.setName(request.getName());
         requestDto.setDescription(request.getDescription());
         requestDto.setEmail(request.getEmail());

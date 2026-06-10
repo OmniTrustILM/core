@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.secret.SecretVersionDto;
+import com.otilm.api.model.core.secret.SecretVersionDto;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;

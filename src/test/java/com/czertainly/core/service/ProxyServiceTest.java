@@ -1,15 +1,15 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.proxy.ProxyRequestDto;
-import com.czertainly.api.model.client.proxy.ProxyUpdateRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.proxy.ProxyDto;
-import com.czertainly.api.model.core.proxy.ProxyInstallInstructionsDto;
-import com.czertainly.api.model.core.proxy.ProxyListDto;
-import com.czertainly.api.model.core.proxy.ProxyStatus;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.proxy.ProxyRequestDto;
+import com.otilm.api.model.client.proxy.ProxyUpdateRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.proxy.ProxyDto;
+import com.otilm.api.model.core.proxy.ProxyInstallInstructionsDto;
+import com.otilm.api.model.core.proxy.ProxyListDto;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.Proxy;
 import com.czertainly.core.dao.repository.ConnectorRepository;
@@ -211,7 +211,7 @@ class ProxyServiceTest extends BaseSpringBootTest {
         Connector connector = new Connector();
         connector.setName("testConnector");
         connector.setUrl("http://localhost:8080");
-        connector.setVersion(com.czertainly.api.model.client.connector.v2.ConnectorVersion.V1);
+        connector.setVersion(com.otilm.api.model.client.connector.v2.ConnectorVersion.V1);
         connector.setProxy(proxyWithConnector);
         connectorRepository.save(connector);
 

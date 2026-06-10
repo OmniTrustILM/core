@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn;
 
-import com.czertainly.api.exception.PlatformException;
+import com.otilm.api.exception.PlatformException;
 import org.springframework.security.core.AuthenticationException;
 
 public class CzertainlyAuthenticationException extends AuthenticationException implements PlatformException {

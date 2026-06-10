@@ -1,7 +1,7 @@
 package com.czertainly.core.signing.tsa.timequality.builders;
 
-import com.czertainly.api.model.messaging.timequality.LeapSecondWarning;
-import com.czertainly.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.api.model.messaging.timequality.LeapSecondWarning;
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
 import com.czertainly.core.signing.tsa.timequality.NtpServerResult;
 import com.czertainly.core.signing.tsa.timequality.TimeQualityResult;
 

@@ -1,14 +1,14 @@
 package com.czertainly.core.service.cmp.message.handler;
 
-import com.czertainly.api.clients.cryptography.CryptographicOperationsApiClient;
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.operations.data.SignatureResponseData;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.interfaces.core.cmp.error.ImplFailureInfo;
-import com.czertainly.api.model.core.connector.ConnectorDto;
+import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.connector.cryptography.operations.data.SignatureResponseData;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
+import com.otilm.api.model.core.connector.ConnectorDto;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;

@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.producers;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityConfigSnapshot;
+import com.otilm.api.model.messaging.timequality.TimeQualityConfigSnapshot;
 import com.czertainly.core.dao.entity.signing.TimeQualityConfiguration;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import org.junit.jupiter.api.BeforeEach;

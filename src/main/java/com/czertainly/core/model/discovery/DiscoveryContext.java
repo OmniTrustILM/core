@@ -1,9 +1,9 @@
 package com.czertainly.core.model.discovery;
 
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.czertainly.core.dao.entity.DiscoveryHistory;
 import lombok.Getter;
 import lombok.Setter;

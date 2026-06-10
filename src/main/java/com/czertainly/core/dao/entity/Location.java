@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.location.CertificateInLocationDto;
-import com.czertainly.api.model.core.location.LocationDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.location.CertificateInLocationDto;
+import com.otilm.api.model.core.location.LocationDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;

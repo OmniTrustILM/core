@@ -1,27 +1,27 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.compliance.*;
-import com.czertainly.api.model.client.raprofile.SimplifiedRaProfileDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.connector.compliance.ComplianceGroupsResponseDto;
-import com.czertainly.api.model.connector.compliance.ComplianceRulesResponseDto;
-import com.czertainly.api.model.connector.compliance.v2.ComplianceRuleRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateType;
-import com.czertainly.api.model.core.compliance.*;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.connector.FunctionGroupDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.compliance.*;
+import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.connector.compliance.ComplianceGroupsResponseDto;
+import com.otilm.api.model.connector.compliance.ComplianceRulesResponseDto;
+import com.otilm.api.model.connector.compliance.v2.ComplianceRuleRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.compliance.*;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.FunctionGroupDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.*;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
@@ -106,7 +106,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     @Override
     @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.CREATE)
     public ComplianceProfileDto createComplianceProfile(ComplianceProfileRequestDto request) throws AlreadyExistException, NotFoundException, ValidationException, AttributeException, ConnectorException {
-        var requestV2 = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileRequestDto();
+        var requestV2 = new com.otilm.api.model.client.compliance.v2.ComplianceProfileRequestDto();
         requestV2.setName(request.getName());
         requestV2.setDescription(request.getDescription());
         requestV2.setCustomAttributes(request.getCustomAttributes());
@@ -116,7 +116,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
                 UUID connectorUuid = UUID.fromString(providerRequest.getConnectorUuid());
                 getValidatedComplianceProvider(connectorUuid, providerRequest.getKind());
 
-                var providerRequestV2 = new com.czertainly.api.model.client.compliance.v2.ProviderComplianceRulesRequestDto();
+                var providerRequestV2 = new com.otilm.api.model.client.compliance.v2.ProviderComplianceRulesRequestDto();
                 providerRequestV2.setConnectorUuid(connectorUuid);
                 providerRequestV2.setKind(providerRequest.getKind());
                 for (var providerRule : providerRequest.getRules()) {
@@ -133,7 +133,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
         return translateComplianceProfileDtoV2(dtoV2, false);
     }
 
-    private ComplianceProfileDto translateComplianceProfileDtoV2(com.czertainly.api.model.core.compliance.v2.ComplianceProfileDto dtoV2, boolean withConnectorValidation) {
+    private ComplianceProfileDto translateComplianceProfileDtoV2(com.otilm.api.model.core.compliance.v2.ComplianceProfileDto dtoV2, boolean withConnectorValidation) {
         ComplianceProfileDto dto = new ComplianceProfileDto();
         dto.setUuid(dtoV2.getUuid().toString());
         dto.setName(dtoV2.getName());
@@ -264,7 +264,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     @Override
     @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public ComplianceProfileDto addGroup(SecuredUUID uuid, ComplianceGroupRequestDto request) throws NotFoundException, ConnectorException {
-        var requestDto = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
+        var requestDto = new com.otilm.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
         requestDto.setRemoval(false);
         requestDto.setGroupUuid(UUID.fromString(request.getGroupUuid()));
         requestDto.setConnectorUuid(UUID.fromString(request.getConnectorUuid()));
@@ -277,7 +277,7 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     @Override
     @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
     public ComplianceProfileDto removeGroup(SecuredUUID uuid, ComplianceGroupRequestDto request) throws NotFoundException, ConnectorException {
-        var requestDto = new com.czertainly.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
+        var requestDto = new com.otilm.api.model.client.compliance.v2.ComplianceProfileGroupsPatchRequestDto();
         requestDto.setRemoval(true);
         requestDto.setGroupUuid(UUID.fromString(request.getGroupUuid()));
         requestDto.setConnectorUuid(UUID.fromString(request.getConnectorUuid()));

@@ -1,38 +1,38 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttributeV2;
-import com.czertainly.api.model.client.attribute.RequestAttributeV3;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.search.FilterConditionOperator;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.workflows.*;
-import com.czertainly.core.enums.FilterField;
-import com.czertainly.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
-import com.czertainly.api.model.client.certificate.*;
-import com.czertainly.api.model.client.connector.v2.ConnectorVersion;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.common.attribute.common.MetadataAttribute;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.v2.MetadataAttributeV2;
-import com.czertainly.api.model.common.attribute.common.content.AttributeContentType;
-import com.czertainly.api.model.common.attribute.v2.content.StringAttributeContentV2;
-import com.czertainly.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.czertainly.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
-import com.czertainly.api.model.core.cryptography.key.KeyUsage;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.certificate.group.GroupDto;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.connector.ConnectorStatus;
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.api.model.core.enums.CertificateProtocol;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.attribute.CsrAttributes;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.*;
+import com.czertainly.core.enums.FilterField;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.certificate.*;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.certificate.group.GroupDto;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.czertainly.core.dao.entity.*;
@@ -41,8 +41,8 @@ import com.czertainly.core.dao.entity.acme.AcmeProfile;
 import com.czertainly.core.dao.repository.*;
 import com.czertainly.core.messaging.jms.producers.NotificationProducer;
 import com.czertainly.core.model.auth.CertificateProtocolInfo;
-import com.czertainly.core.model.auth.ResourceAction;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.security.authn.client.AuthenticationCache;
 import com.czertainly.core.security.authn.client.AuthenticationInfo;
 import com.czertainly.core.security.authz.SecuredUUID;
@@ -1067,7 +1067,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUploadCertificateKey() throws com.czertainly.api.exception.CertificateException, CertificateEncodingException, NotFoundException {
+    void testUploadCertificateKey() throws com.otilm.api.exception.CertificateException, CertificateEncodingException, NotFoundException {
         Certificate certificateWithKey = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
         UUID keyUuid = certificateWithKey.getKeyUuid();
         Assertions.assertNotNull(keyUuid);
@@ -1078,7 +1078,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testDeleteCertificateWithUser() throws CertificateEncodingException, com.czertainly.api.exception.CertificateException {
+    void testDeleteCertificateWithUser() throws CertificateEncodingException, com.otilm.api.exception.CertificateException {
         Certificate certificateNew = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
         certificateNew.setUserUuid(UUID.randomUUID());
         certificateRepository.save(certificateNew);
@@ -1087,7 +1087,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void bulkUpdate() throws CertificateException, com.czertainly.api.exception.CertificateException, NotFoundException, IOException {
+    void bulkUpdate() throws CertificateException, com.otilm.api.exception.CertificateException, NotFoundException, IOException {
         Certificate certificateNew = certificateService.createCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()), CertificateType.X509);
 
         MultipleCertificateObjectUpdateDto request = new MultipleCertificateObjectUpdateDto();

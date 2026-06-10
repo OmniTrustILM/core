@@ -1,6 +1,6 @@
 package com.czertainly.core.config;
 
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationException;
 import com.czertainly.core.util.AuthHelper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

@@ -1,10 +1,10 @@
 package com.czertainly.core.model.signing.resolved;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.model.signing.timequality.TimeQualityConfigurationModel;
 
 import java.util.List;

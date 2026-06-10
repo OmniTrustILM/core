@@ -1,7 +1,7 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.exception.EventException;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.EventException;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.Group;
 import com.czertainly.core.dao.repository.CertificateRepository;

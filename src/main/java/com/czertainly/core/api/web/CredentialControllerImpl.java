@@ -1,14 +1,14 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.interfaces.core.web.CredentialController;
-import com.czertainly.api.model.client.credential.CredentialRequestDto;
-import com.czertainly.api.model.client.credential.CredentialUpdateRequestDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.credential.CredentialDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.*;
+import com.otilm.api.interfaces.core.web.CredentialController;
+import com.otilm.api.model.client.credential.CredentialRequestDto;
+import com.otilm.api.model.client.credential.CredentialUpdateRequestDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.credential.CredentialDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;

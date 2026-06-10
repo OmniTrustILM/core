@@ -1,11 +1,11 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.acme.AcmeProfileEditRequestDto;
-import com.czertainly.api.model.client.acme.AcmeProfileRequestDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.core.acme.AcmeProfileDto;
-import com.czertainly.api.model.core.acme.AcmeProfileListDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.acme.AcmeProfileEditRequestDto;
+import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.acme.AcmeProfileDto;
+import com.otilm.api.model.core.acme.AcmeProfileListDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 

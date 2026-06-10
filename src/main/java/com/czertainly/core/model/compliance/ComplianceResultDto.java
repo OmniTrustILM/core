@@ -1,6 +1,6 @@
 package com.czertainly.core.model.compliance;
 
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;

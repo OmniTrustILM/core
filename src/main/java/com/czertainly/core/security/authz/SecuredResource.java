@@ -1,8 +1,8 @@
 package com.czertainly.core.security.authz;
 
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
 import lombok.Getter;
 
 import java.util.Arrays;

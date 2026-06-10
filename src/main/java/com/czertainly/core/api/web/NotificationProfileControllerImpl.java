@@ -1,16 +1,16 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.NotificationProfileController;
-import com.czertainly.api.model.client.notification.NotificationProfileDetailDto;
-import com.czertainly.api.model.client.notification.NotificationProfileRequestDto;
-import com.czertainly.api.model.client.notification.NotificationProfileResponseDto;
-import com.czertainly.api.model.client.notification.NotificationProfileUpdateRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.NotificationProfileController;
+import com.otilm.api.model.client.notification.NotificationProfileDetailDto;
+import com.otilm.api.model.client.notification.NotificationProfileRequestDto;
+import com.otilm.api.model.client.notification.NotificationProfileResponseDto;
+import com.otilm.api.model.client.notification.NotificationProfileUpdateRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.service.NotificationProfileExternalService;

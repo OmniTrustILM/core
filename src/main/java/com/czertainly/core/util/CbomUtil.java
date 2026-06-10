@@ -6,7 +6,7 @@ import java.util.Optional;
 
 import org.apache.commons.lang3.StringUtils;
 
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationException;
 
 public final class CbomUtil {
     private CbomUtil() {

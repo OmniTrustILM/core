@@ -1,17 +1,17 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.EntityInstanceResponseDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.entity.EntityInstanceUpdateRequestDto;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.entity.EntityInstanceDto;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.EntityInstanceResponseDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.entity.EntityInstanceUpdateRequestDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.entity.EntityInstanceDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
 
@@ -41,7 +41,7 @@ public interface EntityInstanceService extends ResourceExtensionService {
      * @throws AlreadyExistException when Entity instance already exists
      * @throws ConnectorException when failed to create Entity instance
      */
-    EntityInstanceDto createEntityInstance(com.czertainly.api.model.client.entity.EntityInstanceRequestDto entityInstanceRequestDto) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
+    EntityInstanceDto createEntityInstance(com.otilm.api.model.client.entity.EntityInstanceRequestDto entityInstanceRequestDto) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
 
     /**
      * Update Entity instance

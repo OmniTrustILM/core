@@ -1,18 +1,18 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.oid.*;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.oid.*;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.dao.entity.oid.*;
 import com.czertainly.core.dao.repository.CustomOidEntryRepository;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.oid.OidHandler;
 import com.czertainly.core.oid.OidRecord;
 import com.czertainly.core.security.authz.ExternalAuthorization;

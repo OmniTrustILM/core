@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.messaging.jms.producers.EventProducer;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.util.BaseMessagingIntTest;

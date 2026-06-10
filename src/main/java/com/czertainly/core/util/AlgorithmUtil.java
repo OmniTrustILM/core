@@ -1,6 +1,6 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.exception.ValidationException;
+import com.otilm.api.exception.ValidationException;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,9 +1,9 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.workflows.*;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.workflows.*;
 
 import java.util.List;
 

@@ -1,12 +1,12 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
-import com.czertainly.api.model.core.settings.*;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
-import com.czertainly.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.settings.*;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.czertainly.core.dao.entity.Setting;
 import com.czertainly.core.dao.entity.workflows.Trigger;
 import com.czertainly.core.dao.repository.SettingRepository;

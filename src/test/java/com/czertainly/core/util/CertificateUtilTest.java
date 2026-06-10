@@ -1,7 +1,7 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.core.certificate.QcType;
-import com.czertainly.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.oid.OidHandler;
 import org.bouncycastle.operator.OperatorCreationException;

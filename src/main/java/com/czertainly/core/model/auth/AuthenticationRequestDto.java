@@ -1,6 +1,6 @@
 package com.czertainly.core.model.auth;
 
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;

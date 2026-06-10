@@ -1,7 +1,7 @@
 package com.czertainly.core.util;
 
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 
 import java.util.ArrayList;
 

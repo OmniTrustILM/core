@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.proxy.handler;
 
-import com.czertainly.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 
 /**
  * Handler interface for processing proxy messages by messageType.

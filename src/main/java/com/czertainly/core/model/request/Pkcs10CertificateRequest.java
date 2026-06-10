@@ -1,7 +1,7 @@
 package com.czertainly.core.model.request;
 
-import com.czertainly.api.exception.CertificateRequestException;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.util.CertificateUtil;
 import lombok.Getter;
 import org.bouncycastle.asn1.pkcs.Attribute;

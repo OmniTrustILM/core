@@ -1,6 +1,6 @@
 package com.czertainly.core.dao.repository;
 
-import com.czertainly.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.czertainly.core.dao.entity.oid.CustomOidEntry;
 import org.springframework.data.util.Streamable;
 import org.springframework.stereotype.Repository;

@@ -1,13 +1,13 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.core.auth.AuthResourceDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.auth.UserProfileDetailDto;
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.AuthResourceDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserProfileDetailDto;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.auth.ContextRefreshListener;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationToken;
@@ -795,6 +795,20 @@ class AuthServiceTest extends BaseSpringBootTest {
                         "uuid": "d1c8e5b4-9c3a-4c8e-9b0c-1f2a5e6f7895",
                         "name": "signingProfiles",
                         "displayName": "Signing Profile",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "b31b0ea1-d97f-4ade-895c-a982f4544e1b",
+                                "name": "list",
+                                "displayName": "List"
+                            }
+                        ]
+                    },
+                    {
+                        "uuid": "d1c8e5b4-9c3a-4c8e-9b0c-1f2a5e6f7896",
+                        "name": "signingRecords",
+                        "displayName": "Signing Record",
+                        "listObjectsEndpoint": "/v1/signingRecords/search",
                         "objectAccess": true,
                         "actions": [
                             {

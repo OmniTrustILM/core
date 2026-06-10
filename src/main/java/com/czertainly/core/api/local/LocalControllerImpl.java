@@ -1,14 +1,14 @@
 package com.czertainly.core.api.local;
 
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.local.LocalController;
-import com.czertainly.api.model.client.auth.AddUserRequestDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDetailDto;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.local.LocalController;
+import com.otilm.api.model.client.auth.AddUserRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.LocalAdminExternalService;
 import org.springframework.beans.factory.annotation.Autowired;

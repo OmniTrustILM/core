@@ -1,6 +1,6 @@
 package com.czertainly.core.comparator;
 
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 
 import java.util.Comparator;
 

@@ -1,7 +1,7 @@
 package com.czertainly.core.model.signing.scheme;
 
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 
 /**
  * Sealed interface for the managed-signing branch of the scheme model hierarchy.

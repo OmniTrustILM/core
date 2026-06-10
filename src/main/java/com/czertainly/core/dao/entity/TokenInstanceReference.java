@@ -1,10 +1,10 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceDetailDto;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceDto;
-import com.czertainly.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
+import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.czertainly.core.util.DtoMapper;
 import com.czertainly.core.util.ObjectAccessControlMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;

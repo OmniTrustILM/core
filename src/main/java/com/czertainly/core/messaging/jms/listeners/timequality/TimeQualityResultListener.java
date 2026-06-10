@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners.timequality;
 
-import com.czertainly.api.model.messaging.timequality.TimeQualityResultMessage;
+import com.otilm.api.model.messaging.timequality.TimeQualityResultMessage;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.czertainly.core.messaging.jms.listeners.MessageProcessor;
 import com.czertainly.core.signing.tsa.timequality.NtpServerResult;

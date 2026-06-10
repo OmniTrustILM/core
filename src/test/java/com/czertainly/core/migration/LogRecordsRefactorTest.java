@@ -1,10 +1,10 @@
 package com.czertainly.core.migration;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.records.LogRecord;
-import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.repository.AuditLogRepository;
 import db.migration.V202509191412__LogRecordsRefactor;

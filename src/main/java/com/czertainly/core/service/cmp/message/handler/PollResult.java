@@ -1,6 +1,6 @@
 package com.czertainly.core.service.cmp.message.handler;
 
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 
 /**
@@ -27,7 +27,7 @@ import com.czertainly.core.dao.entity.Certificate;
  * <p>Timeout is intentionally not represented here: it is a system-level condition
  * (the polling thread did not observe a state transition within the configured budget),
  * not a domain outcome, and is signalled by a checked
- * {@link com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException} on the
+ * {@link com.otilm.api.interfaces.core.cmp.error.CmpProcessingException} on the
  * polling method.</p>
  */
 public sealed interface PollResult {

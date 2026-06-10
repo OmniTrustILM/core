@@ -1,7 +1,7 @@
 package com.czertainly.core.service.cmp.message.handler;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.czertainly.api.model.core.certificate.CertificateState;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.CertificateContent;
 import com.czertainly.core.dao.entity.cmp.CmpTransaction;

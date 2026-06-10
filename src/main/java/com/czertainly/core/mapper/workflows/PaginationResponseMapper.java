@@ -1,6 +1,6 @@
 package com.czertainly.core.mapper.workflows;
 
-import com.czertainly.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.PaginationResponseDto;
 import org.springframework.data.domain.Page;
 
 import java.util.List;

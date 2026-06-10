@@ -1,6 +1,6 @@
 package com.czertainly.core.model.signing.workflow;
 
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 
 import java.util.List;
 

@@ -1,8 +1,8 @@
 package com.czertainly.core.model.signing.scheme;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

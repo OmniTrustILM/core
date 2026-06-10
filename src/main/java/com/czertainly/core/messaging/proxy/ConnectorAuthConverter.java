@@ -1,14 +1,14 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.BaseApiClient;
-import com.czertainly.api.clients.mq.model.ConnectorAuth;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.common.attribute.v2.content.BaseAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.FileAttributeContentV2;
-import com.czertainly.api.model.common.attribute.v2.content.SecretAttributeContentV2;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
-import com.czertainly.core.util.AttributeDefinitionUtils;
+import com.otilm.api.clients.BaseApiClient;
+import com.otilm.api.clients.mq.model.ConnectorAuth;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

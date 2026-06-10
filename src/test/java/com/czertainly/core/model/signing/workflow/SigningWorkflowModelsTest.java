@@ -1,8 +1,8 @@
 package com.czertainly.core.model.signing.workflow;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

@@ -1,7 +1,7 @@
 package com.czertainly.core.events.handlers;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.czertainly.core.dao.repository.CertificateRepository;
@@ -11,7 +11,7 @@ import com.czertainly.core.events.data.EventDataBuilder;
 import com.czertainly.core.messaging.model.EventMessage;
 import com.czertainly.core.messaging.model.NotificationMessage;
 import com.czertainly.core.messaging.model.NotificationRecipient;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 

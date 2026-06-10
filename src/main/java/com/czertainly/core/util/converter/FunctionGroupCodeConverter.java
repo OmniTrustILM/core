@@ -1,6 +1,6 @@
 package com.czertainly.core.util.converter;
 
-import com.czertainly.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 
 import java.beans.PropertyEditorSupport;
 

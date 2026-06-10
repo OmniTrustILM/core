@@ -1,49 +1,53 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.czertainly.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.AlreadyExistException;
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.exception.ConnectorException;
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.ValidationError;
-import com.czertainly.api.exception.ValidationException;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.attribute.ResponseAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.signing.profile.SimplifiedSigningProfileDto;
-import com.czertainly.api.model.client.signing.profile.workflow.*;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.client.signing.profile.SigningProfileDto;
-import com.czertainly.api.model.client.signing.profile.SigningProfileListDto;
-import com.czertainly.api.model.client.signing.profile.SigningProfileRequestDto;
-import com.czertainly.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningRequestSchemeInterface;
-import com.czertainly.api.model.client.signing.profile.scheme.ManagedSigningType;
-import com.czertainly.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningScheme;
-import com.czertainly.api.model.client.signing.profile.scheme.SigningSchemeRequestDto;
-import com.czertainly.api.model.client.signing.profile.scheme.StaticKeyManagedSigningRequestDto;
-import com.czertainly.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
-import com.czertainly.api.model.common.BulkActionMessageDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.certificate.CertificateDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.*;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
+import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningRequestSchemeInterface;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.scheme.SigningSchemeRequestDto;
+import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningRequestDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.czertainly.core.comparator.SearchFieldDataComparator;
 import com.czertainly.core.config.cache.CacheConfig;
 import com.czertainly.core.config.cache.CacheEvictor;
 import com.czertainly.core.enums.FilterField;
+import com.czertainly.core.service.*;
 import com.czertainly.core.model.signing.SigningProfileModel;
 import com.czertainly.core.util.SearchHelper;
-import com.czertainly.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.AttributeOperation;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -59,23 +63,16 @@ import com.czertainly.core.dao.repository.signing.SigningProfileRepository;
 import com.czertainly.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.czertainly.core.service.writer.SigningProfileWriter;
 import com.czertainly.core.dao.repository.signing.TimeQualityConfigurationRepository;
-import com.czertainly.api.model.client.connector.v2.ConnectorInterface;
-import com.czertainly.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.czertainly.core.dao.entity.Connector;
 import com.czertainly.core.dao.entity.RaProfile;
 import com.czertainly.core.dao.entity.TokenProfile;
 import com.czertainly.core.mapper.signing.SigningProfileMapper;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredUUID;
 import com.czertainly.core.security.authz.SecurityFilter;
-import com.czertainly.core.service.CertificateService;
-import com.czertainly.core.service.ConnectorService;
-import com.czertainly.core.service.CryptographicOperationService;
-import com.czertainly.core.service.RaProfileService;
-import com.czertainly.core.service.SigningProfileService;
-import com.czertainly.core.service.TokenProfileService;
-import com.czertainly.core.service.TspProfileService;
 import com.czertainly.core.service.model.SecuredList;
 import com.czertainly.core.util.CertificateEligibilityUtil;
 import com.czertainly.core.util.FilterPredicatesBuilder;
@@ -114,6 +111,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private ConnectorService connectorService;
     private TokenProfileService tokenProfileService;
     private RaProfileService raProfileService;
+    private SigningRecordService signingRecordService;
+
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SigningProfileRepository signingProfileRepository;
     private SigningProfileVersionRepository signingProfileVersionRepository;
@@ -123,6 +122,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
     private CacheEvictor cacheEvictor;
+    private ClusterOperationSynchronizer clusterSynchronizer;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -330,6 +330,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         v1.setVersion(1);
         applyWorkflow(profile, v1, request.getWorkflow());
         applyScheme(profile, v1, request.getSigningScheme());
+        applyRecordPolicyToVersion(v1, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         v1.setSigningProfile(profile);
         signingProfileVersionRepository.save(v1);
@@ -358,8 +359,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Transactional
     SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request, List<BaseAttribute> formatterDefinitions)
             throws AlreadyExistException, AttributeException, NotFoundException {
-        // Acquire advisory lock before the bump decision to prevent race conditions
-        signingProfileVersionRepository.acquireAdvisoryLock("signing-profile:" + uuid.getValue());
+        // Serialize the bump decision per profile to prevent concurrent updates from racing.
+        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
 
         SigningProfile profile = findByUuid(uuid);
         // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
@@ -373,14 +374,27 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
 
-        int nextVersion = profile.getLatestVersion() + 1;
-        profile.setLatestVersion(nextVersion);
-        SigningProfileVersion version = new SigningProfileVersion();
+        // Lenient version bump: bump if signing records exist for the current version, or if record policy fields changed.
+        int latestVersion = profile.getLatestVersion();
+        SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
+                .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
+        boolean recordsExist = signingRecordService.doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
+        boolean policyRecordDifferent = recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
+        boolean bump = recordsExist || policyRecordDifferent;
+
+        SigningProfileVersion version;
+        if (bump) {
+            profile.setLatestVersion(profile.getLatestVersion() + 1);
+            version = new SigningProfileVersion();
+        } else {
+            version = currentVersion;
+        }
         version.setSigningProfile(profile);
-        version.setVersion(nextVersion);
+        version.setVersion(profile.getLatestVersion());
 
         applyWorkflow(profile, version, request.getWorkflow());
         applyScheme(profile, version, request.getSigningScheme());
+        applyRecordPolicyToVersion(version, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
 
@@ -436,6 +450,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                             "Cannot delete Signing Profile: used as default signing profile by TSP Profiles (%d): %s",
                             tspProfiles.size(),
                             tspProfiles.getAllowed().stream().map(TspProfile::getName).collect(Collectors.joining(", "))
+                    ))
+            );
+        }
+
+        if (signingRecordService.doesSigningRecordExistForProfileInternal(signingProfile.getUuid())) {
+            throw new ValidationException(
+                    ValidationError.create(String.format(
+                            "Cannot delete Signing Profile '%s': it has signing records. Delete the signing records first.",
+                            signingProfile.getName()
                     ))
             );
         }
@@ -686,6 +709,36 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         }
     }
 
+    private boolean recordPolicyDiffersFromVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
+        if (p == null)
+            return false;
+        return v.isRecordingEnabled() != p.isRecordingEnabled()
+                || v.isRecordRequestMetadata() != p.isRecordRequestMetadata()
+                || v.isRecordSignature() != p.isRecordSignature()
+                || v.isRecordSignedDocument() != p.isRecordSignedDocument()
+                || v.isRecordDtbs() != p.isRecordDtbs()
+                || !Objects.equals(v.getRetentionDays(), p.getRetentionDays())
+                || v.isDeleteAfterRetrieval() != p.isDeleteAfterRetrieval()
+                || resolvePersistenceMode(p) != v.getPersistenceMode();
+    }
+
+    private void applyRecordPolicyToVersion(SigningProfileVersion v, SigningRecordPolicyRequestDto p) {
+        if (p == null)
+            return;
+        v.setRecordingEnabled(p.isRecordingEnabled());
+        v.setRecordRequestMetadata(p.isRecordRequestMetadata());
+        v.setRecordSignature(p.isRecordSignature());
+        v.setRecordSignedDocument(p.isRecordSignedDocument());
+        v.setRecordDtbs(p.isRecordDtbs());
+        v.setRetentionDays(p.getRetentionDays());
+        v.setDeleteAfterRetrieval(p.isDeleteAfterRetrieval());
+        v.setPersistenceMode(resolvePersistenceMode(p));
+    }
+
+    private SigningRecordPersistenceMode resolvePersistenceMode(SigningRecordPolicyRequestDto p) {
+        return p.getPersistenceMode() != null ? p.getPersistenceMode() : SigningRecordPersistenceMode.DEFERRED_DURABLE;
+    }
+
     private void validateFormatterConnectorFeature(Connector connector, FeatureFlag requiredFeature, SigningWorkflowType workflowType) {
         boolean hasFeature = connector.getInterfaces().stream()
                 .filter(i -> ConnectorInterface.SIGNATURE_FORMATTING.equals(i.getInterfaceCode()))
@@ -904,6 +957,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
+    public void setSigningRecordService(SigningRecordService signingRecordService) {
+        this.signingRecordService = signingRecordService;
+    }
+
+    @Autowired
     @Lazy
     public void setTspProfileService(TspProfileService tspProfileService) {
         this.tspProfileService = tspProfileService;
@@ -912,5 +970,10 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
         this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setClusterSynchronizer(ClusterOperationSynchronizer clusterSynchronizer) {
+        this.clusterSynchronizer = clusterSynchronizer;
     }
 }

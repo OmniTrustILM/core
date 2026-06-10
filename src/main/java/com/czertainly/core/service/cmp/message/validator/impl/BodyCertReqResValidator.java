@@ -1,7 +1,7 @@
 package com.czertainly.core.service.cmp.message.validator.impl;
 
-import com.czertainly.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.czertainly.api.interfaces.core.cmp.error.CmpCrmfValidationException;
+import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.czertainly.core.service.cmp.configurations.ConfigurationContext;
 import com.czertainly.core.service.cmp.message.PkiMessageDumper;
 import com.czertainly.core.service.cmp.message.validator.BiValidator;

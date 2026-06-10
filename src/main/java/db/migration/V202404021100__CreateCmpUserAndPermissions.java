@@ -1,8 +1,8 @@
 package db.migration;
 
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.model.core.auth.*;
 import com.czertainly.core.model.auth.Resource;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.RoleManagementApiClient;

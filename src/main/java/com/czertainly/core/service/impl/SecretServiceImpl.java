@@ -1,30 +1,30 @@
 package com.czertainly.core.service.impl;
 
 import com.czertainly.core.client.ConnectorApiFactory;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.client.certificate.SearchFilterRequestDto;
-import com.czertainly.api.model.client.certificate.SearchRequestDto;
-import com.czertainly.api.model.client.dashboard.StatisticsDto;
-import com.czertainly.api.model.common.NameAndUuidDto;
-import com.czertainly.api.model.common.PaginationResponseDto;
-import com.czertainly.api.model.common.attribute.common.AttributeType;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.czertainly.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
-import com.czertainly.api.model.common.error.ErrorCode;
-import com.czertainly.api.model.connector.secrets.*;
-import com.czertainly.api.model.connector.secrets.content.*;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.auth.UserDto;
-import com.czertainly.api.model.core.connector.v2.ConnectorDetailDto;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
-import com.czertainly.api.model.core.search.FilterFieldSource;
-import com.czertainly.api.model.core.search.SearchFieldDataByGroupDto;
-import com.czertainly.api.model.core.search.SearchFieldDataDto;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
-import com.czertainly.api.model.core.secret.*;
-import com.czertainly.api.model.core.secret.SecretRequestDto;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.dashboard.StatisticsDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.connector.secrets.*;
+import com.otilm.api.model.connector.secrets.content.*;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.secret.*;
+import com.otilm.api.model.core.secret.SecretRequestDto;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.czertainly.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -35,7 +35,7 @@ import com.czertainly.core.enums.FilterField;
 import com.czertainly.core.messaging.model.ActionMessage;
 import com.czertainly.core.messaging.model.SecretActionData;
 import com.czertainly.core.messaging.jms.producers.ActionProducer;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.ExternalAuthorization;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -176,7 +176,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.SECRET_NAME),
-                SearchHelper.prepareSearch(FilterField.SECRET_TYPE, Arrays.stream(com.czertainly.api.model.connector.secrets.SecretType.values()).map(com.czertainly.api.model.connector.secrets.SecretType::getCode).toList()),
+                SearchHelper.prepareSearch(FilterField.SECRET_TYPE, Arrays.stream(com.otilm.api.model.connector.secrets.SecretType.values()).map(com.otilm.api.model.connector.secrets.SecretType::getCode).toList()),
                 SearchHelper.prepareSearch(FilterField.SECRET_STATE, Arrays.stream(SecretState.values()).map(SecretState::getCode).toList()),
                 SearchHelper.prepareSearch(FilterField.SECRET_ENABLED),
                 SearchHelper.prepareSearch(FilterField.SECRET_COMPLIANCE_STATUS, Arrays.stream(ComplianceStatus.values()).map(ComplianceStatus::getCode).toList()),
@@ -456,7 +456,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
     private void deleteSecretFromVault(VaultProfile profile, Secret secret, List<RequestAttribute> secretAttributes) throws NotFoundException, ConnectorException, AttributeException {
         UUID connectorUuid = profile.getVaultInstance().getConnectorUuid();
 
-        var secretRequestDto = new com.czertainly.api.model.connector.secrets.SecretRequestDto();
+        var secretRequestDto = new com.otilm.api.model.connector.secrets.SecretRequestDto();
         ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, profile, secret, secretAttributes, secretRequestDto);
         try {
             connectorApiFactory.getSecretApiClient(connectorDetailDto).deleteSecret(connectorDetailDto, secretRequestDto);
@@ -603,7 +603,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
 
         UUID connectorUuid = secret.getSourceVaultProfile().getVaultInstance().getConnectorUuid();
 
-        var secretRequestDto = new com.czertainly.api.model.connector.secrets.SecretRequestDto();
+        var secretRequestDto = new com.otilm.api.model.connector.secrets.SecretRequestDto();
         var secretAttributes = attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.SECRET, secret.getUuid()).connector(connectorUuid).build());
         ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(), secret, secretAttributes, secretRequestDto);
         SecretContentResponseDto secretContent = connectorApiFactory.getSecretApiClient(connectorDetailDto).getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());
@@ -858,7 +858,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
         return connectorApiFactory.getSecretApiClient(connectorDetailDto).updateSecret(connectorDetailDto, updateSecretRequestDto);
     }
 
-    private ConnectorDetailDto loadSecretRequestDto(UUID connectorUuid, VaultProfile vaultProfile, Secret secret, List<RequestAttribute> secretAttributes, com.czertainly.api.model.connector.secrets.SecretRequestDto secretRequestDto) throws ConnectorException, NotFoundException, AttributeException {
+    private ConnectorDetailDto loadSecretRequestDto(UUID connectorUuid, VaultProfile vaultProfile, Secret secret, List<RequestAttribute> secretAttributes, com.otilm.api.model.connector.secrets.SecretRequestDto secretRequestDto) throws ConnectorException, NotFoundException, AttributeException {
         secretRequestDto.setName(secret.getName());
         secretRequestDto.setType(secret.getType());
         secretRequestDto.setMetadata(attributeEngine.getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo.builder(Resource.SECRET, secret.getUuid()).connector(connectorUuid).build()));

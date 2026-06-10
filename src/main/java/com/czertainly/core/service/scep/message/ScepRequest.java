@@ -1,9 +1,9 @@
 package com.czertainly.core.service.scep.message;
 
-import com.czertainly.api.exception.ScepException;
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.core.scep.FailInfo;
-import com.czertainly.api.model.core.scep.MessageType;
+import com.otilm.api.exception.ScepException;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.api.model.core.scep.MessageType;
 import com.czertainly.core.provider.key.CzertainlyPrivateKey;
 import org.bouncycastle.asn1.*;
 import org.bouncycastle.asn1.cms.*;

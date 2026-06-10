@@ -1,6 +1,6 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

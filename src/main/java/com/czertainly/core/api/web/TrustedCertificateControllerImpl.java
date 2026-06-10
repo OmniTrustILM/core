@@ -1,13 +1,13 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.interfaces.core.web.TrustedCertificateController;
-import com.czertainly.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
-import com.czertainly.api.model.client.trustedcertificate.TrustedCertificateDto;
-import com.czertainly.api.model.common.UuidDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.web.TrustedCertificateController;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateRequestDto;
+import com.otilm.api.model.client.trustedcertificate.TrustedCertificateDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.auth.AuthEndpoint;
 import com.czertainly.core.logging.LogResource;

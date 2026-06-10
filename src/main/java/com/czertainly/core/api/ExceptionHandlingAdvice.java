@@ -1,10 +1,10 @@
 package com.czertainly.core.api;
 
-import com.czertainly.api.exception.*;
-import com.czertainly.api.model.common.AuthenticationServiceExceptionDto;
-import com.czertainly.api.model.common.ErrorMessageDto;
-import com.czertainly.api.model.core.acme.ProblemDocument;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.*;
+import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
+import com.otilm.api.model.common.ErrorMessageDto;
+import com.otilm.api.model.core.acme.ProblemDocument;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;
 import com.czertainly.core.security.exception.AuthenticationServiceException;
 import com.czertainly.core.util.AuthHelper;

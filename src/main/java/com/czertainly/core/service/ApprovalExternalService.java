@@ -1,11 +1,11 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.approval.ApprovalDetailDto;
-import com.czertainly.api.model.client.approval.ApprovalResponseDto;
-import com.czertainly.api.model.client.approval.UserApprovalDto;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.approval.ApprovalDetailDto;
+import com.otilm.api.model.client.approval.ApprovalResponseDto;
+import com.otilm.api.model.client.approval.UserApprovalDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.czertainly.core.security.authz.SecurityFilter;
 
 import java.util.UUID;

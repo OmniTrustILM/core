@@ -1,11 +1,11 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.model.ConnectorResponse;
-import com.czertainly.api.clients.mq.model.CoreMessage;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.connector.ConnectorDto;
-import com.czertainly.api.model.core.proxy.ProxyDto;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.CoreMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorDto;
+import com.otilm.api.model.core.proxy.ProxyDto;
 import com.czertainly.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

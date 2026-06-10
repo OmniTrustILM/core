@@ -1,12 +1,12 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.enums.BitMaskEnum;
-import com.czertainly.api.model.common.enums.IPlatformEnum;
-import com.czertainly.api.model.core.certificate.*;
-import com.czertainly.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.common.enums.IPlatformEnum;
+import com.otilm.api.model.core.certificate.*;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.czertainly.core.model.compliance.ComplianceResultDto;
-import com.czertainly.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.czertainly.core.mapper.certificate.CertificateDetailDtoMapper;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.annotation.JsonBackReference;

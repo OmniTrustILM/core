@@ -1,8 +1,8 @@
 package com.czertainly.core.security.authn.client;
 
-import com.czertainly.api.model.core.logging.enums.*;
-import com.czertainly.api.model.core.settings.SettingsSection;
-import com.czertainly.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.api.model.core.logging.enums.*;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.czertainly.core.logging.LoggingHelper;
 import com.czertainly.core.model.auth.AuthenticationRequestDto;
 import com.czertainly.core.security.authn.CzertainlyAuthenticationException;

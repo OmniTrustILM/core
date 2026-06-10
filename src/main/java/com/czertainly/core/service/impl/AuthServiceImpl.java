@@ -1,10 +1,10 @@
 package com.czertainly.core.service.impl;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.model.client.auth.UpdateUserRequestDto;
-import com.czertainly.api.model.core.auth.*;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.core.auth.*;
 import com.czertainly.core.auth.ContextRefreshListener;
-import com.czertainly.core.model.auth.ResourceAction;
+import com.otilm.core.model.auth.ResourceAction;
 import com.czertainly.core.security.authn.client.ResourceApiClient;
 import com.czertainly.core.security.authn.client.UserManagementApiClient;
 import com.czertainly.core.security.authz.AnyPrincipalEndpoint;

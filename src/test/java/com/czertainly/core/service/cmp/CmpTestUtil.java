@@ -1,8 +1,8 @@
 package com.czertainly.core.service.cmp;
 
-import com.czertainly.api.model.common.attribute.v2.BaseAttributeV2;
-import com.czertainly.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.czertainly.api.model.connector.cryptography.operations.data.SignatureResponseData;
+import com.otilm.api.model.common.attribute.v2.BaseAttributeV2;
+import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.connector.cryptography.operations.data.SignatureResponseData;
 import com.czertainly.core.service.cmp.mock.CertTestUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;

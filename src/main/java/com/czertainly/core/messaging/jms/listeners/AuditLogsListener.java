@@ -1,7 +1,7 @@
 package com.czertainly.core.messaging.jms.listeners;
 
-import com.czertainly.api.model.core.logging.records.LogRecord;
-import com.czertainly.api.model.core.logging.records.ResourceRecord;
+import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.czertainly.core.logging.AuditLogEnhancer;
 import com.czertainly.core.messaging.model.AuditLogMessage;
 import com.czertainly.core.service.AuditLogInternalService;

@@ -1,8 +1,8 @@
 package com.czertainly.core.auth;
 
-import com.czertainly.api.exception.AttributeException;
-import com.czertainly.api.model.common.attribute.common.BaseAttribute;
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.attribute.CoreAttributeDefinitions;
 import com.czertainly.core.attribute.engine.AttributeEngine;
 import com.czertainly.core.model.auth.ResourceSyncRequestDto;

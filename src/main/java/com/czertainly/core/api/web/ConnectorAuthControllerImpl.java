@@ -1,12 +1,12 @@
 package com.czertainly.core.api.web;
 
-import com.czertainly.api.interfaces.core.web.ConnectorAuthController;
-import com.czertainly.api.model.client.attribute.RequestAttribute;
-import com.czertainly.api.model.common.attribute.common.DataAttribute;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.connector.AuthType;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.interfaces.core.web.ConnectorAuthController;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.czertainly.core.aop.AuditLogged;
 import com.czertainly.core.service.ConnectorAuthExternalService;
 import org.springframework.beans.factory.annotation.Autowired;

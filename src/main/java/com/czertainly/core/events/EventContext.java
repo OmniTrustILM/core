@@ -1,7 +1,7 @@
 package com.czertainly.core.events;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.czertainly.core.dao.entity.UniquelyIdentifiedObject;
 import com.czertainly.core.evaluator.TriggerEvaluator;
 import com.czertainly.core.messaging.model.EventMessage;

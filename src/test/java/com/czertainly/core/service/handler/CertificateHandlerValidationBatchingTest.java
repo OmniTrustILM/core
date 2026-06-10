@@ -1,6 +1,6 @@
 package com.czertainly.core.service.handler;
 
-import com.czertainly.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.Resource;
 import com.czertainly.core.events.transaction.CertificateValidationEvent;
 import com.czertainly.core.messaging.jms.producers.ValidationProducer;
 import com.czertainly.core.messaging.model.ValidationMessage;

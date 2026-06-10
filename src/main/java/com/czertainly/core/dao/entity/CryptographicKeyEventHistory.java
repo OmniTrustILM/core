@@ -1,8 +1,8 @@
 package com.czertainly.core.dao.entity;
 
-import com.czertainly.api.model.core.cryptography.key.KeyEvent;
-import com.czertainly.api.model.core.cryptography.key.KeyEventHistoryDto;
-import com.czertainly.api.model.core.cryptography.key.KeyEventStatus;
+import com.otilm.api.model.core.cryptography.key.KeyEvent;
+import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
+import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.czertainly.core.util.DtoMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;

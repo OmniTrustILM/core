@@ -1,8 +1,8 @@
 package com.czertainly.core.aop;
 
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.enums.Module;
-import com.czertainly.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

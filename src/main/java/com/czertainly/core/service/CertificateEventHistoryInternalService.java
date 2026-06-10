@@ -1,7 +1,7 @@
 package com.czertainly.core.service;
 
-import com.czertainly.api.model.core.certificate.CertificateEvent;
-import com.czertainly.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateEvent;
+import com.otilm.api.model.core.certificate.CertificateEventStatus;
 
 import java.util.HashMap;
 import java.util.UUID;

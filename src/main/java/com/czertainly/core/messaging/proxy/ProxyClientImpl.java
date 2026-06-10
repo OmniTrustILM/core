@@ -1,12 +1,12 @@
 package com.czertainly.core.messaging.proxy;
 
-import com.czertainly.api.clients.mq.ProxyClient;
-import com.czertainly.api.clients.mq.model.ConnectorRequest;
-import com.czertainly.api.clients.mq.model.ConnectorResponse;
-import com.czertainly.api.clients.mq.model.CoreMessage;
-import com.czertainly.api.clients.mq.model.ProxyMessage;
-import com.czertainly.api.exception.*;
-import com.czertainly.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.clients.mq.ProxyClient;
+import com.otilm.api.clients.mq.model.ConnectorRequest;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.CoreMessage;
+import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.api.exception.*;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

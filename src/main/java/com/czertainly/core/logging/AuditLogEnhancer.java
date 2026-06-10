@@ -1,9 +1,9 @@
 package com.czertainly.core.logging;
 
-import com.czertainly.api.exception.NotFoundException;
-import com.czertainly.api.exception.NotSupportedException;
-import com.czertainly.api.model.core.auth.Resource;
-import com.czertainly.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.czertainly.core.service.ResourceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;

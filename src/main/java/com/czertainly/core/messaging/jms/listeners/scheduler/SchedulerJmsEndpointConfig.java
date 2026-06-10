@@ -1,6 +1,6 @@
 package com.czertainly.core.messaging.jms.listeners.scheduler;
 
-import com.czertainly.api.model.scheduler.SchedulerJobExecutionMessage;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionMessage;
 import com.czertainly.core.messaging.jms.configuration.MessagingConcurrencyProperties;
 import com.czertainly.core.messaging.jms.configuration.MessagingProperties;
 import com.czertainly.core.messaging.jms.listeners.AbstractJmsEndpointConfig;

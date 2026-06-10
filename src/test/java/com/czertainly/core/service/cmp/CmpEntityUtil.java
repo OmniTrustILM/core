@@ -1,13 +1,13 @@
 package com.czertainly.core.service.cmp;
 
-import com.czertainly.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.api.model.common.enums.cryptography.KeyType;
-import com.czertainly.api.model.core.certificate.CertificateState;
-import com.czertainly.api.model.core.certificate.CertificateValidationStatus;
-import com.czertainly.api.model.core.cmp.CmpProfileVariant;
-import com.czertainly.api.model.core.cmp.CmpTransactionState;
-import com.czertainly.api.model.core.cmp.ProtectionMethod;
-import com.czertainly.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.cmp.CmpProfileVariant;
+import com.otilm.api.model.core.cmp.CmpTransactionState;
+import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.czertainly.core.dao.entity.*;
 import com.czertainly.core.dao.entity.cmp.CmpProfile;
 import com.czertainly.core.dao.entity.cmp.CmpTransaction;
