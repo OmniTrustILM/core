@@ -5,7 +5,6 @@ import com.otilm.api.exception.ValidationException;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class SecuredUUID {
@@ -36,15 +35,15 @@ public class SecuredUUID {
     }
 
     public static List<SecuredUUID> fromList(List<String> values) {
-        return values.stream().map(SecuredUUID::fromString).collect(Collectors.toList());
+        return values.stream().map(SecuredUUID::fromString).toList();
     }
 
     public static List<SecuredUUID> asList(String... values) {
-        return Stream.of(values).map(SecuredUUID::fromString).collect(Collectors.toList());
+        return Stream.of(values).map(SecuredUUID::fromString).toList();
     }
 
     public static List<SecuredUUID> fromUuidList(List<UUID> values) {
-        return values.stream().map(SecuredUUID::fromUUID).collect(Collectors.toList());
+        return values.stream().map(SecuredUUID::fromUUID).toList();
     }
 
     public UUID getValue() {

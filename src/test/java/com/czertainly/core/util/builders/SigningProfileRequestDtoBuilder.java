@@ -10,7 +10,6 @@ import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 public class SigningProfileRequestDtoBuilder {
 
@@ -96,9 +95,9 @@ public class SigningProfileRequestDtoBuilder {
     }
 
     public SigningProfileRequestDtoBuilder withContentSigning(UUID signatureFormatterConnectorUuid) {
-        ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(signatureFormatterConnectorUuid);
-        return withWorkflow(workflow);
+        ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
+        contentSigningWorkflow.setSignatureFormatterConnectorUuid(signatureFormatterConnectorUuid);
+        return withWorkflow(contentSigningWorkflow);
     }
 
     public SigningProfileRequestDtoBuilder withContentSigning(ContentSigningWorkflowRequestDto workflow) {
@@ -182,7 +181,7 @@ public class SigningProfileRequestDtoBuilder {
     private static List<RequestAttribute> requestAttributesFromResponse(List<ResponseAttribute> attrs) {
         if (attrs == null)
             return null;
-        return attrs.stream().map(SigningProfileRequestDtoBuilder::requestAttributeFromResponse).collect(Collectors.toList());
+        return attrs.stream().map(SigningProfileRequestDtoBuilder::requestAttributeFromResponse).toList();
     }
 
     private static RequestAttribute requestAttributeFromResponse(ResponseAttribute attr) {

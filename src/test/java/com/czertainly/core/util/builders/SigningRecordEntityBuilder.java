@@ -92,24 +92,24 @@ public class SigningRecordEntityBuilder {
     }
 
     public SigningRecord build() {
-        SigningRecord record = new SigningRecord();
-        record.setUuid(UUID.randomUUID());
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.randomUUID());
         UUID profileUuid = signingProfileUuid != null
                 ? signingProfileUuid
                 : (signingProfile != null ? UUID.fromString(signingProfile.getUuid()) : null);
         if (profileUuid != null) {
-            record.setSigningProfileUuid(profileUuid);
+            signingRecord.setSigningProfileUuid(profileUuid);
         }
-        record.setName(name != null ? name : (signingProfile != null ? signingProfile.getName() : null));
-        record.setSigningProfileVersion(version);
-        record.setSigningTime(signingTime);
-        record.setSignatureValue(signatureValue);
-        record.setDtbs(dtbs);
-        record.setSignedDocument(signedDocument);
-        record.setRequestMetadataJson(requestMetadataJson);
-        record.setRequestedByUuid(requestedByUuid);
-        record.setRequestedByUsername(requestedByUsername);
-        record.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
-        return record;
+        signingRecord.setName(name != null ? name : (signingProfile != null ? signingProfile.getName() : null));
+        signingRecord.setSigningProfileVersion(version);
+        signingRecord.setSigningTime(signingTime);
+        signingRecord.setSignatureValue(signatureValue);
+        signingRecord.setDtbs(dtbs);
+        signingRecord.setSignedDocument(signedDocument);
+        signingRecord.setRequestMetadataJson(requestMetadataJson);
+        signingRecord.setRequestedByUuid(requestedByUuid);
+        signingRecord.setRequestedByUsername(requestedByUsername);
+        signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
+        return signingRecord;
     }
 }

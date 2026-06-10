@@ -509,7 +509,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void nonExistentVersion_throwsNotFoundException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void nonExistentVersion_throwsNotFoundException() {
             // given: a profile with only version 1
             SecuredUUID profileUuid = SecuredUUID.fromString(defaultDelegatedSigningProfile.getUuid());
             int nonExistentVersion = 99;
@@ -578,9 +578,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             );
 
             // when: link a TSP protocol to the profile
-            TspActivationDetailDto activationDetail =
-                    signingProfileService.activateTsp(SecuredUUID.fromString(createdProfile.getUuid()),
-                            SecuredUUID.fromString(defaultTspProtocol.getUuid()));
+            signingProfileService.activateTsp(SecuredUUID.fromString(createdProfile.getUuid()),
+                    SecuredUUID.fromString(defaultTspProtocol.getUuid()));
 
             // then
             SigningProfileDto updatedProfile = signingProfileService.getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -1153,7 +1152,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             }
 
             @Test
-            void withSigningRecords_returnsErrorAndLeavesBlockedProfileIntact() throws NotFoundException {
+            void withSigningRecords_returnsErrorAndLeavesBlockedProfileIntact() {
                 // given: the blocked signing profile has a signing record; the second has none
                 createSigningRecordFor(defaultDelegatedSigningProfile);
                 SecuredUUID blockedProfileUuid = SecuredUUID.fromString(defaultDelegatedSigningProfile.getUuid());
@@ -1189,7 +1188,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             }
 
             @Test
-            void withNonExistentUuid_silentlyIgnoresUnknown() throws NotFoundException {
+            void withNonExistentUuid_silentlyIgnoresUnknown() {
                 // given: a list with one unknown UUID and one valid UUID
                 SecuredUUID knownProfileUuid = SecuredUUID.fromString(defaultDelegatedSigningProfile.getUuid());
                 SecuredUUID unknownProfileUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000099");
@@ -1384,7 +1383,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     class TspProtocol {
 
         @Test
-        void activate_setsLinkOnSigningProfile() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void activate_setsLinkOnSigningProfile() throws AlreadyExistException, AttributeException, NotFoundException {
             // given: a TIMESTAMPING signing profile and a TSP profile
             SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
             TspProfileDto tsp = tspProfileService.createTspProfile(
@@ -1403,7 +1402,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void activate_tspProfileNotFound_throwsNotFoundException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void activate_tspProfileNotFound_throwsNotFoundException() {
             // given: a signing profile, and a TSP UUID that does not exist
             SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
             SecuredUUID nonExistentTspUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -1416,7 +1415,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void activate_replacesExistingLink() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void activate_replacesExistingLink() throws AlreadyExistException, AttributeException, NotFoundException {
             // given: a signing profile linked to tsp1
             SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
             TspProfileDto tsp1 = tspProfileService.createTspProfile(aTspProfileRequest().withName("tsp-profile-1").build());
@@ -1426,7 +1425,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             signingProfileService.activateTsp(timestampingProfileUuid, tsp1Uuid);
 
             // when: replace with tsp2
-            TspActivationDetailDto activationDetail = signingProfileService.activateTsp(timestampingProfileUuid, tsp2Uuid);
+            signingProfileService.activateTsp(timestampingProfileUuid, tsp2Uuid);
 
             // then: tsp2 is the active TSP (signing URL references its UUID, not tsp1's)
             assertTrue(signingProfileService.getSigningProfile(timestampingProfileUuid, null)
@@ -1435,7 +1434,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void activate_rawWorkflow_throwsValidationException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void activate_rawWorkflow_throwsValidationException() {
             // given: a signing profile with RAW_SIGNING workflow (does not support TSP)
             SecuredUUID rawSingingProfileUuid = SecuredUUID.fromString(defaultRawSigningProfile.getUuid());
             SecuredUUID tspUuid = SecuredUUID.fromString(defaultTspProtocol.getUuid());
@@ -1448,7 +1447,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void activate_contentSigningWorkflow_throwsValidationException() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void activate_contentSigningWorkflow_throwsValidationException() {
             // given: a signing profile with CONTENT_SIGNING workflow (does not support TSP)
             SecuredUUID contentSigningProfileUuid = SecuredUUID.fromString(defaultContentSigningProfile.getUuid());
             SecuredUUID tspUuid = SecuredUUID.fromString(defaultTspProtocol.getUuid());
@@ -1461,7 +1460,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void deactivate_removesFromEnabledProtocols() throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+        void deactivate_removesFromEnabledProtocols() throws NotFoundException {
             // given: a TIMESTAMPING signing profile linked to a TSP profile
             SecuredUUID profileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
             signingProfileService.activateTsp(profileUuid, SecuredUUID.fromString(defaultTspProtocol.getUuid()));

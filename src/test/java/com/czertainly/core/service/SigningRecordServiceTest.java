@@ -295,7 +295,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             var retrievedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
             var requestedByUuid = UUID.fromString("99999999-9999-9999-9999-999999999999");
             var requestedByUsername = "alice";
-            SigningRecord record = aSigningRecord()
+            SigningRecord signingRecord = aSigningRecord()
                     .withSigningProfile(defaultProfile)
                     .withName(ALPHA_RECORD_V1)
                     .withSigningTime(signingTime)
@@ -307,18 +307,18 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
                     .withRequestedByUsername(requestedByUsername)
                     .withSignedDocumentRetrievedAt(retrievedAt)
                     .build();
-            signingRecordWriter.insert(record);
+            signingRecordWriter.insert(signingRecord);
 
             // when
-            SigningRecordDto dto = signingRecordService.getSigningRecord(SecuredUUID.fromUUID(record.getUuid()));
+            SigningRecordDto dto = signingRecordService.getSigningRecord(SecuredUUID.fromUUID(signingRecord.getUuid()));
 
             // then
-            assertEquals(record.getUuid().toString(), dto.getUuid());
+            assertEquals(signingRecord.getUuid().toString(), dto.getUuid());
             assertEquals(ALPHA_RECORD_V1, dto.getName());
             assertEquals(signingTime, dto.getSigningTime());
-            assertArrayEquals(record.getSignatureValue(), dto.getSignatureValue());
-            assertArrayEquals(record.getDtbs(), dto.getDtbs());
-            assertArrayEquals(record.getSignedDocument(), dto.getSignedDocument());
+            assertArrayEquals(signingRecord.getSignatureValue(), dto.getSignatureValue());
+            assertArrayEquals(signingRecord.getDtbs(), dto.getDtbs());
+            assertArrayEquals(signingRecord.getSignedDocument(), dto.getSignedDocument());
             // requestMetadataJson is stored in a JSONB column, which re-serializes (normalizes whitespace),
             // so assert on content rather than byte-exact equality
             assertTrue(dto.getRequestMetadataJson().contains("\"alg\""));
