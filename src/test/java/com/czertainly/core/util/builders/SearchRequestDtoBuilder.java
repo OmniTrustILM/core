@@ -1,4 +1,4 @@
-package com.czertainly.core.util;
+package com.czertainly.core.util.builders;
 
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -27,35 +27,34 @@ public final class SearchRequestDtoBuilder {
      * An unfiltered request sized to return everything seeded in a test.
      */
     public static SearchRequestDto all() {
-        return aSearchRequest().itemsPerPage(1000).build();
+        return aSearchRequest().withItemsPerPage(1000).build();
     }
 
-    public SearchRequestDtoBuilder itemsPerPage(int itemsPerPage) {
+    public SearchRequestDtoBuilder withItemsPerPage(int itemsPerPage) {
         this.itemsPerPage = itemsPerPage;
         return this;
     }
 
-    public SearchRequestDtoBuilder pageNumber(int pageNumber) {
+    public SearchRequestDtoBuilder withPageNumber(int pageNumber) {
         this.pageNumber = pageNumber;
         return this;
     }
 
-    public SearchRequestDtoBuilder filters(List<SearchFilterRequestDto> filters) {
-        this.filters.clear();
-        this.filters.addAll(filters);
+    public SearchRequestDtoBuilder withFilter(SearchFilterRequestDto filter) {
+        this.filters.add(filter);
         return this;
     }
 
-    public SearchRequestDtoBuilder filter(SearchFilterRequestDto filter) {
-        this.filters.add(filter);
+    public SearchRequestDtoBuilder withFilters(SearchFilterRequestDto... filters) {
+        this.filters.addAll(List.of(filters));
         return this;
     }
 
     /**
      * Adds a single property filter; the most common filter shape in tests.
      */
-    public SearchRequestDtoBuilder propertyFilter(String fieldIdentifier, FilterConditionOperator condition, Serializable value) {
-        return filter(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, fieldIdentifier, condition, value));
+    public SearchRequestDtoBuilder withPropertyFilter(String fieldIdentifier, FilterConditionOperator condition, Serializable value) {
+        return withFilter(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, fieldIdentifier, condition, value));
     }
 
     public SearchRequestDto build() {
