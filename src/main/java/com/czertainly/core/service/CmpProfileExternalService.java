@@ -14,8 +14,6 @@ import java.util.List;
 
 public interface CmpProfileExternalService {
 
-    // TODO: Update the return type and parameters of the methods according to the business logic
-
     /**
      * List all available CMP Profiles
      * @param filter Security Filter
