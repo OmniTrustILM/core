@@ -66,9 +66,6 @@ class AcmeAccountServiceTest extends BaseSpringBootTest {
     private AcmeAccountRepository acmeAccountRepository;
 
     @Autowired
-    private AcmeProfileExternalService acmeProfileService;
-
-    @Autowired
     private AcmeProfileRepository acmeProfileRepository;
 
     private AcmeAccount acmeAccount;
