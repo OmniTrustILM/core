@@ -29,7 +29,7 @@ class CertificateUtilTest {
         }
     }
 
-    private static final String VALID_SAN_STRING = "{\"dNSName\":[\"czertainly.com\"],\"directoryName\":[],\"ediPartyName\":[],\"iPAddress\":[\"192.168.10.10\"],\"otherName\":[\"1.2.3.4=example othername\"],\"registeredID\":[],\"rfc822Name\":[],\"uniformResourceIdentifier\":[],\"x400Address\":[]}";
+    private static final String VALID_SAN_STRING = "{\"dNSName\":[\"domain.com\"],\"directoryName\":[],\"ediPartyName\":[],\"iPAddress\":[\"192.168.10.10\"],\"otherName\":[\"1.2.3.4=example othername\"],\"registeredID\":[],\"rfc822Name\":[],\"uniformResourceIdentifier\":[],\"x400Address\":[]}";
 
     private static final Map<String, List<String>> VALID_SAN_MAP = Map.of(
             "registeredID", List.of(),
@@ -38,7 +38,7 @@ class CertificateUtilTest {
             "x400Address", List.of(),
             "rfc822Name", List.of(),
             "otherName", List.of("1.2.3.4=example othername"),
-            "dNSName", List.of("czertainly.com"),
+            "dNSName", List.of("domain.com"),
             "uniformResourceIdentifier", List.of(),
             "directoryName", List.of()
     );

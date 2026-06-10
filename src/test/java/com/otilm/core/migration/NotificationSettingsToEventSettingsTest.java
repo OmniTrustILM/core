@@ -78,7 +78,7 @@ class NotificationSettingsToEventSettingsTest extends BaseMigrationTest {
             insertStatement.execute("""
                     INSERT INTO setting("uuid","i_author","i_cre","i_upd","section","category","name","value")
                     VALUES
-                    (E'099f1ba9-2b6c-430f-8867-c5fa4ecd53db',E'czertainly-admin',E'2024-08-15 06:47:15.709929',E'2025-04-28 15:13:57.634206',E'NOTIFICATIONS',NULL,E'notificationsMapping',
+                    (E'099f1ba9-2b6c-430f-8867-c5fa4ecd53db',E'admin',E'2024-08-15 06:47:15.709929',E'2025-04-28 15:13:57.634206',E'NOTIFICATIONS',NULL,E'notificationsMapping',
                     E'{"approval_closed":"5a439cf9-9e02-4e26-aae8-cf35d5935b5e","approval_requested":"5a439cf9-9e02-4e26-aae8-cf35d5935b5e","scheduled_job_completed":"5a439cf9-9e02-4e26-aae8-cf35d5935b5e","other":"5a439cf9-9e02-4e26-aae8-cf35d5935b5e","certificate_status_changed":"40ad94ba-c0be-4aca-9a85-f97d561168ce","certificate_action_performed":"5a439cf9-9e02-4e26-aae8-cf35d5935b5e"}');
                     """);
         }

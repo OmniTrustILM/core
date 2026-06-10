@@ -408,7 +408,7 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
 
         ConnectorInfo connectorInfo = new ConnectorInfo();
         connectorInfo.setName(CONNECTOR_NAME);
-        connectorInfo.setId("czertainly.common.credential.provider");
+        connectorInfo.setId("common.credential.provider");
         connectorInfo.setVersion("1.0.0");
 
         InfoResponse infoResponse = new InfoResponse();

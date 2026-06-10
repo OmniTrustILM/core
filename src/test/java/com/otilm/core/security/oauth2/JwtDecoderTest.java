@@ -57,7 +57,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
 
     private KeyPair keyPair;
 
-    private static final String ISSUER_URL = "http://localhost:8082/realms/CZERTAINLY-realm";
+    private static final String ISSUER_URL = "http://localhost:8082/realms/platform-realm";
 
     private OAuth2ProviderSettingsUpdateDto providerSettings;
 
@@ -78,7 +78,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
         generator.initialize(2048);
         keyPair = generator.generateKeyPair();
 
-        mockServer.stubFor(WireMock.get("/realms/CZERTAINLY-realm/.well-known/openid-configuration")
+        mockServer.stubFor(WireMock.get("/realms/platform-realm/.well-known/openid-configuration")
                 .willReturn(aResponse().withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody(String.format("""
@@ -93,7 +93,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
 
         jwkSetJson = "{\"keys\":[" + convertRSAPrivateKeyToJWK((RSAPublicKey) keyPair.getPublic()) + "]}";
 
-        mockServer.stubFor(WireMock.get("/realms/CZERTAINLY-realm/protocol/openid-connect/certs")
+        mockServer.stubFor(WireMock.get("/realms/platform-realm/protocol/openid-connect/certs")
                 .willReturn(aResponse().withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody(jwkSetJson)));
@@ -221,7 +221,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
 
         String invalidJwkSetJson = "{\"keys\":[" + convertRSAPrivateKeyToJWK((RSAPublicKey) invalidKeyPair.getPublic()) + "]}";
 
-        mockServer.stubFor(WireMock.get("/realms/CZERTAINLY-realm/protocol/openid-connect/certs")
+        mockServer.stubFor(WireMock.get("/realms/platform-realm/protocol/openid-connect/certs")
                 .willReturn(aResponse().withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody(invalidJwkSetJson)));

@@ -443,7 +443,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         commonNameAttr.setUuid(UUID.fromString(CsrAttributes.COMMON_NAME_UUID));
         commonNameAttr.setName(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
         commonNameAttr.setContentType(AttributeContentType.STRING);
-        commonNameAttr.setContent(List.of(new StringAttributeContentV2("czertainly.com", "czertainly.com")));
+        commonNameAttr.setContent(List.of(new StringAttributeContentV2("domain.com", "domain.com")));
         attributeEngine.updateObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, csrEntity.getUuid()).build(),
                 List.of(commonNameAttr)
