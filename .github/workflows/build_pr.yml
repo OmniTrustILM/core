@@ -21,6 +21,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Evict SNAPSHOT dependencies from cache
+        run: find ~/.m2/repository -name "*SNAPSHOT*" -type f -delete 2>/dev/null || true
+
       - name: Compile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
