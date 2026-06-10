@@ -36,6 +36,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
 class SigningProfileSearchTest extends BaseSpringBootTest {
 
@@ -201,8 +204,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_equals_returnsSingleMatch() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_NAME.name(),
-                        FilterConditionOperator.EQUALS, "profile-beta"));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_NAME, "profile-beta"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-beta", results.getFirst().getName());
@@ -211,8 +213,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_contains_returnsAllMatches() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_NAME.name(),
-                        FilterConditionOperator.CONTAINS, "profile-"));
+                aPropertyFilter(FilterField.SIGNING_PROFILE_NAME, FilterConditionOperator.CONTAINS, "profile-"));
 
         Assertions.assertEquals(3, results.size());
     }
@@ -220,8 +221,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByName_notContains_excludesMatch() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_NAME.name(),
-                        FilterConditionOperator.NOT_CONTAINS, "beta"));
+                aPropertyFilter(FilterField.SIGNING_PROFILE_NAME, FilterConditionOperator.NOT_CONTAINS, "beta"));
 
         Assertions.assertEquals(2, results.size());
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("profile-beta")));
@@ -234,8 +234,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByEnabled_true_returnsEnabledOnly() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, true));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_ENABLED, true));
 
         Assertions.assertEquals(2, results.size());
         Assertions.assertTrue(results.stream().allMatch(SigningProfileListDto::isEnabled));
@@ -244,8 +243,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByEnabled_false_returnsDisabledOnly() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, false));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_ENABLED, false));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-beta", results.getFirst().getName());
@@ -258,8 +256,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterBySigningScheme_delegated_returnsDelegatedProfiles() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_SIGNING_SCHEME.name(),
-                        FilterConditionOperator.EQUALS, SigningScheme.DELEGATED.getCode()));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_SIGNING_SCHEME, SigningScheme.DELEGATED.getCode()));
 
         Assertions.assertEquals(2, results.size());
         List<String> names = results.stream().map(SigningProfileListDto::getName).toList();
@@ -270,8 +267,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterBySigningScheme_managed_returnsManagedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_SIGNING_SCHEME.name(),
-                        FilterConditionOperator.EQUALS, SigningScheme.MANAGED.getCode()));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_SIGNING_SCHEME, SigningScheme.MANAGED.getCode()));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-beta", results.getFirst().getName());
@@ -284,8 +280,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByWorkflowType_rawSigning_returnsSingleProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_WORKFLOW_TYPE.name(),
-                        FilterConditionOperator.EQUALS, SigningWorkflowType.RAW_SIGNING.getCode()));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_WORKFLOW_TYPE, SigningWorkflowType.RAW_SIGNING.getCode()));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-alpha", results.getFirst().getName());
@@ -294,8 +289,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByWorkflowType_notEquals_excludesType() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_WORKFLOW_TYPE.name(),
-                        FilterConditionOperator.NOT_EQUALS, SigningWorkflowType.CONTENT_SIGNING.getCode()));
+                aPropertyNotEqualsFilter(FilterField.SIGNING_PROFILE_WORKFLOW_TYPE, SigningWorkflowType.CONTENT_SIGNING.getCode()));
 
         Assertions.assertEquals(2, results.size());
         Assertions.assertTrue(results.stream().noneMatch(p -> p.getName().equals("profile-beta")));
@@ -308,8 +302,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByTspProfile_equals_returnsAssociatedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_TSP_PROFILE.name(),
-                        FilterConditionOperator.EQUALS, "alpha-tsp"));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_TSP_PROFILE, "alpha-tsp"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-alpha", results.getFirst().getName());
@@ -322,8 +315,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByTimeQualityConfiguration_fastTqc_returnsSingleProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION.name(),
-                        FilterConditionOperator.EQUALS, "fast-tqc"));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION, "fast-tqc"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-alpha", results.getFirst().getName());
@@ -332,8 +324,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByTimeQualityConfiguration_slowTqc_returnsSingleProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION.name(),
-                        FilterConditionOperator.EQUALS, "slow-tqc"));
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_TIME_QUALITY_CONFIGURATION, "slow-tqc"));
 
         Assertions.assertEquals(1, results.size());
         Assertions.assertEquals("profile-gamma", results.getFirst().getName());
@@ -348,10 +339,8 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
         // DELEGATED + enabled → profile-alpha and profile-gamma
         SearchRequestDto request = new SearchRequestDto();
         request.setFilters(List.of(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_SIGNING_SCHEME.name(),
-                        FilterConditionOperator.EQUALS, SigningScheme.DELEGATED.getCode()),
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, true)
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_SIGNING_SCHEME, SigningScheme.DELEGATED.getCode()),
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_ENABLED, true)
         ));
         PaginationResponseDto<SigningProfileListDto> response =
                 signingProfileService.listSigningProfiles(request, SecurityFilter.create());
@@ -365,10 +354,8 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
         // tsp=alpha-tsp AND enabled=true → only profile-alpha
         SearchRequestDto request = new SearchRequestDto();
         request.setFilters(List.of(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_TSP_PROFILE.name(),
-                        FilterConditionOperator.EQUALS, "alpha-tsp"),
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.SIGNING_PROFILE_ENABLED.name(),
-                        FilterConditionOperator.EQUALS, true)
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_TSP_PROFILE, "alpha-tsp"),
+                aPropertyEqualsFilter(FilterField.SIGNING_PROFILE_ENABLED, true)
         ));
         PaginationResponseDto<SigningProfileListDto> response =
                 signingProfileService.listSigningProfiles(request, SecurityFilter.create());
@@ -384,7 +371,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_exactMatch_returnsOnlyTaggedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
                         CUSTOM_ATTR_NAME + "|TEXT",
                         FilterConditionOperator.EQUALS,
                         CUSTOM_ATTR_VALUE));
@@ -397,7 +384,7 @@ class SigningProfileSearchTest extends BaseSpringBootTest {
     @Test
     void filterByCustomAttribute_notEquals_excludesTaggedProfile() {
         List<SigningProfileListDto> results = listWithFilters(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM,
+                new SearchFilterRequestDto(FilterFieldSource.CUSTOM,
                         CUSTOM_ATTR_NAME + "|TEXT",
                         FilterConditionOperator.NOT_EQUALS,
                         CUSTOM_ATTR_VALUE));

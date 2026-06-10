@@ -43,6 +43,9 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
 class DiscoveryHistorySearchTest extends BaseSpringBootTest {
 
@@ -217,7 +220,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByNameContains() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_NAME.name(), FilterConditionOperator.CONTAINS, "test_discovery"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_NAME, FilterConditionOperator.CONTAINS, "test_discovery"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(4, responseDto.getDiscoveries().size());
     }
@@ -225,7 +228,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByNameEquals() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_NAME.name(), FilterConditionOperator.EQUALS, "test_discovery2"));
+        filters.add(aPropertyEqualsFilter(FilterField.DISCOVERY_NAME, "test_discovery2"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -233,7 +236,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByStartTime() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_START_TIME.name(), FilterConditionOperator.GREATER, "2020-05-06T10:10:10.000Z"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_START_TIME, FilterConditionOperator.GREATER, "2020-05-06T10:10:10.000Z"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(2, responseDto.getDiscoveries().size());
     }
@@ -241,7 +244,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByEndTime() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_END_TIME.name(), FilterConditionOperator.LESSER, "2020-02-02T10:10:10.000Z"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_END_TIME, FilterConditionOperator.LESSER, "2020-02-02T10:10:10.000Z"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -249,7 +252,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByStatus() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_STATUS.name(), FilterConditionOperator.NOT_EQUALS, DiscoveryStatus.COMPLETED.getCode()));
+        filters.add(aPropertyNotEqualsFilter(FilterField.DISCOVERY_STATUS, DiscoveryStatus.COMPLETED.getCode()));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(2, responseDto.getDiscoveries().size());
     }
@@ -257,7 +260,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByTotalCertificateDiscovered() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED.name(), FilterConditionOperator.GREATER, 10));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED, FilterConditionOperator.GREATER, 10));
         final SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setFilters(filters);
         final DiscoveryResponseDto responseDto = discoveryService.listDiscoveries(SecurityFilter.create(), searchRequestDto);
@@ -267,7 +270,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByKind() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_KIND.name(), FilterConditionOperator.NOT_CONTAINS, "TEST3"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_KIND, FilterConditionOperator.NOT_CONTAINS, "TEST3"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(2, responseDto.getDiscoveries().size());
     }
@@ -275,7 +278,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByConnectorName() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_CONNECTOR_NAME.name(), FilterConditionOperator.EQUALS, "connector1"));
+        filters.add(aPropertyEqualsFilter(FilterField.DISCOVERY_CONNECTOR_NAME, "connector1"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(3, responseDto.getDiscoveries().size());
     }
@@ -283,8 +286,8 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByConnectorNameAndStatus() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_CONNECTOR_NAME.name(), FilterConditionOperator.EQUALS, "connector1"));
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_STATUS.name(), FilterConditionOperator.EQUALS, DiscoveryStatus.COMPLETED.getCode()));
+        filters.add(aPropertyEqualsFilter(FilterField.DISCOVERY_CONNECTOR_NAME, "connector1"));
+        filters.add(aPropertyEqualsFilter(FilterField.DISCOVERY_STATUS, DiscoveryStatus.COMPLETED.getCode()));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -292,9 +295,9 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByConnectorNameAndKind() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_CONNECTOR_NAME.name(), FilterConditionOperator.EQUALS, "connector1"));
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_KIND.name(), FilterConditionOperator.STARTS_WITH, "kindTEST"));
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.DISCOVERY_START_TIME.name(), FilterConditionOperator.LESSER, "2020-02-01T10:10:10.000Z"));
+        filters.add(aPropertyEqualsFilter(FilterField.DISCOVERY_CONNECTOR_NAME, "connector1"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_KIND, FilterConditionOperator.STARTS_WITH, "kindTEST"));
+        filters.add(aPropertyFilter(FilterField.DISCOVERY_START_TIME, FilterConditionOperator.LESSER, "2020-02-01T10:10:10.000Z"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -302,7 +305,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByMetadata() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.META, "attributeMeta1|TEXT", FilterConditionOperator.CONTAINS, "-meta-"));
+        filters.add(new SearchFilterRequestDto(FilterFieldSource.META, "attributeMeta1|TEXT", FilterConditionOperator.CONTAINS, "-meta-"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -310,7 +313,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByCustomAttr() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM, "attributeCustom1|TEXT", FilterConditionOperator.CONTAINS, "-custom-"));
+        filters.add(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "attributeCustom1|TEXT", FilterConditionOperator.CONTAINS, "-custom-"));
         final DiscoveryResponseDto responseDto = retrieveTheDiscoveriesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getDiscoveries().size());
     }
@@ -322,9 +325,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void filterByTotalCertDiscovered_invalidStringValue_throwsValidationException() {
         List<SearchFilterRequestDto> filters = List.of(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
-                        FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED.name(),
-                        FilterConditionOperator.EQUALS, "not-a-number"));
+                aPropertyEqualsFilter(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED, "not-a-number"));
         Assertions.assertThrows(ValidationException.class,
                 () -> retrieveTheDiscoveriesBySearch(filters),
                 "Non-numeric value for a NUMBER filter field must throw ValidationException, not NumberFormatException");
@@ -333,9 +334,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Test
     void filterByTotalCertDiscovered_invalidStringValue_forGreaterThanOperator_throwsValidationException() {
         List<SearchFilterRequestDto> filters = List.of(
-                new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
-                        FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED.name(),
-                        FilterConditionOperator.GREATER, "xyz"));
+                aPropertyFilter(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED, FilterConditionOperator.GREATER, "xyz"));
         Assertions.assertThrows(ValidationException.class,
                 () -> retrieveTheDiscoveriesBySearch(filters),
                 "Non-numeric value for GREATER on a NUMBER field must throw ValidationException");

@@ -41,6 +41,8 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 
 class EntityInstanceSearchTest extends BaseSpringBootTest {
 
@@ -147,7 +149,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Test
     void testEntityByName() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.ENTITY_NAME.name(), FilterConditionOperator.EQUALS, "entity-ref-2"));
+        filters.add(aPropertyEqualsFilter(FilterField.ENTITY_NAME, "entity-ref-2"));
         final EntityInstanceResponseDto responseDto = retrieveTheEntitiesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getEntities().size());
     }
@@ -155,7 +157,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Test
     void testEntityByConnectorName() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.ENTITY_CONNECTOR_NAME.name(), FilterConditionOperator.CONTAINS, "Connector"));
+        filters.add(aPropertyFilter(FilterField.ENTITY_CONNECTOR_NAME, FilterConditionOperator.CONTAINS, "Connector"));
         final EntityInstanceResponseDto responseDto = retrieveTheEntitiesBySearch(filters);
         Assertions.assertEquals(3, responseDto.getEntities().size());
     }
@@ -163,7 +165,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Test
     void testEntityByKind() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY, FilterField.ENTITY_KIND.name(), FilterConditionOperator.CONTAINS, "test-kind"));
+        filters.add(aPropertyFilter(FilterField.ENTITY_KIND, FilterConditionOperator.CONTAINS, "test-kind"));
         final EntityInstanceResponseDto responseDto = retrieveTheEntitiesBySearch(filters);
         Assertions.assertEquals(2, responseDto.getEntities().size());
     }
@@ -171,7 +173,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByMetadata() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.META, "attributeMeta1|TEXT", FilterConditionOperator.CONTAINS, "-meta-"));
+        filters.add(new SearchFilterRequestDto(FilterFieldSource.META, "attributeMeta1|TEXT", FilterConditionOperator.CONTAINS, "-meta-"));
         final EntityInstanceResponseDto responseDto = retrieveTheEntitiesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getEntities().size());
     }
@@ -179,7 +181,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Test
     void testFilterDataByCustomAttr() {
         final List<SearchFilterRequestDto> filters = new ArrayList<>();
-        filters.add(new SearchFilterRequestDtoDummy(FilterFieldSource.CUSTOM, "attributeCustom1|TEXT", FilterConditionOperator.CONTAINS, "-custom-"));
+        filters.add(new SearchFilterRequestDto(FilterFieldSource.CUSTOM, "attributeCustom1|TEXT", FilterConditionOperator.CONTAINS, "-custom-"));
         final EntityInstanceResponseDto responseDto = retrieveTheEntitiesBySearch(filters);
         Assertions.assertEquals(1, responseDto.getEntities().size());
     }

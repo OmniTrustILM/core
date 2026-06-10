@@ -122,7 +122,7 @@ class SecuredUUIDTest {
     }
 
     @Test
-    void toString_returnsNull_whenWrappedValueIsNull() {
+    void toString_returnsNullSentinel_whenWrappedValueIsNull() {
         // given
         var securedUUID = SecuredUUID.fromUUID(null);
 

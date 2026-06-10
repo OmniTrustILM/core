@@ -30,7 +30,7 @@ import java.util.List;
 import static com.czertainly.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
 import static com.czertainly.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.czertainly.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
-import static com.czertainly.core.util.SearchRequestDtoBuilder.aSearchRequest;
+import static com.czertainly.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**

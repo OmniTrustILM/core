@@ -1,16 +1,18 @@
 package com.czertainly.core.util.builders;
 
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.czertainly.core.enums.FilterField;
-import com.czertainly.core.search.SearchFilterRequestDtoDummy;
 
 import java.io.Serializable;
 
 public class SearchFilterRequestDtoBuilder {
 
     private FilterFieldSource fieldSource = FilterFieldSource.PROPERTY;
-    private String fieldIdentifier;
+    private FilterField field;
+    private AttributeContentType attributeContentType;
     private FilterConditionOperator condition = FilterConditionOperator.EQUALS;
     private Serializable value;
 
@@ -18,17 +20,38 @@ public class SearchFilterRequestDtoBuilder {
         return new SearchFilterRequestDtoBuilder();
     }
 
-    public static SearchFilterRequestDtoDummy aPropertyEqualsFilter(FilterField field, Serializable value) {
-        return aSearchFilter().withField(field).withValue(value).build();
+    public static SearchFilterRequestDto aPropertyFilter(FilterField field, FilterConditionOperator operator, Serializable value) {
+        return aSearchFilter().withField(field).withCondition(operator).withValue(value).build();
+    }
+
+    public static SearchFilterRequestDto aPropertyEqualsFilter(FilterField field, Serializable value) {
+        return aPropertyFilter(field, FilterConditionOperator.EQUALS, value);
+    }
+
+    public static SearchFilterRequestDto aPropertyNotEqualsFilter(FilterField field, Serializable value) {
+        return aPropertyFilter(field, FilterConditionOperator.NOT_EQUALS, value);
+    }
+
+    public static SearchFilterRequestDto aPropertyEmptyFilter(FilterField field) {
+        return aPropertyFilter(field, FilterConditionOperator.EMPTY, null);
+    }
+
+    public static SearchFilterRequestDto aPropertyNotEmptyFilter(FilterField field) {
+        return aPropertyFilter(field, FilterConditionOperator.NOT_EMPTY, null);
     }
 
     public SearchFilterRequestDtoBuilder withField(FilterField field) {
-        this.fieldIdentifier = field.name();
+        this.field = field;
         return this;
     }
 
     public SearchFilterRequestDtoBuilder withFieldSource(FilterFieldSource src) {
         this.fieldSource = src;
+        return this;
+    }
+
+    public SearchFilterRequestDtoBuilder withAttributeContentType(AttributeContentType attributeContentType) {
+        this.attributeContentType = attributeContentType;
         return this;
     }
 
@@ -42,7 +65,13 @@ public class SearchFilterRequestDtoBuilder {
         return this;
     }
 
-    public SearchFilterRequestDtoDummy build() {
-        return new SearchFilterRequestDtoDummy(fieldSource, fieldIdentifier, condition, value);
+    public SearchFilterRequestDto build() {
+        return new SearchFilterRequestDto(fieldSource, fieldIdentifier(), condition, value);
+    }
+
+    private String fieldIdentifier() {
+        return attributeContentType == null
+                ? field.name()
+                : field.name() + "|" + attributeContentType.name();
     }
 }
