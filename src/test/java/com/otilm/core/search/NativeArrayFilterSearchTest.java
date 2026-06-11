@@ -1,5 +1,6 @@
 package com.otilm.core.search;
 
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -37,6 +38,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 
 /**
  * Integration tests for NATIVE_ARRAY filter operators.
@@ -252,8 +255,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         private List<String> searchOids(FilterConditionOperator operator, String value) {
             SearchRequestDto request = new SearchRequestDto();
             request.setFilters(List.of(
-                    new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
-                            FilterField.OID_ENTRY_ALT_CODES.name(), operator, value)));
+                    aPropertyFilter(FilterField.OID_ENTRY_ALT_CODES, operator, value)));
             CustomOidEntryListResponseDto response = customOidEntryService.listCustomOidEntries(request);
             return response.getOidEntries().stream()
                     .map(item -> item.getOid())
@@ -263,8 +265,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         private List<String> searchOids(FilterConditionOperator operator, List<String> values) {
             SearchRequestDto request = new SearchRequestDto();
             request.setFilters(List.of(
-                    new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
-                            FilterField.OID_ENTRY_ALT_CODES.name(), operator, new ArrayList<>(values))));
+                    aPropertyFilter(FilterField.OID_ENTRY_ALT_CODES, operator, new ArrayList<>(values))));
             CustomOidEntryListResponseDto response = customOidEntryService.listCustomOidEntries(request);
             return response.getOidEntries().stream()
                     .map(item -> item.getOid())
@@ -476,8 +477,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         private Set<String> searchConnectorNames(FilterConditionOperator operator, String featureName) {
             SearchRequestDto request = new SearchRequestDto();
             request.setFilters(List.of(
-                    new SearchFilterRequestDtoDummy(FilterFieldSource.PROPERTY,
-                            FilterField.CONNECTOR_FEATURES.name(), operator, featureName)));
+                    aPropertyFilter(FilterField.CONNECTOR_FEATURES, operator, featureName)));
             PaginationResponseDto<ConnectorDto> response =
                     connectorService.listConnectors(SecurityFilter.create(), request);
             return response.getItems().stream()

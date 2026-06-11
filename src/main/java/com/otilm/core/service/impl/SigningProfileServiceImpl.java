@@ -1,5 +1,6 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -16,7 +17,11 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.*;
+import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.WorkflowRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
@@ -44,6 +49,8 @@ import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.service.*;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.util.SearchHelper;
@@ -242,11 +249,19 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
-    public SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException {
+    public SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException {
         return self.loadSigningProfileModel(name);
     }
 
-    // Package-private internal cache loader, self-invoked.
+    /**
+     * Package-private internal cache loader, self-invoked.
+     *
+     * @throws IllegalStateException    if the profile has no version row matching its {@code latestVersion},
+     *                                  or the version declares a managed scheme but its {@code managedSigningType}
+     *                                  is {@code null} (DB integrity violations)
+     * @throws IllegalArgumentException if the profile is not a managed timestamping profile — the only kind
+     *                                  the model currently supports
+     */
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
     SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
@@ -581,6 +596,19 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
         evictSigningProfileCache(profile.getName());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Signing records scoped to profile
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(
+            SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException {
+        SigningProfile profile = findByUuid(uuid);
+        return signingRecordService.listSigningRecordsForProfile(profile.getUuid(), request, filter);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

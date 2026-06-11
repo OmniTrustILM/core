@@ -1,5 +1,7 @@
 package com.otilm.core.service;
 
+import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
+import com.czertainly.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -13,6 +15,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -43,9 +46,18 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     SigningProfile getSigningProfileEntity(SecuredUUID uuid) throws NotFoundException;
 
-    // The model is a sealed generic record whose concrete type parameters are resolved by the caller via pattern matching.
-    @SuppressWarnings("java:S1452")
-    SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException;
+    /**
+     * Returns the cached, immutable model of the signing profile's latest version. The model is a sealed generic
+     * record whose concrete type parameters are resolved by the caller via pattern matching.
+     *
+     * @throws NotFoundException        if no signing profile with the given name exists
+     * @throws IllegalStateException    if the profile has no version row matching its {@code latestVersion},
+     *                                  or the version declares a managed scheme but its {@code managedSigningType}
+     *                                  is {@code null}
+     * @throws IllegalArgumentException if the profile is not a managed timestamping profile — the only kind
+     *                                  the model currently supports
+     */
+    SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException;
 
     List<String> findAllNames();
 
@@ -72,6 +84,8 @@ public interface SigningProfileService extends ResourceExtensionService {
     List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException;
 
     List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException;
+
+    PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException;
 
     TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid) throws NotFoundException;
 
