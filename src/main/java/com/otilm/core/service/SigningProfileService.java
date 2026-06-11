@@ -1,7 +1,7 @@
 package com.otilm.core.service;
 
-import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
-import com.czertainly.core.model.signing.workflow.SigningWorkflow;
+import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;

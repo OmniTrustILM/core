@@ -4,7 +4,7 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
-import com.czertainly.core.enums.FilterField;
+import com.otilm.core.enums.FilterField;
 
 import java.io.Serializable;
 

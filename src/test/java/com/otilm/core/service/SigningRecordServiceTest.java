@@ -21,7 +21,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.SearchRequestDtoBuilder;
+import com.otilm.core.util.builders.SearchRequestDtoBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
