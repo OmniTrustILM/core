@@ -11,10 +11,6 @@ public class ConnectorRequestDtoBuilder {
     private ConnectorVersion version = ConnectorVersion.V2;
     private AuthType authType = AuthType.NONE;
 
-    public static ConnectorRequestDtoBuilder aConnectorRequest() {
-        return new ConnectorRequestDtoBuilder();
-    }
-
     public static ConnectorRequestDtoBuilder aV1ConnectorRequest() {
         return new ConnectorRequestDtoBuilder().withVersion(ConnectorVersion.V1);
     }

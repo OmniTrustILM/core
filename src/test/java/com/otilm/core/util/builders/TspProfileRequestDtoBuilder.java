@@ -18,16 +18,6 @@ public class TspProfileRequestDtoBuilder {
         return new TspProfileRequestDtoBuilder();
     }
 
-    public static TspProfileRequestDtoBuilder aTspProfileRequestFromProfile(TspProfileDto profile) {
-        TspProfileRequestDtoBuilder builder = new TspProfileRequestDtoBuilder();
-        builder.name = profile.getName();
-        builder.description = profile.getDescription();
-        builder.defaultSigningProfileUuid = profile.getDefaultSigningProfile() != null
-                ? UUID.fromString(profile.getDefaultSigningProfile().getUuid())
-                : null;
-        return builder;
-    }
-
     public TspProfileRequestDtoBuilder withName(String name) {
         this.name = name;
         return this;

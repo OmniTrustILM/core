@@ -20,7 +20,7 @@ public class TokenProfileRequestDtoBuilder {
         return this;
     }
 
-    public TokenProfileRequestDtoBuilder enabled(boolean enabled) {
+    public TokenProfileRequestDtoBuilder withEnabled(boolean enabled) {
         this.enabled = enabled;
         return this;
     }

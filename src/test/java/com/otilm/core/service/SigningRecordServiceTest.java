@@ -356,11 +356,6 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     @Nested
     class GetTests {
 
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // getSigningRecord
-    // ──────────────────────────────────────────────────────────────────────────
-
         @Test
         void returnsRecordDetailWithAllProperties() throws NotFoundException {
             // given

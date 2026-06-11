@@ -38,20 +38,22 @@ public class TestCertificateAuthority {
         X509Certificate caX509 = CertificateGeneratorHelper.generateCACertificate(caKeyPair, subjectDn);
         Certificate caEntity = certificateUploader.upload(caX509);
         certificateUploader.markTrusted(caEntity);
-        return new TrustedCa(caKeyPair, caX509, caEntity);
+        return new TrustedCa(caKeyPair, caX509, caEntity, certificateUploader);
     }
 
     @Getter
-    public class TrustedCa {
+    public static class TrustedCa {
 
         private final KeyPair keyPair;
         private final X509Certificate x509;
         private final Certificate entity;
+        private final CertificateUploader certificateUploader;
 
-        private TrustedCa(KeyPair keyPair, X509Certificate x509, Certificate entity) {
+        private TrustedCa(KeyPair keyPair, X509Certificate x509, Certificate entity, CertificateUploader certificateUploader) {
             this.keyPair = keyPair;
             this.x509 = x509;
             this.entity = entity;
+            this.certificateUploader = certificateUploader;
         }
 
         /**
