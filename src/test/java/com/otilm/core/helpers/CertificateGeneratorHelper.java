@@ -163,6 +163,60 @@ public class CertificateGeneratorHelper {
                 .getCertificate(builder.build(signer));
     }
 
+    /**
+     * Generates an end-entity timestamping certificate signed by the given CA, carrying a critical
+     * {@code id-kp-timeStamping}-only EKU as required by RFC 3161 (and enforced by
+     * {@code CertificateUtil.isCertificateDigitalSigningAcceptable}).
+     */
+    public static X509Certificate generateTimestampingCertificate(
+            KeyPair caKeyPair, X509Certificate caCert, KeyPair eeKeyPair, String subjectDn) throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name(subjectDn);
+        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        Date start = new Date();
+        Date end = new Date(System.currentTimeMillis() + 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                issuer, serial, start, end, subject, eeKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+        builder.addExtension(Extension.extendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
+    /**
+     * Generates a qualified timestamping certificate signed by the given CA.
+     * Carries a critical id-kp-timeStamping EKU (RFC 3161) and id-etsi-qcs-QcCompliance
+     * in qcStatements (ETSI EN 319 421 §6.2), making it eligible for qualified electronic timestamps.
+     */
+    public static X509Certificate generateQualifiedTimestampingCertificate(
+            KeyPair caKeyPair, X509Certificate caCert, KeyPair eeKeyPair, String subjectDn) throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name(subjectDn);
+        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        Date start = new Date();
+        Date end = new Date(System.currentTimeMillis() + 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                issuer, serial, start, end, subject, eeKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+        builder.addExtension(Extension.extendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+
+        ASN1EncodableVector stmts = new ASN1EncodableVector();
+        stmts.add(new QCStatement(ETSIQCObjectIdentifiers.id_etsi_qcs_QcCompliance));
+        builder.addExtension(Extension.qCStatements, false, new DERSequence(stmts));
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
     public static AlgorithmParameterSpec getDefaultParameterSpec(KeyAlgorithm algorithm) {
         return switch (algorithm) {
             case RSA -> new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4);
