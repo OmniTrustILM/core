@@ -33,10 +33,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 import java.util.UUID;
 
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
 class TspProfileSearchTest extends BaseSpringBootTest {
 

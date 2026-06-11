@@ -70,14 +70,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aSearchFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aSearchFilter;
 
 /**
  * Tests for class {@link FilterPredicatesBuilder}

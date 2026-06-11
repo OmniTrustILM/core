@@ -22,11 +22,8 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.search.FilterConditionOperator;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.DiscoveryHistory;
@@ -52,11 +49,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
 class DiscoveryHistorySearchTest extends BaseSpringBootTest {
 
