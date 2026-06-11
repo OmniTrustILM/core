@@ -121,7 +121,7 @@ public class SigningProfileMapper {
     }
 
     /**
-     * Detects the protocols a Signing Profile is enabled for.
+     * Detects the protocols a Signing Profile is enabled for (header-level, unversioned state).
      */
     private static List<SigningProtocol> detectEnabledProtocols(SigningProfile header) {
         return header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
