@@ -19,7 +19,6 @@ import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.search.FilterConditionOperator;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
@@ -42,10 +41,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
-import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 
 class EntityInstanceSearchTest extends BaseSpringBootTest {
 
