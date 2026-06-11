@@ -2,10 +2,10 @@ package db.migration;
 
 import com.otilm.api.model.core.auth.*;
 import com.otilm.core.model.auth.ResourceAction;
-import com.czertainly.core.model.auth.ResourceSyncRequestDto;
-import com.czertainly.core.util.AuthHelper;
-import com.czertainly.core.util.DatabaseAuthMigration;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.model.auth.ResourceSyncRequestDto;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.DatabaseAuthMigration;
+import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 
@@ -108,7 +108,7 @@ public class V202404120915__AssignObjectsOwnerAndMultipleGroupsMigration extends
 
     private void seedMembersAction() throws IOException, URISyntaxException {
         List<ResourceSyncRequestDto> resourceRequests = new ArrayList<>();
-        List<com.czertainly.core.model.auth.Resource> resources = List.of(com.czertainly.core.model.auth.Resource.ATTRIBUTE, com.czertainly.core.model.auth.Resource.AUTHORITY, com.czertainly.core.model.auth.Resource.RA_PROFILE);
+        List<com.otilm.core.model.auth.Resource> resources = List.of(com.otilm.core.model.auth.Resource.ATTRIBUTE, com.otilm.core.model.auth.Resource.AUTHORITY, com.otilm.core.model.auth.Resource.RA_PROFILE);
 
         for (var resource : resources) {
             ResourceSyncRequestDto requestDto = new ResourceSyncRequestDto();

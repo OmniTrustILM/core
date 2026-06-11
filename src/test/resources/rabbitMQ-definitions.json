@@ -93,7 +93,7 @@
   ],
   "exchanges": [
     {
-      "name": "czertainly",
+      "name": "platform",
       "vhost": "/",
       "type": "topic",
       "durable": true,
@@ -102,7 +102,7 @@
       "arguments": {}
     },
     {
-      "name": "czertainly-proxy",
+      "name": "platform-proxy",
       "vhost": "/",
       "type": "topic",
       "durable": true,
@@ -113,7 +113,7 @@
   ],
   "bindings": [
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.events",
       "destination_type": "queue",
@@ -121,7 +121,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.actions",
       "destination_type": "queue",
@@ -129,7 +129,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.notifications",
       "destination_type": "queue",
@@ -137,7 +137,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.scheduler",
       "destination_type": "queue",
@@ -145,7 +145,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.audit-logs",
       "destination_type": "queue",
@@ -153,7 +153,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "core.validation",
       "destination_type": "queue",
@@ -161,7 +161,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly-proxy",
+      "source": "platform-proxy",
       "vhost": "/",
       "destination": "core",
       "destination_type": "queue",
@@ -169,7 +169,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "time-quality.config",
       "destination_type": "queue",
@@ -177,7 +177,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "time-quality.config-request",
       "destination_type": "queue",
@@ -185,7 +185,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "platform",
       "vhost": "/",
       "destination": "time-quality.results",
       "destination_type": "queue",

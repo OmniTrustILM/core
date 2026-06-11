@@ -1,0 +1,550 @@
+// Copyright (c) Microsoft Corporation.
+// All rights reserved.
+//
+// This code is licensed under the MIT License.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files(the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+/*
+This class was updated for the integration of the platform with the Intune server.
+It is placed under the package `com.otilm.core.intune` and further maintained by
+the development team.
+
+The important modification are marked with the comment "MODIFICATION"
+*/
+
+package com.otilm.core.intune.scepvalidation;
+
+import java.io.IOException;
+import java.net.Authenticator;
+import java.net.InetSocketAddress;
+import java.net.PasswordAuthentication;
+import java.net.Proxy;
+import java.net.UnknownHostException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+
+import javax.naming.ServiceUnavailableException;
+import javax.net.ssl.SSLSocketFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonParser;
+import org.apache.hc.client5.http.auth.AuthScope;
+import org.apache.hc.client5.http.auth.Credentials;
+import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.impl.auth.BasicCredentialsProvider;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
+import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.BasicHttpClientConnectionManager;
+import org.apache.hc.client5.http.io.HttpClientConnectionManager;
+import org.apache.hc.client5.http.socket.ConnectionSocketFactory;
+import org.apache.hc.client5.http.socket.PlainConnectionSocketFactory;
+import org.apache.hc.client5.http.ssl.DefaultHostnameVerifier;
+import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactory;
+import org.apache.hc.core5.http.HttpEntity;
+
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.ParseException;
+import org.apache.hc.core5.http.config.Registry;
+import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.core5.http.message.StatusLine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.microsoft.aad.adal4j.AuthenticationException;
+import com.microsoft.aad.adal4j.AuthenticationResult;
+import com.microsoft.aad.adal4j.ClientCredential;
+
+/**
+ * IntuneClient - A client which can be used to make requests to Intune services.
+ * This object uses ADAL libraries and tokens for authentication with Intune.  
+ */
+class IntuneClient 
+{
+    protected String intuneAppId = "0000000a-0000-0000-c000-000000000000";
+    protected String intuneResourceUrl = "https://api.manage.microsoft.com/";
+
+    protected String msGraphVersion = "1.0";
+    protected String msGraphResourceUrl = "https://graph.microsoft.com/";
+    
+    protected String aadGraphVersion = "1.6";
+    protected String aadGraphResourceUrl = "https://graph.windows.net/";
+
+    protected String intuneTenant;
+    protected ClientCredential aadCredential;
+    protected MSALClientWrapper msalAuthClient;
+    protected ADALClientWrapper adalAuthClient;
+    
+    protected SSLSocketFactory sslSocketFactory = null;
+    protected HttpClientBuilder httpClientBuilder = null;
+    
+    protected String proxyHost = null;
+    protected Integer proxyPort = null;
+    protected String proxyUser = null;
+    protected String proxyPass = null;
+    
+    private final HashMap<String,String> serviceMap = new HashMap<>();
+    
+    private static final Logger log = LoggerFactory.getLogger(IntuneClient.class);
+    
+    /**
+     * Constructs an IntuneClient object which can be used to make requests to Intune services.
+     * @param configProperties Properties object containing client configuration information.
+     * @throws IllegalArgumentException
+     */
+    public IntuneClient(Properties configProperties) throws IllegalArgumentException
+    {
+        this(configProperties, null, null, null);
+    }
+    
+    /**
+     * Constructs an IntuneClient object.  This is meant to be used for unit tests for dependency injection.
+     * @param configProperties
+     * @param msalAuthClient
+     * @param adalAuthClient
+     * @param httpClientBuilder
+     * @throws IllegalArgumentException
+     */
+    public IntuneClient(Properties configProperties, MSALClientWrapper msalAuthClient, ADALClientWrapper adalAuthClient, HttpClientBuilder httpClientBuilder) throws IllegalArgumentException
+    {        
+        if(configProperties == null)
+        {
+            throw new IllegalArgumentException("The argument 'configProperties' is missing"); 
+        }
+        
+        // Read required properties
+        String azureAppId = configProperties.getProperty("AAD_APP_ID");
+        if(azureAppId == null || azureAppId.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'AAD_APP_ID' is missing");
+        }
+        
+        String azureAppKey = configProperties.getProperty("AAD_APP_KEY");
+        if(azureAppKey == null || azureAppKey.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'AAD_APP_KEY' is missing");
+        }
+        
+        this.intuneTenant = configProperties.getProperty("TENANT");
+        if(this.intuneTenant == null || this.intuneTenant.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'TENANT' is missing");
+        }
+        
+        // Read optional properties
+        this.intuneAppId = configProperties.getProperty("INTUNE_APP_ID", this.intuneAppId);
+        this.intuneResourceUrl = configProperties.getProperty("INTUNE_RESOURCE_URL", this.intuneResourceUrl);
+        
+        this.aadGraphVersion = configProperties.getProperty("GRAPH_API_VERSION", this.aadGraphVersion);
+        this.aadGraphResourceUrl = configProperties.getProperty("GRAPH_RESOURCE_URL", this.aadGraphResourceUrl);
+        
+        this.msGraphVersion = configProperties.getProperty("MS_GRAPH_API_VERSION", this.msGraphVersion);
+        this.msGraphResourceUrl = configProperties.getProperty("MS_GRAPH_RESOURCE_URL", this.msGraphResourceUrl);
+        
+        this.msalAuthClient = msalAuthClient == null ? new MSALClientWrapper(this.intuneTenant, configProperties) : msalAuthClient;
+        
+        this.aadCredential = new ClientCredential(azureAppId, azureAppKey);
+        this.adalAuthClient = adalAuthClient == null ? new ADALClientWrapper(this.intuneTenant, this.aadCredential, configProperties) : adalAuthClient;
+        
+        this.httpClientBuilder = httpClientBuilder == null ? this.httpClientBuilder : httpClientBuilder;
+        
+        proxyHost = configProperties.getProperty("PROXY_HOST");
+        if(this.proxyHost != null && !this.proxyHost.isEmpty())
+        {
+            try
+            {
+                proxyPort = Integer.parseInt(configProperties.getProperty("PROXY_PORT"));
+            }
+            catch(NumberFormatException e)
+            {
+                throw new IllegalArgumentException("'PROXY_PORT' is required and must be a value that can be converted to an integer.", e);
+            }
+            
+            if(!(proxyPort >= 0 && proxyPort <= 65535))
+            {
+                throw new IllegalArgumentException("'PROXY_PORT' must be in the range of available ports 0-65535");
+            }
+            
+            proxyUser = configProperties.getProperty("PROXY_USER");
+            if(this.proxyUser != null && !this.proxyUser.isEmpty())
+            {
+                proxyPass = configProperties.getProperty("PROXY_PASS");
+                if(this.proxyPass == null || this.proxyPass.isEmpty())
+                {
+                    throw new IllegalArgumentException("If the argument 'PROXY_USER' is set then 'PROXY_PASS' must also be set.");
+                }
+            }
+        }
+        
+        setProxy();
+    }
+    
+    /**
+     * Sets the SSL factory to be used for all HTTP clients.
+     * @param factory
+     */
+    public void SetSslSocketFactory(SSLSocketFactory factory) throws IllegalArgumentException
+    {
+        if(factory == null)
+        {
+            throw new IllegalArgumentException("The argument 'factory' is missing.");
+        }
+        
+        log.info("Setting SSL Socket Factory");
+        
+        this.msalAuthClient.SetSslSocketFactory(factory);
+        this.adalAuthClient.SetSslSocketFactory(factory);
+        
+        this.sslSocketFactory = factory;
+               
+        this.httpClientBuilder = HttpClientBuilder.create();
+        SSLConnectionSocketFactory sslConnectionFactory = new SSLConnectionSocketFactory(this.sslSocketFactory, new String[] { "TLSv1.2" }, null, new DefaultHostnameVerifier());
+
+        setProxy();
+        
+        Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                .register("https", sslConnectionFactory)
+                .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                .build();
+        
+        HttpClientConnectionManager ccm = new BasicHttpClientConnectionManager(registry);
+        
+        this.httpClientBuilder.setConnectionManager(ccm);
+    }
+    
+    /**
+     * Post a Request to an Intune rest service.
+     * @param serviceName The name of the service to post to.
+     * @param urlSuffix The end of the url to tack onto the request.
+     * @param apiVersion API Version of service to use.
+     * @param json The body of the request.
+     * @param activityId Client generated ID for correlation of this activity
+     * @return JSON response from service
+     * @throws AuthenticationException
+     * @throws ExecutionException 
+     * @throws InterruptedException 
+     * @throws ServiceUnavailableException 
+     * @throws IOException 
+     * @throws IllegalArgumentException
+     * @throws IntuneClientException
+     */
+    public JsonNode PostRequest(String serviceName, String urlSuffix, String apiVersion, JsonNode json, UUID activityId) throws ServiceUnavailableException, InterruptedException, ExecutionException, IOException, AuthenticationException, IllegalArgumentException, IntuneClientException
+    {
+        //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+        return this.PostRequest(serviceName, urlSuffix, apiVersion, json, activityId, null);
+    }
+    
+    /**
+     * Post a Request to an Intune rest service.
+     * @param serviceName The name of the service to post to.
+     * @param urlSuffix The end of the url to tack onto the request.
+     * @param apiVersion API Version of service to use.
+     * @param json The body of the request.
+     * @param activityId Client generated ID for correlation of this activity
+     * @param additionalHeaders key value pairs of additional header values to add to the request
+     * @return JSON response from service
+     * @throws AuthenticationException
+     * @throws ExecutionException 
+     * @throws InterruptedException 
+     * @throws ServiceUnavailableException 
+     * @throws IOException 
+     * @throws IllegalArgumentException
+     * @throws IntuneClientException 
+     */
+    public JsonNode PostRequest(String serviceName, String urlSuffix, String apiVersion, JsonNode json, UUID activityId, Map<String,String> additionalHeaders) throws ServiceUnavailableException, InterruptedException, ExecutionException, IOException, AuthenticationException, IllegalArgumentException, IntuneClientException
+    {
+        //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+        if(serviceName == null || serviceName.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'serviceName' is missing");
+        }
+        
+        if(urlSuffix == null || urlSuffix.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'urlSuffix' is missing");
+        }
+        
+        if(apiVersion == null || apiVersion.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'apiVersion' is missing");
+        }
+        
+        if(json == null)
+        {
+            throw new IllegalArgumentException("The argument 'json' is missing");
+        }
+        
+        
+        String intuneServiceEndpoint = GetServiceEndpoint(serviceName);
+        if(intuneServiceEndpoint == null || intuneServiceEndpoint.isEmpty())
+        {
+            IntuneServiceNotFoundException ex = new IntuneServiceNotFoundException(serviceName);
+            IntuneClient.log.error(ex.getMessage(), ex);
+            throw ex;
+        }
+        
+        Set<String> scopes = new HashSet<>();
+        scopes.add(this.intuneResourceUrl + "/.default");
+        
+        String token = this.msalAuthClient.getAccessToken(scopes);
+        
+        String intuneRequestUrl = intuneServiceEndpoint + "/" + urlSuffix;
+        CloseableHttpClient httpclient = this.getCloseableHttpClient();
+        HttpPost httpPost = new HttpPost(intuneRequestUrl);
+        httpPost.addHeader("Authorization", "Bearer " + token);
+        httpPost.addHeader("content-type", "application/json");
+        httpPost.addHeader("client-request-id", activityId.toString());
+        httpPost.addHeader("api-version", apiVersion);
+        
+        if(additionalHeaders != null)
+        {
+            for (Entry<String, String> entry : additionalHeaders.entrySet())
+            {
+                httpPost.addHeader(entry.getKey(), entry.getValue());
+            }
+        }
+        
+        httpPost.setEntity(new StringEntity(json.toString()));
+        
+        CloseableHttpResponse intuneResponse = null;
+        //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+        JsonNode jsonResult = null;
+        try 
+        {
+            intuneResponse = httpclient.execute(httpPost);
+            jsonResult = ParseResponseToJSON(intuneResponse, intuneRequestUrl, activityId);
+        }
+        catch(UnknownHostException e)
+        {
+            log.error("Failed to contact intune service with URL: {}", intuneRequestUrl, e);
+            serviceMap.clear(); // clear contents in case the service location has changed and we cached the value
+            throw e;
+        }
+        finally 
+        {    
+            if(httpclient != null)
+                httpclient.close();
+            if(intuneResponse != null)
+                intuneResponse.close();
+        }
+        return jsonResult;
+    }
+    
+    private synchronized String GetServiceEndpoint(String serviceName) throws ServiceUnavailableException, AuthenticationException, InterruptedException, ExecutionException, IOException, IntuneClientException
+    {
+        if(serviceName == null || serviceName.isEmpty())
+        {
+            throw new IllegalArgumentException("The argument 'serviceName' is missing");
+        }
+        
+        String serviceNameLower = serviceName.toLowerCase();
+        
+        // Pull down the service map if we haven't populated it OR we are forcing a refresh
+        if(serviceMap.size() <= 0)
+        {
+            this.log.info("Refreshing service map from Microsoft.Graph");
+            RefreshServiceMap();
+        }
+
+        if(serviceMap.containsKey(serviceNameLower))
+        {
+            return serviceMap.get(serviceNameLower);
+        }
+        
+        // LOG Cache contents
+        log.info("Could not find endpoint for service '" + serviceName + "'");
+        log.info("ServiceMap: ");
+        for(Entry<String, String> entry:serviceMap.entrySet())
+        {
+            this.log.info(entry.getKey() + ":" + entry.getValue());
+        }
+        
+        return null;
+    }
+    
+    private void RefreshServiceMap() throws ServiceUnavailableException, InterruptedException, ExecutionException, IOException, AuthenticationException, IntuneClientException
+    {
+        String graphRequest = "";
+        String token = "";
+        boolean msalFailed = false;
+        Set<String> scopes = new HashSet<String>();
+        scopes.add(this.msGraphResourceUrl + ".default");
+        try 
+        {
+            token = this.msalAuthClient.getAccessToken(scopes);
+            graphRequest = this.msGraphResourceUrl + "v" + this.msGraphVersion + "/servicePrincipals/appId="+ this.intuneAppId + "/endpoints";
+        }
+        catch(Exception e)
+        {
+            msalFailed = true;
+        }
+        
+        if(msalFailed) 
+        {
+            AuthenticationResult authResult = this.adalAuthClient.getAccessTokenFromCredential(this.aadGraphResourceUrl);
+            token = authResult.getAccessToken();
+            graphRequest = this.aadGraphResourceUrl + intuneTenant + "/servicePrincipalsByAppId/" + this.intuneAppId + "/serviceEndpoints?api-version=" + this.aadGraphVersion;
+        }
+
+        UUID activityId = UUID.randomUUID();
+        CloseableHttpClient httpclient = this.getCloseableHttpClient();
+        HttpGet httpGet = new HttpGet(graphRequest);
+        httpGet.addHeader("Authorization", "Bearer " + token);
+        httpGet.addHeader("client-request-id", activityId.toString());
+        CloseableHttpResponse graphResponse = null;
+        try 
+        {
+            graphResponse = httpclient.execute(httpGet);
+
+            //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+            JsonNode jsonResult = ParseResponseToJSON(graphResponse, graphRequest, activityId);
+            
+            for(JsonNode obj:jsonResult.get("value"))
+            {
+                String name = msalFailed ? obj.get("serviceName").textValue().toLowerCase() : obj.get("providerName").textValue().toLowerCase();
+                
+                if(!serviceMap.containsKey(name)) 
+                {
+                    serviceMap.put(name, obj.get("uri").textValue());
+                }
+            } 
+        } 
+        finally 
+        {
+            if(httpclient != null)
+                httpclient.close();
+            if(graphResponse != null)
+                graphResponse.close();
+        }
+    }
+    
+    private JsonNode ParseResponseToJSON(CloseableHttpResponse response, String requestUrl, UUID activityId) throws IntuneClientException, IOException
+    {
+        //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+        JsonNode jsonResult = null;
+        HttpEntity httpEntity = null;
+        try 
+        {
+            httpEntity = response.getEntity();
+            if(httpEntity == null)
+            {
+                throw new IntuneClientException("ActivityId: " + activityId + " Unable to get httpEntity from response getEntity returned null.");
+            }
+            
+
+            String httpEntityStr = null;
+            try
+            {
+                httpEntityStr = EntityUtils.toString(httpEntity);
+            }
+            catch(IllegalArgumentException | IOException | ParseException e)
+            {
+                throw new IntuneClientException("ActivityId: " + activityId + " Unable to convert httpEntity from response to string", e);
+            }
+
+            //MODIFICATION - Changed the implementation to work with com.fasterxml.jackson.databind.JsonNode instead of org.json.JSONObject
+            ObjectMapper objectMapper = new ObjectMapper();
+            String canonicalFormat = JsonParser.parseString(httpEntityStr).toString();
+            jsonResult = objectMapper.readTree(canonicalFormat);
+            
+            StatusLine statusLine = new StatusLine(response);
+
+            int statusCode = response.getCode();
+            if (statusCode < 200 || statusCode >= 300)
+            {
+                String msg = "Request to: " + requestUrl + " returned: " + statusLine;
+                IntuneClientHttpErrorException ex = new IntuneClientHttpErrorException(statusLine, jsonResult, activityId);
+                this.log.error(msg, ex);
+                throw ex;
+            }
+        } 
+        finally 
+        {
+            if(httpEntity != null)
+                EntityUtils.consume(httpEntity);
+        }
+        
+        return jsonResult;
+    }
+    
+    private CloseableHttpClient getCloseableHttpClient() 
+    {
+        if(this.httpClientBuilder == null)
+        {
+            return HttpClients.createDefault();
+        }
+
+        return this.httpClientBuilder.build();
+    }
+    
+    private void setProxy()
+    {
+        if(proxyHost != null && !proxyHost.isEmpty() &&
+           proxyPort != null)
+         {
+            this.log.info("Setting AuthClient ProxyHost:" + proxyHost + " ProxyPort:" + proxyPort);
+            this.msalAuthClient.SetProxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, proxyPort)));
+            this.adalAuthClient.SetProxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, proxyPort)));
+
+            if(this.httpClientBuilder == null)
+            {
+                this.httpClientBuilder = HttpClients.custom();
+            }
+            this.log.info("Setting IntuneClient ProxyHost:" + proxyHost + " ProxyPort:" + proxyPort);
+            this.httpClientBuilder.setProxy(new HttpHost(proxyHost, proxyPort));
+             
+            if(proxyUser != null && !proxyUser.isEmpty() &&
+               proxyPass != null && !proxyPass.isEmpty())
+            {
+               this.log.info("Setting Proxy to use Basic Authentication.");
+               
+               // Setting proxy auth for Intune HttpClient
+               Credentials credentials = new UsernamePasswordCredentials(proxyUser, proxyPass.toCharArray());
+               BasicCredentialsProvider credsProvider = new BasicCredentialsProvider();
+               credsProvider.setCredentials(new AuthScope(proxyHost, proxyPort), credentials);
+               httpClientBuilder.setDefaultCredentialsProvider(credsProvider);
+                 
+               
+               // By default Java disables basic authentication, so we are enabling that so Authenticator will work
+               System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "");
+               
+               // Setting proxy auth for Auth HttpClient
+               Authenticator.setDefault(new Authenticator() {
+                   @Override
+                   protected PasswordAuthentication getPasswordAuthentication() {
+                       return new PasswordAuthentication(proxyUser, proxyPass.toCharArray());
+                   }
+               });
+            }
+         }
+    }
+}

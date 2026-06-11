@@ -1,9 +1,9 @@
 package db.migration;
 
 import com.otilm.api.model.core.auth.Resource;
-import com.czertainly.core.attribute.engine.AttributeOperation;
-import com.czertainly.core.util.DatabaseAttributeMigration;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.util.DatabaseAttributeMigration;
+import com.otilm.core.util.DatabaseMigration;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
