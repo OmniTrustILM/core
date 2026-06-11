@@ -77,7 +77,7 @@ info:
 logging:
   level:
     com:
-      otilm: ${CZERTAINLY_LOG_LEVEL:INFO}
+      otilm: ${PLATFORM_LOG_LEVEL:INFO}
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
