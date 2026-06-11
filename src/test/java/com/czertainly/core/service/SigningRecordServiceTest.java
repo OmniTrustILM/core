@@ -258,9 +258,9 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         @Test
         void returnsOnlyRecordsForRequestedSigningProfile() throws Exception {
             // given
-            SigningProfileDto targetProfile = createSigningProfile("target-profile");
-            insertRecord(targetProfile, VERSION_1, "target-record");
-            insertRecord(defaultProfile, VERSION_1, "other-record");
+            SigningProfileDto targetProfile = createSigningProfile(ALPHA_PROFILE);
+            insertRecord(targetProfile, VERSION_1, ALPHA_RECORD_V1);
+            insertRecord(defaultProfile, VERSION_1, "other-record-v1");
 
             // when
             PaginationResponseDto<SigningRecordListDto> response = signingRecordService.listSigningRecordsForProfile(
@@ -268,7 +268,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
 
             // then
             assertEquals(1, response.getTotalItems());
-            assertEquals("target-record", response.getItems().getFirst().getName());
+            assertEquals(ALPHA_RECORD_V1, response.getItems().getFirst().getName());
         }
 
         @Test
@@ -285,33 +285,19 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void listSigningRecordsForProfile_restrictsResultsToTheGivenProfile() {
+        void listSigningRecordsForProfile_honorsAdditionalFiltersWithinTheProfileScope() throws Exception {
             // given
-            UUID alphaProfileUuid = alphaProfile.getUuid();
-
-            // when
-            PaginationResponseDto<SigningRecordListDto> response =
-                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, SearchRequestDtoBuilder.all(), SecurityFilter.create());
-
-            // then
-            assertEquals(2, response.getTotalItems());
-            List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
-            assertTrue(names.contains(ALPHA_RECORD_V1));
-            assertTrue(names.contains(ALPHA_RECORD_V2));
-            assertFalse(names.contains(BETA_RECORD_V1));
-        }
-
-        @Test
-        void listSigningRecordsForProfile_honorsAdditionalFiltersWithinTheProfileScope() {
-            // given
-            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SigningProfileDto targetProfile = createSigningProfile(ALPHA_PROFILE);
+            insertRecord(targetProfile, VERSION_1, ALPHA_RECORD_V1);
+            bumpToNextVersion(targetProfile);
+            insertRecord(targetProfile, VERSION_2, ALPHA_RECORD_V2);
             SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
                     .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
                     .build();
 
             // when
             PaginationResponseDto<SigningRecordListDto> response =
-                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyVersion2, SecurityFilter.create());
+                    signingRecordService.listSigningRecordsForProfile(UUID.fromString(targetProfile.getUuid()), onlyVersion2, SecurityFilter.create());
 
             // then
             assertEquals(1, response.getTotalItems());
@@ -319,16 +305,21 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void listSigningRecordsForProfile_filterCannotWidenScopeToAnotherProfile() {
+        void listSigningRecordsForProfile_filterCannotWidenScopeToAnotherProfile() throws Exception {
             // given: scope to alpha but ask for beta records — the profile scope is an AND, not overridable
-            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SigningProfileDto alphaProfile = createSigningProfile(ALPHA_PROFILE);
+            SigningProfileDto betaProfile = createSigningProfile(BETA_PROFILE);
+            insertRecord(alphaProfile, VERSION_1, ALPHA_RECORD_V1);
+            insertRecord(betaProfile, VERSION_1, BETA_RECORD_V1);
             SearchRequestDto onlyBetaProfile = SearchRequestDtoBuilder.aSearchRequest()
                     .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, BETA_PROFILE)
                     .build();
 
             // when
             PaginationResponseDto<SigningRecordListDto> response =
-                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyBetaProfile, SecurityFilter.create());
+                    signingRecordService.listSigningRecordsForProfile(UUID.fromString(alphaProfile.getUuid()),
+                            onlyBetaProfile,
+                            SecurityFilter.create());
 
             // then
             assertEquals(0, response.getTotalItems());
@@ -336,9 +327,12 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void listSigningRecordsForProfile_paginatesWithinTheProfileScope() {
+        void listSigningRecordsForProfile_paginatesWithinTheProfileScope() throws Exception {
             // given
-            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SigningProfileDto alphaProfile = createSigningProfile(ALPHA_PROFILE);
+            insertRecord(alphaProfile, VERSION_1, ALPHA_RECORD_V1);
+            bumpToNextVersion(alphaProfile);
+            insertRecord(alphaProfile, VERSION_2, ALPHA_RECORD_V2);
             SearchRequestDto firstPageOfOne = SearchRequestDtoBuilder.aSearchRequest()
                     .withPageNumber(1)
                     .withItemsPerPage(1)
@@ -346,7 +340,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
 
             // when
             PaginationResponseDto<SigningRecordListDto> response =
-                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, firstPageOfOne, SecurityFilter.create());
+                    signingRecordService.listSigningRecordsForProfile(UUID.fromString(alphaProfile.getUuid()), firstPageOfOne,
+                            SecurityFilter.create());
 
             // then
             assertEquals(2, response.getTotalItems());
