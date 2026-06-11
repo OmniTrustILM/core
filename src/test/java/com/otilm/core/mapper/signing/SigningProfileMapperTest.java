@@ -66,6 +66,19 @@ class SigningProfileMapperTest {
             assertThat(dto.getEnabledProtocols()).isEmpty();
         }
 
+        @Test
+        void populatesSigningScheme() {
+            // given
+            SigningProfile header = newListHeader();
+            header.setSigningScheme(SigningScheme.DELEGATED);
+
+            // when
+            SigningProfileListDto dto = SigningProfileMapper.toListDto(header);
+
+            // then
+            assertThat(dto.getSigningScheme()).isEqualTo(SigningScheme.DELEGATED);
+        }
+
         private static SigningProfile newListHeader() {
             SigningProfile p = new SigningProfile();
             p.setUuid(PROFILE_UUID);
@@ -74,6 +87,7 @@ class SigningProfileMapperTest {
             p.setEnabled(true);
             p.setLatestVersion(1);
             p.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
+            p.setSigningScheme(SigningScheme.MANAGED);
             return p;
         }
     }
