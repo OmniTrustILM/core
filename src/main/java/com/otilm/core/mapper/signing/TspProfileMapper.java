@@ -16,6 +16,11 @@ public class TspProfileMapper {
     private TspProfileMapper() {
     }
 
+    private static String buildSigningUrl(TspProfile profile) {
+        return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
+                + "/v1/protocols/tsp/" + profile.getName() + "/sign";
+    }
+
     public static TspProfileDto toDto(TspProfile profile, List<ResponseAttribute> customAttributes) {
         TspProfileDto dto = new TspProfileDto();
         dto.setUuid(profile.getUuid().toString());
@@ -24,8 +29,7 @@ public class TspProfileMapper {
         dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             SimplifiedSigningProfileDto signingProfileDto = SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile());
-            dto.setSigningUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
-                    + "/v1/protocols/tsp/" + profile.getName() + "/sign");
+            dto.setSigningUrl(buildSigningUrl(profile));
             dto.setDefaultSigningProfile(signingProfileDto);
         }
         dto.setCustomAttributes(customAttributes);
@@ -36,8 +40,7 @@ public class TspProfileMapper {
         SigningProfile defaultSigningProfile = profile.getDefaultSigningProfile();
         String signingUrl = null;
         if (defaultSigningProfile != null) {
-            signingUrl = ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
-                    + "/v1/protocols/tsp/" + profile.getName() + "/sign";
+            signingUrl = buildSigningUrl(profile);
         }
         return new TspProfileModel(
                 profile.getUuid(),
@@ -59,6 +62,7 @@ public class TspProfileMapper {
         dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             dto.setDefaultSigningProfile(SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile()));
+            dto.setSigningUrl(buildSigningUrl(profile));
         }
         return dto;
     }
