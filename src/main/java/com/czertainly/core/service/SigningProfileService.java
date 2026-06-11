@@ -1,5 +1,7 @@
 package com.czertainly.core.service;
 
+import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
+import com.czertainly.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -44,9 +46,7 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     SigningProfile getSigningProfileEntity(SecuredUUID uuid) throws NotFoundException;
 
-    // The model is a sealed generic record whose concrete type parameters are resolved by the caller via pattern matching.
-    @SuppressWarnings("java:S1452")
-    SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException, IllegalStateException;
+    SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException;
 
     List<String> findAllNames();
 

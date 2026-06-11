@@ -1,5 +1,7 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
+import com.czertainly.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.AlreadyExistException;
@@ -247,14 +249,14 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
-    public SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException {
+    public SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException {
         return self.loadSigningProfileModel(name);
     }
 
     // Package-private internal cache loader, self-invoked.
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
-    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException, IllegalStateException {
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
         SigningProfile profile = signingProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
         SigningProfileVersion currentVersion = profile.getVersions().stream()
