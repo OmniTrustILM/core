@@ -16,10 +16,10 @@ import java.util.Properties;
 @Component
 public class IntuneConfigProperties {
 
-    @Value("${app.version}")
+    @Value("${app.version:unknown}")
     private String appVersion;
 
-    @Value("${info.app.name}")
+    @Value("${info.app.name:ILM Core}")
     private String appName;
 
     public Properties forScepProfile(ScepProfile scepProfile) {
