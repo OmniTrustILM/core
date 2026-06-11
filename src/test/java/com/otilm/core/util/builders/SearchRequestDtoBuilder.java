@@ -1,8 +1,4 @@
-<<<<<<<< HEAD:src/test/java/com/otilm/core/util/SearchRequestDtoBuilder.java
-package com.otilm.core.util;
-========
 package com.otilm.core.util.builders;
->>>>>>>> main:src/test/java/com/otilm/core/util/builders/SearchRequestDtoBuilder.java
 
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
