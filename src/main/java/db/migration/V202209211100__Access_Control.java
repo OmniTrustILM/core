@@ -1,13 +1,13 @@
 package db.migration;
 
 import com.otilm.api.model.core.auth.*;
-import com.czertainly.core.model.auth.Resource;
+import com.otilm.core.model.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
-import com.czertainly.core.model.auth.ResourceSyncRequestDto;
-import com.czertainly.core.security.authn.client.ResourceApiClient;
-import com.czertainly.core.security.authn.client.RoleManagementApiClient;
-import com.czertainly.core.security.authn.client.UserManagementApiClient;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.model.auth.ResourceSyncRequestDto;
+import com.otilm.core.security.authn.client.ResourceApiClient;
+import com.otilm.core.security.authn.client.RoleManagementApiClient;
+import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.springframework.web.reactive.function.client.WebClient;
