@@ -253,7 +253,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         return self.loadSigningProfileModel(name);
     }
 
-    // Package-private internal cache loader, self-invoked.
+    /**
+     * Package-private internal cache loader, self-invoked.
+     *
+     * @throws IllegalStateException    if the profile has no version row matching its {@code latestVersion},
+     *                                  or the version declares a managed scheme but its {@code managedSigningType}
+     *                                  is {@code null} (DB integrity violations)
+     * @throws IllegalArgumentException if the profile is not a managed timestamping profile — the only kind
+     *                                  the model currently supports
+     */
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
     SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
