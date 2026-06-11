@@ -31,7 +31,7 @@ class TimeQualityConfigurationProducerTest {
 
     @BeforeEach
     void setUp() {
-        when(messagingProperties.produceDestinationTimeQualityConfig()).thenReturn("/exchanges/czertainly/time-quality.config");
+        when(messagingProperties.produceDestinationTimeQualityConfig()).thenReturn("/exchanges/core/time-quality.config");
         producer = new TimeQualityConfigurationProducer(jmsTemplate, messagingProperties, RetryTemplate.defaultInstance());
     }
 
@@ -43,7 +43,7 @@ class TimeQualityConfigurationProducerTest {
 
         ArgumentCaptor<Object> messageCaptor = ArgumentCaptor.forClass(Object.class);
         verify(jmsTemplate).convertAndSend(
-                eq("/exchanges/czertainly/time-quality.config"),
+                eq("/exchanges/core/time-quality.config"),
                 messageCaptor.capture(),
                 any(MessagePostProcessor.class));
 
