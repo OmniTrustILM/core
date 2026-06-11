@@ -12,6 +12,7 @@ import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.service.SettingService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +43,9 @@ public class BaseSpringBootTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private SettingService settingService;
+
     @BeforeEach
     public void setupAuth() throws SQLException {
         mockSuccessfulCheckResourceAccess();
@@ -50,6 +54,8 @@ public class BaseSpringBootTest {
 
         // clean DB tables data before each test
         truncateTables();
+        // re-seed the settings cache from the (now empty) DB so settings cannot leak into the next context
+        settingService.refreshCache();
         // clean context
         MDC.clear();
     }

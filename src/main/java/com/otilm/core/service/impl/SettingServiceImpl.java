@@ -87,6 +87,7 @@ public class SettingServiceImpl implements SettingService {
         refreshCache();
     }
 
+    @Override
     @Scheduled(fixedRateString = "${settings.cache.refresh-interval}", timeUnit = TimeUnit.SECONDS, initialDelayString = "${settings.cache.refresh-interval}")
     public void refreshCache() {
         settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings());
