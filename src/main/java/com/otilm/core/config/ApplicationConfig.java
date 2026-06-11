@@ -42,16 +42,11 @@ import javax.net.ssl.TrustManager;
 @Configuration
 @EnableJpaAuditing(auditorAwareRef = "auditorAware")
 @EnableConfigurationProperties(DiscoveryProperties.class)
-@PropertySource(value = ApplicationConfig.EXTERNAL_PROPERTY_SOURCE, ignoreResourceNotFound = true)
 @ComponentScan(basePackages = "com.otilm.core")
 public class ApplicationConfig {
 
     @Autowired
     private TrustedCertificatesConfig trustedCertificatesConfig;
-
-    public static final String EXTERNAL_PROPERTY_SOURCE =
-            "file:${czertainly-backend.config.dir:/etc/czertainly-backend}/czertainly-backend.properties";
-
 
     // Connectors v2 API Clients
 
