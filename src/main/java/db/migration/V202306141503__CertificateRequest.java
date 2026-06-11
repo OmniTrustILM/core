@@ -1,8 +1,8 @@
 package db.migration;
 
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.czertainly.core.dao.entity.CertificateRequestEntity;
-import com.czertainly.core.util.CertificateUtil;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.util.CertificateUtil;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;

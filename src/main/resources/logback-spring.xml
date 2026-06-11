@@ -10,7 +10,7 @@
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>${CONSOLE_LOG_THRESHOLD}</level>
         </filter>
-        <filter class="com.czertainly.core.tasks.ScheduledLoggingFilter" />
+        <filter class="com.otilm.core.tasks.ScheduledLoggingFilter" />
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
             <charset>${CONSOLE_LOG_CHARSET}</charset>
@@ -26,7 +26,7 @@
             <captureLoggerContext>false</captureLoggerContext>
         </appender>
 
-        <appender name="SpanEvents" class="com.czertainly.core.config.SpanEventsAppender">
+        <appender name="SpanEvents" class="com.otilm.core.config.SpanEventsAppender">
         </appender>
     </if>
 
@@ -38,5 +38,5 @@
             <appender-ref ref="SpanEvents" />
         </if>
     </root>
-    <logger name="com.czertainly" level="INFO"/>
+    <logger name="com.otilm" level="INFO"/>
 </configuration>

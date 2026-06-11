@@ -11,7 +11,7 @@
 
     <artifactId>core</artifactId>
     <version>2.18.1-SNAPSHOT</version>
-    <name>CZERTAINLY-Core</name>
+    <name>core</name>
 
     <properties>
         <archunit.version>1.4.2</archunit.version>
@@ -26,7 +26,7 @@
         <git-commit-id-maven.version>9.0.2</git-commit-id-maven.version>
         <java.version>21</java.version>
         <!-- Temporary override for CVE-2026-41293 and CVE-2026-43512.
-          Remove after the parent com.czertainly:dependencies upgrades to a Spring Boot release that ships Tomcat 10.1.55+
+          Remove after the parent com.otilm:dependencies upgrades to a Spring Boot release that ships Tomcat 10.1.55+
           (expected with Spring Boot 3.5.15). Then delete this override. -->
         <tomcat.version>10.1.55</tomcat.version>
 
@@ -34,8 +34,8 @@
         <sonar.organization>ilm</sonar.organization>
         <sonar.projectKey>ilm_core</sonar.projectKey>
         <sonar.sources>src/main/java</sonar.sources>
-        <sonar.cpd.exclusions>src/main/java/com/czertainly/core/dao/entity/**</sonar.cpd.exclusions>
-        <sonar.coverage.exclusions>src/main/java/com/czertainly/core/dao/entity/**,src/main/java/com/czertainly/core/api/**,src/main/java/com/czertainly/core/util/converter/**</sonar.coverage.exclusions>
+        <sonar.cpd.exclusions>src/main/java/com/otilm/core/dao/entity/**</sonar.cpd.exclusions>
+        <sonar.coverage.exclusions>src/main/java/com/otilm/core/dao/entity/**,src/main/java/com/otilm/core/api/**,src/main/java/com/otilm/core/util/converter/**</sonar.coverage.exclusions>
     </properties>
 
     <dependencyManagement>
