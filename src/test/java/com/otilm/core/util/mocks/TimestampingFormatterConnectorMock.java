@@ -18,7 +18,7 @@ import java.util.UUID;
  */
 public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
 
-    private TimestampingFormatterConnectorMock() {
+    TimestampingFormatterConnectorMock() {
         stubV2InfoDetails(List.of(
                 interfaceInfo(ConnectorInterface.INFO, List.of()),
                 interfaceInfo(ConnectorInterface.HEALTH, List.of()),
@@ -26,10 +26,6 @@ public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
                 interfaceInfo(ConnectorInterface.SIGNING, List.of()),
                 interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of(FeatureFlag.TIMESTAMPING))
         ));
-    }
-
-    public static TimestampingFormatterConnectorMock start() {
-        return new TimestampingFormatterConnectorMock();
     }
 
     /**

@@ -20,7 +20,8 @@ import static com.otilm.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
  * {@code GET /v1} (V1 function-group discovery) and {@code GET /v2/info} (V2 interface discovery).
  * Concrete subclasses (e.g. {@link TimestampingFormatterConnectorMock}, {@link CryptographyProviderConnectorMock})
  * add the function-specific stubs in their constructor.
- * Call {@link #stop()} in {@code @AfterEach}.
+ * Instances are created exclusively through {@link ConnectorMockFactory}, which injects any Spring beans
+ * a mock needs at start. Call {@link #stop()} in {@code @AfterEach}.
  */
 public abstract class BaseConnectorMock {
 

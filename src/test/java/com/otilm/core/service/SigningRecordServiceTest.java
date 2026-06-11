@@ -21,6 +21,7 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.SearchRequestDtoBuilder;
+import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.SignerConnectorMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,13 +73,16 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     @Autowired
     private ConnectorService connectorService;
 
+    @Autowired
+    private ConnectorMockFactory connectorMockFactory;
+
     private SignerConnectorMock signerConnectorMock;
     private ConnectorDetailDto signerConnector;
     private SigningProfileDto defaultProfile;
 
     @BeforeEach
     void setUp() throws Exception {
-        signerConnectorMock = SignerConnectorMock.start();
+        signerConnectorMock = connectorMockFactory.startSigner();
         signerConnector = connectorService.createConnector(
                 aV2ConnectorRequest()
                         .withName("signer")

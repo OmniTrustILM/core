@@ -3,6 +3,7 @@ package com.otilm.core.util.mocks;
 import com.otilm.api.model.client.connector.InfoResponse;
 import com.otilm.api.model.core.connector.EndpointDto;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
 import java.util.ArrayList;
@@ -11,21 +12,21 @@ import java.util.UUID;
 
 /**
  * Mock of a V1 cryptography-provider connector — stubs {@code GET /v1} to report the
- * {@code CRYPTOGRAPHY_PROVIDER} function group (kind {@code SOFT}) advertising every required endpoint,
- * so the connector passes registration validation in {@code ConnectorV1Adapter#validateFunctionGroups}.
+ * {@code CRYPTOGRAPHY_PROVIDER} function group (kind {@code SOFT}) advertising every required endpoint.
+ * Starting the mock also seeds the function group and its required endpoints into the test database
+ * from the same endpoint list, so {@code ConnectorV1Adapter#validateFunctionGroups} performs the real
+ * production check at registration: DB-required endpoints vs. what this mock advertises.
  */
 public class CryptographyProviderConnectorMock extends BaseConnectorMock {
 
-    private CryptographyProviderConnectorMock() {
+    CryptographyProviderConnectorMock(FunctionGroupSeeder functionGroupSeeder) {
+        List<EndpointDto> endpoints = cryptographyProviderEndpoints();
+        functionGroupSeeder.seed(FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, endpoints);
         InfoResponse function = new InfoResponse(
                 List.of("SOFT"),
                 FunctionGroupCode.CRYPTOGRAPHY_PROVIDER,
-                cryptographyProviderEndpoints());
+                endpoints);
         stubV1FunctionGroups(List.of(function));
-    }
-
-    public static CryptographyProviderConnectorMock start() {
-        return new CryptographyProviderConnectorMock();
     }
 
     private static List<EndpointDto> cryptographyProviderEndpoints() {

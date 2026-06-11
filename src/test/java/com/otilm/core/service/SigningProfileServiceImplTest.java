@@ -67,11 +67,11 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormatterMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
-import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -130,7 +130,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private TimeQualityConfigurationService timeQualityConfigurationService;
 
     @Autowired
-    private FunctionGroupSeeder functionGroupSeeder;
+    private ConnectorMockFactory connectorMockFactory;
 
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
@@ -194,14 +194,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     @BeforeEach
     void setUp() throws Exception {
 
-        // Seed platform reference data normally provided by Flyway (wiped by per-test truncation)
-        functionGroupSeeder.seedCryptographyProvider();
-
-        // Set up mocks of connectors (the servers to call)
-        cryptographyProviderServerMock = CryptographyProviderConnectorMock.start();
-        contentSigningFormatterMock = ContentSigningFormatterMock.start();
-        timestampingFormatterMock = TimestampingFormatterConnectorMock.start();
-        signerConnectorServerMock = SignerConnectorMock.start();
+        // Set up mocks of connectors (the servers to call); the cryptography-provider mock also seeds
+        // the function-group reference data normally provided by Flyway (wiped by per-test truncation)
+        cryptographyProviderServerMock = connectorMockFactory.startCryptographyProvider();
+        contentSigningFormatterMock = connectorMockFactory.startContentSigningFormatter();
+        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter();
+        signerConnectorServerMock = connectorMockFactory.startSigner();
 
         // Register the connectors to ILM
         cryptographyProviderConnector = connectorService.createConnector(
@@ -1732,7 +1730,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             contentSigningFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName);
 
             // and: a second content signing formatter connector (formatterB)
-            ContentSigningFormatterMock formatterBMock = ContentSigningFormatterMock.start();
+            ContentSigningFormatterMock formatterBMock = connectorMockFactory.startContentSigningFormatter();
             formatterBMock.stubFormatterAttributeDefinition(attrUuid, attrName);
             ConnectorDetailDto formatterBConnector = connectorService.createConnector(
                     aV2ConnectorRequest()

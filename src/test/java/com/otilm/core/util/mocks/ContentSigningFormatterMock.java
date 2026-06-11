@@ -18,7 +18,7 @@ import java.util.UUID;
  */
 public class ContentSigningFormatterMock extends BaseConnectorMock {
 
-    private ContentSigningFormatterMock() {
+    ContentSigningFormatterMock() {
         stubV2InfoDetails(List.of(
                 interfaceInfo(ConnectorInterface.INFO, List.of()),
                 interfaceInfo(ConnectorInterface.HEALTH, List.of()),
@@ -26,10 +26,6 @@ public class ContentSigningFormatterMock extends BaseConnectorMock {
                 interfaceInfo(ConnectorInterface.SIGNING, List.of()),
                 interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of(FeatureFlag.CONTENT_SIGNING))
         ));
-    }
-
-    public static ContentSigningFormatterMock start() {
-        return new ContentSigningFormatterMock();
     }
 
     public ContentSigningFormatterMock stubFormatterAttributes() {

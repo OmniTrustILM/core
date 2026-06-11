@@ -10,15 +10,11 @@ import java.util.List;
  */
 public class SignerConnectorMock extends BaseConnectorMock {
 
-    private SignerConnectorMock() {
+    SignerConnectorMock() {
         stubV2Info(List.of(
                 ConnectorInterface.INFO,
                 ConnectorInterface.HEALTH,
                 ConnectorInterface.METRICS,
                 ConnectorInterface.SIGNING));
-    }
-
-    public static SignerConnectorMock start() {
-        return new SignerConnectorMock();
     }
 }
