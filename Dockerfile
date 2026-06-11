@@ -37,10 +37,10 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 # copy optimized JRE
 COPY --from=optimize /javaruntime $JAVA_HOME
 
-LABEL org.opencontainers.image.authors="CZERTAINLY <support@czertainly.com>"
+LABEL org.opencontainers.image.authors="ILM <support@czertainly.com>"
 
-# add non root user czertainly
-RUN addgroup --system --gid 10001 czertainly && adduser --system --home /opt/czertainly --uid 10001 --ingroup czertainly czertainly
+# add non root user ilm
+RUN addgroup --system --gid 10001 ilm && adduser --system --home /opt/otilm --uid 10001 --ingroup ilm ilm
 
 # apk upgrade should be removed once CVEs will be fixed in eclipse-temurin:21-jdk-alpine-3.23
 RUN apk update && \
@@ -48,9 +48,9 @@ RUN apk update && \
   apk add --no-cache curl
 
 COPY data/docker /
-COPY data/target/*.jar /opt/czertainly/app.jar
+COPY data/target/*.jar /opt/otilm/app.jar
 
-WORKDIR /opt/czertainly
+WORKDIR /opt/otilm
 
 # default environment variables
 ENV DB_SCHEMA=core
@@ -65,4 +65,4 @@ ENV PROVISIONING_API_KEY=
 
 USER 10001
 
-ENTRYPOINT ["/opt/czertainly/entry.sh"]
+ENTRYPOINT ["/opt/otilm/entry.sh"]
