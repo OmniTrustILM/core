@@ -41,4 +41,9 @@ public interface SettingService {
 
     void updateLoggingSettings(LoggingSettingsDto loggingSettingsDto);
 
+    /**
+     * Re-seed the in-memory settings cache from the database. Used by tests to truncate and reset state.
+     */
+    void refreshCache();
+
 }
