@@ -557,9 +557,11 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // then: version 1 still has the original RAW workflow
             SigningProfileDto previousProfileVersion = signingProfileService.getSigningProfile(profileUuid, 1);
-            assertEquals("workflow-update", existingProfile.getName());
-            assertEquals(1, existingProfile.getVersion());
             assertInstanceOf(RawSigningWorkflowDto.class, previousProfileVersion.getWorkflow());
+
+            // and: version 2 has the new TIMESTAMPING workflow
+            SigningProfileDto updatedProfile = signingProfileService.getSigningProfile(profileUuid, 2);
+            assertInstanceOf(TimestampingWorkflowDto.class, updatedProfile.getWorkflow());
         }
 
         @Test
