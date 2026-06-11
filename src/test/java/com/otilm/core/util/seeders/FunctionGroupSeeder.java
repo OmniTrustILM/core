@@ -1,8 +1,8 @@
-package com.czertainly.core.util.seeders;
+package com.otilm.core.util.seeders;
 
 import com.otilm.api.model.core.connector.FunctionGroupCode;
-import com.czertainly.core.dao.entity.FunctionGroup;
-import com.czertainly.core.dao.repository.FunctionGroupRepository;
+import com.otilm.core.dao.entity.FunctionGroup;
+import com.otilm.core.dao.repository.FunctionGroupRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 

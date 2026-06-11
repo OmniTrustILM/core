@@ -1,4 +1,4 @@
-package com.czertainly.core.util.builders;
+package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.connector.AuthType;

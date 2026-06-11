@@ -1,4 +1,4 @@
-package com.czertainly.core.util.mocks;
+package com.otilm.core.util.mocks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -12,40 +12,46 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Mock of a V2 timestamping formatter connector — stubs {@code GET /v2/info} advertising
- * {@link ConnectorInterface#SIGNATURE_FORMATTING} with {@link FeatureFlag#TIMESTAMPING}.
- * Used to back {@code TIMESTAMPING} workflow profiles.
+ * Mock of a V2 content-signing formatter connector — stubs {@code GET /v2/info} advertising
+ * {@link ConnectorInterface#SIGNATURE_FORMATTING} with {@link FeatureFlag#CONTENT_SIGNING}.
+ * Used to back {@code CONTENT_SIGNING} workflow profiles.
  */
-public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
+public class ContentSigningFormatterMock extends BaseConnectorMock {
 
-    private TimestampingFormatterConnectorMock() {
+    private ContentSigningFormatterMock() {
         stubV2InfoDetails(List.of(
                 interfaceInfo(ConnectorInterface.INFO, List.of()),
                 interfaceInfo(ConnectorInterface.HEALTH, List.of()),
                 interfaceInfo(ConnectorInterface.METRICS, List.of()),
                 interfaceInfo(ConnectorInterface.SIGNING, List.of()),
-                interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of(FeatureFlag.TIMESTAMPING))
+                interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of(FeatureFlag.CONTENT_SIGNING))
         ));
     }
 
-    public static TimestampingFormatterConnectorMock start() {
-        return new TimestampingFormatterConnectorMock();
+    public static ContentSigningFormatterMock start() {
+        return new ContentSigningFormatterMock();
     }
 
-    /**
-     * Stubs the signature-formatter attributes endpoint to advertise no attributes (empty list).
-     */
-    public TimestampingFormatterConnectorMock stubFormatterAttributes() {
+    public ContentSigningFormatterMock stubFormatterAttributes() {
         server.stubFor(WireMock.get(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/attributes"))
                 .willReturn(WireMock.okJson("[]")));
         return this;
     }
 
     /**
-     * Stubs the signature-formatter attributes endpoint to advertise a single STRING attribute definition.
+     * Stubs the signature-formatter attributes endpoint to advertise a single optional STRING attribute definition.
      * Takes precedence over {@link #stubFormatterAttributes()} when called after it.
      */
-    public TimestampingFormatterConnectorMock stubFormatterAttributeDefinition(UUID attrUuid, String attrName, boolean required) {
+    public ContentSigningFormatterMock stubFormatterAttributeDefinition(UUID attrUuid, String attrName) {
+        return stubFormatterAttributeDefinition(attrUuid, attrName, false);
+    }
+
+    /**
+     * Stubs the signature-formatter attributes endpoint to advertise a single STRING attribute definition.
+     * When {@code required=true}, the service must reject requests that omit this attribute.
+     * Takes precedence over {@link #stubFormatterAttributes()} when called after it.
+     */
+    public ContentSigningFormatterMock stubFormatterAttributeDefinition(UUID attrUuid, String attrName, boolean required) {
         DataAttributeV2 def = new DataAttributeV2();
         def.setUuid(attrUuid.toString());
         def.setName(attrName);

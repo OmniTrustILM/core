@@ -1,7 +1,7 @@
-package com.czertainly.core.util.builders;
+package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
-import com.czertainly.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.entity.signing.SigningRecord;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;

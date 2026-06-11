@@ -1,4 +1,4 @@
-package com.czertainly.core.util.mocks;
+package com.otilm.core.util.mocks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 

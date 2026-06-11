@@ -1,4 +1,4 @@
-package com.czertainly.core.util.builders;
+package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 

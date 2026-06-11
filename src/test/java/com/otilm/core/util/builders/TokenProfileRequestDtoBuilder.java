@@ -1,4 +1,4 @@
-package com.czertainly.core.util.builders;
+package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.cryptography.tokenprofile.AddTokenProfileRequestDto;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;

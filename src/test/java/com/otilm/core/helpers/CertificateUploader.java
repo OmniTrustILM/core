@@ -1,4 +1,4 @@
-package com.czertainly.core.helpers;
+package com.otilm.core.helpers;
 
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -13,8 +13,8 @@ import org.springframework.stereotype.Component;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 
-import static com.czertainly.core.util.builders.CertificateUpdateObjectsDtoBuilder.aCertificateUpdateObjectsRequest;
-import static com.czertainly.core.util.builders.UploadCertificateRequestDtoBuilder.anUploadCertificateRequest;
+import static com.otilm.core.util.builders.CertificateUpdateObjectsDtoBuilder.aCertificateUpdateObjectsRequest;
+import static com.otilm.core.util.builders.UploadCertificateRequestDtoBuilder.anUploadCertificateRequest;
 
 /**
  * Uploads X.509 certificates into the platform through {@link CertificateService} and exposes the

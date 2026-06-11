@@ -1,4 +1,4 @@
-package com.czertainly.core.util.mocks;
+package com.otilm.core.util.mocks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
@@ -11,7 +11,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 
 import java.util.List;
 
-import static com.czertainly.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
+import static com.otilm.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
 
 /**
  * Base for WireMock servers that impersonate a CZERTAINLY connector.
