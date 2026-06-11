@@ -283,10 +283,84 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             // then
             assertTrue(response.getItems().isEmpty());
         }
+
+        @Test
+        void listSigningRecordsForProfile_restrictsResultsToTheGivenProfile() {
+            // given
+            UUID alphaProfileUuid = alphaProfile.getUuid();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+            // then
+            assertEquals(2, response.getTotalItems());
+            List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
+            assertTrue(names.contains(ALPHA_RECORD_V1));
+            assertTrue(names.contains(ALPHA_RECORD_V2));
+            assertFalse(names.contains(BETA_RECORD_V1));
+        }
+
+        @Test
+        void listSigningRecordsForProfile_honorsAdditionalFiltersWithinTheProfileScope() {
+            // given
+            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
+                    .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyVersion2, SecurityFilter.create());
+
+            // then
+            assertEquals(1, response.getTotalItems());
+            assertEquals(ALPHA_RECORD_V2, response.getItems().getFirst().getName());
+        }
+
+        @Test
+        void listSigningRecordsForProfile_filterCannotWidenScopeToAnotherProfile() {
+            // given: scope to alpha but ask for beta records — the profile scope is an AND, not overridable
+            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SearchRequestDto onlyBetaProfile = SearchRequestDtoBuilder.aSearchRequest()
+                    .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, BETA_PROFILE)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyBetaProfile, SecurityFilter.create());
+
+            // then
+            assertEquals(0, response.getTotalItems());
+            assertTrue(response.getItems().isEmpty());
+        }
+
+        @Test
+        void listSigningRecordsForProfile_paginatesWithinTheProfileScope() {
+            // given
+            UUID alphaProfileUuid = alphaProfile.getUuid();
+            SearchRequestDto firstPageOfOne = SearchRequestDtoBuilder.aSearchRequest()
+                    .withPageNumber(1)
+                    .withItemsPerPage(1)
+                    .build();
+
+            // when
+            PaginationResponseDto<SigningRecordListDto> response =
+                    signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, firstPageOfOne, SecurityFilter.create());
+
+            // then
+            assertEquals(2, response.getTotalItems());
+            assertEquals(1, response.getItems().size());
+        }
     }
 
     @Nested
     class GetTests {
+
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // getSigningRecord
+    // ──────────────────────────────────────────────────────────────────────────
 
         @Test
         void returnsRecordDetailWithAllProperties() throws NotFoundException {

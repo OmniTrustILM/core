@@ -92,7 +92,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
     public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter) {
         return listRecords(request, filter, signingProfileUuid);

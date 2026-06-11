@@ -1,5 +1,7 @@
 package com.czertainly.core.service.impl;
 
+import com.czertainly.core.model.signing.scheme.SigningSchemeModel;
+import com.czertainly.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.czertainly.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.AlreadyExistException;
@@ -247,14 +249,22 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
-    public SigningProfileModel<?, ?> getSigningProfileModel(String name) throws NotFoundException {
+    public SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException {
         return self.loadSigningProfileModel(name);
     }
 
-    // Package-private internal cache loader, self-invoked.
+    /**
+     * Package-private internal cache loader, self-invoked.
+     *
+     * @throws IllegalStateException    if the profile has no version row matching its {@code latestVersion},
+     *                                  or the version declares a managed scheme but its {@code managedSigningType}
+     *                                  is {@code null} (DB integrity violations)
+     * @throws IllegalArgumentException if the profile is not a managed timestamping profile — the only kind
+     *                                  the model currently supports
+     */
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
-    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException, IllegalStateException {
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
         SigningProfile profile = signingProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
         SigningProfileVersion currentVersion = profile.getVersions().stream()
