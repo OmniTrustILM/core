@@ -14,6 +14,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.entity.signing.SigningRecord_;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningRecordMapper;
 import com.otilm.core.mapper.workflows.PaginationResponseMapper;
@@ -87,15 +88,14 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
     @Transactional(readOnly = true)
     public PaginationResponseDto<SigningRecordListDto> listSigningRecords(SearchRequestDto request, SecurityFilter filter) {
-        filter.setParentRefProperty("signingProfileUuid");
-        Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
-        TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
-                (root, cb, cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
-        List<SigningRecordListDto> dtos = signingRecordRepository.findUsingSecurityFilter(filter, List.of(), predicate, p,
-                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
-                .stream().map(SigningRecordMapper::toListDto).toList();
-        long totalItems = signingRecordRepository.countUsingSecurityFilter(filter, predicate);
-        return PaginationResponseMapper.toDto(dtos, request.getPageNumber(), request.getItemsPerPage(), totalItems);
+        return listRecords(request, filter, null);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.DETAIL)
+    @Transactional(readOnly = true)
+    public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter) {
+        return listRecords(request, filter, signingProfileUuid);
     }
 
     @Override
@@ -157,6 +157,27 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     // ──────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Shared paginated listing for signing records, optionally scoped to a single signing profile
+     * when {@code signingProfileUuid} is non-null.
+     */
+    private PaginationResponseDto<SigningRecordListDto> listRecords(SearchRequestDto request, SecurityFilter filter, UUID signingProfileUuid) {
+        filter.setParentRefProperty("signingProfileUuid");
+        Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
+                (root, cb, cq) -> {
+                    Predicate filters = FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
+                    return signingProfileUuid == null
+                            ? filters
+                            : cb.and(cb.equal(root.get(SigningRecord_.signingProfileUuid), signingProfileUuid), filters);
+                };
+        List<SigningRecordListDto> dtos = signingRecordRepository.findUsingSecurityFilter(filter, List.of(), predicate, p,
+                        (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
+                .stream().map(SigningRecordMapper::toListDto).toList();
+        long totalItems = signingRecordRepository.countUsingSecurityFilter(filter, predicate);
+        return PaginationResponseMapper.toDto(dtos, request.getPageNumber(), request.getItemsPerPage(), totalItems);
+    }
 
     private SigningRecord getSigningRecordEntity(SecuredUUID uuid) throws NotFoundException {
         return signingRecordRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException("Signing Record not found: " + uuid));

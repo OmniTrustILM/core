@@ -21,7 +21,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.SearchRequestDtoBuilder;
+import com.otilm.core.util.builders.SearchRequestDtoBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -152,7 +152,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersByName() {
         // given
         SearchRequestDto onlyAlphaV1 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_NAME.name(), FilterConditionOperator.EQUALS, ALPHA_RECORD_V1)
                 .build();
 
         // when
@@ -168,7 +168,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersBySigningProfile() {
         // given
         SearchRequestDto onlyAlphaProfile = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, ALPHA_PROFILE)
                 .build();
 
         // when
@@ -186,7 +186,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_filtersBySigningProfileVersion() {
         // given
         SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
-                .propertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
                 .build();
 
         // when
@@ -202,8 +202,8 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     void listSigningRecords_paginatesResults() {
         // given
         SearchRequestDto firstPageOfTwo = SearchRequestDtoBuilder.aSearchRequest()
-                .pageNumber(1)
-                .itemsPerPage(2)
+                .withPageNumber(1)
+                .withItemsPerPage(2)
                 .build();
 
         // when
@@ -213,6 +213,79 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
         // then
         assertEquals(3, response.getTotalItems());
         assertEquals(2, response.getItems().size());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // listSigningRecordsForProfile
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void listSigningRecordsForProfile_restrictsResultsToTheGivenProfile() {
+        // given
+        UUID alphaProfileUuid = alphaProfile.getUuid();
+
+        // when
+        PaginationResponseDto<SigningRecordListDto> response =
+                signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, SearchRequestDtoBuilder.all(), SecurityFilter.create());
+
+        // then
+        assertEquals(2, response.getTotalItems());
+        List<String> names = response.getItems().stream().map(SigningRecordListDto::getName).toList();
+        assertTrue(names.contains(ALPHA_RECORD_V1));
+        assertTrue(names.contains(ALPHA_RECORD_V2));
+        assertFalse(names.contains(BETA_RECORD_V1));
+    }
+
+    @Test
+    void listSigningRecordsForProfile_honorsAdditionalFiltersWithinTheProfileScope() {
+        // given
+        UUID alphaProfileUuid = alphaProfile.getUuid();
+        SearchRequestDto onlyVersion2 = SearchRequestDtoBuilder.aSearchRequest()
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION.name(), FilterConditionOperator.EQUALS, VERSION_2)
+                .build();
+
+        // when
+        PaginationResponseDto<SigningRecordListDto> response =
+                signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyVersion2, SecurityFilter.create());
+
+        // then
+        assertEquals(1, response.getTotalItems());
+        assertEquals(ALPHA_RECORD_V2, response.getItems().getFirst().getName());
+    }
+
+    @Test
+    void listSigningRecordsForProfile_filterCannotWidenScopeToAnotherProfile() {
+        // given: scope to alpha but ask for beta records — the profile scope is an AND, not overridable
+        UUID alphaProfileUuid = alphaProfile.getUuid();
+        SearchRequestDto onlyBetaProfile = SearchRequestDtoBuilder.aSearchRequest()
+                .withPropertyFilter(FilterField.SIGNING_RECORD_SIGNING_PROFILE.name(), FilterConditionOperator.EQUALS, BETA_PROFILE)
+                .build();
+
+        // when
+        PaginationResponseDto<SigningRecordListDto> response =
+                signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, onlyBetaProfile, SecurityFilter.create());
+
+        // then
+        assertEquals(0, response.getTotalItems());
+        assertTrue(response.getItems().isEmpty());
+    }
+
+    @Test
+    void listSigningRecordsForProfile_paginatesWithinTheProfileScope() {
+        // given
+        UUID alphaProfileUuid = alphaProfile.getUuid();
+        SearchRequestDto firstPageOfOne = SearchRequestDtoBuilder.aSearchRequest()
+                .withPageNumber(1)
+                .withItemsPerPage(1)
+                .build();
+
+        // when
+        PaginationResponseDto<SigningRecordListDto> response =
+                signingRecordService.listSigningRecordsForProfile(alphaProfileUuid, firstPageOfOne, SecurityFilter.create());
+
+        // then
+        assertEquals(2, response.getTotalItems());
+        assertEquals(1, response.getItems().size());
     }
 
     // ──────────────────────────────────────────────────────────────────────────

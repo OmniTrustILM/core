@@ -27,7 +27,7 @@ import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRe
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
-import static com.otilm.core.util.SearchRequestDtoBuilder.aSearchRequest;
+import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;

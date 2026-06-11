@@ -70,6 +70,15 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
+import static com.czertainly.core.util.builders.SearchFilterRequestDtoBuilder.aSearchFilter;
+
 /**
  * Tests for class {@link FilterPredicatesBuilder}
  */
@@ -306,10 +315,10 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCombinedFiltersPredicate() {
         List<SearchFilterRequestDto> testFilters = new ArrayList<>();
-        testFilters.add(new SearchFilterRequestDTODummy(FilterFieldSource.PROPERTY, FilterField.SUBJECTDN, FilterConditionOperator.EQUALS, "test"));
-        testFilters.add(new SearchFilterRequestDTODummy(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME, FilterConditionOperator.EQUALS, "test"));
-        testFilters.add(new SearchFilterRequestDTODummy(FilterFieldSource.META, FilterField.CKI_LENGTH, AttributeContentType.STRING, FilterConditionOperator.EQUALS, 1));
-        testFilters.add(new SearchFilterRequestDTODummy(FilterFieldSource.CUSTOM, FilterField.SERIAL_NUMBER, AttributeContentType.INTEGER, FilterConditionOperator.NOT_EQUALS, "123"));
+        testFilters.add(aPropertyEqualsFilter(FilterField.SUBJECTDN, "test"));
+        testFilters.add(aPropertyEqualsFilter(FilterField.COMMON_NAME, "test"));
+        testFilters.add(aMetaAttributeFilter("CKI_LENGTH", AttributeContentType.STRING, FilterConditionOperator.EQUALS, 1));
+        testFilters.add(aCustomAttributeFilter("SERIAL_NUMBER", AttributeContentType.INTEGER, FilterConditionOperator.NOT_EQUALS, "123"));
 
         final SqmJunctionPredicate filterPredicate = (SqmJunctionPredicate) FilterPredicatesBuilder.getFiltersPredicate(criteriaBuilder, criteriaQuery, root, testFilters);
         Assertions.assertEquals(4, (filterPredicate.getPredicates().size()));
@@ -322,10 +331,10 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testEnumPropertyFilter() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SUBJECT_TYPE.name(), FilterConditionOperator.EQUALS, CertificateSubjectType.ROOT_CA.getCode())));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.SUBJECT_TYPE, CertificateSubjectType.ROOT_CA.getCode())));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SUBJECT_TYPE.name(), FilterConditionOperator.NOT_EQUALS, CertificateSubjectType.ROOT_CA.getCode())));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.SUBJECT_TYPE, CertificateSubjectType.ROOT_CA.getCode())));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -555,7 +564,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateService.updateCertificateGroups(certificate2.getSecuredUuid(), Set.of(group1.getUuid(), group2.getUuid()));
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(), FilterConditionOperator.EQUALS, (Serializable) List.of("group 1"))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.GROUP_NAME, (Serializable) List.of("group 1"))));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -574,22 +583,22 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateService.updateOwner(certificate2.getSecuredUuid(), String.valueOf(UUID.randomUUID()));
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.EQUALS, (Serializable) List.of("owner1"))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.OWNER, (Serializable) List.of("owner1"))));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.EQUALS, (Serializable) List.of("owner1", "owner2"))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.OWNER, (Serializable) List.of("owner1", "owner2"))));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of("owner1"))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.OWNER, (Serializable) List.of("owner1"))));
         Assertions.assertEquals(Set.of(certificate3.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of("owner1", "owner2"))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.OWNER, (Serializable) List.of("owner1", "owner2"))));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.OWNER)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.OWNER.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.OWNER)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
         mockServer.stop();
     }
@@ -602,53 +611,53 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate2);
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.EQUALS, "name1")));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.COMMON_NAME, "name1")));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.CONTAINS, "name")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.CONTAINS, "name")));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.NOT_CONTAINS, "1")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_CONTAINS, "1")));
         Assertions.assertEquals(Set.of(certificate3.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.NOT_EQUALS, "name1")));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.COMMON_NAME, "name1")));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.COMMON_NAME)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.COMMON_NAME)));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.STARTS_WITH, "n")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.STARTS_WITH, "n")));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.ENDS_WITH, "2")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.ENDS_WITH, "2")));
         Assertions.assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, "^name[12]$")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "^name[12]$")));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, ".*\\d$"))); // ends with a number
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, ".*\\d$"))); // ends with a number
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.NOT_MATCHES, "^name[12]$")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, "^name[12]$")));
         Assertions.assertEquals(Set.of(), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.NOT_MATCHES, "^\\\\d"))); // stars with a number
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, "^\\\\d"))); // starts with a number
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(securityFilter, searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, "[abc"))); // invalid regex
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "[abc"))); // invalid regex
         Assertions.assertThrows(ValidationException.class, () -> certificateService.listCertificates(securityFilter, searchRequestDto));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, "\\Qabc"))); // invalid regex in postgres
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\Qabc"))); // invalid regex in postgres
         Assertions.assertThrows(ValidationException.class, () -> certificateService.listCertificates(securityFilter, searchRequestDto));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, "\\\\Qabc"))); // double escape should pass
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\\\Qabc"))); // double escape should pass
         Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(securityFilter, searchRequestDto));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(), FilterConditionOperator.MATCHES, "\\\\\\Qabc"))); // double escape should pass
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, "\\\\\\Qabc"))); // triple escape should fail
         Assertions.assertThrows(ValidationException.class, () -> certificateService.listCertificates(securityFilter, searchRequestDto));
     }
 
@@ -660,22 +669,22 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate2);
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(CertificateState.FAILED.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.CERTIFICATE_STATE, (Serializable) List.of(CertificateState.FAILED.getCode()))));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(CertificateState.FAILED.getCode(), CertificateState.REVOKED.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.CERTIFICATE_STATE, (Serializable) List.of(CertificateState.FAILED.getCode(), CertificateState.REVOKED.getCode()))));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of(CertificateState.FAILED.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.CERTIFICATE_STATE, (Serializable) List.of(CertificateState.FAILED.getCode()))));
         Assertions.assertEquals(Set.of(certificate3.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of(CertificateState.FAILED.getCode(), CertificateState.REVOKED.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.CERTIFICATE_STATE, (Serializable) List.of(CertificateState.FAILED.getCode(), CertificateState.REVOKED.getCode()))));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.CERTIFICATE_STATE)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERTIFICATE_STATE.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.CERTIFICATE_STATE)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
     }
@@ -688,28 +697,28 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate2);
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.EQUALS, "2025-05-16T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.NOT_AFTER, "2025-05-16T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.NOT_EQUALS, "2025-05-16T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.NOT_AFTER, "2025-05-16T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.GREATER, "2025-05-16T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.GREATER, "2025-05-16T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.GREATER_OR_EQUAL, "2025-05-16T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.GREATER_OR_EQUAL, "2025-05-16T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.LESSER, "2025-05-20T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.LESSER, "2025-05-20T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.LESSER_OR_EQUAL, "2025-05-20T22:10:15Z")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.LESSER_OR_EQUAL, "2025-05-20T22:10:15Z")));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.NOT_AFTER)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.NOT_AFTER)));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -722,31 +731,31 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         String duration = "P3DT2H";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_NEXT, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_NEXT, duration)));
         Assertions.assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         duration = "P1MT2H";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_NEXT, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_NEXT, duration)));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         duration = "P5D";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_PAST, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_PAST, duration)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         certificate1.setNotAfter(convertToDateViaInstant(LocalDateTime.now().minusMinutes(1)));
         certificateRepository.save(certificate1);
         duration = "P1D";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_NEXT, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_NEXT, duration)));
         Assertions.assertEquals(Set.of(), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         certificate1.setNotAfter(convertToDateViaInstant(LocalDateTime.now().plusMinutes(1)));
         certificateRepository.save(certificate1);
         duration = "P1D";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_PAST, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_PAST, duration)));
         Assertions.assertEquals(Set.of(), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         duration = "invalid";
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.NOT_AFTER.name(), FilterConditionOperator.IN_PAST, duration)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.NOT_AFTER, FilterConditionOperator.IN_PAST, duration)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class, () -> certificateService.listCertificates(securityFilter, searchRequestDto));
     }
@@ -805,7 +814,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         System.out.println("Certificate Key UUID: " + certificate1.getKey().getUuid());
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.PRIVATE_KEY.name(), FilterConditionOperator.EQUALS, true)));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.PRIVATE_KEY, true)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
     }
@@ -818,22 +827,22 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate2);
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(1))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.KEY_SIZE, (Serializable) List.of(1))));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(1, 2))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.KEY_SIZE, (Serializable) List.of(1, 2))));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of(1))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.KEY_SIZE, (Serializable) List.of(1))));
         Assertions.assertEquals(Set.of(certificate3.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of(1, 2))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.KEY_SIZE, (Serializable) List.of(1, 2))));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.KEY_SIZE)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_SIZE.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.KEY_SIZE)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
     }
@@ -862,13 +871,13 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         groupAssociation3.setObjectUuid(certificate2.getUuid());
         groupAssociationRepository.save(groupAssociation3);
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(), FilterConditionOperator.COUNT_EQUAL, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_EQUAL, 2)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(), FilterConditionOperator.COUNT_NOT_EQUAL, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_NOT_EQUAL, 2)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(), FilterConditionOperator.COUNT_GREATER_THAN, 1)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_GREATER_THAN, 1)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(), FilterConditionOperator.COUNT_LESS_THAN, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_LESS_THAN, 2)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         Location location1 = new Location();
@@ -889,13 +898,13 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certLocation3.setCertificate(certificate2);
         certificateLocationRepository.save(certLocation3);
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERT_LOCATION_NAME.name(), FilterConditionOperator.COUNT_EQUAL, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.CERT_LOCATION_NAME, FilterConditionOperator.COUNT_EQUAL, 2)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERT_LOCATION_NAME.name(), FilterConditionOperator.COUNT_NOT_EQUAL, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.CERT_LOCATION_NAME, FilterConditionOperator.COUNT_NOT_EQUAL, 2)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERT_LOCATION_NAME.name(), FilterConditionOperator.COUNT_GREATER_THAN, 1)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.CERT_LOCATION_NAME, FilterConditionOperator.COUNT_GREATER_THAN, 1)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CERT_LOCATION_NAME.name(), FilterConditionOperator.COUNT_LESS_THAN, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.CERT_LOCATION_NAME, FilterConditionOperator.COUNT_LESS_THAN, 2)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
         CryptographicKey cryptographicKey = new CryptographicKey();
@@ -917,7 +926,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         groupAssociation5.setObjectUuid(cryptographicKey.getUuid());
         groupAssociationRepository.save(groupAssociation5);
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CK_GROUP.name(), FilterConditionOperator.COUNT_EQUAL, 2)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.CK_GROUP, FilterConditionOperator.COUNT_EQUAL, 2)));
         CryptographicKeyResponseDto keys = cryptographicKeyService.listCryptographicKeys(new SecurityFilter(), searchRequestDto);
         Assertions.assertEquals(Set.of(cryptographicKeyItem.getUuid().toString()), keys.getCryptographicKeys().stream().map(KeyItemDto::getUuid).collect(Collectors.toSet()));
     }
@@ -941,13 +950,13 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate1);
         certificateRepository.save(certificate2);
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_USAGE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(CertificateKeyUsage.KEY_CERT_SIGN.getCode(), CertificateKeyUsage.NON_REPUDIATION.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.KEY_USAGE, (Serializable) List.of(CertificateKeyUsage.KEY_CERT_SIGN.getCode(), CertificateKeyUsage.NON_REPUDIATION.getCode()))));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_USAGE.name(), FilterConditionOperator.NOT_EQUALS, (Serializable) List.of(CertificateKeyUsage.KEY_CERT_SIGN.getCode(), CertificateKeyUsage.NON_REPUDIATION.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.KEY_USAGE, (Serializable) List.of(CertificateKeyUsage.KEY_CERT_SIGN.getCode(), CertificateKeyUsage.NON_REPUDIATION.getCode()))));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_USAGE.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.KEY_USAGE)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.KEY_USAGE.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.KEY_USAGE)));
         Assertions.assertEquals(Set.of(certificate1.getUuid(), certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -959,16 +968,16 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRepository.save(certificate2);
 
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.TRUSTED_CA.name(), FilterConditionOperator.EQUALS, true)));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.TRUSTED_CA, true)));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.TRUSTED_CA.name(), FilterConditionOperator.NOT_EQUALS, true)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.TRUSTED_CA, true)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.TRUSTED_CA.name(), FilterConditionOperator.EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.TRUSTED_CA)));
         Assertions.assertEquals(Set.of(certificate3.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.TRUSTED_CA.name(), FilterConditionOperator.NOT_EMPTY, null)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.TRUSTED_CA)));
         Assertions.assertEquals(Set.of(certificate2.getUuid(), certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
 
     }
@@ -981,11 +990,11 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificateRelation.setRelationType(CertificateRelationType.RENEWAL);
         certificateRelationRepository.save(certificateRelation);
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.PRECEDING_CERTIFICATES.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(CertificateRelationType.RENEWAL.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.PRECEDING_CERTIFICATES, (Serializable) List.of(CertificateRelationType.RENEWAL.getCode()))));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SUCCEEDING_CERTIFICATES.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(CertificateRelationType.RENEWAL.getCode()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.SUCCEEDING_CERTIFICATES, (Serializable) List.of(CertificateRelationType.RENEWAL.getCode()))));
         Assertions.assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SUCCEEDING_CERTIFICATES.name(), FilterConditionOperator.COUNT_EQUAL, 1)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.SUCCEEDING_CERTIFICATES, FilterConditionOperator.COUNT_EQUAL, 1)));
         Assertions.assertEquals(Set.of(certificate2.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -1003,7 +1012,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         certificate1.setProtocolAssociation(protocolAssociation);
         certificateRepository.save(certificate1);
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.ACME_PROFILE.name(), FilterConditionOperator.EQUALS, (Serializable) List.of(acmeProfile.getName()))));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.ACME_PROFILE, (Serializable) List.of(acmeProfile.getName()))));
         Assertions.assertEquals(Set.of(certificate1.getUuid()), getUuidsFromListCertificatesResponse(certificateService.listCertificates(new SecurityFilter(), searchRequestDto)));
     }
 
@@ -1020,16 +1029,16 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         AuditLog auditLog5 = createAuditLog(List.of(new ResourceObjectIdentity("name3", null)));
         SearchRequestDto searchRequestDto = new SearchRequestDto();
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_UUID.name(), FilterConditionOperator.EQUALS, uuid1)));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.AUDIT_LOG_RESOURCE_UUID, uuid1)));
         Assertions.assertEquals(Set.of(auditLog1.getId(), auditLog2.getId()), extractIdsFromAuditLogResponse(auditLogService.listAuditLogs(searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_UUID.name(), FilterConditionOperator.NOT_EQUALS, uuid2)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEqualsFilter(FilterField.AUDIT_LOG_RESOURCE_UUID, uuid2)));
         Assertions.assertEquals(Set.of(auditLog1.getId(), auditLog3.getId(), auditLog4.getId(), auditLog5.getId()), extractIdsFromAuditLogResponse(auditLogService.listAuditLogs(searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_UUID.name(), FilterConditionOperator.EMPTY, uuid2)));
+        searchRequestDto.setFilters(List.of(aPropertyEmptyFilter(FilterField.AUDIT_LOG_RESOURCE_UUID)));
         Assertions.assertEquals(Set.of(auditLog3.getId(), auditLog4.getId(), auditLog5.getId()), extractIdsFromAuditLogResponse(auditLogService.listAuditLogs(searchRequestDto)));
 
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_UUID.name(), FilterConditionOperator.NOT_EMPTY, uuid2)));
+        searchRequestDto.setFilters(List.of(aPropertyNotEmptyFilter(FilterField.AUDIT_LOG_RESOURCE_UUID)));
         Assertions.assertEquals(Set.of(auditLog1.getId(), auditLog2.getId()), extractIdsFromAuditLogResponse(auditLogService.listAuditLogs(searchRequestDto)));
 
     }
@@ -1039,9 +1048,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testPropertyFilter_equalsWithNullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
-                FilterConditionOperator.EQUALS, null)));
+        searchRequestDto.setFilters(List.of(aPropertyEqualsFilter(FilterField.COMMON_NAME, null)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1071,9 +1078,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
 
     @Test
     void testPropertyNumberFilter_invalidValue_throwsValidationException() {
-        SearchFilterRequestDto filterDto = new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.CKI_LENGTH.name(),
-                FilterConditionOperator.EQUALS, "notanumber");
+        SearchFilterRequestDto filterDto = aPropertyEqualsFilter(FilterField.CKI_LENGTH, "notanumber");
         CriteriaQuery<CryptographicKeyItem> ckiQuery = criteriaBuilder.createQuery(CryptographicKeyItem.class);
         Root<CryptographicKeyItem> ckiRoot = ckiQuery.from(CryptographicKeyItem.class);
         List<SearchFilterRequestDto> filters = List.of(filterDto);
@@ -1084,9 +1089,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountEqual_nullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_EQUAL, null)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_EQUAL, null)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1095,9 +1098,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountNotEqual_nullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_NOT_EQUAL, null)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_NOT_EQUAL, null)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1106,9 +1107,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountGreaterThan_nullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_GREATER_THAN, null)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_GREATER_THAN, null)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1117,9 +1116,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountLessThan_nullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_LESS_THAN, null)));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_LESS_THAN, null)));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1128,9 +1125,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountGreaterThan_nonIntegerValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_GREATER_THAN, "notanumber")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_GREATER_THAN, "notanumber")));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1139,9 +1134,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     @Test
     void testCountLessThan_nonIntegerValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
-        searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
-                FilterConditionOperator.COUNT_LESS_THAN, "notanumber")));
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, FilterConditionOperator.COUNT_LESS_THAN, "notanumber")));
         SecurityFilter securityFilter = new SecurityFilter();
         Assertions.assertThrows(ValidationException.class,
                 () -> certificateService.listCertificates(securityFilter, searchRequestDto));
@@ -1152,9 +1145,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         SecurityFilter securityFilter = new SecurityFilter();
         for (String forbidden : List.of("\\Rabc", "\\Gabc", "\\habc", "\\Habc", "\\zabc", "\\Xabc", "\\Vabc")) {
-            searchRequestDto.setFilters(List.of(new SearchFilterRequestDto(
-                    FilterFieldSource.PROPERTY, FilterField.COMMON_NAME.name(),
-                    FilterConditionOperator.MATCHES, forbidden)));
+            searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, forbidden)));
             Assertions.assertThrows(ValidationException.class,
                     () -> certificateService.listCertificates(securityFilter, searchRequestDto),
                     "Expected ValidationException for forbidden regex: " + forbidden);
@@ -1210,9 +1201,12 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
         // AUDIT_LOG_RESOURCE_NAME has jsonPath containing "*", so isJsonArray=true.
         // NOT_CONTAINS must delegate to getNotPresentPredicate(isJsonArray=true) which
         // produces OR(= '[]', IS NULL, = '[null]') — three checks for an empty JSON array.
-        SearchFilterRequestDTODummy filterDto = new SearchFilterRequestDTODummy(
-                FilterFieldSource.PROPERTY, FilterField.AUDIT_LOG_RESOURCE_NAME,
-                FilterConditionOperator.NOT_CONTAINS, "target-name");
+        SearchFilterRequestDto filterDto = aSearchFilter()
+                .withFieldSource(FilterFieldSource.PROPERTY)
+                .withField(FilterField.AUDIT_LOG_RESOURCE_NAME)
+                .withCondition(FilterConditionOperator.NOT_CONTAINS)
+                .withValue("target-name")
+                .build();
         CriteriaQuery<AuditLog> alQuery = criteriaBuilder.createQuery(AuditLog.class);
         Root<AuditLog> alRoot = alQuery.from(AuditLog.class);
 
@@ -1270,40 +1264,17 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     }
 
 
-    private SearchFilterRequestDTODummy prepareDummyFilterRequest(final FilterConditionOperator condition) {
-        SearchFilterRequestDTODummy dummy;
-        switch (condition) {
-            case EQUALS ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.EQUALS, testValue);
-            case NOT_EQUALS ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.NOT_EQUALS, testValue);
-            case CONTAINS ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.CONTAINS, testValue);
-            case NOT_CONTAINS ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.NOT_CONTAINS, testValue);
-            case STARTS_WITH ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.STARTS_WITH, testValue);
-            case ENDS_WITH ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.ENDS_WITH, testValue);
-            case EMPTY ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.EMPTY, testValue);
-            case NOT_EMPTY ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.NOT_EMPTY, testValue);
-            case GREATER ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.NOT_AFTER, FilterConditionOperator.GREATER, testDateValue);
-            case GREATER_OR_EQUAL ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.NOT_AFTER, FilterConditionOperator.GREATER_OR_EQUAL, testDateValue);
-            case LESSER ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.NOT_BEFORE, FilterConditionOperator.LESSER, testDateValue);
-            case LESSER_OR_EQUAL ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.NOT_AFTER, FilterConditionOperator.LESSER_OR_EQUAL, testDateValue);
-            case MATCHES ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.MATCHES, testValue);
-            case NOT_MATCHES ->
-                    dummy = new SearchFilterRequestDTODummy(FilterField.COMMON_NAME, FilterConditionOperator.NOT_MATCHES, testValue);
-            default -> dummy = null;
-        }
-        return dummy;
+    private SearchFilterRequestDto prepareDummyFilterRequest(final FilterConditionOperator condition) {
+        FilterField field = switch (condition) {
+            case GREATER, GREATER_OR_EQUAL, LESSER_OR_EQUAL -> FilterField.NOT_AFTER;
+            case LESSER -> FilterField.NOT_BEFORE;
+            default -> FilterField.COMMON_NAME;
+        };
+        Serializable value = switch (condition) {
+            case GREATER, GREATER_OR_EQUAL, LESSER, LESSER_OR_EQUAL -> testDateValue;
+            default -> testValue;
+        };
+        return aSearchFilter().withFieldSource(FilterFieldSource.PROPERTY).withField(field).withCondition(condition).withValue(value).build();
     }
 
     private CustomAttributeDefinitionDetailDto createCustomAttribute(String name, AttributeContentType contentType) throws AlreadyExistException, AttributeException {
@@ -1317,78 +1288,4 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     }
 
 
-}
-
-class SearchFilterRequestDTODummy extends SearchFilterRequestDto {
-
-    private FilterField fieldTest;
-    private FilterConditionOperator conditionTest;
-    private Serializable valueTest;
-    private FilterFieldSource filterFieldSource;
-    private String fieldIdentifier;
-
-    public SearchFilterRequestDTODummy(FilterField fieldTest, FilterConditionOperator conditionTest, Serializable valueTest) {
-        this.fieldTest = fieldTest;
-        this.conditionTest = conditionTest;
-        this.valueTest = valueTest;
-        this.fieldIdentifier = fieldTest.name();
-        this.filterFieldSource = FilterFieldSource.PROPERTY;
-    }
-
-    public SearchFilterRequestDTODummy(FilterFieldSource filterFieldSource, FilterField fieldTest, FilterConditionOperator conditionTest, Serializable valueTest) {
-        this.filterFieldSource = filterFieldSource;
-        this.fieldTest = fieldTest;
-        this.conditionTest = conditionTest;
-        this.valueTest = valueTest;
-        this.fieldIdentifier = fieldTest.name();
-    }
-
-    public SearchFilterRequestDTODummy(FilterFieldSource filterFieldSource, FilterField fieldTest, AttributeContentType attributeContentType, FilterConditionOperator conditionTest, Serializable valueTest) {
-        this.filterFieldSource = filterFieldSource;
-        this.fieldTest = fieldTest;
-        this.conditionTest = conditionTest;
-        this.valueTest = valueTest;
-        this.fieldIdentifier = fieldTest.name() + "|" + attributeContentType.name();
-    }
-
-    public FilterField getField() {
-        return fieldTest;
-    }
-
-    @Override
-    public FilterConditionOperator getCondition() {
-        return conditionTest;
-    }
-
-    @Override
-    public Serializable getValue() {
-        return valueTest;
-    }
-
-    public void setFieldTest(FilterField fieldTest) {
-        this.fieldTest = fieldTest;
-        this.fieldIdentifier = fieldTest.name();
-    }
-
-    public void setConditionTest(FilterConditionOperator conditionTest) {
-        this.conditionTest = conditionTest;
-    }
-
-    public void setValueTest(Serializable valueTest) {
-        this.valueTest = valueTest;
-    }
-
-    @Override
-    public String getFieldIdentifier() {
-        return fieldIdentifier;
-    }
-
-    public void setSearchGroup(FilterFieldSource filterFieldSource) {
-        this.filterFieldSource = filterFieldSource;
-    }
-
-    @Override
-    public FilterFieldSource getFieldSource() {
-        return filterFieldSource;
-    }
 }

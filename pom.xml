@@ -35,7 +35,7 @@
         <sonar.projectKey>ilm_core</sonar.projectKey>
         <sonar.sources>src/main/java</sonar.sources>
         <sonar.cpd.exclusions>src/main/java/com/otilm/core/dao/entity/**</sonar.cpd.exclusions>
-        <sonar.coverage.exclusions>src/main/java/com/otilm/core/dao/entity/**,src/main/java/com/ilm/core/api/**,src/main/java/com/ilm/core/util/converter/**</sonar.coverage.exclusions>
+        <sonar.coverage.exclusions>src/main/java/com/otilm/core/dao/entity/**,src/main/java/com/otilm/core/api/**,src/main/java/com/otilm/core/util/converter/**</sonar.coverage.exclusions>
     </properties>
 
     <dependencyManagement>
