@@ -41,8 +41,8 @@ public class TspControllerImpl implements TspController {
             responseBytes = TspResponseBuilder.buildRejection(e.getFailureInfo(), e.getClientMessage());
             log.error("TSP request failed with {}: {}", e.getFailureInfo(), e.getMessage(), e);
         } catch (NotFoundException e) {
-            responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "TSP profile not found.");
-            log.error("TSP profile '{}' not found", tspProfileName, e);
+            responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
+            log.error("Resource not found while processing TSP request for profile '{}': {}", tspProfileName, e.getMessage(), e);
         } catch (Exception e) {
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.SYSTEM_FAILURE, "An unexpected error occurred during timestamping.");
             log.error("Unexpected TSP processing failure", e);
