@@ -1,7 +1,9 @@
-package com.otilm.core.model.signing;
+package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflowBuilder;
@@ -18,6 +20,7 @@ public final class SigningProfileModelBuilder {
     private int version = 1;
     private boolean enabled = true;
     private List<SigningProtocol> enabledProtocols = List.of(SigningProtocol.TSP);
+    private String tspProfileName = "test-tsp-profile";
     private SigningWorkflow workflow = ManagedTimestampingWorkflowBuilder.aManagedTimestampingWorkflow()
             .timeQualityConfigurationUuid(UUID.fromString("00000000-0000-0000-0000-000000000002"))
             .build();
@@ -34,22 +37,58 @@ public final class SigningProfileModelBuilder {
         return aSigningProfile().build();
     }
 
-    public SigningProfileModelBuilder uuid(UUID uuid) { this.uuid = uuid; return this; }
-    public SigningProfileModelBuilder name(String name) { this.name = name; return this; }
-    public SigningProfileModelBuilder description(String description) { this.description = description; return this; }
-    public SigningProfileModelBuilder version(int version) { this.version = version; return this; }
-    public SigningProfileModelBuilder enabled(boolean enabled) { this.enabled = enabled; return this; }
-    public SigningProfileModelBuilder enabledProtocols(List<SigningProtocol> v) { this.enabledProtocols = v; return this; }
-    public SigningProfileModelBuilder workflow(SigningWorkflow v) { this.workflow = v; return this; }
-    public SigningProfileModelBuilder signingScheme(SigningSchemeModel v) { this.signingScheme = v; return this; }
+    public SigningProfileModelBuilder withUuid(UUID uuid) {
+        this.uuid = uuid;
+        return this;
+    }
 
-    public SigningProfileModelBuilder recordPolicy(SigningRecordPolicyModel v) {
+    public SigningProfileModelBuilder withName(String name) {
+        this.name = name;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withDescription(String description) {
+        this.description = description;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withVersion(int version) {
+        this.version = version;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withEnabled(boolean enabled) {
+        this.enabled = enabled;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withEnabledProtocols(List<SigningProtocol> v) {
+        this.enabledProtocols = v;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withTspProfileName(String v) {
+        this.tspProfileName = v;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withWorkflow(SigningWorkflow v) {
+        this.workflow = v;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withSigningScheme(SigningSchemeModel v) {
+        this.signingScheme = v;
+        return this;
+    }
+
+    public SigningProfileModelBuilder withRecordPolicy(SigningRecordPolicyModel v) {
         this.recordPolicy = v;
         return this;
     }
 
     @SuppressWarnings({"unchecked", "java:S119"})
     public <W extends SigningWorkflow, SM extends SigningSchemeModel> SigningProfileModel<W, SM> build() {
-        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, (W) workflow, (SM) signingScheme, recordPolicy);
+        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, tspProfileName, (W) workflow, (SM) signingScheme, recordPolicy);
     }
 }

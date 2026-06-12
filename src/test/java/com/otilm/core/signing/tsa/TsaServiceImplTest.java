@@ -8,13 +8,13 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
+import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -41,9 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class TsaServiceImplTest extends BaseSpringBootTest {
 
@@ -88,9 +86,23 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         return createTimestampingSigningProfile(name, List.of(), List.of());
     }
 
+    /**
+     * Persists a timestamping signing profile and activates TSP on it via an enabled TSP profile.
+     */
     private SigningProfile createTimestampingSigningProfile(String name,
                                                             List<String> allowedDigestAlgorithmCodes,
                                                             List<String> allowedPolicyIds) {
+        SigningProfile profile = persistTimestampingSigningProfile(name, allowedDigestAlgorithmCodes, allowedPolicyIds);
+        activateTsp(profile, true);
+        return profile;
+    }
+
+    /**
+     * Persists a timestamping signing profile WITHOUT activating TSP on it (no linked TSP profile).
+     */
+    private SigningProfile persistTimestampingSigningProfile(String name,
+                                                             List<String> allowedDigestAlgorithmCodes,
+                                                             List<String> allowedPolicyIds) {
         SigningProfile profile = new SigningProfile();
         profile.setName(name);
         profile.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
@@ -112,10 +124,24 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         return profile;
     }
 
+    /**
+     * Links a TSP profile (enabled or disabled) to the signing profile, activating the TSP protocol on it.
+     */
+    private TspProfile activateTsp(SigningProfile signingProfile, boolean tspProfileEnabled) {
+        TspProfile tspProfile = createTspProfileFor("tsp-for-" + signingProfile.getName(), signingProfile, tspProfileEnabled);
+        signingProfile.setTspProfile(tspProfile);
+        signingProfileRepository.saveAndFlush(signingProfile);
+        return tspProfile;
+    }
+
     private TspProfile createTspProfileFor(String name, SigningProfile defaultSigningProfile) {
+        return createTspProfileFor(name, defaultSigningProfile, true);
+    }
+
+    private TspProfile createTspProfileFor(String name, SigningProfile defaultSigningProfile, boolean enabled) {
         TspProfile profile = new TspProfile();
         profile.setName(name);
-        profile.setEnabled(true);
+        profile.setEnabled(enabled);
         profile.setDefaultSigningProfile(defaultSigningProfile);
         return tspProfileRepository.saveAndFlush(profile);
     }
@@ -149,6 +175,19 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             // then
             verify(managedTimestampEngine).process(any(), argThat(profile -> "sp-for-tsp".equals(profile.name())));
         }
+
+        @Test
+        void throwsBadRequest_whenDefaultSigningProfileDoesNotHaveTspActivated() {
+            // given — the TSP profile is enabled, but its default signing profile has no TSP activation
+            SigningProfile profileWithoutTsp = persistTimestampingSigningProfile("sp-without-tsp", List.of(), List.of());
+            createTspProfileFor("tsp-with-inactive-default", profileWithoutTsp);
+
+            // when / then
+            assertThatThrownBy(() -> tsaService.processTspRequestForTspProfile("tsp-with-inactive-default", aTspRequest().build()))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
+                    .hasMessageContaining("does not have the TSP protocol enabled");
+        }
     }
 
     // ── processTspRequestForSigningProfile ────────────────────────────────────
@@ -169,6 +208,36 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             // when / then
             assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile("nonexistent", aTspRequest().build()))
                     .isInstanceOf(NotFoundException.class);
+        }
+
+        @Test
+        void throwsBadRequest_whenLinkedTspProfileIsDisabled() {
+            // given — TSP is activated on the signing profile, but the linked TSP profile is disabled
+            boolean tspProfileEnabled = false;
+            SigningProfile profile = persistTimestampingSigningProfile("sp-with-disabled-tsp", List.of(), List.of());
+            activateTsp(profile, tspProfileEnabled);
+
+            // when / then
+            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
+                    .hasMessageContaining("TSP profile")
+                    .hasMessageContaining("is disabled");
+        }
+
+        @Test
+        void throwsBadRequest_whenSigningProfileIsDisabled() {
+            // given — TSP is activated and the TSP profile is enabled, but the signing profile itself is disabled
+            SigningProfile profile = createTimestampingSigningProfile("disabled-sp");
+            profile.setEnabled(false);
+            signingProfileRepository.saveAndFlush(profile);
+
+            // when / then
+            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
+                    .hasMessageContaining("Signing profile")
+                    .hasMessageContaining("is disabled");
         }
 
         @Test

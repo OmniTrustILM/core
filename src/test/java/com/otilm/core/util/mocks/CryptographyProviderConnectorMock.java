@@ -1,11 +1,13 @@
 package com.otilm.core.util.mocks;
 
 import com.otilm.api.model.client.connector.InfoResponse;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.EndpointDto;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +21,15 @@ import java.util.UUID;
  */
 public class CryptographyProviderConnectorMock extends BaseConnectorMock {
 
+    private final RealSignerTransformer realSignerTransformer;
+
     CryptographyProviderConnectorMock(FunctionGroupSeeder functionGroupSeeder) {
+        this(functionGroupSeeder, new RealSignerTransformer());
+    }
+
+    private CryptographyProviderConnectorMock(FunctionGroupSeeder functionGroupSeeder, RealSignerTransformer realSignerTransformer) {
+        super(realSignerTransformer);
+        this.realSignerTransformer = realSignerTransformer;
         List<EndpointDto> endpoints = cryptographyProviderEndpoints();
         functionGroupSeeder.seed(FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, endpoints);
         InfoResponse function = new InfoResponse(
@@ -113,16 +123,50 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
      * associated later.
      */
     public CryptographyProviderConnectorMock stubKeyPairCreation(String base64Spki) {
+        return stubKeyPairCreation(base64Spki, KeyAlgorithm.RSA, UUID.randomUUID());
+    }
+
+    /**
+     * Variant of {@link #stubKeyPairCreation(String)} for a specific key algorithm. The caller supplies
+     * {@code privateKeyUuid} — the key-reference UUID the connector reports for the private key item —
+     * so it can later register the matching real {@link PrivateKey} via
+     * {@link #registerSigningKey(UUID, PrivateKey, String)} for {@link #stubRealSigning()}.
+     */
+    public CryptographyProviderConnectorMock stubKeyPairCreation(String base64Spki, KeyAlgorithm algorithm, UUID privateKeyUuid) {
         server.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/pair/attributes"))
                 .willReturn(WireMock.okJson("[]")));
         server.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/pair/attributes/validate"))
                 .willReturn(WireMock.okJson("true")));
         server.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/pair"))
                 .willReturn(WireMock.okJson("{"
-                        + "\"privateKeyData\":{\"name\":\"privateKey\",\"uuid\":\"" + UUID.randomUUID() + "\","
-                        + "\"keyData\":{\"type\":\"Private\",\"algorithm\":\"RSA\",\"format\":\"Custom\",\"value\":{\"securityCategory\":\"5\"}}},"
+                        + "\"privateKeyData\":{\"name\":\"privateKey\",\"uuid\":\"" + privateKeyUuid + "\","
+                        + "\"keyData\":{\"type\":\"Private\",\"algorithm\":\"" + algorithm.getCode() + "\",\"format\":\"Custom\",\"value\":{\"securityCategory\":\"5\"}}},"
                         + "\"publicKeyData\":{\"name\":\"publicKey\",\"uuid\":\"" + UUID.randomUUID() + "\","
-                        + "\"keyData\":{\"type\":\"Public\",\"algorithm\":\"RSA\",\"format\":\"SubjectPublicKeyInfo\",\"value\":\"" + base64Spki + "\"}}}")));
+                        + "\"keyData\":{\"type\":\"Public\",\"algorithm\":\"" + algorithm.getCode() + "\",\"format\":\"SubjectPublicKeyInfo\",\"value\":\"" + base64Spki + "\"}}}")));
+        return this;
+    }
+
+    /**
+     * Stubs the sign endpoint to produce a <em>real</em> signature: each request's DTBS is signed with
+     * the registered {@link PrivateKey} matching the key-reference UUID in the request URL. Register
+     * keys via {@link #registerSigningKey(UUID, PrivateKey, String)}.
+     */
+    public CryptographyProviderConnectorMock stubRealSigning() {
+        server.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign"))
+                .willReturn(WireMock.aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withTransformers(RealSignerTransformer.NAME)));
+        return this;
+    }
+
+    /**
+     * Registers the real private key backing a key-reference UUID for {@link #stubRealSigning()}.
+     * {@code jcaSignatureAlgorithm} is the JCA name used to sign (e.g. {@code SHA256withRSA},
+     * {@code ML-DSA-65}).
+     */
+    public CryptographyProviderConnectorMock registerSigningKey(UUID keyReferenceUuid, PrivateKey privateKey, String jcaSignatureAlgorithm) {
+        realSignerTransformer.registerKey(keyReferenceUuid, privateKey, jcaSignatureAlgorithm);
         return this;
     }
 }

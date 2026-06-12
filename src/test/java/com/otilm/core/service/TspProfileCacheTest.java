@@ -26,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TspProfileCacheTest extends BaseSpringBootTest {
 
+    private static final String BASE_URL = "http://localhost";
+
     @Autowired
     private TspProfileService tspProfileService;
 
@@ -90,7 +92,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         request.setName("renamed-tsp-profile");
         request.setDescription(profile.getDescription());
         request.setCustomAttributes(List.of());
-        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request);
+        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request, BASE_URL);
 
         // then - old name entry is gone
         assertThat(cache.get(oldName, TspProfileModel.class)).isNull();
@@ -112,7 +114,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         request.setName(profile.getName());
         request.setDescription("updated description");
         request.setCustomAttributes(List.of());
-        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request);
+        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request, BASE_URL);
 
         // then - stale entry (old description) is gone
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNull();

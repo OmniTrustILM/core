@@ -25,6 +25,10 @@ import java.util.UUID;
  * @param version           Current version number.
  * @param enabled           Whether the profile is currently enabled.
  * @param enabledProtocols  Protocols enabled on this profile (e.g. TSP).
+ * @param tspProfileName    Name of the TSP Profile this signing profile is linked to (TSP activation),
+ *                          or {@code null} if TSP is not activated. Carried as a name — rather than the
+ *                          owning TSP Profile's mutable {@code enabled} flag — so the live TSP Profile
+ *                          model can be looked up by name on the hot path and its current state read fresh.
  * @param workflow          Workflow-type-specific configuration.
  * @param signingScheme     Signing scheme configuration.
  * @param recordPolicy      Signing record policy (what is captured, retention, persistence mode).
@@ -39,6 +43,7 @@ public record SigningProfileModel<W extends SigningWorkflow, SM extends SigningS
         int version,
         boolean enabled,
         List<SigningProtocol> enabledProtocols,
+        String tspProfileName,
         W workflow,
         SM signingScheme,
         SigningRecordPolicyModel recordPolicy

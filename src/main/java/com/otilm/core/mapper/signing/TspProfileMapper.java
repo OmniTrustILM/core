@@ -7,7 +7,7 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.model.signing.TspProfileModel;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import com.otilm.core.util.TspProtocolUrlFactory;
 
 import java.util.List;
 
@@ -16,12 +16,7 @@ public class TspProfileMapper {
     private TspProfileMapper() {
     }
 
-    private static String buildSigningUrl(TspProfile profile) {
-        return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
-                + "/v1/protocols/tsp/" + profile.getName() + "/sign";
-    }
-
-    public static TspProfileDto toDto(TspProfile profile, List<ResponseAttribute> customAttributes) {
+    public static TspProfileDto toDto(TspProfile profile, List<ResponseAttribute> customAttributes, String baseUrl) {
         TspProfileDto dto = new TspProfileDto();
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
@@ -29,7 +24,7 @@ public class TspProfileMapper {
         dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             SimplifiedSigningProfileDto signingProfileDto = SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile());
-            dto.setSigningUrl(buildSigningUrl(profile));
+            dto.setSigningUrl(TspProtocolUrlFactory.forTspProfile(baseUrl, profile.getName()));
             dto.setDefaultSigningProfile(signingProfileDto);
         }
         dto.setCustomAttributes(customAttributes);
@@ -38,10 +33,6 @@ public class TspProfileMapper {
 
     public static TspProfileModel toModel(TspProfile profile, List<ResponseAttribute> customAttributes) {
         SigningProfile defaultSigningProfile = profile.getDefaultSigningProfile();
-        String signingUrl = null;
-        if (defaultSigningProfile != null) {
-            signingUrl = buildSigningUrl(profile);
-        }
         return new TspProfileModel(
                 profile.getUuid(),
                 profile.getName(),
@@ -49,12 +40,11 @@ public class TspProfileMapper {
                 profile.isEnabled(),
                 defaultSigningProfile != null ? defaultSigningProfile.getUuid() : null,
                 defaultSigningProfile != null ? defaultSigningProfile.getName() : null,
-                signingUrl,
                 customAttributes
         );
     }
 
-    public static TspProfileListDto toListDto(TspProfile profile) {
+    public static TspProfileListDto toListDto(TspProfile profile, String baseUrl) {
         TspProfileListDto dto = new TspProfileListDto();
         dto.setUuid(profile.getUuid().toString());
         dto.setName(profile.getName());
@@ -62,7 +52,7 @@ public class TspProfileMapper {
         dto.setEnabled(profile.isEnabled());
         if (profile.getDefaultSigningProfile() != null) {
             dto.setDefaultSigningProfile(SigningProfileMapper.toSimpleDto(profile.getDefaultSigningProfile()));
-            dto.setSigningUrl(buildSigningUrl(profile));
+            dto.setSigningUrl(TspProtocolUrlFactory.forTspProfile(baseUrl, profile.getName()));
         }
         return dto;
     }

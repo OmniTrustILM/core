@@ -14,7 +14,6 @@ import java.util.UUID;
  * @param enabled                    Whether the profile is currently enabled.
  * @param defaultSigningProfileUuid  UUID of the default Signing Profile, or {@code null} if not set.
  * @param defaultSigningProfileName  Name of the default Signing Profile, or {@code null} if not set.
- * @param signingUrl                 URL for TSP signing, or {@code null} if no default signing profile is configured.
  * @param customAttributes           Custom attributes attached to this profile.
  */
 public record TspProfileModel(
@@ -24,6 +23,5 @@ public record TspProfileModel(
         boolean enabled,
         UUID defaultSigningProfileUuid,
         String defaultSigningProfileName,
-        String signingUrl,
         List<ResponseAttribute> customAttributes
 ) {}

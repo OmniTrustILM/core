@@ -10,7 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
@@ -53,7 +53,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         var recordingDisabledInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
-                                .recordPolicy(
+                                .withRecordPolicy(
                                         recordingDisabled()
                                                 .build())
                                 .build())
@@ -73,7 +73,7 @@ class ImmediateSigningRecordStrategyUnitTest {
     void record_insertsMetadataOnlyRecord_whenRecordingEnabledButNoContentSelected() {
         // given
         var metadataOnlyInput = aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(notRecording().build()).build())
                 .build();
 
         // when
@@ -119,7 +119,7 @@ class ImmediateSigningRecordStrategyUnitTest {
 
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(recordingEverything().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(recordingEverything().build()).build())
                 .build();
     }
 

@@ -3,6 +3,7 @@ package com.otilm.core.signing.tsa.messages;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.core.signing.tsa.validator.TspRequestValidator;
 import org.bouncycastle.asn1.x509.Extensions;
+import org.springframework.lang.NonNull;
 
 import java.math.BigInteger;
 import java.util.Arrays;
@@ -14,10 +15,11 @@ import java.util.Optional;
  *
  * <p>Before this record reaches the TSA engine, {@link TspRequestValidator} has already checked:
  * <ul>
- *   <li>Extensions — the request contains no extensions (profiles do not currently allow them).</li>
  *   <li>Hash algorithm — on the profile's allowed-digest-algorithm list.</li>
  *   <li>Policy OID — if present, on the profile's allowed-policy-id list.</li>
  * </ul>
+ * Client request extensions are accepted as-is (any well-formed extension is allowed) and carried
+ * through in {@code requestExtensions}; the validator does not filter them.
  * The engine is responsible for effective-policy selection (defaulting to the profile's
  * {@code defaultPolicyId} when the client omits one), serial-number generation, and token assembly.
  *
@@ -59,6 +61,7 @@ public record TspRequest(
     }
 
     @Override
+    @NonNull
     public String toString() {
         return "TspRequest[hashAlgorithm=" + hashAlgorithm
                 + ", hashedMessage=" + Arrays.toString(hashedMessage)
