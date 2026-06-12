@@ -116,7 +116,9 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             // given — profileNoVault has no vault profile configured
 
             // when / then
-            assertThatThrownBy(() -> service.create(SecuredParentUUID.fromUUID(profileNoVault.getUuid()), request("svc", "secret")))
+            SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileNoVault.getUuid());
+            TspBasicCredentialRequestDto req = request("svc", "secret");
+            assertThatThrownBy(() -> service.create(parent, req))
                     .isInstanceOf(ValidationException.class);
         }
 
@@ -161,7 +163,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
                     .isInstanceOf(AlreadyExistException.class);
 
             // then — best-effort cleanup of the orphaned second vault secret
-            verify(secretService, times(1)).deleteSecret(eq(secretUuidB), eq(true));
+            verify(secretService, times(1)).deleteSecret(secretUuidB, true);
             assertThat(service.list(parent)).hasSize(1);
         }
 
@@ -287,7 +289,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             service.delete(parent, credentialUuid);
 
             // then
-            verify(secretService, times(1)).deleteSecret(eq(secretUuid), eq(true));
+            verify(secretService, times(1)).deleteSecret(secretUuid, true);
             assertThat(service.list(parent)).isEmpty();
         }
     }
