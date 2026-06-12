@@ -15,6 +15,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public interface SecretService extends ResourceExtensionService {
@@ -40,6 +41,11 @@ public interface SecretService extends ResourceExtensionService {
     SecretDetailDto getSecretDetails(UUID uuid) throws NotFoundException;
 
     List<SecretVersionDto> getSecretVersions(UUID uuid) throws NotFoundException;
+
+    /**
+     * Batch lookup of the latest-version fingerprint for each given secret.
+     */
+    Map<UUID, String> getLatestFingerprintsByUuid(List<UUID> secretUuids);
 
     SecretContent getSecretContent(UUID uuid) throws NotFoundException, ConnectorException, AttributeException;
 
