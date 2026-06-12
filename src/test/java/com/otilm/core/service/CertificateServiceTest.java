@@ -89,7 +89,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -666,8 +666,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
         CertificateDetailDto dto = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
         CertificateQcStatementsDto qc = dto.getQcStatements();
         Assertions.assertNotNull(qc, "qcStatements should be present in the DTO");
-        Assertions.assertTrue(Boolean.TRUE.equals(qc.getQcCompliance()), "qcCompliance should be true");
-        Assertions.assertTrue(Boolean.TRUE.equals(qc.getQcSscd()), "qcSscd should be true");
+        Assertions.assertEquals(Boolean.TRUE, qc.getQcCompliance(), "qcCompliance should be true");
+        Assertions.assertEquals(Boolean.TRUE, qc.getQcSscd(), "qcSscd should be true");
         Assertions.assertNotNull(qc.getQcType(), "qcType list should not be null");
         Assertions.assertTrue(qc.getQcType().contains(QcType.ESIGN), "ESIGN should be in qcType");
         Assertions.assertTrue(qc.getQcType().contains(QcType.ESEAL), "ESEAL should be in qcType");
@@ -1571,8 +1571,12 @@ class CertificateServiceTest extends BaseSpringBootTest {
         createCertificateEntity(commonName, key, certificateState, validationStatus, archived);
 
         List<CertificateDto> certificates = certificateService.listScepCaCertificates(SecurityFilter.create(), intuneEnabled);
-        boolean isPresent = certificates.stream().anyMatch(c -> c.getCommonName().equals(commonName));
-        Assertions.assertEquals(shouldBeAccepted, isPresent, "Certificate '" + commonName + "' acceptance mismatch");
+        var presentCommonNames = certificates.stream().map(CertificateDto::getCommonName).toList();
+        if (shouldBeAccepted) {
+            assertThat(presentCommonNames).as("listed certificates").contains(commonName);
+        } else {
+            assertThat(presentCommonNames).as("listed certificates").doesNotContain(commonName);
+        }
     }
 
     @ParameterizedTest
@@ -1592,8 +1596,12 @@ class CertificateServiceTest extends BaseSpringBootTest {
                 extendedKeyUsages, extendedKeyUsageCritical, qcCompliance);
 
         List<CertificateDto> certificates = certificateService.listDigitalSigningCertificates(SecurityFilter.create(), workflowType, qualifiedTimestamp);
-        boolean isPresent = certificates.stream().anyMatch(c -> c.getCommonName().equals(testCaseName));
-        Assertions.assertEquals(shouldBeAccepted, isPresent, "Certificate '" + testCaseName + "' acceptance mismatch");
+        var presentCommonNames = certificates.stream().map(CertificateDto::getCommonName).toList();
+        if (shouldBeAccepted) {
+            assertThat(presentCommonNames).as("listed certificates").contains(testCaseName);
+        } else {
+            assertThat(presentCommonNames).as("listed certificates").doesNotContain(testCaseName);
+        }
     }
 
     private CryptographicKey prepareKeyWithItems(String name,
