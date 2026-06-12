@@ -20,7 +20,10 @@ import java.util.UUID;
 @ToString
 @Entity
 @Table(name = "tsp_profile_basic_credential",
-        uniqueConstraints = @UniqueConstraint(name = "tsp_profile_basic_credential_username", columnNames = {"tsp_profile_uuid", "username"}))
+        uniqueConstraints = {
+                @UniqueConstraint(name = "tsp_profile_basic_credential_username", columnNames = {"tsp_profile_uuid", "username"}),
+                @UniqueConstraint(name = "tsp_profile_basic_credential_secret_uuid", columnNames = {"secret_uuid"})
+        })
 public class TspProfileBasicCredential extends UniquelyIdentified {
 
     @ManyToOne(fetch = FetchType.LAZY)
