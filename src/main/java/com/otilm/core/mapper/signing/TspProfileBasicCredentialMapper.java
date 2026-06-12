@@ -4,8 +4,6 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 
-import java.util.List;
-
 public class TspProfileBasicCredentialMapper {
     private TspProfileBasicCredentialMapper() {
     }

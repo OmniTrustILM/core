@@ -592,7 +592,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
             return Map.of();
         }
         Map<UUID, String> result = new HashMap<>();
-        for (Secret secret : secretRepository.findByUuidIn(secretUuids)) {
+        for (Secret secret : secretRepository.findWithLatestVersionByUuidIn(secretUuids)) {
             SecretVersion latest = secret.getLatestVersion();
             if (latest != null && latest.getFingerprint() != null) {
                 result.put(secret.getUuid(), latest.getFingerprint());

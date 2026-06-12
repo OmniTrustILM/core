@@ -25,8 +25,7 @@ public interface TspProfileBasicCredentialService {
     void delete(SecuredParentUUID tspProfileUuid, SecuredUUID uuid) throws AttributeException, ConnectorCommunicationException, NotFoundException;
 
     /**
-     * Deletes the vault secret backing every Basic credential of the given TSP profile and evicts the
-     * corresponding credential-verification cache entries.
+     * Deletes the vault secret backing every Basic credential of the given TSP profile.
      * Runs without an ambient transaction so the vault HTTP calls never hold a database transaction open.
      */
     void deleteSecretsForProfile(UUID tspProfileUuid);
