@@ -8,13 +8,12 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.*;
-import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.certificate.*;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
@@ -38,7 +37,9 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
+import com.otilm.core.dao.repository.*;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
@@ -88,7 +89,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -135,6 +136,10 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Autowired
     private AttributeService attributeService;
     @Autowired
@@ -645,6 +650,44 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
     private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
         return getRequestAttribute();
+    }
+
+    @Test
+    void testUploadCertificate_withQcStatements() throws Exception {
+        X509Certificate qcX509 = CertificateTestUtil.createCertificateWithQcStatements(
+                true, true, List.of(QcType.ESIGN, QcType.ESEAL), List.of("DE", "AT"));
+
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(Base64.getEncoder().encodeToString(qcX509.getEncoded()));
+
+        UuidDto uuidDto = certificateService.uploadSync(request);
+        Assertions.assertNotNull(uuidDto);
+
+        CertificateDetailDto dto = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+        CertificateQcStatementsDto qc = dto.getQcStatements();
+        Assertions.assertNotNull(qc, "qcStatements should be present in the DTO");
+        Assertions.assertEquals(Boolean.TRUE, qc.getQcCompliance(), "qcCompliance should be true");
+        Assertions.assertEquals(Boolean.TRUE, qc.getQcSscd(), "qcSscd should be true");
+        Assertions.assertNotNull(qc.getQcType(), "qcType list should not be null");
+        Assertions.assertTrue(qc.getQcType().contains(QcType.ESIGN), "ESIGN should be in qcType");
+        Assertions.assertTrue(qc.getQcType().contains(QcType.ESEAL), "ESEAL should be in qcType");
+        Assertions.assertNotNull(qc.getQcCcLegislation(), "qcCcLegislation should not be null");
+        Assertions.assertTrue(qc.getQcCcLegislation().contains("DE"), "DE should be in qcCcLegislation");
+        Assertions.assertTrue(qc.getQcCcLegislation().contains("AT"), "AT should be in qcCcLegislation");
+    }
+
+    @Test
+    void testUploadCertificate_withoutQcStatements() throws Exception {
+        X509Certificate plainX509 = CertificateTestUtil.createCertificateWithoutEku();
+
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(Base64.getEncoder().encodeToString(plainX509.getEncoded()));
+
+        UuidDto uuidDto = certificateService.uploadSync(request);
+        Assertions.assertNotNull(uuidDto);
+
+        CertificateDetailDto dto = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+        Assertions.assertNull(dto.getQcStatements(), "qcStatements should be null for a plain certificate");
     }
 
     @Test
@@ -1472,16 +1515,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
             boolean shouldBeAccepted
     ) {
-        CryptographicKey key = null;
-        if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
-            key = createCryptographicKey(commonName + " Key");
-            for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-        }
+        CryptographicKey key = prepareKeyWithItems(commonName, publicKeys, privateKeys);
 
         createCertificateEntity(commonName, key, certificateState, validationStatus, archived);
 
@@ -1532,24 +1566,97 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
             boolean intuneEnabled, boolean shouldBeAccepted
     ) {
-        CryptographicKey key = null;
-        if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
-            key = createCryptographicKey(commonName + " Key");
-            for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-        }
+        CryptographicKey key = prepareKeyWithItems(commonName, publicKeys, privateKeys);
 
         createCertificateEntity(commonName, key, certificateState, validationStatus, archived);
 
         List<CertificateDto> certificates = certificateService.listScepCaCertificates(SecurityFilter.create(), intuneEnabled);
-        boolean isPresent = certificates.stream().anyMatch(c -> c.getCommonName().equals(commonName));
-        Assertions.assertEquals(shouldBeAccepted, isPresent, "Certificate '" + commonName + "' acceptance mismatch");
+        var presentCommonNames = certificates.stream().map(CertificateDto::getCommonName).toList();
+        if (shouldBeAccepted) {
+            assertThat(presentCommonNames).as("listed certificates").contains(commonName);
+        } else {
+            assertThat(presentCommonNames).as("listed certificates").doesNotContain(commonName);
+        }
     }
 
+    @ParameterizedTest
+    @MethodSource("com.otilm.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
+    public void testListDigitalSigningCertificates(
+            String testCaseName,
+            List<CertificateTestData.KeyItemData> publicKeys,
+            List<CertificateTestData.KeyItemData> privateKeys,
+            CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
+            boolean withTokenProfile, boolean withTokenInstanceReference, List<String> extendedKeyUsages, boolean extendedKeyUsageCritical,
+            SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance,
+            boolean shouldBeAccepted
+    ) {
+        CryptographicKey key = prepareKeyWithItems(testCaseName, publicKeys, privateKeys);
+        attachTokenAssociations(key, testCaseName, withTokenProfile, withTokenInstanceReference);
+        prepareDigitalSigningCertificate(testCaseName, key, certificateState, validationStatus, archived,
+                extendedKeyUsages, extendedKeyUsageCritical, qcCompliance);
+
+        List<CertificateDto> certificates = certificateService.listDigitalSigningCertificates(SecurityFilter.create(), workflowType, qualifiedTimestamp);
+        var presentCommonNames = certificates.stream().map(CertificateDto::getCommonName).toList();
+        if (shouldBeAccepted) {
+            assertThat(presentCommonNames).as("listed certificates").contains(testCaseName);
+        } else {
+            assertThat(presentCommonNames).as("listed certificates").doesNotContain(testCaseName);
+        }
+    }
+
+    private CryptographicKey prepareKeyWithItems(String name,
+                                                 List<CertificateTestData.KeyItemData> publicKeys,
+                                                 List<CertificateTestData.KeyItemData> privateKeys) {
+        if (publicKeys.isEmpty() && privateKeys.isEmpty()) {
+            return null;
+        }
+        CryptographicKey key = createCryptographicKey(name + " Key");
+        for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
+            createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
+        }
+        for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
+            createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
+        }
+        return key;
+    }
+
+    private void attachTokenAssociations(CryptographicKey key, String testCaseName,
+                                         boolean withTokenProfile, boolean withTokenInstanceReference) {
+        if (key == null) {
+            return;
+        }
+        if (withTokenProfile) {
+            TokenProfile tokenProfile = new TokenProfile();
+            tokenProfile.setName(testCaseName + " Token Profile");
+            tokenProfile.setEnabled(true);
+            tokenProfile = tokenProfileRepository.save(tokenProfile);
+            key.setTokenProfile(tokenProfile);
+            cryptographicKeyRepository.save(key);
+        }
+        if (withTokenInstanceReference) {
+            TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
+            tokenInstanceReference.setName(testCaseName + " Token Instance");
+            tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
+            tokenInstanceReference = tokenInstanceReferenceRepository.save(tokenInstanceReference);
+            key.setTokenInstanceReference(tokenInstanceReference);
+            cryptographicKeyRepository.save(key);
+        }
+    }
+
+    private void prepareDigitalSigningCertificate(String testCaseName, CryptographicKey key,
+                                                  CertificateState certificateState, CertificateValidationStatus validationStatus,
+                                                  boolean archived, List<String> extendedKeyUsages,
+                                                  boolean extendedKeyUsageCritical, Boolean qcCompliance) {
+        Certificate cert = createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived);
+        if (!extendedKeyUsages.isEmpty()) {
+            cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
+        }
+        cert.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
+        if (qcCompliance != null) {
+            cert.setQcCompliance(qcCompliance);
+        }
+        certificateRepository.save(cert);
+    }
 
     private CryptographicKey createCryptographicKey(String name) {
         CryptographicKey key = new CryptographicKey();
