@@ -266,7 +266,7 @@ proxy:
   # Azure Service Bus topic / RabbitMQ exchange name for proxy messages
   exchange: ${BROKER_PROXY_EXCHANGE:ilm-proxy}
   # Azure Service Bus subscription / RabbitMQ queue name for receiving responses
-  response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:ilm}
+  response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
   # Unique identifier for this Core instance (defaults to hostname/pod name)
   instance-id: ${PROXY_INSTANCE_ID:}
   # Maximum time to wait for a response from the proxy

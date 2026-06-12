@@ -24,7 +24,7 @@ public record ProxyProperties(
         /**
          * Azure Service Bus subscription / RabbitMQ queue name for receiving
          * fire-and-forget messages (health checks, connector registration).
-         * Default: ilm
+         * Default: core
          */
         String responseQueue,
 
@@ -60,7 +60,7 @@ public record ProxyProperties(
             exchange = "ilm-proxy";
         }
         if (responseQueue == null) {
-            responseQueue = "ilm";
+            responseQueue = "core";
         }
         if (instanceId == null || instanceId.isBlank()) {
             try {
