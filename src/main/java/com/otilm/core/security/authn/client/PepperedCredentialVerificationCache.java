@@ -33,6 +33,7 @@ import java.util.UUID;
 class PepperedCredentialVerificationCache implements CredentialVerificationCache {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CacheManager cacheManager;
     private final SecretRefIndex secretRefIndex;
@@ -52,7 +53,7 @@ class PepperedCredentialVerificationCache implements CredentialVerificationCache
                 cacheManager.getCache(CacheConfig.CREDENTIAL_VERIFICATION_CACHE),
                 "CREDENTIAL_VERIFICATION_CACHE must be registered in CacheConfig");
         byte[] randomPepper = new byte[32];
-        new SecureRandom().nextBytes(randomPepper);
+        SECURE_RANDOM.nextBytes(randomPepper);
         this.pepper = randomPepper;
     }
 
@@ -75,6 +76,7 @@ class PepperedCredentialVerificationCache implements CredentialVerificationCache
 
     @Override
     public void evictBySecretUuid(UUID secretUuid) {
+        Objects.requireNonNull(secretUuid, "secretUuid must not be null");
         // Known, accepted trade-off (same as TokenJtiIndex): a putSuccess that interleaves between removeSecret and the
         // evict loop can leave a fresh positive entry that this call misses. The window is tiny and the entry is bounded
         // by the cache TTL.

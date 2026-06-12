@@ -63,15 +63,15 @@ class TspProfileBasicCredentialServiceImplEvictionTest {
     }
 
     @Test
-    void doesNothing_whenSecretIsNotTspBasicCredential() {
+    void evictsVerificationCacheOnly_whenSecretIsNotTspBasicCredential() {
         // given — no TSP basic credential references this secret
         when(credentialRepository.findBySecretUuid(secretUuid)).thenReturn(Optional.empty());
 
         // when
         service.evictCachesForSecret(secretUuid);
 
-        // then
+        // then — verification cache eviction is keyed by secretUuid and stays idempotent even after the row is gone
         verifyNoInteractions(cacheEvictor);
-        verifyNoInteractions(credentialVerificationCache);
+        verify(credentialVerificationCache).evictBySecretUuid(secretUuid);
     }
 }

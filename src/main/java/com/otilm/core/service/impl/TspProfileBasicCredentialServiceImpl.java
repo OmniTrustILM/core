@@ -173,10 +173,9 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     @Override
     @Transactional(readOnly = true)
     public void evictCachesForSecret(UUID secretUuid) {
-        credentialRepository.findBySecretUuid(secretUuid).ifPresent(credential -> {
-            evictModelCache(credential.getTspProfile().getName());
-            credentialVerificationCache.evictBySecretUuid(secretUuid);
-        });
+        credentialRepository.findBySecretUuid(secretUuid)
+                .ifPresent(credential -> evictModelCache(credential.getTspProfile().getName()));
+        credentialVerificationCache.evictBySecretUuid(secretUuid);
     }
 
     private TspProfile getTspProfile(SecuredParentUUID tspProfileUuid) throws NotFoundException {
