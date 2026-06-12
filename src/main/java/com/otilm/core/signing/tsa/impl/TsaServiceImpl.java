@@ -54,10 +54,11 @@ public class TsaServiceImpl implements TsaService {
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
 
-        if (signingProfile.tspProfileName() == null) {
+        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileName() == null) {
             var message = "Signing profile '%s' does not have a TSP profile associated.".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
+
         TspProfileModel tspProfile = tspProfileService.getTspProfile(signingProfile.tspProfileName());
 
         return processTspRequest(signingProfile, tspProfile, request);
@@ -66,11 +67,6 @@ public class TsaServiceImpl implements TsaService {
     private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspProfileModel tspProfile, TspRequest request) throws TspException {
         if (!signingProfile.enabled()) {
             var message = "Signing profile '%s' is disabled".formatted(signingProfile.name());
-            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
-        }
-
-        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileName() == null) {
-            var message = "Signing profile '%s' does not have the TSP protocol enabled".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
