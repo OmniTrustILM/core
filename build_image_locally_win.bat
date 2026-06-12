@@ -1,7 +1,7 @@
 @echo off
 
 REM Name of the image to build (including tag)
-set IMAGE_NAME=ot/ilm-core:develop-latest
+set IMAGE_NAME=ilm/core:develop-latest
 REM Dockerfile path for the main image
 set DOCKERFILE_PATH=Dockerfile
 

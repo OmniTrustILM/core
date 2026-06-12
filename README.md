@@ -76,7 +76,7 @@ Application supports two types of message brokers:
 
 ## Docker container
 
-`Core` is provided as a Docker container. Use the `czertainly/czertainly-core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
+`Core` is provided as a Docker container. Use the `hub.omnitrustregistry.com/ilm/core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
 
 | Variable                              | Description                                                                                                                                      | Required                                                  | Default value       |
 |---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|---------------------|

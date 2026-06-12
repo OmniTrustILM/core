@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Name of the image to build (including tag)
-export IMAGE_NAME=ot/ilm-core:develop-latest
+export IMAGE_NAME=ilm/core:develop-latest
 # Dockerfile path for the main image
 export DOCKERFILE_PATH=Dockerfile
 
