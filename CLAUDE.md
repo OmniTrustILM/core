@@ -90,7 +90,7 @@ Capture entry state before the external call (`final State entryState = entity.g
 
 ## Transactional boundaries live on services, not repositories
 
-Repositories in `com.czertainly.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
+Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
 
 ## Race conditions on multi-actor endpoints
 

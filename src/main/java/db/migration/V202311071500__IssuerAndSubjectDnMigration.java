@@ -1,9 +1,9 @@
 package db.migration;
 
-import com.czertainly.core.util.CertificateUtil;
-import com.czertainly.core.util.CertificateRequestUtils;
-import com.czertainly.core.util.CzertainlyX500NameStyle;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.PlatformX500NameStyle;
+import com.otilm.core.util.DatabaseMigration;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
@@ -44,16 +44,16 @@ public class V202311071500__IssuerAndSubjectDnMigration extends BaseJavaMigratio
                     byte[] subjectDnPrincipalEncoded = certificate.getSubjectX500Principal().getEncoded();
                     byte[] issuerDnPrincipalEncoded = certificate.getIssuerX500Principal().getEncoded();
                     commands.add(
-                            "update certificate set issuer_dn = '" + X500Name.getInstance(CzertainlyX500NameStyle.DEFAULT, issuerDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate set issuer_dn = '" + X500Name.getInstance(PlatformX500NameStyle.DEFAULT, issuerDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                     commands.add(
-                            "update certificate set subject_dn = '" + X500Name.getInstance(CzertainlyX500NameStyle.DEFAULT, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate set subject_dn = '" + X500Name.getInstance(PlatformX500NameStyle.DEFAULT, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                     commands.add(
-                            "update certificate set issuer_dn_normalized = '" + X500Name.getInstance(CzertainlyX500NameStyle.NORMALIZED, issuerDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate set issuer_dn_normalized = '" + X500Name.getInstance(PlatformX500NameStyle.NORMALIZED, issuerDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                     commands.add(
-                            "update certificate set subject_dn_normalized = '" + X500Name.getInstance(CzertainlyX500NameStyle.NORMALIZED, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate set subject_dn_normalized = '" + X500Name.getInstance(PlatformX500NameStyle.NORMALIZED, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                 }
                 executeCommands(select, commands);
@@ -76,10 +76,10 @@ public class V202311071500__IssuerAndSubjectDnMigration extends BaseJavaMigratio
                     byte[] subjectDnPrincipalEncoded = jcaObject.getSubject().getEncoded();
 
                     commands.add(
-                            "update certificate_request set subject_dn = '" + X500Name.getInstance(CzertainlyX500NameStyle.DEFAULT, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate_request set subject_dn = '" + X500Name.getInstance(PlatformX500NameStyle.DEFAULT, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                     commands.add(
-                            "update certificate_request set subject_dn_normalized = '" + X500Name.getInstance(CzertainlyX500NameStyle.NORMALIZED, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
+                            "update certificate_request set subject_dn_normalized = '" + X500Name.getInstance(PlatformX500NameStyle.NORMALIZED, subjectDnPrincipalEncoded).toString().replace("'", "''") + "' where uuid='" + rows.getString("uuid") + "'"
                     );
                 }
                 executeCommands(select, commands);

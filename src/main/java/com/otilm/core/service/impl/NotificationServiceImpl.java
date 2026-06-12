@@ -1,0 +1,188 @@
+package com.otilm.core.service.impl;
+
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.notification.NotificationDto;
+import com.otilm.api.model.client.notification.NotificationRequestDto;
+import com.otilm.api.model.client.notification.NotificationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.core.dao.entity.notifications.Notification;
+import com.otilm.core.dao.entity.notifications.NotificationRecipient;
+import com.otilm.core.dao.repository.notifications.NotificationRecipientRepository;
+import com.otilm.core.dao.repository.notifications.NotificationRepository;
+import com.otilm.core.security.authn.client.RoleManagementApiClient;
+import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authz.SelfPrincipalEndpoint;
+import com.otilm.core.service.NotificationExternalService;
+import com.otilm.core.service.NotificationInternalService;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.RequestValidatorHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+
+@Service
+@Transactional
+public class NotificationServiceImpl implements NotificationExternalService, NotificationInternalService {
+
+    private static final Logger logger = LoggerFactory.getLogger(NotificationServiceImpl.class);
+
+    private NotificationRepository notificationRepository;
+    private NotificationRecipientRepository notificationRecipientRepository;
+    private UserManagementApiClient userManagementApiClient;
+    private RoleManagementApiClient roleManagementApiClient;
+
+    @Autowired
+    public void setNotificationRepository(NotificationRepository notificationRepository) {
+        this.notificationRepository = notificationRepository;
+    }
+
+    @Autowired
+    public void setNotificationRecipientRepository(NotificationRecipientRepository notificationRecipientRepository) {
+        this.notificationRecipientRepository = notificationRecipientRepository;
+    }
+
+    @Autowired
+    public void setUserManagementApiClient(UserManagementApiClient userManagementApiClient) {
+        this.userManagementApiClient = userManagementApiClient;
+    }
+
+    @Autowired
+    public void setRoleManagementApiClient(RoleManagementApiClient roleManagementApiClient) {
+        this.roleManagementApiClient = roleManagementApiClient;
+    }
+
+    @Override
+    public NotificationDto createNotificationForUser(String message, String detail, String userUuid, Resource target, String targetUuids) throws ValidationException {
+        return createNotificationForUsers(message, detail, List.of(userUuid), target, targetUuids);
+    }
+
+    @Override
+    public NotificationDto createNotificationForUsers(String message, String detail, List<String> userUuids, Resource target, String targetUuids) throws ValidationException {
+        Notification notification = new Notification();
+        notification.setUuid(UUID.randomUUID());
+        notification.setMessage(message);
+        notification.setDetail(detail);
+        notification.setTargetObjectType(target);
+        notification.setTargetObjectIdentification(targetUuids);
+
+        Set<NotificationRecipient> notificationRecipients = new HashSet<>();
+        for (String userUuid : userUuids) {
+            NotificationRecipient notificationRecipient = new NotificationRecipient();
+            notificationRecipient.setUserUuid(UUID.fromString(userUuid));
+            notificationRecipient.setNotificationUuid(notification.getUuid());
+            notificationRecipients.add(notificationRecipient);
+        }
+        notification.setNotificationRecipients(notificationRecipients);
+
+        if (notificationRecipients.isEmpty()) {
+            throw new ValidationException("Unable to create notification for no recipients.");
+        }
+
+        notificationRepository.save(notification);
+        return notification.mapToDto();
+    }
+
+    @Override
+    public NotificationDto createNotificationForGroup(String message, String detail, String groupUuid, Resource target, String targetUuids) throws ValidationException {
+        return createNotificationForUsers(message, detail, userManagementApiClient.getUsers().getData().stream().filter(u -> u.getGroups().stream().anyMatch(g -> g.getUuid().equals(groupUuid))).map(UserDto::getUuid).toList(), target, targetUuids);
+    }
+
+    @Override
+    public NotificationDto createNotificationForRole(String message, String detail, String roleUuid, Resource target, String targetUuids) throws ValidationException {
+        return createNotificationForUsers(message, detail, roleManagementApiClient.getRoleUsers(roleUuid).stream().map(UserDto::getUuid).toList(), target, targetUuids);
+    }
+
+    @Override
+    @SelfPrincipalEndpoint
+    public NotificationResponseDto listNotifications(NotificationRequestDto request) {
+        RequestValidatorHelper.revalidatePaginationRequestDto(request);
+        final Pageable pageable = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
+        final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
+
+        final Page<NotificationDto> pagedNotifications = request.isUnread()
+                ? notificationRecipientRepository.findUnreadByUserUuid(loggedUserUuid, pageable)
+                : notificationRecipientRepository.findByUserUuid(loggedUserUuid, pageable);
+
+        final NotificationResponseDto responseDto = new NotificationResponseDto();
+        responseDto.setItems(pagedNotifications.getContent());
+        responseDto.setItemsPerPage(request.getItemsPerPage());
+        responseDto.setPageNumber(request.getPageNumber());
+        responseDto.setTotalItems(pagedNotifications.getTotalElements());
+        responseDto.setTotalPages(pagedNotifications.getTotalPages());
+
+        return responseDto;
+    }
+
+    @Override
+    @SelfPrincipalEndpoint
+    public void deleteNotification(String uuid) throws NotFoundException {
+        final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
+        Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
+        boolean removed = notification.getNotificationRecipients().removeIf(r -> r.getUserUuid().equals(loggedUserUuid));
+        if (!removed) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
+        }
+        if (notification.getNotificationRecipients().isEmpty()) {
+            notificationRepository.delete(notification);
+        } else {
+            notificationRepository.save(notification);
+        }
+    }
+
+    @Override
+    @SelfPrincipalEndpoint
+    public void markNotificationAsRead(String uuid) throws NotFoundException {
+        final UUID loggedUserUuid = UUID.fromString(AuthHelper.getUserProfile().getUser().getUuid());
+        Notification notification = notificationRepository.findByUuid(SecuredUUID.fromString(uuid)).orElseThrow(() -> new NotFoundException(Notification.class, uuid));
+        boolean found = false;
+        for (NotificationRecipient recipient : notification.getNotificationRecipients()) {
+            if (recipient.getUserUuid().equals(loggedUserUuid)) {
+                found = true;
+                if (recipient.getReadAt() == null) {
+                    recipient.setReadAt(new Date());
+                    notificationRepository.save(notification);
+                }
+                break;
+            }
+        }
+        if (!found) {
+            // Caller is not a recipient — treat identically to "not found" to avoid UUID existence probing.
+            throw new NotFoundException(Notification.class, uuid);
+        }
+    }
+
+    @Override
+    @SelfPrincipalEndpoint
+    public void bulkDeleteNotifications(List<String> uuids) {
+        for (String uuid : uuids) {
+            try {
+                deleteNotification(uuid);
+            } catch (NotFoundException e) {
+                logger.warn(e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    @SelfPrincipalEndpoint
+    public void bulkMarkNotificationAsRead(List<String> uuids) {
+        for (String uuid : uuids) {
+            try {
+                markNotificationAsRead(uuid);
+            } catch (NotFoundException e) {
+                logger.warn(e.getMessage());
+            }
+        }
+    }
+}

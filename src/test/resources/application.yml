@@ -48,7 +48,7 @@ logging:
   level:
     org:
       hibernate: warn
-    com.czertainly: debug
+    com.otilm: debug
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
   schema-version: '@log-schema.version@'
@@ -100,7 +100,7 @@ spring:
       connection-timeout: 10000
       idle-timeout: 30000
       max-lifetime: 60000
-    url: jdbc:tc:postgresql:17-alpine://localhost:55432/czertainly-test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
+    url: jdbc:tc:postgresql:17-alpine://localhost:55432/test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
     password: test
     username: test
   flyway:
@@ -155,7 +155,7 @@ spring:
       initial-interval: 1000
       multiplier: 1.5
       max-interval: 5000
-    exchange: czertainly
+    exchange: platform
     routing-key:
       actions: action
       audit-logs: audit-logs
