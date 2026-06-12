@@ -99,7 +99,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         } catch (RuntimeException e) {
             deleteVaultSecretQuietly(secretUuid);
             log.warn("Failed to persist Basic credential for TSP Profile {}", profile.getUuid(), e);
-            throw new ValidationException("Failed to persist Basic credential.");
+            throw e;
         }
         evictModelCache(profile.getName());
         return TspProfileBasicCredentialMapper.mapToDto(row, resolveUserName(row.getMappedUserUuid()));
@@ -114,6 +114,10 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         ensureUsernameAvailable(profile.getUuid(), request.getUsername(), credential.getUuid());
         validateMappedUserExists(request.getMappedUserUuid());
 
+        // Vault rotation can run only when a new password is supplied.
+        // On a username-only change the secret's stored username is left stale - it is informational only;
+        // verification reads the username from the credential row, never from the secret content.
+        // A later password rotation heals it, since rotation writes the current username too.
         boolean rotate = request.getPassword() != null && !request.getPassword().isBlank();
         if (rotate) {
             rotateVaultSecret(credential.getSecretUuid(), request.getUsername(), request.getPassword());
