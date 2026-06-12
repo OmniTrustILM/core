@@ -16,7 +16,7 @@ import java.util.List;
 import static com.otilm.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
 
 /**
- * Base for WireMock servers that impersonate a OTILM connector.
+ * Base for WireMock servers that impersonate an OTILM connector.
  * <p>
  * Owns the WireMock server lifecycle and the generic discovery stubs shared by every connector flavour:
  * {@code GET /v1} (V1 function-group discovery) and {@code GET /v2/info} (V2 interface discovery).
