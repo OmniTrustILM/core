@@ -1,5 +1,6 @@
 package com.otilm.core.util.builders;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 
 import java.security.cert.CertificateEncodingException;
@@ -10,6 +11,7 @@ import java.util.List;
 public class UploadCertificateRequestDtoBuilder {
 
     private String certificate = null;
+    private List<RequestAttribute> customAttributes = List.of();
 
     public static UploadCertificateRequestDtoBuilder anUploadCertificateRequest() {
         return new UploadCertificateRequestDtoBuilder();
@@ -25,10 +27,15 @@ public class UploadCertificateRequestDtoBuilder {
         return this;
     }
 
+    public UploadCertificateRequestDtoBuilder withCustomAttributes(List<RequestAttribute> customAttributes) {
+        this.customAttributes = customAttributes;
+        return this;
+    }
+
     public UploadCertificateRequestDto build() {
         UploadCertificateRequestDto dto = new UploadCertificateRequestDto();
         dto.setCertificate(certificate);
-        dto.setCustomAttributes(List.of());
+        dto.setCustomAttributes(customAttributes);
         return dto;
     }
 }
