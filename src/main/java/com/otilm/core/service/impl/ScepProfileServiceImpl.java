@@ -17,22 +17,16 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
-import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile_;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
-import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.RaProfileService;
-import com.otilm.core.service.ScepProfileService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.CertificateEligibilityUtil;
@@ -50,7 +44,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.SCEP_PROFILE)
 @Transactional
-public class ScepProfileServiceImpl implements ScepProfileService {
+public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ScepProfileServiceImpl.class);
     private final ScepProfileRepository scepProfileRepository;
@@ -399,6 +393,7 @@ public class ScepProfileServiceImpl implements ScepProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<CertificateDto> listScepCaCertificates(boolean intuneEnabled) {
         return certificateService.listScepCaCertificates(SecurityFilter.create(), intuneEnabled);
     }

@@ -39,7 +39,7 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.AcmeProfileService;
+import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AuthorityInstanceService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.acme.AcmeService;
@@ -95,7 +95,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
  * Challenge HTTP validation is simulated by directly setting the entity state in the database,
  * which is appropriate for a service-layer integration test.
  * Certificate issuance via the connector is driven through the real
- * {@link ClientOperationService} code path: the
+ * {@link com.otilm.core.service.v2.ClientOperationService} code path: the
  * {@link ActionProducer} is spied on so that each {@code ActionMessage} is dispatched
  * synchronously to {@code issueCertificateAction} instead of being sent over RabbitMQ.
  */
@@ -108,7 +108,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private RaProfileService raProfileService;
     @Autowired
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
     @Autowired
     private AcmeService acmeService;
     @Autowired
@@ -234,7 +234,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
      *
      * <p>When an ACME account is created through the ACME-Profile-based flow it is marked with
      * {@code isDefaultRaProfile = true}. If the ACME Profile is later updated to a different RA Profile
-     * via {@link AcmeProfileService#updateRaProfile}, all such accounts must have their RA profiles updated
+     * via {@link AcmeProfileExternalService#updateRaProfile}, all such accounts must have their RA profiles updated
      * so that subsequent certificate operations are issued under the new RA Profile.
      *
      * <p>This test verifies that after switching the ACME Profile from

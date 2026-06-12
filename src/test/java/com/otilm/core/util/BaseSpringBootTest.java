@@ -1,15 +1,18 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.service.SettingService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +43,9 @@ public class BaseSpringBootTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private SettingService settingService;
+
     @BeforeEach
     public void setupAuth() throws SQLException {
         mockSuccessfulCheckResourceAccess();
@@ -48,6 +54,8 @@ public class BaseSpringBootTest {
 
         // clean DB tables data before each test
         truncateTables();
+        // re-seed the settings cache from the (now empty) DB so settings cannot leak into the next context
+        settingService.refreshCache();
         // clean context
         MDC.clear();
     }
@@ -97,6 +105,33 @@ public class BaseSpringBootTest {
         Mockito.when(
                 opaClient.checkObjectAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
         ).thenReturn(objectAccessAllowed);
+    }
+
+    protected void denyResourceAccess(Resource resource, ResourceAction action) {
+        OpaResourceAccessResult denied = new OpaResourceAccessResult();
+        denied.setAuthorized(false);
+        Mockito.when(opaClient.checkResourceAccess(
+                Mockito.any(),
+                Mockito.argThat(req -> req != null
+                        && req.getProperties() != null
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && action.getCode().equals(req.getProperties().get("action"))),
+                Mockito.any(), Mockito.any())
+        ).thenReturn(denied);
+    }
+
+    protected void allowResourceAccess(Resource resource, ResourceAction action) {
+        OpaResourceAccessResult allowed = new OpaResourceAccessResult();
+        allowed.setAuthorized(true);
+        allowed.setAllow(List.of());
+        Mockito.when(opaClient.checkResourceAccess(
+                Mockito.any(),
+                Mockito.argThat(req -> req != null
+                        && req.getProperties() != null
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && action.getCode().equals(req.getProperties().get("action"))),
+                Mockito.any(), Mockito.any())
+        ).thenReturn(allowed);
     }
 
     protected void injectAuthentication() {

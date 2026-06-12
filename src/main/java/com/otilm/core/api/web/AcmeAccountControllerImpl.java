@@ -12,7 +12,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AcmeAccountService;
+import com.otilm.core.service.AcmeAccountExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,10 +21,10 @@ import java.util.List;
 @RestController
 public class AcmeAccountControllerImpl implements AcmeAccountController {
 
-    private AcmeAccountService acmeAccountService;
+    private AcmeAccountExternalService acmeAccountService;
 
     @Autowired
-    public void setAcmeAccountService(AcmeAccountService acmeAccountService) {
+    public void setAcmeAccountService(AcmeAccountExternalService acmeAccountService) {
         this.acmeAccountService = acmeAccountService;
     }
 

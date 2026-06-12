@@ -47,7 +47,10 @@ class AcmeProfileServiceTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
+
+    @Autowired
+    private AcmeProfileInternalService acmeProfileInternalService;
 
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
@@ -283,18 +286,18 @@ class AcmeProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = acmeProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = acmeProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = acmeProfileService.getResourceObjectInternal(acmeProfile.getUuid());
+        NameAndUuidDto nameAndUuidDto = acmeProfileInternalService.getResourceObjectInternal(acmeProfile.getUuid());
         Assertions.assertNotNull(nameAndUuidDto);
         Assertions.assertEquals(acmeProfile.getName(), nameAndUuidDto.getName());
         Assertions.assertEquals(acmeProfile.getUuid().toString(), nameAndUuidDto.getUuid());
 
-        nameAndUuidDto = acmeProfileService.getResourceObjectExternal(acmeProfile.getSecuredUuid());
+        nameAndUuidDto = acmeProfileInternalService.getResourceObjectExternal(acmeProfile.getSecuredUuid());
         Assertions.assertNotNull(nameAndUuidDto);
         Assertions.assertEquals(acmeProfile.getName(), nameAndUuidDto.getName());
         Assertions.assertEquals(acmeProfile.getUuid().toString(), nameAndUuidDto.getUuid());

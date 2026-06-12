@@ -27,7 +27,8 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AcmeProfileService;
+import com.otilm.core.service.AcmeProfileExternalService;
+import com.otilm.core.service.AcmeProfileInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -46,7 +47,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.ACME_PROFILE)
 @Transactional
-public class AcmeProfileServiceImpl implements AcmeProfileService {
+public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeProfileServiceImpl.class);
     private final AcmeProfileRepository acmeProfileRepository;
