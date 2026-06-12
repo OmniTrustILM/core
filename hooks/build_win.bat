@@ -1,4 +1,4 @@
-echo Build of CZERTAINLY CORE
+echo Build of ILM CORE
 
 echo Cleaning containers
 docker rm czertainlycont
