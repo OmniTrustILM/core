@@ -9,7 +9,6 @@ import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.*;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.certificate.*;
@@ -1516,16 +1515,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
             boolean shouldBeAccepted
     ) {
-        CryptographicKey key = null;
-        if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
-            key = createCryptographicKey(commonName + " Key");
-            for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-        }
+        CryptographicKey key = prepareKeyWithItems(commonName, publicKeys, privateKeys);
 
         createCertificateEntity(commonName, key, certificateState, validationStatus, archived);
 
@@ -1576,16 +1566,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
             boolean intuneEnabled, boolean shouldBeAccepted
     ) {
-        CryptographicKey key = null;
-        if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
-            key = createCryptographicKey(commonName + " Key");
-            for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-        }
+        CryptographicKey key = prepareKeyWithItems(commonName, publicKeys, privateKeys);
 
         createCertificateEntity(commonName, key, certificateState, validationStatus, archived);
 
@@ -1605,33 +1586,59 @@ class CertificateServiceTest extends BaseSpringBootTest {
             SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance,
             boolean shouldBeAccepted
     ) {
-        CryptographicKey key = null;
-        if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
-            key = createCryptographicKey(testCaseName + " Key");
-            for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
-                createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
-            }
-            if (withTokenProfile) {
-                TokenProfile tokenProfile = new TokenProfile();
-                tokenProfile.setName(testCaseName + " Token Profile");
-                tokenProfile.setEnabled(true);
-                tokenProfile = tokenProfileRepository.save(tokenProfile);
-                key.setTokenProfile(tokenProfile);
-                cryptographicKeyRepository.save(key);
-            }
-            if (withTokenInstanceReference) {
-                TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
-                tokenInstanceReference.setName(testCaseName + " Token Instance");
-                tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
-                tokenInstanceReference = tokenInstanceReferenceRepository.save(tokenInstanceReference);
-                key.setTokenInstanceReference(tokenInstanceReference);
-                cryptographicKeyRepository.save(key);
-            }
-        }
+        CryptographicKey key = prepareKeyWithItems(testCaseName, publicKeys, privateKeys);
+        attachTokenAssociations(key, testCaseName, withTokenProfile, withTokenInstanceReference);
+        prepareDigitalSigningCertificate(testCaseName, key, certificateState, validationStatus, archived,
+                extendedKeyUsages, extendedKeyUsageCritical, qcCompliance);
 
+        List<CertificateDto> certificates = certificateService.listDigitalSigningCertificates(SecurityFilter.create(), workflowType, qualifiedTimestamp);
+        boolean isPresent = certificates.stream().anyMatch(c -> c.getCommonName().equals(testCaseName));
+        Assertions.assertEquals(shouldBeAccepted, isPresent, "Certificate '" + testCaseName + "' acceptance mismatch");
+    }
+
+    private CryptographicKey prepareKeyWithItems(String name,
+                                                 List<CertificateTestData.KeyItemData> publicKeys,
+                                                 List<CertificateTestData.KeyItemData> privateKeys) {
+        if (publicKeys.isEmpty() && privateKeys.isEmpty()) {
+            return null;
+        }
+        CryptographicKey key = createCryptographicKey(name + " Key");
+        for (CertificateTestData.KeyItemData keyItemData : publicKeys) {
+            createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
+        }
+        for (CertificateTestData.KeyItemData keyItemData : privateKeys) {
+            createCryptographicKeyItem(key, keyItemData.type(), keyItemData.algorithm(), keyItemData.usage(), keyItemData.state());
+        }
+        return key;
+    }
+
+    private void attachTokenAssociations(CryptographicKey key, String testCaseName,
+                                         boolean withTokenProfile, boolean withTokenInstanceReference) {
+        if (key == null) {
+            return;
+        }
+        if (withTokenProfile) {
+            TokenProfile tokenProfile = new TokenProfile();
+            tokenProfile.setName(testCaseName + " Token Profile");
+            tokenProfile.setEnabled(true);
+            tokenProfile = tokenProfileRepository.save(tokenProfile);
+            key.setTokenProfile(tokenProfile);
+            cryptographicKeyRepository.save(key);
+        }
+        if (withTokenInstanceReference) {
+            TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
+            tokenInstanceReference.setName(testCaseName + " Token Instance");
+            tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
+            tokenInstanceReference = tokenInstanceReferenceRepository.save(tokenInstanceReference);
+            key.setTokenInstanceReference(tokenInstanceReference);
+            cryptographicKeyRepository.save(key);
+        }
+    }
+
+    private void prepareDigitalSigningCertificate(String testCaseName, CryptographicKey key,
+                                                  CertificateState certificateState, CertificateValidationStatus validationStatus,
+                                                  boolean archived, List<String> extendedKeyUsages,
+                                                  boolean extendedKeyUsageCritical, Boolean qcCompliance) {
         Certificate cert = createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived);
         if (!extendedKeyUsages.isEmpty()) {
             cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
@@ -1641,10 +1648,6 @@ class CertificateServiceTest extends BaseSpringBootTest {
             cert.setQcCompliance(qcCompliance);
         }
         certificateRepository.save(cert);
-
-        List<CertificateDto> certificates = certificateService.listDigitalSigningCertificates(SecurityFilter.create(), workflowType, qualifiedTimestamp);
-        boolean isPresent = certificates.stream().anyMatch(c -> c.getCommonName().equals(testCaseName));
-        Assertions.assertEquals(shouldBeAccepted, isPresent, "Certificate '" + testCaseName + "' acceptance mismatch");
     }
 
     private CryptographicKey createCryptographicKey(String name) {

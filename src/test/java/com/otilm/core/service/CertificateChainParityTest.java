@@ -4,8 +4,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -27,8 +25,6 @@ import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.Date;
@@ -88,25 +84,25 @@ class CertificateChainParityTest extends BaseSpringBootTest {
         }
 
         // Scenario: single self-signed root certificate.
-        KeyPair rootKp = rsaKeyPair();
+        KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=Parity-Root-1");
         selfSignedRoot = persistCertificate(rootX509, null);
 
         // Scenario: two-level linked chain (leaf → root).
-        KeyPair twoRootKp = rsaKeyPair();
+        KeyPair twoRootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         twoLevelRootX509 = CertificateGeneratorHelper.generateCACertificate(twoRootKp, "CN=Parity-Root-2");
-        KeyPair twoLeafKp = rsaKeyPair();
+        KeyPair twoLeafKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         twoLevelLeafX509 = CertificateGeneratorHelper.generateEndEntityCertificate(
                 twoRootKp, twoLevelRootX509, twoLeafKp, "CN=Parity-Leaf-2", null);
         Certificate twoRoot = persistCertificate(twoLevelRootX509, null);
         twoLevelLeaf = persistCertificate(twoLevelLeafX509, twoRoot.getUuid());
 
         // Scenario: three-level linked chain (leaf → intermediate → root).
-        KeyPair threeRootKp = rsaKeyPair();
+        KeyPair threeRootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         threeLevelRootX509 = CertificateGeneratorHelper.generateCACertificate(threeRootKp, "CN=Parity-Root-3");
-        KeyPair threeInterKp = rsaKeyPair();
+        KeyPair threeInterKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         threeLevelInterX509 = CertificateGeneratorHelper.generateCACertificate(threeInterKp, "CN=Parity-Inter-3");
-        KeyPair threeLeafKp = rsaKeyPair();
+        KeyPair threeLeafKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         threeLevelLeafX509 = CertificateGeneratorHelper.generateEndEntityCertificate(
                 threeInterKp, threeLevelInterX509, threeLeafKp, "CN=Parity-Leaf-3", null);
         Certificate threeRoot = persistCertificate(threeLevelRootX509, null);
@@ -124,9 +120,16 @@ class CertificateChainParityTest extends BaseSpringBootTest {
         }
     }
 
-    @FunctionalInterface
     interface ChainExtractor {
-        List<byte[]> extract(Certificate cert, boolean withEnd) throws Exception;
+        List<byte[]> extract(Certificate cert, boolean withEndCert) throws Exception;
+
+        default List<byte[]> extractWithEndCert(Certificate cert) throws Exception {
+            return extract(cert, true);
+        }
+
+        default List<byte[]> extractWithoutEndCert(Certificate cert) throws Exception {
+            return extract(cert, false);
+        }
     }
 
     private ChainExtractor resolveExtractor(String name) {
@@ -156,7 +159,7 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: self-signed root, withEnd=true → [root]")
     @MethodSource("extractorNames")
     void selfSignedRoot_withEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(selfSignedRoot, true);
+        List<byte[]> chain = resolveExtractor(name).extractWithEndCert(selfSignedRoot);
         assertEquals(1, chain.size());
         assertArrayEquals(decodeContent(selfSignedRoot), chain.get(0));
     }
@@ -164,14 +167,14 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: self-signed root, withEnd=false → []")
     @MethodSource("extractorNames")
     void selfSignedRoot_withoutEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(selfSignedRoot, false);
+        List<byte[]> chain = resolveExtractor(name).extractWithoutEndCert(selfSignedRoot);
         assertEquals(0, chain.size());
     }
 
     @ParameterizedTest(name = "{0}: 2-level chain, withEnd=true → [leaf, root]")
     @MethodSource("extractorNames")
     void twoLevelChain_withEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(twoLevelLeaf, true);
+        List<byte[]> chain = resolveExtractor(name).extractWithEndCert(twoLevelLeaf);
         assertEquals(2, chain.size());
         assertArrayEquals(twoLevelLeafX509.getEncoded(), chain.get(0));
         assertArrayEquals(twoLevelRootX509.getEncoded(), chain.get(1));
@@ -180,7 +183,7 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: 2-level chain, withEnd=false → [root]")
     @MethodSource("extractorNames")
     void twoLevelChain_withoutEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(twoLevelLeaf, false);
+        List<byte[]> chain = resolveExtractor(name).extractWithoutEndCert(twoLevelLeaf);
         assertEquals(1, chain.size());
         assertArrayEquals(twoLevelRootX509.getEncoded(), chain.get(0));
     }
@@ -188,7 +191,7 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: 3-level chain, withEnd=true → [leaf, inter, root]")
     @MethodSource("extractorNames")
     void threeLevelChain_withEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(threeLevelLeaf, true);
+        List<byte[]> chain = resolveExtractor(name).extractWithEndCert(threeLevelLeaf);
         assertEquals(3, chain.size());
         assertArrayEquals(threeLevelLeafX509.getEncoded(), chain.get(0));
         assertArrayEquals(threeLevelInterX509.getEncoded(), chain.get(1));
@@ -198,7 +201,7 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: 3-level chain, withEnd=false → [inter, root]")
     @MethodSource("extractorNames")
     void threeLevelChain_withoutEnd(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(threeLevelLeaf, false);
+        List<byte[]> chain = resolveExtractor(name).extractWithoutEndCert(threeLevelLeaf);
         assertEquals(2, chain.size());
         assertArrayEquals(threeLevelInterX509.getEncoded(), chain.get(0));
         assertArrayEquals(threeLevelRootX509.getEncoded(), chain.get(1));
@@ -207,7 +210,7 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     @ParameterizedTest(name = "{0}: leaf with no stored content → []")
     @MethodSource("extractorNames")
     void leafWithoutStoredContent(String name) throws Exception {
-        List<byte[]> chain = resolveExtractor(name).extract(leafWithoutContent, true);
+        List<byte[]> chain = resolveExtractor(name).extractWithEndCert(leafWithoutContent);
         assertEquals(0, chain.size());
     }
 
@@ -219,12 +222,6 @@ class CertificateChainParityTest extends BaseSpringBootTest {
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
-
-    private static KeyPair rsaKeyPair() throws Exception {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048, new SecureRandom());
-        return kpg.generateKeyPair();
-    }
 
     private Certificate persistCertificate(X509Certificate x509, UUID issuerUuid) throws Exception {
         CertificateContent content = new CertificateContent();
