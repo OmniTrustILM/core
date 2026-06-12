@@ -691,7 +691,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setAllowedAuthenticationMethods(List.of(TspAuthenticationMethod.BASIC_PASSWORD));
         request.setVaultProfileUuid(vaultProfile.getUuid());
 
-        TspProfileDto dto = tspService.createTspProfile(request);
+        TspProfileDto dto = tspService.createTspProfile(request, BASE_URL);
 
         assertNotNull(dto.getVaultProfile(), "vaultProfile in response DTO must not be null");
         assertEquals(vaultProfile.getUuid().toString(), dto.getVaultProfile().getUuid());

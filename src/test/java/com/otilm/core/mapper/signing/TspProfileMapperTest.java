@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +26,10 @@ class TspProfileMapperTest {
     private static final String TSP_PROFILE_NAME = "tsp-profile-x";
     private static final String EXPECTED_SIGNING_URL =
             BASE_URL + "/v1/protocols/tsp/" + TSP_PROFILE_NAME;
+    private static final Map<UUID, String> FINGERPRINTS_BY_SECRET = Map.of();
+
+
+
 
     // ── toDto ─────────────────────────────────────────────────────────────────
 
@@ -127,7 +132,7 @@ class TspProfileMapperTest {
             TspProfile profile = newTspProfile(description, enabled, newSigningProfile(defaultSigningProfileName, true));
 
             // when
-            TspProfileModel model = TspProfileMapper.toModel(profile, customAttributes);
+            TspProfileModel model = TspProfileMapper.toModel(profile, customAttributes, FINGERPRINTS_BY_SECRET);
 
             // then
             assertThat(model.uuid()).isEqualTo(TSP_PROFILE_UUID);
@@ -145,7 +150,7 @@ class TspProfileMapperTest {
             TspProfile profile = newTspProfile("desc", true, null);
 
             // when
-            TspProfileModel model = TspProfileMapper.toModel(profile, List.of());
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
 
             // then
             assertThat(model.defaultSigningProfileUuid()).isNull();
