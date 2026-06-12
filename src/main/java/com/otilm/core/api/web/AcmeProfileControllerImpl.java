@@ -16,7 +16,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AcmeProfileService;
+import com.otilm.core.service.AcmeProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,10 +28,10 @@ import java.util.List;
 @RestController
 public class AcmeProfileControllerImpl implements AcmeProfileController {
 
-    private AcmeProfileService acmeProfileService;
+    private AcmeProfileExternalService acmeProfileService;
 
     @Autowired
-    public void setAcmeProfileService(AcmeProfileService acmeProfileService) {
+    public void setAcmeProfileService(AcmeProfileExternalService acmeProfileService) {
         this.acmeProfileService = acmeProfileService;
     }
 

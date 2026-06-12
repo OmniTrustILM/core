@@ -1,0 +1,2 @@
+Method <com.otilm.core.service.impl.CmpProfileServiceImpl.listCmpSigningCertificates()> is annotated with @ExternalAuthorizationMissing in (CmpProfileServiceImpl.java:333)
+Method <com.otilm.core.service.impl.ScepProfileServiceImpl.listScepCaCertificates(boolean)> is annotated with @ExternalAuthorizationMissing in (ScepProfileServiceImpl.java:398)
