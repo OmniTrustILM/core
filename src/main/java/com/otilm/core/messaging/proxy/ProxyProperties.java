@@ -17,14 +17,14 @@ import java.time.Duration;
 public record ProxyProperties(
         /**
          * Azure Service Bus topic / RabbitMQ exchange name for proxy communication.
-         * Default: czertainly-proxy
+         * Default: ilm-proxy
          */
         String exchange,
 
         /**
          * Azure Service Bus subscription / RabbitMQ queue name for receiving
          * fire-and-forget messages (health checks, connector registration).
-         * Default: core
+         * Default: ilm
          */
         String responseQueue,
 
@@ -57,10 +57,10 @@ public record ProxyProperties(
 ) {
     public ProxyProperties {
         if (exchange == null) {
-            exchange = "czertainly-proxy";
+            exchange = "ilm-proxy";
         }
         if (responseQueue == null) {
-            responseQueue = "core";
+            responseQueue = "ilm";
         }
         if (instanceId == null || instanceId.isBlank()) {
             try {
