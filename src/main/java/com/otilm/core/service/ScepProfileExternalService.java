@@ -12,7 +12,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface ScepProfileService extends ResourceExtensionService {
+public interface ScepProfileExternalService {
 
     /**
      * List all available SCEP Profiles

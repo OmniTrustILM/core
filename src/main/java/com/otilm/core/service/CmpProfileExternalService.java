@@ -12,9 +12,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface CmpProfileService extends ResourceExtensionService {
-
-    // TODO: Update the return type and parameters of the methods according to the business logic
+public interface CmpProfileExternalService {
 
     /**
      * List all available CMP Profiles

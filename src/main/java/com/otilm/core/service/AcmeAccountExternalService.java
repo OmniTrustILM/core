@@ -9,7 +9,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface AcmeAccountService extends ResourceExtensionService {
+public interface AcmeAccountExternalService {
 
     void revokeAccount(SecuredParentUUID acmeProfileUuid, SecuredUUID uuid) throws NotFoundException;
 

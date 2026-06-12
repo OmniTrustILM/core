@@ -19,20 +19,18 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.ProtocolCertificateAssociations;
-import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile_;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.CmpProfileService;
+import com.otilm.core.service.CmpProfileExternalService;
+import com.otilm.core.service.CmpProfileInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -50,7 +48,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CMP_PROFILE)
 @Transactional
-public class CmpProfileServiceImpl implements CmpProfileService {
+public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CmpProfileServiceImpl.class);
 
@@ -330,6 +328,7 @@ public class CmpProfileServiceImpl implements CmpProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<CertificateDto> listCmpSigningCertificates() {
         return certificateService.listCmpSigningCertificates(SecurityFilter.create());
     }
