@@ -6,6 +6,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
+import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.czertainly.core.dao.entity.AuthorityInstanceReference;
@@ -198,11 +199,11 @@ class ClientOperationServiceImplRegisterAndCancelTest {
 
         assertEquals(4, dto.getOperations().size());
         dto.getOperations().forEach(op -> {
-            assertTrue(op.isSupported() || op.getOperation().equals("REGISTER"),
+            assertTrue(op.isSupported() || op.getOperation() == CertificateOperationKind.REGISTER,
                     "Only REGISTER may be unsupported on v2 adapter");
             assertFalse(op.isAsyncSupported(), "v2 adapter should report no async for " + op.getOperation());
         });
-        var register = dto.getOperations().stream().filter(o -> "REGISTER".equals(o.getOperation())).findFirst().orElseThrow();
+        var register = dto.getOperations().stream().filter(o -> o.getOperation() == CertificateOperationKind.REGISTER).findFirst().orElseThrow();
         assertFalse(register.isSupported());
     }
 
@@ -217,9 +218,9 @@ class ClientOperationServiceImplRegisterAndCancelTest {
 
         AvailableOperationsDto dto = service.listAvailableOperations(authorityUuid, raProfileUuid);
 
-        var issue = dto.getOperations().stream().filter(o -> "ISSUE".equals(o.getOperation())).findFirst().orElseThrow();
+        var issue = dto.getOperations().stream().filter(o -> o.getOperation() == CertificateOperationKind.ISSUE).findFirst().orElseThrow();
         assertTrue(issue.isAsyncSupported());
-        var register = dto.getOperations().stream().filter(o -> "REGISTER".equals(o.getOperation())).findFirst().orElseThrow();
+        var register = dto.getOperations().stream().filter(o -> o.getOperation() == CertificateOperationKind.REGISTER).findFirst().orElseThrow();
         assertFalse(register.isSupported());
     }
 
@@ -233,7 +234,7 @@ class ClientOperationServiceImplRegisterAndCancelTest {
 
         AvailableOperationsDto dto = service.listAvailableOperations(authorityUuid, raProfileUuid);
 
-        var register = dto.getOperations().stream().filter(o -> "REGISTER".equals(o.getOperation())).findFirst().orElseThrow();
+        var register = dto.getOperations().stream().filter(o -> o.getOperation() == CertificateOperationKind.REGISTER).findFirst().orElseThrow();
         assertTrue(register.isSupported());
         assertTrue(register.isAsyncSupported());
         assertTrue(register.isCancelSupported());

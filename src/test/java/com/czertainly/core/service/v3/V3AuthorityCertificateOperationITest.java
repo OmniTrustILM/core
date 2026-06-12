@@ -1,6 +1,7 @@
 package com.czertainly.core.service.v3;
 
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.czertainly.core.dao.entity.Certificate;
 import com.czertainly.core.security.authz.SecuredParentUUID;
@@ -81,7 +82,7 @@ class V3AuthorityCertificateOperationITest extends BaseV3ITest {
         // v3 adapter implements AsyncOperationCapability and RegisterCapability;
         // FeatureFlag.CERTIFICATE_REGISTRATION is present → REGISTER should be supported + async
         var registerOp = ops.getOperations().stream()
-                .filter(o -> "REGISTER".equals(o.getOperation()))
+                .filter(o -> o.getOperation() == CertificateOperationKind.REGISTER)
                 .findFirst().orElse(null);
         assertNotNull(registerOp, "REGISTER operation should be present");
         assertEquals(true, registerOp.isSupported());

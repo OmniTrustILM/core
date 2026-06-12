@@ -57,6 +57,7 @@ import com.czertainly.core.service.*;
 import com.czertainly.core.service.v2.ClientOperationService;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
+import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.czertainly.core.exception.ConnectorAcceptedButLocalFailureException;
@@ -1830,10 +1831,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION);
 
         List<OperationSupport> ops = List.of(
-                new OperationSupport("ISSUE",    true,            isAsync,              isAsync),
-                new OperationSupport("RENEW",    true,            isAsync,              isAsync),
-                new OperationSupport("REVOKE",   true,            isAsync,              isAsync),
-                new OperationSupport("REGISTER", canRegister,     isAsync && canRegister, isAsync && canRegister)
+                new OperationSupport(CertificateOperationKind.ISSUE,    true,        isAsync,                isAsync),
+                new OperationSupport(CertificateOperationKind.RENEW,    true,        isAsync,                isAsync),
+                new OperationSupport(CertificateOperationKind.REVOKE,   true,        isAsync,                isAsync),
+                new OperationSupport(CertificateOperationKind.REGISTER, canRegister, isAsync && canRegister, isAsync && canRegister)
         );
         return new AvailableOperationsDto(ops);
     }
