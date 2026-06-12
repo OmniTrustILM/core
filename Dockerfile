@@ -37,6 +37,7 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 # copy optimized JRE
 COPY --from=optimize /javaruntime $JAVA_HOME
 
+# support mail is not updated yet
 LABEL org.opencontainers.image.authors="ILM <support@czertainly.com>"
 
 # add non root user ilm
@@ -59,7 +60,7 @@ ENV HEADER_NAME=ssl-client-cert
 ENV SCHEDULED_TASKS_ENABLED=true
 ENV BROKER_HOST=
 ENV BROKER_PORT=5672
-ENV BROKER_VIRTUAL_HOST=czertainly
+ENV BROKER_VIRTUAL_HOST=/
 ENV PROVISIONING_API_URL=http://localhost:8080
 ENV PROVISIONING_API_KEY=
 
