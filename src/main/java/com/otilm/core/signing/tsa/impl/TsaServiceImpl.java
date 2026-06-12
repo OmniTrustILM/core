@@ -41,33 +41,42 @@ public class TsaServiceImpl implements TsaService {
 
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
 
-        if (!tspProfile.enabled()) {
-            throw new TspException(TspFailureInfo.BAD_REQUEST, "TSP profile '%s' is disabled".formatted(tspProfileName), "The TSP profile is disabled and cannot be used for timestamping.");
+        if (tspProfile.defaultSigningProfileName() == null) {
+            var message = "TSP profile '%s' does not have a default signing profile".formatted(tspProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
-
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(tspProfile.defaultSigningProfileName());
-        return processTspRequest(signingProfile, request);
+
+        return processTspRequest(signingProfile, tspProfile, request);
     }
 
     @Override
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
 
-        TspProfileModel tspProfile = tspProfileService.getTspProfile(signingProfile.tspProfileName());
-        if (!tspProfile.enabled()) {
-            throw new TspException(TspFailureInfo.BAD_REQUEST, "TSP profile '%s' is disabled".formatted(tspProfile.name()), "The TSP profile is disabled and cannot be used for timestamping.");
+        if (signingProfile.tspProfileName() == null) {
+            var message = "Signing profile '%s' does not have a TSP profile associated.".formatted(signingProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
+        TspProfileModel tspProfile = tspProfileService.getTspProfile(signingProfile.tspProfileName());
 
-        return processTspRequest(signingProfile, request);
+        return processTspRequest(signingProfile, tspProfile, request);
     }
 
-    private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspRequest request) throws TspException {
+    private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspProfileModel tspProfile, TspRequest request) throws TspException {
         if (!signingProfile.enabled()) {
-            throw new TspException(TspFailureInfo.BAD_REQUEST, "Signing profile '%s' is disabled".formatted(signingProfile.name()), "The Signing profile is disabled and cannot be used for timestamping.");
+            var message = "Signing profile '%s' is disabled".formatted(signingProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
         if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileName() == null) {
-            throw new TspException(TspFailureInfo.BAD_REQUEST, "Signing profile '%s' does not have the TSP protocol enabled".formatted(signingProfile.name()), "The Signing profile cannot be used for timestamping.");
+            var message = "Signing profile '%s' does not have the TSP protocol enabled".formatted(signingProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
+        }
+
+        if (!tspProfile.enabled()) {
+            var message = "TSP profile '%s' is disabled".formatted(tspProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
         SigningWorkflow workflow = signingProfile.workflow();
