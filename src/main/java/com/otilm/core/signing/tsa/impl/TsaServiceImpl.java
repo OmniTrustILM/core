@@ -3,7 +3,9 @@ package com.otilm.core.signing.tsa.impl;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
@@ -38,7 +40,6 @@ public class TsaServiceImpl implements TsaService {
 
     @Override
     public TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException {
-
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
 
         if (tspProfile.defaultSigningProfileName() == null) {
@@ -65,6 +66,9 @@ public class TsaServiceImpl implements TsaService {
     }
 
     private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspProfileModel tspProfile, TspRequest request) throws TspException {
+        LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
+        LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
+
         if (!signingProfile.enabled()) {
             var message = "Signing profile '%s' is disabled".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);

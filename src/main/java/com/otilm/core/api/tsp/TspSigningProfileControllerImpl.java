@@ -9,6 +9,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.api.tsp.parser.TspRequestParser;
+import com.otilm.core.logging.LogResource;
 import com.otilm.core.signing.tsa.TsaService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -30,7 +31,7 @@ public class TspSigningProfileControllerImpl implements TspSigningProfileControl
 
     @Override
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, affiliatedResource = Resource.SIGNING_PROFILE, operation = Operation.SIGN)
-    public ResponseEntity<byte[]> timestamp(String signingProfileName, byte[] request) {
+    public ResponseEntity<byte[]> timestamp(@LogResource(name = true, affiliated = true) String signingProfileName, byte[] request) {
         byte[] responseBytes;
         try {
             TspRequest parsedRequest = TspRequestParser.parse(request);
@@ -39,10 +40,11 @@ public class TspSigningProfileControllerImpl implements TspSigningProfileControl
             responseBytes = TspResponseBuilder.fromEngineResponse(response);
         } catch (TspException e) {
             responseBytes = TspResponseBuilder.buildRejection(e.getFailureInfo(), e.getClientMessage());
-            log.error("TSP request failed with {}: {}", e.getFailureInfo(), e.getMessage(), e);
+            log.warn("TSP request failed with {}: {}", e.getFailureInfo(), e.getMessage());
         } catch (NotFoundException e) {
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
-            log.error("Signing profile '{}' not found", signingProfileName, e);
+            log.warn("Resource not found while processing TSP request for signing profile '{}': {}", signingProfileName,
+                    e.getMessage());
         } catch (Exception e) {
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.SYSTEM_FAILURE, "An unexpected error occurred during timestamping.");
             log.error("Unexpected TSP processing failure", e);

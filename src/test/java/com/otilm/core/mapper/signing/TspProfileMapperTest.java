@@ -4,9 +4,15 @@ import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
+import com.otilm.api.model.core.signing.TspAuthenticationMethod;
+import com.otilm.api.model.core.vaultprofile.VaultProfileDto;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
+import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 import com.otilm.core.model.signing.TspProfileModel;
+import com.otilm.core.model.signing.TspProfileModel.BasicCredentialRef;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +78,47 @@ class TspProfileMapperTest {
             // then
             assertThat(dto.getSigningUrl()).isNull();
             assertThat(dto.getDefaultSigningProfile()).isNull();
+        }
+
+        @Test
+        void leavesVaultProfileNull_whenNoVaultProfile() {
+            // given
+            TspProfile profile = newTspProfile("desc", true, null);
+
+            // when
+            TspProfileDto dto = TspProfileMapper.toDto(profile, List.of(), BASE_URL);
+
+            // then
+            assertThat(dto.getVaultProfile()).isNull();
+        }
+
+        @Test
+        void populatesVaultProfileDto_whenVaultProfilePresent() {
+            // given
+            var vaultInstanceUuid = UUID.randomUUID();
+            var vaultInstanceName = "prod-vault";
+            var vaultProfileName = "basic-creds";
+            var vaultProfileDescription = "creds for prod";
+            var vaultProfileEnabled = true;
+            VaultProfile vaultProfile = newVaultProfile(
+                    vaultProfileName, vaultProfileDescription, vaultProfileEnabled,
+                    newVaultInstance(vaultInstanceUuid, vaultInstanceName));
+            TspProfile profile = newTspProfile("desc", true, null);
+            profile.setVaultProfile(vaultProfile);
+
+            // when
+            TspProfileDto dto = TspProfileMapper.toDto(profile, List.of(), BASE_URL);
+
+            // then
+            VaultProfileDto nested = dto.getVaultProfile();
+            assertThat(nested).isNotNull();
+            assertThat(nested.getUuid()).isEqualTo(vaultProfile.getUuid().toString());
+            assertThat(nested.getName()).isEqualTo(vaultProfileName);
+            assertThat(nested.getDescription()).isEqualTo(vaultProfileDescription);
+            assertThat(nested.isEnabled()).isEqualTo(vaultProfileEnabled);
+            assertThat(nested.getVaultInstance()).isNotNull();
+            assertThat(nested.getVaultInstance().getUuid()).isEqualTo(vaultInstanceUuid.toString());
+            assertThat(nested.getVaultInstance().getName()).isEqualTo(vaultInstanceName);
         }
     }
 
@@ -156,6 +203,97 @@ class TspProfileMapperTest {
             assertThat(model.defaultSigningProfileUuid()).isNull();
             assertThat(model.defaultSigningProfileName()).isNull();
         }
+
+        @Test
+        void populatesFingerprintFromLookup() {
+            // given
+            var username = "alice";
+            var secretUuid = UUID.randomUUID();
+            var mappedUserUuid = UUID.randomUUID();
+            var fingerprint = "deadbeef";
+            TspProfile profile = newTspProfile("desc", true, null);
+            profile.getBasicCredentials().add(newBasicCredential(username, secretUuid, mappedUserUuid));
+            Map<UUID, String> fingerprintsBySecret = Map.of(secretUuid, fingerprint);
+
+            // when
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), fingerprintsBySecret);
+
+            // then
+            BasicCredentialRef ref = model.basicCredentials().getFirst();
+            assertThat(ref.username()).isEqualTo(username);
+            assertThat(ref.secretUuid()).isEqualTo(secretUuid);
+            assertThat(ref.mappedUserUuid()).isEqualTo(mappedUserUuid);
+            assertThat(ref.fingerprint()).isEqualTo(fingerprint);
+        }
+
+        @Test
+        void leavesFingerprintNull_whenSecretAbsentFromLookup() {
+            // given
+            var secretUuid = UUID.randomUUID();
+            TspProfile profile = newTspProfile("desc", true, null);
+            profile.getBasicCredentials().add(newBasicCredential("alice", secretUuid, UUID.randomUUID()));
+
+            // when
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
+
+            // then
+            assertThat(model.basicCredentials().getFirst().fingerprint()).isNull();
+        }
+
+        @Test
+        void copiesAllowedAuthenticationMethodsAndCredentialRefs() {
+            // given
+            var authenticationMethod = TspAuthenticationMethod.BASIC_PASSWORD;
+            var username = "svc";
+            TspProfile profile = newTspProfile("desc", true, null);
+            profile.setAllowedAuthenticationMethods(List.of(authenticationMethod));
+            profile.getBasicCredentials().add(newBasicCredential(username, UUID.randomUUID(), UUID.randomUUID()));
+
+            // when
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
+
+            // then
+            assertThat(model.allowedAuthenticationMethods()).containsExactly(authenticationMethod);
+            assertThat(model.basicCredentials()).hasSize(1);
+            assertThat(model.basicCredentials().getFirst().username()).isEqualTo(username);
+        }
+
+        @Test
+        void yieldsEmptyLists_whenNoMethodsOrCredentials() {
+            // given
+            TspProfile profile = newTspProfile("desc", true, null);
+
+            // when
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
+
+            // then
+            assertThat(model.allowedAuthenticationMethods()).isEmpty();
+            assertThat(model.basicCredentials()).isEmpty();
+        }
+
+        @Test
+        void mapsAllCredentialsWithCorrectFields_whenMultiple() {
+            // given
+            var secretUuidAlice = UUID.randomUUID();
+            var mappedUserUuidAlice = UUID.randomUUID();
+            var secretUuidBob = UUID.randomUUID();
+            var mappedUserUuidBob = UUID.randomUUID();
+            TspProfile profile = newTspProfile("desc", true, null);
+            profile.getBasicCredentials().add(newBasicCredential("alice", secretUuidAlice, mappedUserUuidAlice));
+            profile.getBasicCredentials().add(newBasicCredential("bob", secretUuidBob, mappedUserUuidBob));
+
+            // when
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
+
+            // then
+            assertThat(model.basicCredentials()).hasSize(2);
+            BasicCredentialRef alice = credentialOf(model, "alice");
+            assertThat(alice.secretUuid()).isEqualTo(secretUuidAlice);
+            assertThat(alice.mappedUserUuid()).isEqualTo(mappedUserUuidAlice);
+            BasicCredentialRef bob = credentialOf(model, "bob");
+            assertThat(bob.secretUuid()).isEqualTo(secretUuidBob);
+            assertThat(bob.mappedUserUuid()).isEqualTo(mappedUserUuidBob);
+        }
     }
 
     // ── toSimpleDto (via SigningProfileMapper, exercised by every toDto/toListDto) ──
@@ -196,5 +334,37 @@ class TspProfileMapperTest {
         profile.setName(name);
         profile.setEnabled(enabled);
         return profile;
+    }
+
+    private static TspProfileBasicCredential newBasicCredential(String username, UUID secretUuid, UUID mappedUserUuid) {
+        TspProfileBasicCredential credential = new TspProfileBasicCredential();
+        credential.setUsername(username);
+        credential.setSecretUuid(secretUuid);
+        credential.setMappedUserUuid(mappedUserUuid);
+        return credential;
+    }
+
+    private static BasicCredentialRef credentialOf(TspProfileModel model, String username) {
+        return model.basicCredentials().stream()
+                .filter(ref -> username.equals(ref.username()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static VaultInstance newVaultInstance(UUID uuid, String name) {
+        VaultInstance vaultInstance = new VaultInstance();
+        vaultInstance.setUuid(uuid);
+        vaultInstance.setName(name);
+        return vaultInstance;
+    }
+
+    private static VaultProfile newVaultProfile(String name, String description, boolean enabled, VaultInstance vaultInstance) {
+        VaultProfile vaultProfile = new VaultProfile();
+        vaultProfile.setUuid(UUID.randomUUID());
+        vaultProfile.setName(name);
+        vaultProfile.setDescription(description);
+        vaultProfile.setEnabled(enabled);
+        vaultProfile.setVaultInstance(vaultInstance);
+        return vaultProfile;
     }
 }

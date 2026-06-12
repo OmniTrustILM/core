@@ -94,7 +94,10 @@ public class TspRequestParser {
         TimeStampRequest bcRequest;
         try {
             bcRequest = new TimeStampRequest(body);
-        } catch (IOException | NullPointerException e) {
+        } catch (IOException | RuntimeException e) {
+            // BC's TimeStampReq indexes the parsed SEQUENCE without bounds checks, so a truncated or empty
+            // SEQUENCE surfaces as ArrayIndexOutOfBoundsException/NullPointerException rather than IOException.
+            // All of these mean the same thing: the client sent a malformed request, not a server fault.
             throw new TspRequestParsingException(TspFailureInfo.BAD_REQUEST, "Malformed request: " + e.getMessage(),
                     "Malformed request");
         }

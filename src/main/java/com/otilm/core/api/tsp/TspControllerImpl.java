@@ -8,7 +8,9 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
+import com.otilm.core.aop.AuditResultOverride;
 import com.otilm.core.api.tsp.parser.TspRequestParser;
+import com.otilm.core.logging.LogResource;
 import com.otilm.core.signing.tsa.TsaService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -30,7 +32,7 @@ public class TspControllerImpl implements TspController {
 
     @Override
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, affiliatedResource = Resource.TSP_PROFILE, operation = Operation.SIGN)
-    public ResponseEntity<byte[]> timestamp(String tspProfileName, byte[] request) {
+    public ResponseEntity<byte[]> timestamp(@LogResource(name = true, affiliated = true) String tspProfileName, byte[] request) {
         byte[] responseBytes;
         try {
             TspRequest parsedRequest = TspRequestParser.parse(request);
@@ -38,12 +40,15 @@ public class TspControllerImpl implements TspController {
 
             responseBytes = TspResponseBuilder.fromEngineResponse(response);
         } catch (TspException e) {
+            AuditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(e.getFailureInfo(), e.getClientMessage());
-            log.error("TSP request failed with {}: {}", e.getFailureInfo(), e.getMessage(), e);
+            log.warn("TSP request rejected with {}: {}", e.getFailureInfo(), e.getMessage());
         } catch (NotFoundException e) {
+            AuditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
-            log.error("Resource not found while processing TSP request for profile '{}': {}", tspProfileName, e.getMessage(), e);
+            log.warn("Resource not found while processing TSP request for profile '{}': {}", tspProfileName, e.getMessage());
         } catch (Exception e) {
+            AuditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.SYSTEM_FAILURE, "An unexpected error occurred during timestamping.");
             log.error("Unexpected TSP processing failure", e);
         }

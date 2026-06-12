@@ -9,6 +9,8 @@ import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
@@ -25,12 +27,39 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 class AuditLogAspectTest extends BaseSpringBootTest {
+
+    /**
+     * Minimal bean that demonstrates the AuditResultOverride contract: the method swallows an
+     * exception internally (like the TSP controller does) and signals audit failure via the override
+     * instead of throwing past the aspect.
+     */
+    @TestConfiguration
+    static class Config {
+        @Bean
+        SwallowsAndOverridesBean swallowsAndOverridesBean() {
+            return new SwallowsAndOverridesBean();
+        }
+    }
+
+    static class SwallowsAndOverridesBean {
+        @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, operation = Operation.SIGN)
+        public void performAndSignalFailure() {
+            AuditResultOverride.setFailure();
+        }
+
+        @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, operation = Operation.SIGN)
+        public void performAndSucceed() {
+            // no override — aspect must record SUCCESS
+        }
+    }
 
     @Autowired
     private SettingService settingService;
@@ -43,6 +72,9 @@ class AuditLogAspectTest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyController keyController;
+
+    @Autowired
+    private SwallowsAndOverridesBean swallowsAndOverridesBean;
 
     @Autowired
     private AuditLogsListener auditLogsListener;
@@ -115,6 +147,42 @@ class AuditLogAspectTest extends BaseSpringBootTest {
         // Test that the audit log aspect does not throw error for empty list of UUIDs on the input
         Assertions.assertDoesNotThrow(() -> keyController.enableKeys(List.of()));
 
+    }
+
+    @Test
+    void auditResultOverride_auditsOperationAsFailure_whenMethodSwallowsExceptionAndSetsOverride() {
+        // given
+        Mockito.doAnswer(invocation -> {
+            auditLogsListener.processMessage(invocation.getArgument(0));
+            return null;
+        }).when(auditLogsProducer).produceMessage(Mockito.any());
+        turnOnLogging();
+
+        // when — method returns normally but has set the override (simulates TSP rejection pattern)
+        swallowsAndOverridesBean.performAndSignalFailure();
+
+        // then
+        List<AuditLog> auditLogs = auditLogRepository.findAll();
+        Assertions.assertEquals(1, auditLogs.size());
+        Assertions.assertEquals(OperationResult.FAILURE, auditLogs.getFirst().getOperationResult());
+    }
+
+    @Test
+    void auditResultOverride_auditsOperationAsSuccess_whenNoOverrideSet() {
+        // given
+        Mockito.doAnswer(invocation -> {
+            auditLogsListener.processMessage(invocation.getArgument(0));
+            return null;
+        }).when(auditLogsProducer).produceMessage(Mockito.any());
+        turnOnLogging();
+
+        // when
+        swallowsAndOverridesBean.performAndSucceed();
+
+        // then
+        List<AuditLog> auditLogs = auditLogRepository.findAll();
+        Assertions.assertEquals(1, auditLogs.size());
+        Assertions.assertEquals(OperationResult.SUCCESS, auditLogs.getFirst().getOperationResult());
     }
 
     private void turnOnLogging() {

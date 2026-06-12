@@ -103,9 +103,11 @@ public class AuditLogAspect {
 
         try {
             result = joinPoint.proceed();
-            logBuilder.operationResult(OperationResult.SUCCESS);
+            OperationResult override = AuditResultOverride.getAndClear();
+            logBuilder.operationResult(override != null ? override : OperationResult.SUCCESS);
             return result;
         } catch (Exception e) {
+            AuditResultOverride.getAndClear();
             String message = e.getMessage();
             if (e instanceof AccessDeniedException) {
                 String resourceNameAccessDenied = AuthHelper.getDeniedPermissionResource();
