@@ -37,8 +37,8 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 # copy optimized JRE
 COPY --from=optimize /javaruntime $JAVA_HOME
 
-# support mail is not updated yet
-LABEL org.opencontainers.image.authors="ILM <support@czertainly.com>"
+# email address is placeholder and should be replaced with actual contact email address for issues related to this image
+LABEL org.opencontainers.image.authors="ILM <support@otilm.com>"
 
 # add non root user ilm
 RUN addgroup --system --gid 10001 ilm && adduser --system --home /opt/otilm --uid 10001 --ingroup ilm ilm
