@@ -1,7 +1,6 @@
 package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspProfileRequestDto;
 
 import java.util.List;
