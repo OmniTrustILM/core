@@ -54,7 +54,9 @@ import jakarta.transaction.Transactional;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.otilm.core.events.SecretContentUpdatedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
@@ -96,9 +98,16 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
 
     private ActionProducer actionProducer;
 
+    private ApplicationEventPublisher applicationEventPublisher;
+
     @Autowired
     public void setActionProducer(ActionProducer actionProducer) {
         this.actionProducer = actionProducer;
+    }
+
+    @Autowired
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     @Autowired
@@ -407,6 +416,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
         secret.getLatestVersion().setVaultVersion(sourceVaultProfileResponse.getVersion());
         secret.getVersions().add(newVersion);
         attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.SECRET, secret.getUuid()).connector(currentSourceVaultProfile.getVaultInstance().getConnectorUuid()).build(), secretRequest.getAttributes());
+        applicationEventPublisher.publishEvent(new SecretContentUpdatedEvent(secret.getUuid()));
     }
 
     @Override

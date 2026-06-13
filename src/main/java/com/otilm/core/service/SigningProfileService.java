@@ -23,11 +23,13 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface SigningProfileService extends ResourceExtensionService {
@@ -58,6 +60,17 @@ public interface SigningProfileService extends ResourceExtensionService {
      *                                  the model currently supports
      */
     SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> getSigningProfileModel(String name) throws NotFoundException;
+
+    /**
+     * Resolves the governing TSP profile for a request targeting the indirect signing profile-based route,
+     * without any authorization check.
+     *
+     * <p>Intended for use by {@code TspAuthenticationFilter}, which runs before a {@code SecurityContext} exists.
+     * @return {@link Optional#empty()} when the Signing Profile exists but is not linked to any TSP Profile
+     *
+     * @throws NotFoundException if no Signing Profile with the given name exists, or the linked TSP Profile can no longer be resolved.
+     */
+    Optional<TspProfileModel> resolveTspProfileForSigningProfileAuthentication(String signingProfileName) throws NotFoundException;
 
     List<String> findAllNames();
 

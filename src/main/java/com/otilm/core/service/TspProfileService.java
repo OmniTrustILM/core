@@ -34,6 +34,13 @@ public interface TspProfileService extends ResourceExtensionService {
 
     TspProfileModel getTspProfile(String name) throws NotFoundException;
 
+    /**
+     * Loads the TSP profile model by name without any authorization check.
+     *
+     * <p>Intended for use by {@code TspAuthenticationFilter}, which runs before a {@code SecurityContext} exists.
+     */
+    TspProfileModel resolveTspProfileForAuthentication(String name) throws NotFoundException;
+
     TspProfileDto createTspProfile(TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
 
     TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;

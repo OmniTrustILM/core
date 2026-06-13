@@ -119,7 +119,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
 
         // Vault rotation can run only when a new password is supplied.
         // On a username-only change the secret's stored username is left stale - it is informational only;
-        // verification reads the username from the credential row, never from the secret content.
+        // verification reads the username from the credential row (or credential cache), never from the secret content.
         // A later password rotation heals it, since rotation writes the current username too.
         boolean rotate = request.getPassword() != null && !request.getPassword().isBlank();
         if (rotate) {
@@ -134,7 +134,9 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
             throw new AlreadyExistException("A Basic credential with username '" + request.getUsername() + "' already exists on this profile.");
         }
 
-        if (rotate || mappedUserChanged) {
+        // Vault updates the secret asynchronously - the cache is notified via SecretContentUpdatedEvent processed by TspProfileSecretEvictionListener.
+        // Evict synchronously here only on mapped-user-only change (no secret update).
+        if (mappedUserChanged) {
             credentialVerificationCache.evictBySecretUuid(credential.getSecretUuid());
         }
         evictModelCache(profile.getName());
