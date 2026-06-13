@@ -52,7 +52,7 @@ class CryptographicKeyItemCacheTest extends BaseSpringBootTest {
     private CryptographicKeyService cryptographicKeyService;
 
     @Autowired
-    private TokenProfileService tokenProfileService;
+    private TokenProfileInternalService tokenProfileService;
 
     @Autowired
     private CacheManager cacheManager;

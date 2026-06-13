@@ -27,11 +27,13 @@ import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.VaultProfileService;
+import com.otilm.core.service.VaultProfileExternalService;
+import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.SearchHelper;
@@ -52,7 +54,7 @@ import java.util.UUID;
 
 @Service(value = Resource.Codes.VAULT_PROFILE)
 @Transactional
-public class VaultProfileServiceImpl implements VaultProfileService {
+public class VaultProfileServiceImpl implements VaultProfileExternalService, VaultProfileInternalService {
 
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
@@ -232,6 +234,7 @@ public class VaultProfileServiceImpl implements VaultProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.VAULT_PROFILE, false);
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(

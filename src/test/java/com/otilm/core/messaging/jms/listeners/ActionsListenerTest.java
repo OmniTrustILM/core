@@ -13,7 +13,7 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.ApprovalInternalService;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.AuthHelper;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +49,7 @@ class ActionsListenerTest {
     @Mock
     private ClientOperationService clientOperationService;
     @Mock
-    private SecretService secretService;
+    private SecretInternalService secretService;
     @Mock
     private NotificationProducer notificationProducer;
     @Mock

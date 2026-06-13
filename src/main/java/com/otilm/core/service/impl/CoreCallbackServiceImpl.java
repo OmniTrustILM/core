@@ -15,7 +15,7 @@ import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CoreCallbackService;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,7 +30,7 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
 
     public static final String CREDENTIAL_KIND_PATH_VARIABLE = "credentialKind";
 
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
 
     private ResourceInternalService resourceService;
 
@@ -40,7 +40,7 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 

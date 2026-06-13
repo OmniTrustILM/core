@@ -27,9 +27,9 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileBasicCredentialService;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.UserManagementService;
-import com.otilm.core.service.VaultProfileService;
+import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.writer.signing.TspProfileBasicCredentialWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,8 +49,8 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     private TspProfileRepository tspProfileRepository;
     private TspProfileBasicCredentialRepository credentialRepository;
     private TspProfileBasicCredentialWriter credentialWriter;
-    private VaultProfileService vaultProfileService;
-    private SecretService secretService;
+    private VaultProfileInternalService vaultProfileService;
+    private SecretExternalService secretService;
     private UserManagementService userManagementService;
     private CacheEvictor cacheEvictor;
 
@@ -283,12 +283,12 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     }
 
     @Autowired
-    public void setVaultProfileService(VaultProfileService vaultProfileService) {
+    public void setVaultProfileService(VaultProfileInternalService vaultProfileService) {
         this.vaultProfileService = vaultProfileService;
     }
 
     @Autowired
-    public void setSecretService(SecretService secretService) {
+    public void setSecretService(SecretExternalService secretService) {
         this.secretService = secretService;
     }
 

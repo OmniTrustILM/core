@@ -15,7 +15,7 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.service.ApprovalInternalService;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.AuthHelper;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,7 +42,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
     private ClientOperationService clientOperationService;
 
-    private SecretService secretService;
+    private SecretInternalService secretService;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -176,7 +176,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     }
 
     @Autowired
-    public void setSecretService(SecretService secretService) {
+    public void setSecretService(SecretInternalService secretService) {
         this.secretService = secretService;
     }
 }

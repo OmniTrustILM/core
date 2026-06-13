@@ -7,10 +7,10 @@ import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.DiscoveryService;
 import com.otilm.core.service.GroupService;
 import com.otilm.core.service.RaProfileService;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.StatisticsExternalService;
-import com.otilm.core.service.VaultInstanceService;
-import com.otilm.core.service.VaultProfileService;
+import com.otilm.core.service.VaultInstanceInternalService;
+import com.otilm.core.service.VaultProfileInternalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,9 +29,9 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     private DiscoveryService discoveryService;
     private GroupService groupService;
     private RaProfileService raProfileService;
-    private SecretService secretService;
-    private VaultInstanceService vaultInstanceService;
-    private VaultProfileService vaultProfileService;
+    private SecretInternalService secretService;
+    private VaultInstanceInternalService vaultInstanceService;
+    private VaultProfileInternalService vaultProfileService;
 
 
     @Override
@@ -100,17 +100,17 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     }
 
     @Autowired
-    public void setSecretService(SecretService secretService) {
+    public void setSecretService(SecretInternalService secretService) {
         this.secretService = secretService;
     }
 
     @Autowired
-    public void setVaultInstanceService(VaultInstanceService vaultInstanceService) {
+    public void setVaultInstanceService(VaultInstanceInternalService vaultInstanceService) {
         this.vaultInstanceService = vaultInstanceService;
     }
 
     @Autowired
-    public void setVaultProfileService(VaultProfileService vaultProfileService) {
+    public void setVaultProfileService(VaultProfileInternalService vaultProfileService) {
         this.vaultProfileService = vaultProfileService;
     }
 }

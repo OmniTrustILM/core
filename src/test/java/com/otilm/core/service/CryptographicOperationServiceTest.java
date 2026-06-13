@@ -46,7 +46,7 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
     private CryptographicOperationService cryptographicOperationService;
 
     @Autowired
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceInternalService tokenInstanceService;
 
     @Autowired
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
