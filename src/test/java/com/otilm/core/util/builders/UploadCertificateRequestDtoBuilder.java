@@ -34,7 +34,7 @@ public class UploadCertificateRequestDtoBuilder {
     }
 
     public UploadCertificateRequestDtoBuilder withCustomAttributes(List<RequestAttribute> customAttributes) {
-        this.customAttributes = customAttributes;
+        this.customAttributes = customAttributes == null ? List.of() : customAttributes;
         return this;
     }
 

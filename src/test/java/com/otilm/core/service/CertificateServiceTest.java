@@ -355,8 +355,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThat(certificateEntities).isNotNull();
             assertThat(certificateEntities.getCertificates()).isNotNull();
-            assertThat(certificateEntities.getCertificates().isEmpty()).isFalse();
-            assertThat(certificateEntities.getCertificates().size()).isEqualTo(1);
+            assertThat(certificateEntities.getCertificates()).isNotEmpty();
+            assertThat(certificateEntities.getCertificates()).hasSize(1);
 
             CertificateDto dto = certificateEntities.getCertificates().getFirst();
             assertThat(dto.getUuid()).isEqualTo(certificate.getUuid().toString());
@@ -389,7 +389,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             assertThat(dto.getRaProfile()).isNotNull();
             assertThat(dto.getRaProfile().getName()).isEqualTo(certificate.getRaProfile().getName());
             assertThat(dto.getGroups()).isNotNull();
-            assertThat(dto.getGroups().size()).isEqualTo(1);
+            assertThat(dto.getGroups()).hasSize(1);
 
             Group expectedGroup = certificate.getGroups().stream().toList().getFirst();
             GroupDto actualGroup = dto.getGroups().stream().toList().getFirst();
@@ -417,8 +417,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThat(certificateEntities).isNotNull();
             assertThat(certificateEntities.getCertificates()).isNotNull();
-            assertThat(certificateEntities.getCertificates().isEmpty()).isTrue();
-            assertThat(certificateEntities.getTotalItems()).isEqualTo(0);
+            assertThat(certificateEntities.getCertificates()).isEmpty();
+            assertThat(certificateEntities.getTotalItems()).isZero();
         }
 
         @Test
@@ -438,14 +438,14 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThat(certificateEntities).isNotNull();
             assertThat(certificateEntities.getCertificates()).isNotNull();
-            assertThat(certificateEntities.getCertificates().isEmpty()).isFalse();
+            assertThat(certificateEntities.getCertificates()).isNotEmpty();
             CertificateDto dto = certificateEntities.getCertificates().getFirst();
 
             assertThat(dto.getOwner()).isNull();
             assertThat(dto.getOwnerUuid()).isNull();
             assertThat(dto.getGroups()).isNotNull();
             assertThat(dto.getRaProfile()).isNull();
-            assertThat(dto.getGroups().isEmpty()).isTrue();
+            assertThat(dto.getGroups()).isEmpty();
             assertThat(dto.isPrivateKeyAvailability()).isFalse();
         }
 
@@ -464,7 +464,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThat(certificateEntities).isNotNull();
             assertThat(certificateEntities.getCertificates()).isNotNull();
-            assertThat(certificateEntities.getCertificates().isEmpty()).isFalse();
+            assertThat(certificateEntities.getCertificates()).isNotEmpty();
             CertificateDto dto = certificateEntities.getCertificates().getFirst();
 
             assertThat(dto.isPrivateKeyAvailability()).isTrue();
@@ -473,21 +473,21 @@ class CertificateServiceTest extends BaseSpringBootTest {
         @Test
         void returnsSearchableFieldInformation_withoutError() {
             // given
-            mockServer = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
-            mockServer.start();
-            WireMock.configureFor("localhost", mockServer.port());
-            mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users")).willReturn(
+            WireMockServer authMock = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
+            authMock.start();
+            WireMock.configureFor("localhost", authMock.port());
+            authMock.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users")).willReturn(
                     WireMock.okJson("{ \"data\": [] }")
             ));
 
             // when / then
             assertThatCode(() -> certificateService.getSearchableFieldInformationByGroup()).doesNotThrowAnyException();
-            mockServer.stop();
+            authMock.stop();
         }
 
         @ParameterizedTest
         @MethodSource("com.otilm.core.util.CertificateTestData#provideCmpAcceptableTestData")
-        public void filtersCmpSigningCertificates(
+        void filtersCmpSigningCertificates(
                 String commonName,
                 List<CertificateTestData.KeyItemData> publicKeys,
                 List<CertificateTestData.KeyItemData> privateKeys,
@@ -537,8 +537,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
             List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
 
             // then
-            assertThat(resourceObjects.isEmpty()).isFalse();
-            assertThat(resourceObjects.size()).isEqualTo(4);
+            assertThat(resourceObjects).isNotEmpty();
+            assertThat(resourceObjects).hasSize(4);
             String name = "%s (%s)";
             assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber())))).isTrue();
             assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber())))).isTrue();
@@ -548,7 +548,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         @ParameterizedTest
         @MethodSource("com.otilm.core.util.CertificateTestData#provideScepCaCertificateTestData")
-        public void filtersScepCaCertificates(
+        void filtersScepCaCertificates(
                 String commonName,
                 List<CertificateTestData.KeyItemData> publicKeys,
                 List<CertificateTestData.KeyItemData> privateKeys,
@@ -574,7 +574,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         @ParameterizedTest
         @MethodSource("com.otilm.core.util.CertificateTestData#provideDigitalSigningAcceptableTestData")
-        public void filtersDigitalSigningCertificates(
+        void filtersDigitalSigningCertificates(
                 String testCaseName,
                 List<CertificateTestData.KeyItemData> publicKeys,
                 List<CertificateTestData.KeyItemData> privateKeys,
@@ -633,11 +633,11 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThat(dto.getCertificateRequest()).isNotNull();
             // stored attribute appears in the correct slot
-            assertThat(dto.getCertificateRequest().getAttributes().size()).isEqualTo(1);
+            assertThat(dto.getCertificateRequest().getAttributes()).hasSize(1);
             assertThat(dto.getCertificateRequest().getAttributes().getFirst().getName()).isEqualTo(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
             // no bleeding into the operation-scoped slots
-            assertThat(dto.getCertificateRequest().getSignatureAttributes().isEmpty()).isTrue();
-            assertThat(dto.getCertificateRequest().getAltSignatureAttributes().isEmpty()).isTrue();
+            assertThat(dto.getCertificateRequest().getSignatureAttributes()).isEmpty();
+            assertThat(dto.getCertificateRequest().getAltSignatureAttributes()).isEmpty();
         }
 
         @Test
@@ -685,7 +685,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             assertThat(hybridCertificate.getAltKeyUuid()).isNotNull();
 
             Optional<CryptographicKey> altCryptographicKey = cryptographicKeyRepository.findByUuid(hybridCertificate.getAltKeyUuid());
-            assertThat(altCryptographicKey.isPresent()).isTrue();
+            assertThat(altCryptographicKey).isPresent();
         }
 
         @Test
@@ -722,7 +722,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             Optional<Certificate> result = certificateService.findCertificateEntityByUserUuid(userUuid);
 
             // then
-            assertThat(result.isPresent()).isTrue();
+            assertThat(result).isPresent();
             assertThat(result.get().getUuid()).isEqualTo(certificate.getUuid());
         }
 
@@ -735,7 +735,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             Optional<Certificate> result = certificateService.findCertificateEntityByUserUuid(unknownUserUuid);
 
             // then
-            assertThat(result.isEmpty()).isTrue();
+            assertThat(result).isEmpty();
         }
 
         @Test
@@ -751,7 +751,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateDetailDto certificateNew = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
 
             // then
-            assertThat(certificateNew.getCustomAttributes().size()).isEqualTo(1);
+            assertThat(certificateNew.getCustomAttributes()).hasSize(1);
         }
 
         @Test
@@ -786,11 +786,11 @@ class CertificateServiceTest extends BaseSpringBootTest {
             assertThat(qc.getQcCompliance()).as("qcCompliance should be true").isEqualTo(Boolean.TRUE);
             assertThat(qc.getQcSscd()).as("qcSscd should be true").isEqualTo(Boolean.TRUE);
             assertThat(qc.getQcType()).as("qcType list should not be null").isNotNull();
-            assertThat(qc.getQcType().contains(QcType.ESIGN)).as("ESIGN should be in qcType").isTrue();
-            assertThat(qc.getQcType().contains(QcType.ESEAL)).as("ESEAL should be in qcType").isTrue();
+            assertThat(qc.getQcType()).as("ESIGN should be in qcType").contains(QcType.ESIGN);
+            assertThat(qc.getQcType()).as("ESEAL should be in qcType").contains(QcType.ESEAL);
             assertThat(qc.getQcCcLegislation()).as("qcCcLegislation should not be null").isNotNull();
-            assertThat(qc.getQcCcLegislation().contains("DE")).as("DE should be in qcCcLegislation").isTrue();
-            assertThat(qc.getQcCcLegislation().contains("AT")).as("AT should be in qcCcLegislation").isTrue();
+            assertThat(qc.getQcCcLegislation()).as("DE should be in qcCcLegislation").contains("DE");
+            assertThat(qc.getQcCcLegislation()).as("AT should be in qcCcLegislation").contains("AT");
         }
 
         @Test
@@ -912,9 +912,10 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // given
             RemoveCertificateDto request = new RemoveCertificateDto();
             request.setFilters(List.of(new SearchFilterRequestDto()));
+            SecurityFilter securityFilter = SecurityFilter.create();
 
             // when / then
-            assertThatThrownBy(() -> certificateService.bulkDeleteCertificate(SecurityFilter.create(), request)).isInstanceOf(NotSupportedException.class);
+            assertThatThrownBy(() -> certificateService.bulkDeleteCertificate(securityFilter, request)).isInstanceOf(NotSupportedException.class);
         }
 
         @Test
@@ -935,7 +936,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(() -> certificateService.getCertificate(certificate.getSecuredUuid())).isInstanceOf(NotFoundException.class);
             Optional<Crl> updatedCrl = crlRepository.findByUuid(crl.getSecuredUuid());
-            assertThat(updatedCrl.isPresent()).isTrue();
+            assertThat(updatedCrl).isPresent();
             assertThat(updatedCrl.get().getCaCertificateUuid()).isNull();
         }
 
@@ -1033,7 +1034,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void bulkArchivesCertificates() throws NotFoundException {
+        void bulkArchivesCertificates() {
             // when
             certificateService.bulkArchiveCertificates(List.of(certificate.getUuid()));
 
@@ -1042,7 +1043,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void bulkUnarchivesCertificates() throws NotFoundException {
+        void bulkUnarchivesCertificates() {
             // given - an archived certificate
             certificate.setArchived(true);
             certificateRepository.save(certificate);
@@ -1148,9 +1149,9 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // then - the connector's metadata is attached to the certificate
             CertificateDetailDto detail = certificateService.getCertificate(certificateSecuredUuid);
-            assertThat(detail.getMetadata().size()).isEqualTo(1);
+            assertThat(detail.getMetadata()).hasSize(1);
             assertThat(detail.getMetadata().getFirst().getConnectorName()).isEqualTo(connector.getName());
-            assertThat(detail.getMetadata().getFirst().getItems().size()).isEqualTo(1);
+            assertThat(detail.getMetadata().getFirst().getItems()).hasSize(1);
         }
 
         @Test
@@ -1224,7 +1225,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // then
             Certificate reloaded = certificateRepository.findWithAssociationsByUuid(certificate.getUuid()).orElseThrow();
-            assertThat(reloaded.getGroups().size()).isEqualTo(1);
+            assertThat(reloaded.getGroups()).hasSize(1);
             assertThat(reloaded.getGroups().stream().findFirst().orElseThrow().getUuid()).isEqualTo(group.getUuid());
         }
 
@@ -1353,7 +1354,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             CertificateDetailDto detailDto = certificateService.getCertificate(certificateNew.getSecuredUuid());
 
             // then
-            assertThat(detailDto.getGroups().size()).isEqualTo(1);
+            assertThat(detailDto.getGroups()).hasSize(1);
             assertThat(detailDto.getGroups().getFirst().getUuid()).isEqualTo(group.getUuid().toString());
         }
 
@@ -1500,7 +1501,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // when
             certificateService.revokeCertificate(certificate.getSerialNumber());
 
-            // then - both the user UUID entry and the certificate entry must be evicted
+            // then - the certificate entry is evicted while the user UUID entry is retained
             uuidCache.assertNotEvicted();
             certCache.assertEvicted();
         }
