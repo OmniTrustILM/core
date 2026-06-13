@@ -8,6 +8,12 @@ import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
 
+/**
+ * Builds an {@link UploadCertificateRequestDto}; tests override only the fields whose values drive the
+ * assertion under test. {@link #withCertificate(X509Certificate)} base64-encodes the certificate's DER
+ * encoding, while {@link #withCertificate(String)} takes an already-encoded value verbatim.
+ * {@code customAttributes} defaults to an empty list, never {@code null}.
+ */
 public class UploadCertificateRequestDtoBuilder {
 
     private String certificate = null;

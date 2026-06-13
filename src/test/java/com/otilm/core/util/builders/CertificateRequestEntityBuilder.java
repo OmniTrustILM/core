@@ -19,11 +19,6 @@ public class CertificateRequestEntityBuilder {
         return new CertificateRequestEntityBuilder();
     }
 
-    public CertificateRequestEntityBuilder withFormat(CertificateRequestFormat format) {
-        this.format = format;
-        return this;
-    }
-
     public CertificateRequestEntityBuilder withContent(String content) {
         this.content = content;
         return this;

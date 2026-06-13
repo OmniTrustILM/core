@@ -1163,7 +1163,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> certificateService.updateCertificateObjects(certificate.getSecuredUuid(), request))
-                    .isInstanceOf(CertificateOperationException.class);
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining("not identified by authority of new RA profile");
         }
 
         @Test
@@ -1289,6 +1290,17 @@ class CertificateServiceTest extends BaseSpringBootTest {
             NameAndUuidDto owner = associationService.getOwner(Resource.CERTIFICATE, certificate.getUuid());
             assertThat(owner.getUuid()).isEqualTo(request.getOwnerUuid());
             assertThat(owner.getName()).isEqualTo("newOwner");
+
+            // when - the already-replaced owner is replaced again with a second, distinct user
+            authMock.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+"))
+                    .willReturn(WireMock.okJson("{ \"username\": \"newOwner2\"}")));
+            var secondRequest = aCertificateUpdateObjectsRequest().withOwnerUuid(UUID.randomUUID().toString()).build();
+            certificateService.updateCertificateObjects(certificateSecuredUuid, secondRequest);
+
+            // then - the owner reflects the second replacement, not the first
+            NameAndUuidDto replacedOwner = associationService.getOwner(Resource.CERTIFICATE, certificate.getUuid());
+            assertThat(replacedOwner.getUuid()).isEqualTo(secondRequest.getOwnerUuid());
+            assertThat(replacedOwner.getName()).isEqualTo("newOwner2");
             authMock.stop();
         }
 
@@ -1640,7 +1652,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(uuid, uuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Cannot associate certificate with itself");
         }
 
         @Test
@@ -1651,7 +1664,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("is not issued or revoked and cannot be a predecessor");
         }
 
         @Test
@@ -1665,7 +1679,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("state is failed or rejected and cannot be a successor");
         }
 
         @Test
@@ -1681,7 +1696,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("subject types do not match");
         }
 
         @Test
@@ -1694,9 +1710,11 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // when / then — the same pair, either way round, is already related
             assertThatThrownBy(() -> certificateService.associateCertificates(successorUuid, predecessorUuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("already exists");
             assertThatThrownBy(() -> certificateService.associateCertificates(predecessorUuid, successorUuid))
-                    .isInstanceOf(ValidationException.class);
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("already exists");
         }
 
         @Test
