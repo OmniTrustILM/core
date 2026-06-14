@@ -9,7 +9,7 @@ public interface TokenProfileInternalService extends ResourceExtensionService {
      * Get the details of a token profile which has Token Instance association. Internal Method only without authorization
      *
      * @param uuid              - UUID of the Token Profile
-     * @return Details of the token Profile {@Link TokenProfileDetailDto}
+     * @return the {@link TokenProfile} entity
      * @throws NotFoundException When the token instance or token profile is not found
      */
     TokenProfile getTokenProfileEntity(SecuredUUID uuid) throws NotFoundException;

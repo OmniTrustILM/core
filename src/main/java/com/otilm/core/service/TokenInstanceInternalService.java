@@ -12,9 +12,8 @@ public interface TokenInstanceInternalService extends ResourceExtensionService {
      * Get the token instance entity
      *
      * @param uuid UUID of the token instance
-     * @return Details of the token instance {@Link TokenInstanceDetailDto}
-     * @throws NotFoundException  when the token instance is not found
-     * @throws ConnectorException when there are issues with connector communication or error from connector
+     * @return the {@link TokenInstanceReference} entity
+     * @throws NotFoundException when the token instance is not found
      */
     TokenInstanceReference getTokenInstanceEntity(SecuredUUID uuid) throws NotFoundException;
 
@@ -24,6 +23,7 @@ public interface TokenInstanceInternalService extends ResourceExtensionService {
      * @param uuid       UUID of the token instance
      * @param attributes attributes to be validated
      * @throws ConnectorException when there are issues with the communication
+     * @throws NotFoundException  when the token instance is not found
      */
     void validateTokenProfileAttributes(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException;
 }
