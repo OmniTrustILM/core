@@ -544,7 +544,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             String name = "%s (%s)";
             assertThat(resourceObjects)
-                    .extracting(dto -> dto.getUuid().toString(), NameAndUuidDto::getName)
+                    .extracting(NameAndUuidDto::getUuid, NameAndUuidDto::getName)
                     .containsExactlyInAnyOrder(
                             tuple(certificate.getUuid().toString(), name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber())),
                             tuple(notNullCommonName.getUuid().toString(), name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber())),
