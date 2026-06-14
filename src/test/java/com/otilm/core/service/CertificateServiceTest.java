@@ -97,6 +97,7 @@ import static com.otilm.core.util.builders.UploadCertificateRequestDtoBuilder.an
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -215,6 +216,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private Connector connector;
 
     private WireMockServer mockServer;
+    private WireMockServer authServiceMock;
 
     @Autowired
     void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -329,6 +331,10 @@ class CertificateServiceTest extends BaseSpringBootTest {
     @AfterEach
     void stopMocksAndEvictCaches() {
         mockServer.stop();
+        if (authServiceMock != null) {
+            authServiceMock.stop();
+            authServiceMock = null;
+        }
         authenticationCache.evictAll();
     }
 
@@ -473,16 +479,15 @@ class CertificateServiceTest extends BaseSpringBootTest {
         @Test
         void returnsSearchableFieldInformation_withoutError() {
             // given
-            WireMockServer authMock = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
-            authMock.start();
-            WireMock.configureFor("localhost", authMock.port());
-            authMock.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users")).willReturn(
+            authServiceMock = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
+            authServiceMock.start();
+            WireMock.configureFor("localhost", authServiceMock.port());
+            authServiceMock.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users")).willReturn(
                     WireMock.okJson("{ \"data\": [] }")
             ));
 
             // when / then
             assertThatCode(() -> certificateService.getSearchableFieldInformationByGroup()).doesNotThrowAnyException();
-            authMock.stop();
         }
 
         @ParameterizedTest
@@ -537,13 +542,14 @@ class CertificateServiceTest extends BaseSpringBootTest {
             List<NameAndUuidDto> resourceObjects = certificateService.listResourceObjects(new SecurityFilter(), null, null);
 
             // then
-            assertThat(resourceObjects).isNotEmpty();
-            assertThat(resourceObjects).hasSize(4);
             String name = "%s (%s)";
-            assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(certificate.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber())))).isTrue();
-            assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(notNullCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber())))).isTrue();
-            assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(blankCommonName.getUuid().toString()) && dto.getName().equals(name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber())))).isTrue();
-            assertThat(resourceObjects.stream().anyMatch(dto -> dto.getUuid().equals(nullSerialNumber.getUuid().toString()) && dto.getName().equals(name.formatted(nullSerialNumber.getCommonName(), "Not Issued")))).isTrue();
+            assertThat(resourceObjects)
+                    .extracting(dto -> dto.getUuid().toString(), NameAndUuidDto::getName)
+                    .containsExactlyInAnyOrder(
+                            tuple(certificate.getUuid().toString(), name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, certificate.getSerialNumber())),
+                            tuple(notNullCommonName.getUuid().toString(), name.formatted(notNullCommonName.getCommonName(), notNullCommonName.getSerialNumber())),
+                            tuple(blankCommonName.getUuid().toString(), name.formatted(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER, blankCommonName.getSerialNumber())),
+                            tuple(nullSerialNumber.getUuid().toString(), name.formatted(nullSerialNumber.getCommonName(), "Not Issued")));
         }
 
         @ParameterizedTest
@@ -1074,7 +1080,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         @Test
         void appliesProtocolAssociations_whenSubmittingRequest() throws AlreadyExistException, AttributeException, NotFoundException, NoSuchAlgorithmException, ConnectorException, CertificateRequestException {
             // given
-            WireMockServer mockServerUpdateUser = mockUpdateUser();
+            mockUpdateUser();
             mockServer.stubFor(WireMock
                     .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
                     .willReturn(WireMock.okJson("true")));
@@ -1097,8 +1103,6 @@ class CertificateServiceTest extends BaseSpringBootTest {
             assertThat(certificateToBeIssued.getGroups()).isEqualTo(Set.of(group));
             assertThat(associationService.getOwner(Resource.CERTIFICATE, certificateToBeIssued.getUuid())).isNotNull();
             assertThat(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificateToBeIssued.getUuid())).isNotNull();
-            mockServer.stop();
-            mockServerUpdateUser.stop();
         }
     }
 
@@ -1302,7 +1306,6 @@ class CertificateServiceTest extends BaseSpringBootTest {
             NameAndUuidDto replacedOwner = associationService.getOwner(Resource.CERTIFICATE, certificate.getUuid());
             assertThat(replacedOwner.getUuid()).isEqualTo(secondRequest.getOwnerUuid());
             assertThat(replacedOwner.getName()).isEqualTo("newOwner2");
-            authMock.stop();
         }
 
         @Test
@@ -1916,14 +1919,14 @@ class CertificateServiceTest extends BaseSpringBootTest {
                 .willReturn(WireMock.okJson("{\"meta\":[{\"version\": 2,\"uuid\":\"b42ab690-60fd-11ed-9b6a-0242ac120002\",\"name\":\"ejbcaUsername\",\"description\":\"EJBCA Username\",\"content\":[{\"reference\":\"ShO0lp7qbnE=\",\"data\":\"ShO0lp7qbnE=\"}],\"type\":\"meta\",\"contentType\":\"string\",\"properties\":{\"label\":\"EJBCA Username\",\"visible\":true,\"group\":null,\"global\":false}}]}")));
     }
 
-    private static WireMockServer mockUpdateUser() {
-        WireMockServer mockServerUpdateUser = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
-        mockServerUpdateUser.start();
-        WireMock.configureFor("localhost", mockServerUpdateUser.port());
-        mockServerUpdateUser.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(
+    private WireMockServer mockUpdateUser() {
+        authServiceMock = new WireMockServer(AUTH_SERVICE_MOCK_PORT);
+        authServiceMock.start();
+        WireMock.configureFor("localhost", authServiceMock.port());
+        authServiceMock.stubFor(WireMock.get(WireMock.urlPathMatching("/auth/users/[^/]+")).willReturn(
                 WireMock.okJson("{ \"username\": \"newOwner\"}")
         ));
-        return mockServerUpdateUser;
+        return authServiceMock;
     }
 
     private void downloadAndRecreate(CertificateFormat format, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException, IOException {
