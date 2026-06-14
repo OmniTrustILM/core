@@ -587,6 +587,21 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
     }
 
     @Override
+    public Map<UUID, String> getLatestFingerprintsByUuid(List<UUID> secretUuids) {
+        if (secretUuids == null || secretUuids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> result = new HashMap<>();
+        for (Secret secret : secretRepository.findWithLatestVersionByUuidIn(secretUuids)) {
+            SecretVersion latest = secret.getLatestVersion();
+            if (latest != null && latest.getFingerprint() != null) {
+                result.put(secret.getUuid(), latest.getFingerprint());
+            }
+        }
+        return result;
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
     public SecretContent getSecretContent(UUID uuid) throws NotFoundException, ConnectorException, AttributeException {
         Secret secret = getSecretEntity(uuid);

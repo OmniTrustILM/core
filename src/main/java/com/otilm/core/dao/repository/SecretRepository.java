@@ -25,5 +25,8 @@ public interface SecretRepository extends SecurityFilterRepository<Secret, UUID>
 
     List<Secret> findByUuidIn(List<UUID> objectUuids);
 
+    @EntityGraph(attributePaths = {"latestVersion"})
+    List<Secret> findWithLatestVersionByUuidIn(List<UUID> objectUuids);
+
     List<Secret> findBySourceVaultProfileUuid(UUID associationObjectUuid);
 }

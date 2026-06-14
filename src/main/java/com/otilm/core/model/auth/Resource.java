@@ -81,6 +81,7 @@ public enum Resource {
     // SIGNING
     TIME_QUALITY_CONFIGURATION("timeQualityConfigurations"),
     TSP_PROFILE("tspProfiles"),
+    TSP_PROFILE_BASIC_CREDENTIAL("tspProfileBasicCredentials"),
     SIGNING_PROFILE("signingProfiles"),
     SIGNING_RECORD("signingRecords"),
     ;

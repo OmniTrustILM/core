@@ -160,7 +160,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     }
 
     @Override
-    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.ISSUE)
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.REGISTER)
     public ClientCertificateDataResponseDto registerCertificate(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
@@ -172,7 +172,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     }
 
     @Override
-    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST)
     public AvailableOperationsDto listAvailableOperations(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid) throws NotFoundException {
