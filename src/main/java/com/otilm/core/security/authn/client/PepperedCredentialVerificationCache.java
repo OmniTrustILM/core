@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.Objects;
@@ -100,7 +102,7 @@ class PepperedCredentialVerificationCache implements CredentialVerificationCache
             mac.update((byte) ':');
             mac.update(password.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(mac.doFinal());
-        } catch (Exception e) {
+        } catch (InvalidKeyException | NoSuchAlgorithmException  e) {
             throw new IllegalStateException("HMAC-SHA-256 unavailable", e);
         }
     }
