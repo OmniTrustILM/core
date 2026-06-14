@@ -13,7 +13,7 @@ import static com.otilm.api.model.core.certificate.CertificateState.*;
  * Every distinct lifecycle transition has a unique (from, to) pair.
  * The reason for a transition (e.g., issue-failed vs cancelled vs timed out) is captured
  * via the reasonMessage parameter on {@link CertificateStateMachine#transition} — not via
- * separate rows. This matches v2's line 386 pattern of free-text audit-history reasons.
+ * separate rows, following the established free-text audit-history reason pattern.
  */
 public enum CertificateStateTransition {
 

@@ -9,6 +9,9 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Objects;
 
 /**
  * Gates and audits every {@link Certificate} state change.
@@ -43,17 +46,24 @@ public class CertificateStateMachine {
     }
 
     /** Default: SM resolves the audit event from the transition row's defaultAuditEvent. */
+    @Transactional
     public void transition(Certificate cert, CertificateState toState) {
         transition(cert, toState, null, null);
     }
 
     /**
+     * Runs in the caller's transaction (REQUIRED) so the state mutation and the audit-history
+     * write commit atomically; the SM performs only local writes and no external calls.
+     *
      * @param auditEventOverride if non-null, overrides the row's defaultAuditEvent
      * @param reasonMessage if non-null, used as the audit-history message; otherwise auto-generated
      */
+    @Transactional
     public void transition(Certificate cert, CertificateState toState,
                            @Nullable CertificateEvent auditEventOverride,
                            @Nullable String reasonMessage) {
+        Objects.requireNonNull(cert, "cert");
+        Objects.requireNonNull(toState, "toState");
         CertificateState fromState = cert.getState();
         CertificateStateTransition row = CertificateStateTransition.lookup(fromState, toState)
             .orElseThrow(() -> new InvalidTransitionException(
