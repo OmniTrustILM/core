@@ -1,6 +1,12 @@
 package com.otilm.core.util.builders;
 
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.DERTaggedObject;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.tsp.TSPAlgorithms;
 import org.bouncycastle.tsp.TimeStampRequestGenerator;
 
@@ -74,6 +80,28 @@ public final class RawTspRequestBuilder {
                     ? generator.generate(digestAlgorithmOid, hashedMessage, nonce)
                     : generator.generate(digestAlgorithmOid, hashedMessage);
             return request.getEncoded();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Emits a request carrying an <em>empty</em> {@code [0] IMPLICIT Extensions} block ({@code A0 00}).
+     * {@code TimeStampRequestGenerator} can never produce this (it omits the tag when there are no
+     * extensions), so the DER is assembled by hand. BouncyCastle deliberately accepts an empty
+     * extensions SEQUENCE while parsing, which is why this otherwise-unreachable shape must be crafted
+     * directly to exercise the parser's empty-extensions handling.
+     */
+    public byte[] buildWithEmptyExtensionsBlock() {
+        var version = new ASN1Integer(1);
+        var messageImprint = new DERSequence(new ASN1Encodable[]{
+                new AlgorithmIdentifier(digestAlgorithmOid),
+                new DEROctetString(hashedMessage)
+        });
+        var emptyExtensions = new DERTaggedObject(false, 0, new DERSequence());
+        var timeStampReq = new DERSequence(new ASN1Encodable[]{version, messageImprint, emptyExtensions});
+        try {
+            return timeStampReq.getEncoded();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
