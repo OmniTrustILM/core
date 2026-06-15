@@ -22,9 +22,9 @@ class StatisticsServiceImplTest {
     @Mock private DiscoveryService discoveryService;
     @Mock private GroupService groupService;
     @Mock private RaProfileService raProfileService;
-    @Mock private SecretService secretService;
-    @Mock private VaultInstanceService vaultInstanceService;
-    @Mock private VaultProfileService vaultProfileService;
+    @Mock private SecretInternalService secretService;
+    @Mock private VaultInstanceInternalService vaultInstanceService;
+    @Mock private VaultProfileInternalService vaultProfileService;
 
     @BeforeEach
     void setUp() {

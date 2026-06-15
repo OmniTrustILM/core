@@ -19,7 +19,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,10 +30,10 @@ import java.util.UUID;
 @RestController
 public class SecretManagementControllerImpl implements SecretManagementController {
 
-    private SecretService secretService;
+    private SecretExternalService secretService;
 
     @Autowired
-    public void setSecretService(SecretService secretService) {
+    public void setSecretService(SecretExternalService secretService) {
         this.secretService = secretService;
     }
 

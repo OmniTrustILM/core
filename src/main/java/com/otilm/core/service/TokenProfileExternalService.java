@@ -6,7 +6,6 @@ import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequ
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
-import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -14,7 +13,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.Optional;
 
-public interface TokenProfileService extends ResourceExtensionService {
+public interface TokenProfileExternalService {
     /**
      * Get the list of token profiles
      *
@@ -33,15 +32,6 @@ public interface TokenProfileService extends ResourceExtensionService {
      * @throws NotFoundException When the token instance or token profile is not found
      */
     TokenProfileDetailDto getTokenProfile(SecuredParentUUID tokenInstanceUuid, SecuredUUID uuid) throws NotFoundException;
-
-    /**
-     * Get the details of a token profile which has Token Instance association. Internal Method only without authorization
-     *
-     * @param uuid              - UUID of the Token Profile
-     * @return Details of the token Profile {@Link TokenProfileDetailDto}
-     * @throws NotFoundException When the token instance or token profile is not found
-     */
-    TokenProfile getTokenProfileEntity(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Create a new token profile

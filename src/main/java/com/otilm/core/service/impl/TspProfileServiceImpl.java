@@ -37,9 +37,9 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TspProfileService;
 import com.otilm.core.service.TspProfileBasicCredentialService;
-import com.otilm.core.service.SecretService;
+import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.VaultProfileService;
+import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -73,9 +73,9 @@ public class TspProfileServiceImpl implements TspProfileService {
     private CacheEvictor cacheEvictor;
     private TspProfileServiceImpl self;
     private SigningProfileService signingProfileService;
-    private VaultProfileService vaultProfileService;
+    private VaultProfileInternalService vaultProfileService;
     private TspProfileRepository tspProfileRepository;
-    private SecretService secretService;
+    private SecretInternalService secretService;
     private TspProfileBasicCredentialService basicCredentialService;
 
     @Override
@@ -449,12 +449,12 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     @Autowired
-    public void setVaultProfileService(VaultProfileService vaultProfileService) {
+    public void setVaultProfileService(VaultProfileInternalService vaultProfileService) {
         this.vaultProfileService = vaultProfileService;
     }
 
     @Autowired
-    public void setSecretService(SecretService secretService) {
+    public void setSecretService(SecretInternalService secretService) {
         this.secretService = secretService;
     }
 

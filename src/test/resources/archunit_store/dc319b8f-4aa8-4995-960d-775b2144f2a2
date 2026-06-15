@@ -1,2 +1,5 @@
 Method <com.otilm.core.service.impl.CmpProfileServiceImpl.listCmpSigningCertificates()> is annotated with @ExternalAuthorizationMissing in (CmpProfileServiceImpl.java:333)
 Method <com.otilm.core.service.impl.ScepProfileServiceImpl.listScepCaCertificates(boolean)> is annotated with @ExternalAuthorizationMissing in (ScepProfileServiceImpl.java:398)
+Method <com.otilm.core.service.impl.SecretServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (SecretServiceImpl.java:178)
+Method <com.otilm.core.service.impl.VaultInstanceServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (VaultInstanceServiceImpl.java:198)
+Method <com.otilm.core.service.impl.VaultProfileServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (VaultProfileServiceImpl.java:239)

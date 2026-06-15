@@ -85,7 +85,7 @@ import com.otilm.core.service.CryptographicOperationService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.SigningRecordService;
-import com.otilm.core.service.TokenProfileService;
+import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.TspProfileService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.writer.SigningProfileWriter;
@@ -125,7 +125,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private CryptographicOperationService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
-    private TokenProfileService tokenProfileService;
+    private TokenProfileInternalService tokenProfileService;
     private RaProfileService raProfileService;
     private SigningRecordService signingRecordService;
 
@@ -979,7 +979,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setTokenProfileService(TokenProfileService tokenProfileService) {
+    public void setTokenProfileService(TokenProfileInternalService tokenProfileService) {
         this.tokenProfileService = tokenProfileService;
     }
 

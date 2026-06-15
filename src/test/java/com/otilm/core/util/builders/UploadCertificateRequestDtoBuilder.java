@@ -1,5 +1,6 @@
 package com.otilm.core.util.builders;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 
 import java.security.cert.CertificateEncodingException;
@@ -7,9 +8,16 @@ import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
 
+/**
+ * Builds an {@link UploadCertificateRequestDto}; tests override only the fields whose values drive the
+ * assertion under test. {@link #withCertificate(X509Certificate)} base64-encodes the certificate's DER
+ * encoding, while {@link #withCertificate(String)} takes an already-encoded value verbatim.
+ * {@code customAttributes} defaults to an empty list, never {@code null}.
+ */
 public class UploadCertificateRequestDtoBuilder {
 
     private String certificate = null;
+    private List<RequestAttribute> customAttributes = List.of();
 
     public static UploadCertificateRequestDtoBuilder anUploadCertificateRequest() {
         return new UploadCertificateRequestDtoBuilder();
@@ -25,10 +33,15 @@ public class UploadCertificateRequestDtoBuilder {
         return this;
     }
 
+    public UploadCertificateRequestDtoBuilder withCustomAttributes(List<RequestAttribute> customAttributes) {
+        this.customAttributes = customAttributes == null ? List.of() : customAttributes;
+        return this;
+    }
+
     public UploadCertificateRequestDto build() {
         UploadCertificateRequestDto dto = new UploadCertificateRequestDto();
         dto.setCertificate(certificate);
-        dto.setCustomAttributes(List.of());
+        dto.setCustomAttributes(customAttributes);
         return dto;
     }
 }
