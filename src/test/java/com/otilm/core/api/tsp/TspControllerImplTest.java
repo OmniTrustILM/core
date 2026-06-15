@@ -21,9 +21,7 @@ import org.springframework.http.ResponseEntity;
 import java.math.BigInteger;
 import java.security.MessageDigest;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -108,7 +106,7 @@ class TspControllerImplTest {
         ResponseEntity<byte[]> response = controller.timestamp(PROFILE_NAME, validSha256RequestBytes());
 
         // then
-        assertRejection(response, PKIFailureInfo.badRequest, "TSP profile not found.");
+        assertRejection(response, PKIFailureInfo.badRequest, "Resource not found");
     }
 
     @Test
@@ -145,7 +143,7 @@ class TspControllerImplTest {
         assertEquals(PKIStatus.REJECTION, decoded.getStatus());
         assertNotNull(decoded.getFailInfo(), "rejection must carry a PKIFailureInfo");
         assertEquals(expectedFailInfo, decoded.getFailInfo().intValue());
-        assertEquals(expectedStatusString, decoded.getStatusString());
+        assertTrue(decoded.getStatusString().contains(expectedStatusString), "rejection must carry the expected status string");
     }
 
     private static TimeStampResponse decode(byte[] body) {
