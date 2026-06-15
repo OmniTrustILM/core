@@ -185,15 +185,10 @@ class AuthorityProviderV3AdapterTest {
 
     @Test
     void issueWrapsConnectorAcceptedLocalFailure() throws ConnectorException {
-        // Simulate connector returns 200 but body is null -> mapIssueRenewRegisterResponse throws NPE
-        // We can't make mapIssueRenewRegisterResponse throw internally easily without reflections,
-        // but we can verify the guard: if the client throws RuntimeException after 200 is observed,
-        // the adapter wraps it. Use a spy to inject the failure after acceptance.
-
-        // Direct test: issue throws RuntimeException from within try after connectorAccepted = true
-        // We simulate this by making the certClient return a response that causes a NPE in the map step.
-        // The simplest way: return a ResponseEntity whose getStatusCode() returns 200 but body.getMeta()
-        // throws — that happens in mapIssueRenewRegisterResponse after connectorAccepted = true.
+        // Connector returns 200 (connectorAccepted = true), then the response-mapping step fails
+        // locally — here the body throws when its content is read. Because the connector already
+        // accepted, the adapter must wrap the failure in ConnectorAcceptedButLocalFailureException
+        // rather than let it propagate as a plain failure (no rollback of an accepted operation).
         @SuppressWarnings("unchecked")
         ResponseEntity<CertificateDataResponseDto> faultyResponse = mock(ResponseEntity.class);
         org.springframework.http.HttpStatus okStatus = org.springframework.http.HttpStatus.OK;

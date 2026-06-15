@@ -36,6 +36,14 @@ class AuthorityProviderAdapterFactoryTest {
     }
 
     @Test
+    void rejectsNullVersion() {
+        // A non-null connector interface carrying a null version is malformed; the factory throws
+        // (rather than NPE on the switch). Distinct from the null-interface fallback below.
+        AuthorityInstanceReference auth = authorityWithVersion(null);
+        assertThrows(UnsupportedAuthorityVersionException.class, () -> factory.forAuthority(auth));
+    }
+
+    @Test
     void missingInterfaceFallsBackToV2() {
         // A null connector interface is expected for framework-v1 connectors that implement the
         // v2 authority wire protocol (e.g. ejbca-ng) — they declare no connector_interface row,
