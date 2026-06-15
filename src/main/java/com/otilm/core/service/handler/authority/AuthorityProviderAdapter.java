@@ -19,6 +19,17 @@ import java.util.List;
  */
 public interface AuthorityProviderAdapter {
 
+    /**
+     * Issues a certificate through the authority provider.
+     *
+     * @param cert the certificate to issue — provides the CSR ({@code getCertificateRequest()}) and
+     *             the RA-profile association used to resolve connector attributes.
+     * @param req  the operator-level sign request DTO. Currently informational at the adapter layer:
+     *             the wire body is reconstructed from the persisted certificate plus the attribute
+     *             engine (Core persists the operator's CSR + request attributes before the adapter
+     *             runs, then the adapter re-reads them). Kept for contract symmetry with
+     *             {@code renew}/{@code revoke}/{@code register}, which do consume their DTOs.
+     */
     AdapterOperationResult issue(Certificate cert, ClientCertificateSignRequestDto req) throws ConnectorException;
 
     /**
@@ -29,8 +40,10 @@ public interface AuthorityProviderAdapter {
      * @param newCert the successor certificate — provides the new CSR
      *                ({@code getCertificateRequest().getContent()} / {@code .getCertificateRequestFormat()})
      *                and the RA profile association used to look up connector attributes.
-     * @param req     the operator-level renew request DTO (carries client-visible fields such as
-     *                {@code replaceInLocations}; wire-level fields are derived from oldCert/newCert).
+     * @param req     the operator-level renew request DTO. Not consumed by the adapter: client-visible
+     *                fields (e.g. {@code replaceInLocations}) are handled by the service layer and the
+     *                wire body is derived from oldCert/newCert. Kept for contract symmetry with the
+     *                other operations.
      */
     AdapterOperationResult renew(Certificate oldCert, Certificate newCert, ClientCertificateRenewRequestDto req) throws ConnectorException;
 
