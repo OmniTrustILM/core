@@ -41,6 +41,7 @@ public class TsaServiceImpl implements TsaService {
     @Override
     public TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException {
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
+        LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
 
         if (tspProfile.defaultSigningProfileName() == null) {
             var message = "TSP profile '%s' does not have a default signing profile".formatted(tspProfile.name());
@@ -54,6 +55,7 @@ public class TsaServiceImpl implements TsaService {
     @Override
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
+        LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
 
         if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileName() == null) {
             var message = "Signing profile '%s' does not have a TSP profile associated.".formatted(signingProfile.name());
@@ -66,9 +68,6 @@ public class TsaServiceImpl implements TsaService {
     }
 
     private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspProfileModel tspProfile, TspRequest request) throws TspException {
-        LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
-        LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
-
         if (!signingProfile.enabled()) {
             var message = "Signing profile '%s' is disabled".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
