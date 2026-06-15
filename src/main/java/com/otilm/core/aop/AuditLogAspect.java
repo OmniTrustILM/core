@@ -142,7 +142,7 @@ public class AuditLogAspect {
         if (RequestContextHolder.getRequestAttributes() == null) {
             return null;
         }
-        return auditResultOverride.get();
+        return auditResultOverride.consume();
     }
 
     private void setResourceRecords(LogData logData, boolean isDeleteOperation, List<ResourceObjectIdentity> deletedObjectsIdentities, AuditLogged annotation, LogRecord.LogRecordBuilder logBuilder, List<ResourceObjectIdentity> deletedAffiliatedObjectsIdentities) {

@@ -45,6 +45,9 @@ public class TspControllerImpl implements TspController {
             TspRequest parsedRequest = TspRequestParser.parse(request);
             TspResponse response = tsaService.processTspRequestForTspProfile(tspProfileName, parsedRequest);
 
+            if (response instanceof TspResponse.Rejected) {
+                auditResultOverride.setFailure();
+            }
             responseBytes = TspResponseBuilder.fromEngineResponse(response);
         } catch (TspException e) {
             auditResultOverride.setFailure();

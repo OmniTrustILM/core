@@ -25,7 +25,14 @@ public class AuditResultOverride {
         this.result = OperationResult.FAILURE;
     }
 
-    OperationResult get() {
-        return result;
+    /**
+     * Reads the override and resets it, so the signal set during one audited method's body is
+     * consumed by that method's aspect frame and cannot contaminate a subsequent audited method
+     * running within the same request.
+     */
+    OperationResult consume() {
+        OperationResult current = result;
+        result = null;
+        return current;
     }
 }
