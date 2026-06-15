@@ -54,7 +54,7 @@ import java.util.*;
 
 @Service(Resource.Codes.USER)
 @Transactional
-public class UserManagementServiceImpl implements UserManagementService {
+public class UserManagementServiceImpl implements UserManagementExternalService, UserManagementInternalService {
     private static final LoggerWrapper logger = new LoggerWrapper(UserManagementServiceImpl.class, Module.AUTH, Resource.USER);
 
     @Value("${logging.schema-version}")
@@ -64,7 +64,7 @@ public class UserManagementServiceImpl implements UserManagementService {
 
     private CertificateService certificateService;
     private CertificateUploadService certificateUploadService;
-    private GroupService groupService;
+    private GroupExternalService groupService;
     private ResourceObjectAssociationService objectAssociationService;
     private AuditLogsProducer auditLogsProducer;
 
@@ -105,7 +105,7 @@ public class UserManagementServiceImpl implements UserManagementService {
     }
 
     @Autowired
-    public void setGroupService(GroupService groupService) {
+    public void setGroupService(GroupExternalService groupService) {
         this.groupService = groupService;
     }
 
