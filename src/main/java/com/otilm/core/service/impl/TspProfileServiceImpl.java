@@ -141,6 +141,25 @@ public class TspProfileServiceImpl implements TspProfileService {
         TspProfile tspConfiguration = tspProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + name));
 
+        return toModel(tspConfiguration);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
+    public TspProfileModel getTspProfile(UUID uuid) throws NotFoundException {
+        return self.loadTspProfileModelByUuid(uuid);
+    }
+
+    @Cacheable(value = CacheConfig.TSP_PROFILE_CACHE, key = "#uuid", sync = true)
+    @Transactional(readOnly = true)
+    public TspProfileModel loadTspProfileModelByUuid(UUID uuid) throws NotFoundException {
+        TspProfile tspConfiguration = tspProfileRepository.findByUuid(SecuredUUID.fromUUID(uuid))
+                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+
+        return toModel(tspConfiguration);
+    }
+
+    private TspProfileModel toModel(TspProfile tspConfiguration) {
         List<ResponseAttribute> customAttributes = attributeEngine.getObjectCustomAttributesContent(Resource.TSP_PROFILE, tspConfiguration.getUuid());
         return TspProfileMapper.toModel(tspConfiguration, customAttributes, loadLatestFingerprints(tspConfiguration));
     }
@@ -182,9 +201,9 @@ public class TspProfileServiceImpl implements TspProfileService {
 
         ValidatedReferences refs = validateCreateUpdateRequest(request);
         guardAgainstOrphaningBasicCredentials(profile, request);
-        evictTspProfileCache(oldName);
+        evictTspProfileCache(profile.getUuid(), oldName);
         if (!oldName.equals(request.getName())) {
-            evictTspProfileCache(request.getName());
+            evictTspProfileCache(profile.getUuid(), request.getName());
         }
         return updateAndMapToDto(profile, request, refs, baseUrl);
     }
@@ -395,26 +414,33 @@ public class TspProfileServiceImpl implements TspProfileService {
             );
         }
 
+        UUID uuid = profile.getUuid();
         String name = profile.getName();
         basicCredentialService.deleteSecretsForProfile(profile.getUuid());
         attributeEngine.deleteObjectAttributeContent(Resource.TSP_PROFILE, profile.getUuid());
         tspProfileRepository.delete(profile);
-        evictTspProfileCache(name);
+        evictTspProfileCache(uuid, name);
     }
 
     private void enableTspProfile(TspProfile profile) {
         profile.setEnabled(true);
         tspProfileRepository.save(profile);
-        evictTspProfileCache(profile.getName());
+        evictTspProfileCache(profile.getUuid(), profile.getName());
     }
 
     private void disableTspProfile(TspProfile profile) {
         profile.setEnabled(false);
         tspProfileRepository.save(profile);
-        evictTspProfileCache(profile.getName());
+        evictTspProfileCache(profile.getUuid(), profile.getName());
     }
 
-    private void evictTspProfileCache(String name) {
+    /**
+     * Evicts the TSP Profile model under both its cache keys — the name (used by the protocol path)
+     * and the UUID (used by the signing-profile path). Both must be cleared on every mutation, or one
+     * access path would serve stale data.
+     */
+    private void evictTspProfileCache(UUID uuid, String name) {
+        cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, uuid);
         cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, name);
     }
 

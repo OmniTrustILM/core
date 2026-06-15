@@ -158,7 +158,7 @@ public class SigningProfileMapper {
         return new SigningProfileModel<>(
                 header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), detectEnabledProtocols(header),
-                header.getTspProfile() != null ? header.getTspProfile().getName() : null,
+                header.getTspProfileUuid(),
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes),
                 buildRecordPolicyModel(version));

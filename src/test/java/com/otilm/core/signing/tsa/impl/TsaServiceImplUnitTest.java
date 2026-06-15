@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.UUID;
 
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
@@ -51,12 +52,14 @@ class TsaServiceImplUnitTest {
     @InjectMocks
     TsaServiceImpl tsaService;
 
+    private static final UUID TSP_PROFILE_UUID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private SigningProfileModel<?, ?> aDefaultSigningProfile() {
         return aSigningProfile()
                 .withName("signing-profile")
-                .withTspProfileName("tsp-profile")
+                .withTspProfileUuid(TSP_PROFILE_UUID)
                 .build();
     }
 
@@ -140,7 +143,7 @@ class TsaServiceImplUnitTest {
             // given
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName("tsp-profile")
+                    .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withEnabled(false)
                     .build();
             when(tspProfileService.getTspProfile("tsp-profile"))
@@ -181,7 +184,7 @@ class TsaServiceImplUnitTest {
             // given — the resolved signing profile carries a non-managed-timestamping workflow
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName("tsp-profile")
+                    .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withWorkflow(new DelegatedTimestampingWorkflow(null, List.of(), List.of(), false))
                     .build();
             when(tspProfileService.getTspProfile("tsp-profile"))
@@ -241,7 +244,7 @@ class TsaServiceImplUnitTest {
         void dispatchesToEngine_whenValidationPasses() throws Exception {
             // given
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(aTspProfile().build());
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
             when(managedTimestampEngine.process(any(), any())).thenReturn(TspResponse.granted(new byte[]{7, 8, 9}));
 
             // when
@@ -257,7 +260,7 @@ class TsaServiceImplUnitTest {
         void propagatesValidationException_fromValidator() throws Exception {
             // given
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(aTspProfile().build());
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
             doThrow(new TspRequestValidationException(TspFailureInfo.BAD_ALG, "bad algorithm", "bad algorithm"))
                     .when(tspRequestValidator).validate(any(), any());
 
@@ -274,7 +277,7 @@ class TsaServiceImplUnitTest {
         void returnsEngineRejection_asIs() throws Exception {
             // given — the engine signals an internal failure (e.g. degraded time quality)
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(aTspProfile().build());
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
             when(managedTimestampEngine.process(any(), any()))
                     .thenReturn(TspResponse.rejected(TspFailureInfo.SYSTEM_FAILURE, "internal error"));
 
@@ -291,7 +294,7 @@ class TsaServiceImplUnitTest {
             // given
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName(null)
+                    .withTspProfileUuid(null)
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
 
@@ -313,7 +316,7 @@ class TsaServiceImplUnitTest {
                     .withDefaultSigningProfileName("signing-profile")
                     .build();
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(tspProfile);
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(tspProfile);
 
             // when
             Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
@@ -331,11 +334,11 @@ class TsaServiceImplUnitTest {
             // given
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName("tsp-profile")
+                    .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withEnabled(false)
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(aTspProfile().build());
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
 
             // when
             Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
@@ -353,9 +356,8 @@ class TsaServiceImplUnitTest {
             // given
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName("tsp-profile")
                     .withEnabledProtocols(List.of())
-                    .withTspProfileName(null)
+                    .withTspProfileUuid(null)
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
 
@@ -373,7 +375,7 @@ class TsaServiceImplUnitTest {
         void propagatesNotFound_whenLinkedTspProfileDoesNotExist() throws NotFoundException {
             // given
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile"))
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID))
                     .thenThrow(new NotFoundException(TspProfileService.class, "tsp-profile"));
 
             // when
@@ -388,11 +390,11 @@ class TsaServiceImplUnitTest {
             // given — the resolved signing profile carries a non-managed-timestamping workflow
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
-                    .withTspProfileName("tsp-profile")
+                    .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withWorkflow(new DelegatedTimestampingWorkflow(null, List.of(), List.of(), false))
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(tspProfileService.getTspProfile("tsp-profile")).thenReturn(aTspProfile().build());
+            when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
 
             // when
             Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());

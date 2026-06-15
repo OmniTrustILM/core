@@ -20,7 +20,7 @@ public final class SigningProfileModelBuilder {
     private int version = 1;
     private boolean enabled = true;
     private List<SigningProtocol> enabledProtocols = List.of(SigningProtocol.TSP);
-    private String tspProfileName = "test-tsp-profile";
+    private UUID tspProfileUuid = UUID.fromString("00000000-0000-0000-0000-000000000004");
     private SigningWorkflow workflow = ManagedTimestampingWorkflowBuilder.aManagedTimestampingWorkflow()
             .timeQualityConfigurationUuid(UUID.fromString("00000000-0000-0000-0000-000000000002"))
             .build();
@@ -67,8 +67,8 @@ public final class SigningProfileModelBuilder {
         return this;
     }
 
-    public SigningProfileModelBuilder withTspProfileName(String v) {
-        this.tspProfileName = v;
+    public SigningProfileModelBuilder withTspProfileUuid(UUID v) {
+        this.tspProfileUuid = v;
         return this;
     }
 
@@ -89,6 +89,6 @@ public final class SigningProfileModelBuilder {
 
     @SuppressWarnings({"unchecked", "java:S119"})
     public <W extends SigningWorkflow, SM extends SigningSchemeModel> SigningProfileModel<W, SM> build() {
-        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, tspProfileName, (W) workflow, (SM) signingScheme, recordPolicy);
+        return new SigningProfileModel<>(uuid, name, description, version, enabled, enabledProtocols, tspProfileUuid, (W) workflow, (SM) signingScheme, recordPolicy);
     }
 }

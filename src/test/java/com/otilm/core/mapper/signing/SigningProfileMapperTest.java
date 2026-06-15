@@ -154,11 +154,10 @@ class SigningProfileMapperTest {
         }
 
         @Test
-        void carriesTspProfileName_whenLinkedToTspProfile() {
+        void carriesTspProfileUuid_whenLinkedToTspProfile() {
             // given
-            var linkedTspProfileName = "linked-tsp-profile";
             SigningProfile header = newHeader();
-            header.setTspProfile(newTspProfile(linkedTspProfileName));
+            header.setTspProfile(newTspProfile("linked-tsp-profile"));
             SigningProfileVersion version = newStaticKeyTimestampingVersion();
 
             // when
@@ -166,11 +165,11 @@ class SigningProfileMapperTest {
                     SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
             // then
-            assertThat(model.tspProfileName()).isEqualTo(linkedTspProfileName);
+            assertThat(model.tspProfileUuid()).isEqualTo(TSP_UUID);
         }
 
         @Test
-        void carriesNullTspProfileName_whenNoTspProfile() {
+        void carriesNullTspProfileUuid_whenNoTspProfile() {
             // given
             SigningProfile header = newHeader();
             header.setTspProfile(null);
@@ -181,7 +180,7 @@ class SigningProfileMapperTest {
                     SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
 
             // then
-            assertThat(model.tspProfileName()).isNull();
+            assertThat(model.tspProfileUuid()).isNull();
         }
 
         @Test

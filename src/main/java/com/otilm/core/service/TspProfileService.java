@@ -17,6 +17,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface TspProfileService extends ResourceExtensionService {
 
@@ -33,6 +34,8 @@ public interface TspProfileService extends ResourceExtensionService {
     List<String> findAllNames();
 
     TspProfileModel getTspProfile(String name) throws NotFoundException;
+
+    TspProfileModel getTspProfile(UUID uuid) throws NotFoundException;
 
     TspProfileDto createTspProfile(TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException;
 

@@ -104,7 +104,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
             log.warn("Failed to persist Basic credential for TSP Profile {}", profile.getUuid(), e);
             throw e;
         }
-        evictModelCache(profile.getName());
+        evictModelCache(profile);
         return TspProfileBasicCredentialMapper.mapToDto(row, resolveUserName(row.getMappedUserUuid()));
     }
 
@@ -137,7 +137,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         if (rotate || mappedUserChanged) {
             credentialVerificationCache.evictBySecretUuid(credential.getSecretUuid());
         }
-        evictModelCache(profile.getName());
+        evictModelCache(profile);
         return TspProfileBasicCredentialMapper.mapToDto(credential, resolveUserName(credential.getMappedUserUuid()));
     }
 
@@ -152,7 +152,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         deleteVaultSecret(secretUuid);
         credentialWriter.deleteByUuid(credential.getUuid());
         credentialVerificationCache.evictBySecretUuid(secretUuid);
-        evictModelCache(profile.getName());
+        evictModelCache(profile);
     }
 
     @Override
@@ -174,7 +174,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     @Transactional(readOnly = true)
     public void evictCachesForSecret(UUID secretUuid) {
         credentialRepository.findBySecretUuid(secretUuid)
-                .ifPresent(credential -> evictModelCache(credential.getTspProfile().getName()));
+                .ifPresent(credential -> evictModelCache(credential.getTspProfile()));
         credentialVerificationCache.evictBySecretUuid(secretUuid);
     }
 
@@ -280,8 +280,9 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         }
     }
 
-    private void evictModelCache(String profileName) {
-        cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, profileName);
+    private void evictModelCache(TspProfile profile) {
+        cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, profile.getUuid());
+        cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, profile.getName());
     }
 
     @Autowired

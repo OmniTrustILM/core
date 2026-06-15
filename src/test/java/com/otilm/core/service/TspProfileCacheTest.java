@@ -103,6 +103,43 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     }
 
     @Test
+    void uuidLookupPopulatesCacheUnderUuidKey() throws NotFoundException {
+        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
+
+        // given - cache is cold for this profile UUID
+        assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNull();
+
+        // when - looked up by UUID (the signing-profile hot path)
+        tspProfileService.getTspProfile(profile.getUuid());
+
+        // then - the model is stored keyed by UUID
+        assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
+    }
+
+    @Test
+    void uuidLookupSurvivesRename() throws AlreadyExistException, AttributeException, NotFoundException {
+        // given - cache is warm under the original UUID, the signing-profile path's stable reference
+        tspProfileService.getTspProfile(profile.getUuid());
+        Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
+        assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
+
+        // when - the profile is renamed
+        TspProfileRequestDto request = new TspProfileRequestDto();
+        request.setName("renamed-tsp-profile");
+        request.setDescription(profile.getDescription());
+        request.setCustomAttributes(List.of());
+        tspProfileService.updateTspProfile(SecuredUUID.fromUUID(profile.getUuid()), request, BASE_URL);
+
+        // then - the stale UUID entry is evicted (would otherwise carry the old name)
+        assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNull();
+
+        // and - a fresh UUID lookup still resolves and reflects the new name; the rename never dangles
+        TspProfileModel repopulated = tspProfileService.getTspProfile(profile.getUuid());
+        assertThat(repopulated.name()).isEqualTo("renamed-tsp-profile");
+        assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
+    }
+
+    @Test
     void cacheIsEvictedAfterSameNameUpdate() throws AlreadyExistException, AttributeException, NotFoundException {
         // given - cache is warm
         tspProfileService.getTspProfile(profile.getName());

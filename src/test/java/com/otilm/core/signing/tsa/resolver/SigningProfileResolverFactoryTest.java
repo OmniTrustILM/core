@@ -29,7 +29,7 @@ class SigningProfileResolverFactoryTest {
                 "1.2.3", List.of(), List.of(), Boolean.FALSE);
         return new SigningProfileModel<>(
                 UUID.randomUUID(), "test-profile", null, 1, true,
-                List.of(SigningProtocol.TSP), "test-tsp-profile", workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
+                List.of(SigningProtocol.TSP), UUID.randomUUID(), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
                 SigningRecordPolicyModelBuilder.notRecording().build());
     }
 

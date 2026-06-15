@@ -57,12 +57,12 @@ public class TsaServiceImpl implements TsaService {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
         LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
 
-        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileName() == null) {
+        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileUuid() == null) {
             var message = "Signing profile '%s' does not have a TSP profile associated.".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
-        TspProfileModel tspProfile = tspProfileService.getTspProfile(signingProfile.tspProfileName());
+        TspProfileModel tspProfile = tspProfileService.getTspProfile(signingProfile.tspProfileUuid());
 
         return processTspRequest(signingProfile, tspProfile, request);
     }
