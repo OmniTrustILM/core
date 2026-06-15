@@ -5,7 +5,7 @@ import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.DiscoveryService;
-import com.otilm.core.service.GroupService;
+import com.otilm.core.service.GroupInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.StatisticsExternalService;
@@ -27,7 +27,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
 
     private CertificateService certificateService;
     private DiscoveryService discoveryService;
-    private GroupService groupService;
+    private GroupInternalService groupService;
     private RaProfileService raProfileService;
     private SecretInternalService secretService;
     private VaultInstanceInternalService vaultInstanceService;
@@ -90,7 +90,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     }
 
     @Autowired
-    public void setGroupService(GroupService groupService) {
+    public void setGroupService(GroupInternalService groupService) {
         this.groupService = groupService;
     }
 

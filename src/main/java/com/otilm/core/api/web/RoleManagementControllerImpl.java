@@ -9,7 +9,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.service.RoleManagementService;
+import com.otilm.core.service.RoleManagementExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,10 +21,10 @@ import java.util.List;
 @RestController
 public class RoleManagementControllerImpl implements RoleManagementController {
 
-    private RoleManagementService roleManagementService;
+    private RoleManagementExternalService roleManagementService;
 
     @Autowired
-    public void setRoleManagementService(RoleManagementService roleManagementService) {
+    public void setRoleManagementService(RoleManagementExternalService roleManagementService) {
         this.roleManagementService = roleManagementService;
     }
 

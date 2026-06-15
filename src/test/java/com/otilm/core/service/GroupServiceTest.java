@@ -24,7 +24,10 @@ public class GroupServiceTest extends BaseSpringBootTest {
     private static final String CERTIFICATE_GROUP_NAME = "testCertificateGroup1";
 
     @Autowired
-    private GroupService groupService;
+    private GroupExternalService groupService;
+
+    @Autowired
+    private GroupInternalService groupInternalService;
 
     @Autowired
     private GroupRepository groupRepository;
@@ -132,17 +135,17 @@ public class GroupServiceTest extends BaseSpringBootTest {
 
     @Test
     public void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = groupService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = groupInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = groupService.getResourceObjectInternal(group.getUuid());
+        NameAndUuidDto nameAndUuidDto = groupInternalService.getResourceObjectInternal(group.getUuid());
         Assertions.assertEquals(group.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(group.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = groupService.getResourceObjectExternal(group.getSecuredUuid());
+        nameAndUuidDto = groupInternalService.getResourceObjectExternal(group.getSecuredUuid());
         Assertions.assertEquals(group.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(group.getName(), nameAndUuidDto.getName());
     }

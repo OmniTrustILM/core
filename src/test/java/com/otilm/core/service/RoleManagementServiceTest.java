@@ -16,7 +16,7 @@ import java.util.UUID;
 class RoleManagementServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private RoleManagementService roleManagementService;
+    private RoleManagementExternalService roleManagementService;
 
     @MockitoBean
     private RoleManagementApiClient roleManagementApiClient;

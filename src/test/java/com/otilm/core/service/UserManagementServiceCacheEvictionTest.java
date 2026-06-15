@@ -20,7 +20,10 @@ import java.util.UUID;
 class UserManagementServiceCacheEvictionTest extends BaseSpringBootTest {
 
     @Autowired
-    private UserManagementService userManagementService;
+    private UserManagementExternalService userManagementService;
+
+    @Autowired
+    private UserManagementInternalService userManagementInternalService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -66,7 +69,7 @@ class UserManagementServiceCacheEvictionTest extends BaseSpringBootTest {
                 .thenReturn(userDetailDto(userUuid.toString()));
 
         // when
-        userManagementService.updateUserInternal(userUuid.toString(), new UpdateUserRequestDto(), "", "");
+        userManagementInternalService.updateUserInternal(userUuid.toString(), new UpdateUserRequestDto(), "", "");
 
         // then
         Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
