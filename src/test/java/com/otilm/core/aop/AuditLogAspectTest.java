@@ -29,6 +29,9 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.List;
 import java.util.Optional;
@@ -50,9 +53,12 @@ class AuditLogAspectTest extends BaseSpringBootTest {
     }
 
     static class SwallowsAndOverridesBean {
+        @Autowired
+        private AuditResultOverride auditResultOverride;
+
         @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, operation = Operation.SIGN)
         public void performAndSignalFailure() {
-            AuditResultOverride.setFailure();
+            auditResultOverride.setFailure();
         }
 
         @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SIGNING_RECORD, operation = Operation.SIGN)
@@ -159,7 +165,7 @@ class AuditLogAspectTest extends BaseSpringBootTest {
         turnOnLogging();
 
         // when — method returns normally but has set the override (simulates TSP rejection pattern)
-        swallowsAndOverridesBean.performAndSignalFailure();
+        runInRequestScope(swallowsAndOverridesBean::performAndSignalFailure);
 
         // then
         List<AuditLog> auditLogs = auditLogRepository.findAll();
@@ -177,12 +183,26 @@ class AuditLogAspectTest extends BaseSpringBootTest {
         turnOnLogging();
 
         // when
-        swallowsAndOverridesBean.performAndSucceed();
+        runInRequestScope(swallowsAndOverridesBean::performAndSucceed);
 
         // then
         List<AuditLog> auditLogs = auditLogRepository.findAll();
         Assertions.assertEquals(1, auditLogs.size());
         Assertions.assertEquals(OperationResult.SUCCESS, auditLogs.getFirst().getOperationResult());
+    }
+
+    /**
+     * Binds a request scope around the action so the request-scoped {@link AuditResultOverride}
+     * resolves — production audited methods always run inside a DispatcherServlet request, but the
+     * test invokes the bean directly.
+     */
+    private void runInRequestScope(Runnable action) {
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        try {
+            action.run();
+        } finally {
+            RequestContextHolder.resetRequestAttributes();
+        }
     }
 
     private void turnOnLogging() {

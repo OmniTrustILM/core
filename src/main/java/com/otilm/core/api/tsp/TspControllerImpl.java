@@ -25,9 +25,16 @@ public class TspControllerImpl implements TspController {
 
     private TsaService tsaService;
 
+    private AuditResultOverride auditResultOverride;
+
     @Autowired
     public void setTspService(TsaService tsaService) {
         this.tsaService = tsaService;
+    }
+
+    @Autowired
+    public void setAuditResultOverride(AuditResultOverride auditResultOverride) {
+        this.auditResultOverride = auditResultOverride;
     }
 
     @Override
@@ -40,15 +47,15 @@ public class TspControllerImpl implements TspController {
 
             responseBytes = TspResponseBuilder.fromEngineResponse(response);
         } catch (TspException e) {
-            AuditResultOverride.setFailure();
+            auditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(e.getFailureInfo(), e.getClientMessage());
             log.warn("TSP request rejected with {}: {}", e.getFailureInfo(), e.getMessage());
         } catch (NotFoundException e) {
-            AuditResultOverride.setFailure();
+            auditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
             log.warn("Resource not found while processing TSP request for profile '{}': {}", tspProfileName, e.getMessage());
         } catch (Exception e) {
-            AuditResultOverride.setFailure();
+            auditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.SYSTEM_FAILURE, "An unexpected error occurred during timestamping.");
             log.error("Unexpected TSP processing failure", e);
         }

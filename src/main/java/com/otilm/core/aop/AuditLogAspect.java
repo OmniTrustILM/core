@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
 
 import java.io.Serializable;
 import java.lang.reflect.Parameter;
@@ -49,9 +50,16 @@ public class AuditLogAspect {
 
     private AuditLogEnhancer auditLogEnhancer;
 
+    private AuditResultOverride auditResultOverride;
+
     @Autowired
     public void setAuditLogEnhancer(AuditLogEnhancer auditLogEnhancer) {
         this.auditLogEnhancer = auditLogEnhancer;
+    }
+
+    @Autowired
+    public void setAuditResultOverride(AuditResultOverride auditResultOverride) {
+        this.auditResultOverride = auditResultOverride;
     }
 
     @Autowired
@@ -103,11 +111,10 @@ public class AuditLogAspect {
 
         try {
             result = joinPoint.proceed();
-            OperationResult override = AuditResultOverride.getAndClear();
+            OperationResult override = resolveResultOverride();
             logBuilder.operationResult(override != null ? override : OperationResult.SUCCESS);
             return result;
         } catch (Exception e) {
-            AuditResultOverride.getAndClear();
             String message = e.getMessage();
             if (e instanceof AccessDeniedException) {
                 String resourceNameAccessDenied = AuthHelper.getDeniedPermissionResource();
@@ -124,6 +131,18 @@ public class AuditLogAspect {
             logBuilder.timestamp(OffsetDateTime.now());
             auditLogsProducer.produceMessage(new AuditLogMessage(logBuilder.build(), output));
         }
+    }
+
+    /**
+     * Reads the request-scoped {@link AuditResultOverride}. Audited methods invoked outside an HTTP
+     * request (e.g. in tests) have no request-scoped instance to resolve, in which case there is no
+     * override and the operation result defaults to SUCCESS.
+     */
+    private OperationResult resolveResultOverride() {
+        if (RequestContextHolder.getRequestAttributes() == null) {
+            return null;
+        }
+        return auditResultOverride.get();
     }
 
     private void setResourceRecords(LogData logData, boolean isDeleteOperation, List<ResourceObjectIdentity> deletedObjectsIdentities, AuditLogged annotation, LogRecord.LogRecordBuilder logBuilder, List<ResourceObjectIdentity> deletedAffiliatedObjectsIdentities) {
