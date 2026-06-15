@@ -144,6 +144,22 @@ class TspRequestParserTest {
     }
 
     @Test
+    void parse_throwsBadDataFormat_forEmptyExtensionsBlock() {
+        // given — an [0] IMPLICIT Extensions tag wrapping an empty SEQUENCE; BouncyCastle parses it into a
+        // non-null but empty Extensions, so hasExtensions() is true while there are no extension OIDs
+        var body = aRawTspRequest().buildWithEmptyExtensionsBlock();
+
+        // when
+        Executable parse = () -> TspRequestParser.parse(body);
+
+        // then
+        var ex = assertThrows(TspRequestParsingException.class, parse);
+        assertEquals(TspFailureInfo.BAD_DATA_FORMAT, ex.getFailureInfo());
+        // pins the empty-extensions catch specifically: other BAD_DATA_FORMAT sources use different prefixes
+        assertTrue(ex.getMessage().startsWith("Malformed request extensions:"));
+    }
+
+    @Test
     void parse_throwsBadAlg_forUnknownDigestAlgorithmOid() {
         // given — an OID that maps to no known DigestAlgorithm
         var unknownDigestOid = new ASN1ObjectIdentifier("1.2.3.4.5");

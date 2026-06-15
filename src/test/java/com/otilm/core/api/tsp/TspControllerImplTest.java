@@ -3,6 +3,7 @@ package com.otilm.core.api.tsp;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.core.aop.AuditResultOverride;
 import com.otilm.core.signing.tsa.TsaService;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import org.bouncycastle.asn1.DEROctetString;
@@ -25,26 +26,25 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Unit test for the controller's own logic — the exception-to-rejection mapping in
- * {@link TspControllerImpl#timestamp}. The granted happy path is covered end-to-end by
- * {@code TspProtocolFlowITest}; here the {@link TsaService} is mocked so each failure mode
- * can be driven independently and the resulting RFC 3161 rejection asserted.
- */
 class TspControllerImplTest {
 
     private static final String PROFILE_NAME = "test-tsp-profile";
 
     private TsaService tsaService;
+    private AuditResultOverride auditResultOverride;
     private TspControllerImpl controller;
 
     @BeforeEach
     void setUp() {
         tsaService = mock(TsaService.class);
+        auditResultOverride = mock(AuditResultOverride.class);
         controller = new TspControllerImpl();
         controller.setTspService(tsaService);
+        controller.setAuditResultOverride(auditResultOverride);
     }
 
     @Test
@@ -63,6 +63,7 @@ class TspControllerImplTest {
         assertEquals(PKIStatus.GRANTED, decoded.getStatus().getStatus().intValueExact());
         assertNotNull(decoded.getTimeStampToken(), "granted response must carry the timestamp token");
         assertArrayEquals(timestampToken, decoded.getTimeStampToken().getEncoded("DER"));
+        verify(auditResultOverride, never()).setFailure();
     }
 
     @Test
@@ -78,6 +79,7 @@ class TspControllerImplTest {
 
         // then
         assertRejection(response, PKIFailureInfo.unacceptedPolicy, serviceStatusString);
+        verify(auditResultOverride).setFailure();
     }
 
     @Test
@@ -94,6 +96,7 @@ class TspControllerImplTest {
 
         // then
         assertRejection(response, PKIFailureInfo.badAlg, clientMessage);
+        verify(auditResultOverride).setFailure();
     }
 
     @Test
@@ -107,6 +110,7 @@ class TspControllerImplTest {
 
         // then
         assertRejection(response, PKIFailureInfo.badRequest, "Resource not found");
+        verify(auditResultOverride).setFailure();
     }
 
     @Test
@@ -121,6 +125,7 @@ class TspControllerImplTest {
 
         // then
         assertRejection(response, PKIFailureInfo.systemFailure, "An unexpected error occurred during timestamping.");
+        verify(auditResultOverride).setFailure();
     }
 
     @Test
@@ -133,6 +138,7 @@ class TspControllerImplTest {
 
         // then
         assertRejection(response, PKIFailureInfo.badRequest, "Malformed request");
+        verify(auditResultOverride).setFailure();
     }
 
     private static void assertRejection(ResponseEntity<byte[]> response, int expectedFailInfo, String expectedStatusString) {

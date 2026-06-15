@@ -24,12 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
-/**
- * Unit test for {@link TspResponseBuilder} — the pure RFC 3161 {@code TimeStampResp} DER encoder.
- * The end-to-end wire journey is covered by {@code TspProtocolFlowITest}; here every branch (granted
- * dispatch, rejection dispatch, the failure-info bit conversion, the null status string, and the
- * exception wrapping) is driven directly against the builder with no Spring context or mocks.
- */
 class TspResponseBuilderTest {
 
     @Test
