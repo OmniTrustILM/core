@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 
 import static com.otilm.core.util.builders.RawTspRequestBuilder.aRawTspRequest;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class TspRequestParserTest {
@@ -195,7 +196,7 @@ class TspRequestParserTest {
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("truncatedSequences")
-    void parse_throwsBadRequest_forTruncatedSequenceThatBcIndexesOutOfBounds(String description, byte[] body) {
+    void parse_throwsBadRequest_forTruncatedSequenceThatBcIndexesOutOfBounds(byte[] body) {
         // when
         Executable parse = () -> TspRequestParser.parse(body);
 
@@ -206,8 +207,8 @@ class TspRequestParserTest {
 
     static Stream<Arguments> truncatedSequences() {
         return Stream.of(
-                arguments("empty SEQUENCE", new byte[]{0x30, 0x00}),
-                arguments("SEQUENCE with only an INTEGER member", new byte[]{0x30, 0x03, 0x02, 0x01, 0x01})
+                arguments(named("empty SEQUENCE", new byte[]{0x30, 0x00})),
+                arguments(named("SEQUENCE with only an INTEGER member", new byte[]{0x30, 0x03, 0x02, 0x01, 0x01}))
         );
     }
 }
