@@ -6,13 +6,12 @@ import com.otilm.api.model.client.cryptography.token.TokenInstanceRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
-import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface TokenInstanceService extends ResourceExtensionService {
+public interface TokenInstanceExternalService {
     /**
      * List of all available token instance
      *
@@ -30,16 +29,6 @@ public interface TokenInstanceService extends ResourceExtensionService {
      * @throws ConnectorException when there are issues with connector communication or error from connector
      */
     TokenInstanceDetailDto getTokenInstance(SecuredUUID uuid) throws ConnectorException, NotFoundException;
-
-    /**
-     * Get the token instance entity
-     *
-     * @param uuid UUID of the token instance
-     * @return Details of the token instance {@Link TokenInstanceDetailDto}
-     * @throws NotFoundException  when the token instance is not found
-     * @throws ConnectorException when there are issues with connector communication or error from connector
-     */
-    TokenInstanceReference getTokenInstanceEntity(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Create a new token instance on the connector
@@ -116,15 +105,6 @@ public interface TokenInstanceService extends ResourceExtensionService {
      * @throws ConnectorException when there are issues with connector communication or error from connector
      */
     List<BaseAttribute> listTokenProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
-
-    /**
-     * Validate the token Profile attributes
-     *
-     * @param uuid       UUID of the token instance
-     * @param attributes attributes to be validated
-     * @throws ConnectorException when there are issues with the communication
-     */
-    void validateTokenProfileAttributes(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException;
 
     /**
      * @param uuid UUID of the concerned token instance

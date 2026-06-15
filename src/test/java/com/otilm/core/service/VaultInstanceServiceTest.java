@@ -51,7 +51,7 @@ class VaultInstanceServiceTest extends BaseSpringBootTest {
 
     public static final String TEST_CUSTOM_ATTRIBUTE = "testCustomAttribute";
     @Autowired
-    private VaultInstanceService vaultInstanceService;
+    private VaultInstanceExternalService vaultInstanceService;
     @Autowired
     private VaultInstanceRepository vaultInstanceRepository;
     @Autowired

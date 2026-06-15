@@ -6,7 +6,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +20,7 @@ public class ConnectorRequestAttributesBuilder {
 
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -33,7 +33,7 @@ public class ConnectorRequestAttributesBuilder {
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 

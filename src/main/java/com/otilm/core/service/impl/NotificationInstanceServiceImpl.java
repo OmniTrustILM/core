@@ -27,7 +27,7 @@ import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ConnectorService;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.NotificationInstanceExternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.writer.NotificationProfileVersionWriter;
@@ -52,7 +52,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
 
     private ConnectorService connectorService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
     private NotificationProfileVersionWriter notificationProfileVersionWriter;
@@ -95,7 +95,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 
