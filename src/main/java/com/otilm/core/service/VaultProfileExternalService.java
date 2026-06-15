@@ -16,7 +16,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface VaultProfileService extends ResourceExtensionService {
+public interface VaultProfileExternalService {
 
     PaginationResponseDto<VaultProfileDto> listVaultProfiles(SearchRequestDto searchRequest, SecurityFilter securityFilter);
 
@@ -35,6 +35,4 @@ public interface VaultProfileService extends ResourceExtensionService {
     List<BaseAttribute> listSecretAttributes(SecuredParentUUID vaultUUID, SecuredUUID vaultProfileUUID, SecretType secretType) throws NotFoundException, ConnectorException, AttributeException;
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
-
-    Long statisticsVaultProfileCount(SecurityFilter filter);
 }

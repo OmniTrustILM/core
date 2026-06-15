@@ -46,7 +46,10 @@ class VaultProfileServiceTest extends BaseSpringBootTest {
     public static final String TEST_CUSTOM_ATTRIBUTE = "testCustomAttribute";
 
     @Autowired
-    private VaultProfileService vaultProfileService;
+    private VaultProfileExternalService vaultProfileService;
+
+    @Autowired
+    private VaultProfileInternalService vaultProfileInternalService;
 
     @Autowired
     private VaultProfileRepository vaultProfileRepository;
@@ -262,14 +265,14 @@ class VaultProfileServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        List<NameAndUuidDto> dtos = vaultProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = vaultProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
 
-        NameAndUuidDto dto = vaultProfileService.getResourceObjectExternal(SecuredUUID.fromUUID(vaultProfile.getUuid()));
+        NameAndUuidDto dto = vaultProfileInternalService.getResourceObjectExternal(SecuredUUID.fromUUID(vaultProfile.getUuid()));
         Assertions.assertEquals(vaultProfile.getUuid().toString(), dto.getUuid());
         Assertions.assertEquals(vaultProfile.getName(), dto.getName());
 
-        dto = vaultProfileService.getResourceObjectInternal(vaultProfile.getUuid());
+        dto = vaultProfileInternalService.getResourceObjectInternal(vaultProfile.getUuid());
         Assertions.assertEquals(vaultProfile.getUuid().toString(), dto.getUuid());
     }
 

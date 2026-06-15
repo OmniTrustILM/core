@@ -51,7 +51,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
 
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private ConnectorService connectorService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private RaProfileService raProfileService;
     private AttributeEngine attributeEngine;
@@ -73,7 +73,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 

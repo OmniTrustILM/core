@@ -38,6 +38,7 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -70,7 +71,7 @@ import java.util.stream.Collectors;
 
 @Service(value = Resource.Codes.SECRET)
 @Transactional
-public class SecretServiceImpl implements SecretService, AttributeResourceService {
+public class SecretServiceImpl implements SecretExternalService, SecretInternalService, AttributeResourceService {
     private static final Logger logger = LoggerFactory.getLogger(SecretServiceImpl.class);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -90,7 +91,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
 
     private ResourceObjectAssociationService objectAssociationService;
     private ConnectorService connectorService;
-    private VaultInstanceService vaultInstanceService;
+    private VaultInstanceInternalService vaultInstanceService;
 
     private ConnectorApiFactory connectorApiFactory;
 
@@ -102,7 +103,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
     }
 
     @Autowired
-    public void setVaultInstanceService(VaultInstanceService vaultInstanceService) {
+    public void setVaultInstanceService(VaultInstanceInternalService vaultInstanceService) {
         this.vaultInstanceService = vaultInstanceService;
     }
 
@@ -172,6 +173,7 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List.of(
@@ -584,6 +586,21 @@ public class SecretServiceImpl implements SecretService, AttributeResourceServic
     public List<SecretVersionDto> getSecretVersions(UUID uuid) throws NotFoundException {
         Secret secret = getSecretEntity(uuid);
         return secret.getVersions().stream().map(SecretVersion::mapToDto).toList();
+    }
+
+    @Override
+    public Map<UUID, String> getLatestFingerprintsByUuid(List<UUID> secretUuids) {
+        if (secretUuids == null || secretUuids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> result = new HashMap<>();
+        for (Secret secret : secretRepository.findWithLatestVersionByUuidIn(secretUuids)) {
+            SecretVersion latest = secret.getLatestVersion();
+            if (latest != null && latest.getFingerprint() != null) {
+                result.put(secret.getUuid(), latest.getFingerprint());
+            }
+        }
+        return result;
     }
 
     @Override

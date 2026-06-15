@@ -110,7 +110,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceInternalService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
     private PermissionEvaluator permissionEvaluator;
     private CertificateService certificateService;
@@ -164,7 +164,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Autowired
-    public void setTokenInstanceService(TokenInstanceService tokenInstanceService) {
+    public void setTokenInstanceService(TokenInstanceInternalService tokenInstanceService) {
         this.tokenInstanceService = tokenInstanceService;
     }
 

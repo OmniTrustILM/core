@@ -118,10 +118,10 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private ConnectorService connectorService;
 
     @Autowired
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceExternalService tokenInstanceService;
 
     @Autowired
-    private TokenProfileService tokenProfileService;
+    private TokenProfileExternalService tokenProfileService;
 
     @Autowired
     private CryptographicKeyService cryptographicKeyService;
