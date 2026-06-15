@@ -17,7 +17,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.VaultInstanceService;
+import com.otilm.core.service.VaultInstanceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,10 +27,10 @@ import java.util.UUID;
 @RestController
 public class VaultInstanceControllerImpl implements VaultInstanceController {
 
-    private final VaultInstanceService vaultInstanceService;
+    private final VaultInstanceExternalService vaultInstanceService;
 
     @Autowired
-    public VaultInstanceControllerImpl(VaultInstanceService vaultInstanceService) {
+    public VaultInstanceControllerImpl(VaultInstanceExternalService vaultInstanceService) {
         this.vaultInstanceService = vaultInstanceService;
     }
 

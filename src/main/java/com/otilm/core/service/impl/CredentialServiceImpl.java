@@ -31,7 +31,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorService;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialExternalService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.transaction.Transactional;
@@ -49,7 +50,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CREDENTIAL)
 @Transactional
-public class CredentialServiceImpl implements CredentialService {
+public class CredentialServiceImpl implements CredentialExternalService, CredentialInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CredentialServiceImpl.class);
 

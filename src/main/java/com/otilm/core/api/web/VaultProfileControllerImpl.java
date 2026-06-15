@@ -22,7 +22,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.VaultProfileService;
+import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.util.converter.SecretTypeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -35,7 +35,7 @@ import java.util.UUID;
 @RestController
 public class VaultProfileControllerImpl implements VaultProfileController {
 
-    private VaultProfileService vaultProfileService;
+    private VaultProfileExternalService vaultProfileService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -43,7 +43,7 @@ public class VaultProfileControllerImpl implements VaultProfileController {
     }
 
     @Autowired
-    public void setVaultProfileService(VaultProfileService vaultProfileService) {
+    public void setVaultProfileService(VaultProfileExternalService vaultProfileService) {
         this.vaultProfileService = vaultProfileService;
     }
 

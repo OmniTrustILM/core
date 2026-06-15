@@ -88,7 +88,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
     }
 
     /**
-     * Stubs the runtime endpoints hit by {@code TokenInstanceService#createTokenInstance}: kind attribute
+     * Stubs the runtime endpoints hit by {@code TokenInstanceExternalService#createTokenInstance}: kind attribute
      * listing/validation, token creation, and status. {@code tokenUuid} is the UUID the connector reports
      * for the created token instance — Core persists it and uses it on every subsequent token call.
      */
@@ -106,7 +106,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
 
     /**
      * Stubs the token-profile attribute listing/validation endpoints hit by
-     * {@code TokenProfileService#createTokenProfile}.
+     * {@code TokenProfileExternalService#createTokenProfile}.
      */
     public CryptographyProviderConnectorMock stubTokenProfileCreation() {
         server.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/tokenProfile/attributes"))

@@ -33,6 +33,7 @@ import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.dao.repository.signing.TspProfileBasicCredentialRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
+import com.otilm.core.service.impl.SecretServiceImpl;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -91,7 +92,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     private TspProfileBasicCredentialRepository basicCredentialRepository;
 
     @MockitoBean
-    private SecretService secretService;
+    private SecretServiceImpl secretService;
 
     private TspProfile savedTspProfile;
 

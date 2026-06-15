@@ -27,7 +27,8 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.TokenProfileService;
+import com.otilm.core.service.TokenProfileExternalService;
+import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -43,7 +44,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.TOKEN_PROFILE)
 @Transactional
-public class TokenProfileServiceImpl implements TokenProfileService {
+public class TokenProfileServiceImpl implements TokenProfileExternalService, TokenProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TokenProfileServiceImpl.class);
 

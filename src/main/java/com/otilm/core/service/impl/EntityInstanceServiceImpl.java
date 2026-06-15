@@ -33,7 +33,7 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorService;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.EntityInstanceService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -64,7 +64,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     private static final Logger logger = LoggerFactory.getLogger(EntityInstanceServiceImpl.class);
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     private ConnectorService connectorService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
@@ -90,7 +90,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 

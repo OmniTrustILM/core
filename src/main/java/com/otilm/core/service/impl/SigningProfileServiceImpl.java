@@ -116,7 +116,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private CryptographicOperationService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
-    private TokenProfileService tokenProfileService;
+    private TokenProfileInternalService tokenProfileService;
     private RaProfileService raProfileService;
     private SigningRecordService signingRecordService;
 
@@ -950,7 +950,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setTokenProfileService(TokenProfileService tokenProfileService) {
+    public void setTokenProfileService(TokenProfileInternalService tokenProfileService) {
         this.tokenProfileService = tokenProfileService;
     }
 
