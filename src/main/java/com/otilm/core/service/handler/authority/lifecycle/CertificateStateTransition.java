@@ -44,7 +44,7 @@ public enum CertificateStateTransition {
     PENDING_REGISTRATION_TO_FAILED   (PENDING_REGISTRATION, FAILED,               CertificateEvent.UPDATE_STATE),
     REGISTERED_TO_PENDING_ISSUE      (REGISTERED,           PENDING_ISSUE,        CertificateEvent.ISSUE),
 
-    // Compliance rejection (v2 line 481)
+    // Compliance rejection
     REQUESTED_TO_REJECTED            (REQUESTED,            REJECTED,             CertificateEvent.UPDATE_STATE),
 
     // Issue / renew / rekey failure (v2 handleFailedOrRejectedEvent)

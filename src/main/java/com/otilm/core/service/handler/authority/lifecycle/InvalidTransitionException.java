@@ -27,11 +27,16 @@ public class InvalidTransitionException extends ValidationException {
         super(ValidationError.create(
             "Cannot transition %s '%s' from state '%s' to '%s'".formatted(
                 resource.getLabel(), resourceUuid,
-                fromState.getLabel(), toStateAttempted.getLabel())));
+                label(fromState), label(toStateAttempted))));
         this.resource = resource;
         this.resourceUuid = resourceUuid;
         this.fromState = fromState;
         this.toStateAttempted = toStateAttempted;
+    }
+
+    /** Null-safe label so the message never throws when a state is unexpectedly null. */
+    private static String label(IPlatformEnum state) {
+        return state != null ? state.getLabel() : "none";
     }
 
     public Resource getResource() { return resource; }
