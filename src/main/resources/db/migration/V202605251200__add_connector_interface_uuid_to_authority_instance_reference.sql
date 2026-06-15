@@ -2,13 +2,14 @@ ALTER TABLE authority_instance_reference
     ADD COLUMN connector_interface_uuid UUID
     REFERENCES connector_interface(uuid) ON UPDATE CASCADE ON DELETE RESTRICT;
 
--- Backfill: link each authority instance to its connector's AUTHORITY interface row.
+-- Backfill: link each existing authority instance to its connector's AUTHORITY interface row.
 --
--- A connector may expose multiple AUTHORITY interface rows when it advertises both v2
--- and v3 side-by-side during migration. Pick the highest version deterministically so
--- the UPDATE never aborts with "more than one row returned by a subquery". Existing
--- authorities are pre-v3 so this resolves to v2 on coexisting connectors. v3 authorities
--- created via the service from M2 onward set the FK explicitly and bypass this backfill.
+-- Every authority touched by this backfill predates v3 (v3 authorities created via the service
+-- set the FK explicitly and are excluded by the WHERE clause below). They must therefore resolve
+-- to the v2 AUTHORITY interface. A connector may expose multiple AUTHORITY rows when it advertises
+-- v2 and v3 side-by-side, so the subquery prefers v2 explicitly (then orders by version for
+-- determinism) — this both avoids "more than one row returned by a subquery" and guarantees the
+-- v2 resolution regardless of which connector versions happen to be registered at migration time.
 --
 -- The FK stays NULL for authorities whose connector declares no connector_interface row.
 -- That happens in two unrelated cases:
@@ -24,7 +25,7 @@ SET connector_interface_uuid = (
     FROM connector_interface ci
     WHERE ci.connector_uuid = air.connector_uuid
       AND ci.interface = 'AUTHORITY'
-    ORDER BY ci.version DESC
+    ORDER BY CASE WHEN ci.version = 'v2' THEN 0 ELSE 1 END, ci.version
     LIMIT 1
 )
 WHERE connector_interface_uuid IS NULL;

@@ -18,8 +18,11 @@ import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -31,6 +34,7 @@ import com.otilm.core.service.v2.ConnectorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -136,6 +140,28 @@ class AuthorityProviderV3AdapterTest {
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         assertEquals("issuedCert==", result.certificateData());
         assertFalse(result.isAsync());
+    }
+
+    // ---- issue: request attributes scoped to the ISSUE operation (parity with V2) ----
+
+    @Test
+    void issueLoadsCertificateRequestAttributesScopedToIssueOperation() throws ConnectorException {
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setCertificateData("issuedCert==");
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
+                .thenReturn(ResponseEntity.ok(body));
+
+        adapter.issue(cert, new ClientCertificateSignRequestDto());
+
+        // The certificate-scoped attribute load must carry operation=CERTIFICATE_ISSUE, otherwise the
+        // engine returns unscoped attributes. (Other captured calls are AUTHORITY/RA_PROFILE-scoped.)
+        ArgumentCaptor<ObjectAttributeContentInfo> captor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        verify(attributeEngine, atLeastOnce()).getRequestObjectDataAttributesContent(captor.capture());
+        ObjectAttributeContentInfo certScoped = captor.getAllValues().stream()
+                .filter(info -> info.objectType() == Resource.CERTIFICATE)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no CERTIFICATE-scoped attribute load during issue"));
+        assertEquals(AttributeOperation.CERTIFICATE_ISSUE, certScoped.operation());
     }
 
     // ---- issue: 202 -> ASYNC_ACCEPTED ----

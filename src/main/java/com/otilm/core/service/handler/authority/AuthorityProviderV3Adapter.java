@@ -24,6 +24,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -294,6 +295,7 @@ public class AuthorityProviderV3Adapter
         return attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
                         .connector(authority.getConnectorUuid())
+                        .operation(AttributeOperation.CERTIFICATE_ISSUE)
                         .build());
     }
 
