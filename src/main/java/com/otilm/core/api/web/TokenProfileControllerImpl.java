@@ -17,7 +17,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TokenProfileService;
+import com.otilm.core.service.TokenProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,10 +30,10 @@ import java.util.Optional;
 @RestController
 public class TokenProfileControllerImpl implements TokenProfileController {
 
-    private TokenProfileService tokenProfileService;
+    private TokenProfileExternalService tokenProfileService;
 
     @Autowired
-    public void setTokenProfileService(TokenProfileService tokenProfileService) {
+    public void setTokenProfileService(TokenProfileExternalService tokenProfileService) {
         this.tokenProfileService = tokenProfileService;
     }
 

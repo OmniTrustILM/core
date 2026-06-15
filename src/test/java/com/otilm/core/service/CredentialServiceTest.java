@@ -50,7 +50,10 @@ class CredentialServiceTest extends BaseSpringBootTest {
     private static final String CREDENTIAL_NAME = "testCredential1";
 
     @Autowired
-    private CredentialService credentialService;
+    private CredentialExternalService credentialService;
+
+    @Autowired
+    private CredentialInternalService credentialInternalService;
 
     @Autowired
     private CredentialRepository credentialRepository;
@@ -246,7 +249,7 @@ class CredentialServiceTest extends BaseSpringBootTest {
         dataAttributeV2.setContentType(AttributeContentType.CREDENTIAL);
 
 
-        credentialService.loadFullCredentialData(attrs.stream().map(DataAttribute.class::cast).toList());
+        credentialInternalService.loadFullCredentialData(attrs.stream().map(DataAttribute.class::cast).toList());
 
         Assertions.assertInstanceOf(CredentialAttributeContentData.class, dataAttributeV2.getContent().getFirst().getData());
 
@@ -273,7 +276,7 @@ class CredentialServiceTest extends BaseSpringBootTest {
         dataAttributeV2.setType(AttributeType.DATA);
         dataAttributeV2.setContentType(AttributeContentType.CREDENTIAL);
 
-        Assertions.assertThrows(NotFoundException.class, () -> credentialService.loadFullCredentialData(attrs.stream().map(DataAttribute.class::cast).toList()));
+        Assertions.assertThrows(NotFoundException.class, () -> credentialInternalService.loadFullCredentialData(attrs.stream().map(DataAttribute.class::cast).toList()));
     }
 
 
@@ -281,7 +284,7 @@ class CredentialServiceTest extends BaseSpringBootTest {
     void testLoadFullData_attributesNonCredential() {
         List<RequestAttribute> requestAttributes = new ArrayList<>();
         requestAttributes.add(new RequestAttributeV2(UUID.randomUUID(), "dummyAttributes", AttributeContentType.CREDENTIAL, null));
-        Assertions.assertDoesNotThrow(() -> credentialService.loadFullCredentialData(AttributeDefinitionUtils.clientAttributeConverter(requestAttributes).stream().map(DataAttribute.class::cast).toList())); // this should not throw exception
+        Assertions.assertDoesNotThrow(() -> credentialInternalService.loadFullCredentialData(AttributeDefinitionUtils.clientAttributeConverter(requestAttributes).stream().map(DataAttribute.class::cast).toList())); // this should not throw exception
     }
 
     @Test
@@ -312,7 +315,7 @@ class CredentialServiceTest extends BaseSpringBootTest {
         RequestAttributeCallback requestAttributeCallback = new RequestAttributeCallback();
         requestAttributeCallback.setBody(requestBodyMap);
 
-        credentialService.loadFullCredentialData(callback, requestAttributeCallback);
+        credentialInternalService.loadFullCredentialData(callback, requestAttributeCallback);
 
         Assertions.assertTrue(requestAttributeCallback.getBody().get(credentialBodyKey) instanceof CredentialAttributeContentData);
 
@@ -347,7 +350,7 @@ class CredentialServiceTest extends BaseSpringBootTest {
         RequestAttributeCallback requestAttributeCallback = new RequestAttributeCallback();
         requestAttributeCallback.setBody(requestBodyMap);
 
-        Assertions.assertThrows(ValidationException.class, () -> credentialService.loadFullCredentialData(callback, requestAttributeCallback));
+        Assertions.assertThrows(ValidationException.class, () -> credentialInternalService.loadFullCredentialData(callback, requestAttributeCallback));
     }
 
     @Test
@@ -370,22 +373,22 @@ class CredentialServiceTest extends BaseSpringBootTest {
         RequestAttributeCallback requestAttributeCallback = new RequestAttributeCallback();
         requestAttributeCallback.setBody(requestBodyMap);
 
-        Assertions.assertThrows(ValidationException.class, () -> credentialService.loadFullCredentialData(callback, requestAttributeCallback));
+        Assertions.assertThrows(ValidationException.class, () -> credentialInternalService.loadFullCredentialData(callback, requestAttributeCallback));
     }
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = credentialService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = credentialInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = credentialService.getResourceObjectInternal(credential.getUuid());
+        NameAndUuidDto nameAndUuidDto = credentialInternalService.getResourceObjectInternal(credential.getUuid());
         Assertions.assertEquals(credential.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(credential.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = credentialService.getResourceObjectExternal(credential.getSecuredUuid());
+        nameAndUuidDto = credentialInternalService.getResourceObjectExternal(credential.getSecuredUuid());
         Assertions.assertEquals(credential.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(credential.getName(), nameAndUuidDto.getName());
     }

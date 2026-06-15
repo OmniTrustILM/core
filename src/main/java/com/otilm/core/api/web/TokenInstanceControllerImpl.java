@@ -15,7 +15,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TokenInstanceService;
+import com.otilm.core.service.TokenInstanceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,10 +24,10 @@ import java.util.List;
 @RestController
 public class TokenInstanceControllerImpl implements TokenInstanceController {
 
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceExternalService tokenInstanceService;
 
     @Autowired
-    public void setTokenInstanceService(TokenInstanceService tokenInstanceService) {
+    public void setTokenInstanceService(TokenInstanceExternalService tokenInstanceService) {
         this.tokenInstanceService = tokenInstanceService;
     }
 

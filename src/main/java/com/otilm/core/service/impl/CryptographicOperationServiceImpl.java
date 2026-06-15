@@ -34,7 +34,7 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyService;
 import com.otilm.core.service.CryptographicOperationService;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.TokenInstanceService;
+import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateRequestUtils;
@@ -67,7 +67,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     // --------------------------------------------------------------------------------
     // Services & API Clients
     // --------------------------------------------------------------------------------
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceInternalService tokenInstanceService;
     private CryptographicKeyEventHistoryService eventHistoryService;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
@@ -83,7 +83,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     // Setters
 
     @Autowired
-    public void setTokenInstanceService(TokenInstanceService tokenInstanceService) {
+    public void setTokenInstanceService(TokenInstanceInternalService tokenInstanceService) {
         this.tokenInstanceService = tokenInstanceService;
     }
 

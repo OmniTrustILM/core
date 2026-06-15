@@ -49,11 +49,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private ConnectorService connectorService;
     private ConnectorApiFactory connectorApiFactory;
     private CoreCallbackService coreCallbackService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     private CryptographicKeyService cryptographicKeyService;
-    private TokenProfileService tokenProfileService;
+    private TokenProfileInternalService tokenProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
 
@@ -78,7 +78,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 
@@ -98,7 +98,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
-    public void setTokenProfileService(TokenProfileService tokenProfileService) {
+    public void setTokenProfileService(TokenProfileInternalService tokenProfileService) {
         this.tokenProfileService = tokenProfileService;
     }
 

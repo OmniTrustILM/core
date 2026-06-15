@@ -29,9 +29,10 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorService;
-import com.otilm.core.service.CredentialService;
+import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
-import com.otilm.core.service.TokenInstanceService;
+import com.otilm.core.service.TokenInstanceExternalService;
+import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +47,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.TOKEN)
 @Transactional
-public class TokenInstanceServiceImpl implements TokenInstanceService {
+public class TokenInstanceServiceImpl implements TokenInstanceExternalService, TokenInstanceInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(TokenInstanceServiceImpl.class);
 
@@ -55,7 +56,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     // --------------------------------------------------------------------------------
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
-    private CredentialService credentialService;
+    private CredentialInternalService credentialService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
 
@@ -90,7 +91,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceService {
     }
 
     @Autowired
-    public void setCredentialService(CredentialService credentialService) {
+    public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
     }
 
