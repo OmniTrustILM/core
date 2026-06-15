@@ -14,11 +14,13 @@ import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRe
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateRevocationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -242,6 +244,19 @@ class AuthorityProviderV3AdapterTest {
 
         assertEquals(AdapterOperationOutcome.SYNC_NO_CONTENT, result.outcome());
         assertNull(result.certificateData());
+    }
+
+    @Test
+    void revokeDefaultsNullReasonToUnspecified() throws ConnectorException {
+        when(certClientV3.revoke(eq(connectorInfo), any()))
+                .thenReturn(ResponseEntity.noContent().build());
+
+        adapter.revoke(cert, new ClientCertificateRevocationDto());   // reason omitted (null)
+
+        ArgumentCaptor<CertificateRevocationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateRevocationRequestDtoV3.class);
+        verify(certClientV3).revoke(eq(connectorInfo), captor.capture());
+        assertEquals(CertificateRevocationReason.UNSPECIFIED, captor.getValue().getReason());
     }
 
     // ---- register: delegates to v3 /register ----

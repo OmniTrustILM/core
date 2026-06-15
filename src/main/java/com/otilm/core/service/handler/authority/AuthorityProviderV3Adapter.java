@@ -19,6 +19,7 @@ import com.otilm.api.model.connector.v3.certificate.CertificateRenewRequestDtoV3
 import com.otilm.api.model.connector.v3.certificate.CertificateRevocationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
@@ -115,7 +116,7 @@ public class AuthorityProviderV3Adapter
 
         CertificateRevocationRequestDtoV3 wire = new CertificateRevocationRequestDtoV3();
         wire.setCertificate(cert.getCertificateContent().getContent());
-        wire.setReason(req.getReason());
+        wire.setReason(req.getReason() != null ? req.getReason() : CertificateRevocationReason.UNSPECIFIED);
         wire.setAttributes(req.getAttributes());
         wire.setMeta(loadMeta(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
