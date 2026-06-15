@@ -16,6 +16,8 @@ public interface TspProfileBasicCredentialRepository extends SecurityFilterRepos
     List<TspProfileBasicCredential> findByTspProfileUuid(UUID tspProfileUuid);
     Optional<TspProfileBasicCredential> findByTspProfileUuidAndUsername(UUID tspProfileUuid, String username);
 
+    Optional<TspProfileBasicCredential> findBySecretUuid(UUID secretUuid);
+
     @Modifying
     @Query("DELETE FROM TspProfileBasicCredential c WHERE c.uuid = :uuid")
     void deleteByUuid(@Param("uuid") UUID uuid);
