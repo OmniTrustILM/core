@@ -31,7 +31,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
     private CertificateContentRepository certificateContentRepository;
 
     @Autowired
-    private UserManagementService userManagementService;
+    private UserManagementExternalService userManagementService;
 
     @Autowired
     private FindByIndexNameSessionRepository sessionRepository;

@@ -16,7 +16,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.GroupService;
+import com.otilm.core.service.GroupExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,10 +30,10 @@ import java.util.List;
 @RestController
 public class GroupControllerImpl implements GroupController {
 
-    private GroupService groupService;
+    private GroupExternalService groupService;
 
     @Autowired
-    public void setGroupService(GroupService groupService) {
+    public void setGroupService(GroupExternalService groupService) {
         this.groupService = groupService;
     }
 

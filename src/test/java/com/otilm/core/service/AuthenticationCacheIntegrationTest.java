@@ -33,10 +33,10 @@ class AuthenticationCacheIntegrationTest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
 
     @Autowired
-    private UserManagementService userManagementService;
+    private UserManagementExternalService userManagementService;
 
     @Autowired
-    private RoleManagementService roleManagementService;
+    private RoleManagementExternalService roleManagementService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
