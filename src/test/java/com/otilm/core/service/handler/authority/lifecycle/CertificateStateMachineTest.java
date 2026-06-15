@@ -50,8 +50,29 @@ class CertificateStateMachineTest {
 
         assertEquals(CertificateState.REVOKED, ex.getFromState());
         assertEquals(CertificateState.ISSUED, ex.getToStateAttempted());
+        assertEquals(CertificateState.REVOKED, cert.getState());   // state unchanged after the throw
         verify(certificateRepository, never()).save(any());
         verify(eventHistoryService, never()).addEventHistory(any(), any(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void failureTransitionIsAuditedAsFailed() {
+        Certificate cert = certWithState(CertificateState.PENDING_ISSUE);
+        sm.transition(cert, CertificateState.FAILED, null, "Connector error");
+
+        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), any(),
+            eq(CertificateEventStatus.FAILED), anyString(), eq(""));
+    }
+
+    @Test
+    void revokeFailedRestoreIsAuditedAsFailed() {
+        // PENDING_REVOKE -> ISSUED restores the cert but records a FAILED revoke (not SUCCESS).
+        Certificate cert = certWithState(CertificateState.PENDING_REVOKE);
+        sm.transition(cert, CertificateState.ISSUED, null, "Revoke cancelled by operator");
+
+        assertEquals(CertificateState.ISSUED, cert.getState());
+        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), any(),
+            eq(CertificateEventStatus.FAILED), anyString(), eq(""));
     }
 
     @Test
