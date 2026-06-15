@@ -12,11 +12,7 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CryptographicKeyService;
-import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TokenInstanceService;
-import com.otilm.core.service.TokenProfileService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.*;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
@@ -76,7 +72,7 @@ import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfi
  * {@code TimeStampToken} from that live signature — so the {@code withSignatureValidation} variant
  * performs a real cryptographic verify.
  */
-public class TspProtocolFlowITest extends BaseSpringBootTest {
+public class TspControllerIntegrationTest extends BaseSpringBootTest {
 
     private static final String BASE_URL = "http://localhost";
     private static final String TSP_IMPRINT_INPUT = "Hello, Timestamp!";
@@ -98,9 +94,9 @@ public class TspProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private ConnectorService connectorService;
     @Autowired
-    private TokenInstanceService tokenInstanceService;
+    private TokenInstanceExternalService tokenInstanceService;
     @Autowired
-    private TokenProfileService tokenProfileService;
+    private TokenProfileExternalService tokenProfileService;
     @Autowired
     private CryptographicKeyService cryptographicKeyService;
     @Autowired
