@@ -48,13 +48,10 @@ public class CertificateStateMachine {
     /** Default: SM resolves the audit event from the transition row's defaultAuditEvent. */
     @Transactional
     public void transition(Certificate cert, CertificateState toState) {
-        transition(cert, toState, null, null);
+        applyTransition(cert, toState, null, null);
     }
 
     /**
-     * Runs in the caller's transaction (REQUIRED) so the state mutation and the audit-history
-     * write commit atomically; the SM performs only local writes and no external calls.
-     *
      * @param auditEventOverride if non-null, overrides the row's defaultAuditEvent
      * @param reasonMessage if non-null, used as the audit-history message; otherwise auto-generated
      */
@@ -62,6 +59,18 @@ public class CertificateStateMachine {
     public void transition(Certificate cert, CertificateState toState,
                            @Nullable CertificateEvent auditEventOverride,
                            @Nullable String reasonMessage) {
+        applyTransition(cert, toState, auditEventOverride, reasonMessage);
+    }
+
+    /**
+     * Shared logic for both public overloads. Private so the {@code @Transactional} entry points
+     * are reached through the Spring proxy rather than by self-invocation; it runs within whichever
+     * overload's transaction (REQUIRED) so the state mutation and audit-history write commit
+     * atomically. The SM performs only local writes and no external calls.
+     */
+    private void applyTransition(Certificate cert, CertificateState toState,
+                                 @Nullable CertificateEvent auditEventOverride,
+                                 @Nullable String reasonMessage) {
         Objects.requireNonNull(cert, "cert");
         Objects.requireNonNull(toState, "toState");
         CertificateState fromState = cert.getState();
