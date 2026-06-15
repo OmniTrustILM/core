@@ -1,5 +1,6 @@
 package com.otilm.core.config.cache;
 
+import com.otilm.core.security.authn.client.SecretRefIndex;
 import com.otilm.core.security.authn.client.TokenJtiIndex;
 import com.otilm.core.security.authn.client.UserCertificateIndex;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -30,6 +31,7 @@ public class CacheConfig {
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
+    public static final String CREDENTIAL_VERIFICATION_CACHE = "credentialVerification";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String SIGNING_CERTIFICATE_CACHE = "signingCertificate";
     public static final String SIGNING_PROFILE_CACHE = "signingProfile";
@@ -44,6 +46,7 @@ public class CacheConfig {
                                      CertificateChainCacheProperties certChainProperties,
                                      ConnectorApiClientCacheProperties connectorCacheProperties,
                                      CryptographicKeyItemCacheProperties cryptographicKeyItemCacheProperties,
+                                     SecretRefIndex secretRefIndex,
                                      SigningCertificateCacheProperties signingCertificateCacheProperties,
                                      SigningProfileCacheProperties signingProfileCacheProperties,
                                      TimeQualityConfigurationCacheProperties tqcCacheProperties,
@@ -66,6 +69,12 @@ public class CacheConfig {
                 .maximumSize(authCacheProperties.maxSize())
                 .recordStats()
                 .removalListener(tokenJtiIndex)
+                .build());
+        mgr.registerCustomCache(CREDENTIAL_VERIFICATION_CACHE, Caffeine.newBuilder()
+                .expireAfterWrite(authCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                .maximumSize(authCacheProperties.maxSize())
+                .recordStats()
+                .removalListener(secretRefIndex)
                 .build());
 
         mgr.registerCustomCache(CERTIFICATE_CHAIN_CACHE, Caffeine.newBuilder()
