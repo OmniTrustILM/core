@@ -13,7 +13,8 @@ import com.otilm.api.model.core.auth.UserDto;
 import java.security.cert.CertificateException;
 import java.util.List;
 
-public interface UserManagementService extends ResourceExtensionService  {
+public interface UserManagementExternalService {
+
     List<UserDto> listUsers();
 
     UserDetailDto getUser(String userUuid) throws NotFoundException;
@@ -21,8 +22,6 @@ public interface UserManagementService extends ResourceExtensionService  {
     UserDetailDto createUser(AddUserRequestDto request) throws CertificateException, NotFoundException, AttributeException;
 
     UserDetailDto updateUser(String userUuid, UpdateUserRequestDto request) throws NotFoundException, CertificateException, AttributeException;
-
-    UserDetailDto updateUserInternal(String userUuid, UpdateUserRequestDto request, String certificateUuid, String certificateFingerPrint) throws NotFoundException, CertificateException;
 
     void deleteUser(String userUuid);
 

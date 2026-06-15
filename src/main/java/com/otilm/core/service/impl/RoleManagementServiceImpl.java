@@ -13,7 +13,8 @@ import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.RoleManagementService;
+import com.otilm.core.service.RoleManagementExternalService;
+import com.otilm.core.service.RoleManagementInternalService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,7 @@ import java.util.UUID;
 
 @Service(Resource.Codes.ROLE)
 @Transactional
-public class RoleManagementServiceImpl implements RoleManagementService {
+public class RoleManagementServiceImpl implements RoleManagementExternalService, RoleManagementInternalService {
 
     private RoleManagementApiClient roleManagementApiClient;
     private AttributeEngine attributeEngine;

@@ -8,7 +8,7 @@ import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
 import com.otilm.core.service.LocalAdminExternalService;
-import com.otilm.core.service.UserManagementService;
+import com.otilm.core.service.UserManagementExternalService;
 import com.otilm.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -22,10 +22,10 @@ import java.security.cert.CertificateException;
 public class LocalAdminServiceImpl implements LocalAdminExternalService {
 
     private RoleManagementApiClient roleManagementApiClient;
-    private UserManagementService userManagementService;
+    private UserManagementExternalService userManagementService;
 
     @Autowired
-    private void setUserManagementService(UserManagementService userManagementService) {
+    private void setUserManagementExternalService(UserManagementExternalService userManagementService) {
         this.userManagementService = userManagementService;
     }
 

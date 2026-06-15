@@ -57,7 +57,7 @@ class NotificationProfileServiceTest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
 
     @Autowired
-    private GroupService groupService;
+    private GroupExternalService groupService;
 
     @Autowired
     private NotificationListener notificationListener;

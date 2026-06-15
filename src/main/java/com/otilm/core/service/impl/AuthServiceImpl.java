@@ -10,7 +10,7 @@ import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.SelfPrincipalEndpoint;
 import com.otilm.core.service.AuthExternalService;
-import com.otilm.core.service.UserManagementService;
+import com.otilm.core.service.UserManagementInternalService;
 import com.otilm.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -32,7 +32,7 @@ public class AuthServiceImpl implements AuthExternalService {
 
     private UserManagementApiClient userManagementApiClient;
     private ResourceApiClient resourceApiClient;
-    private UserManagementService userManagementService;
+    private UserManagementInternalService userManagementService;
 
     private ContextRefreshListener contextRefreshListener;
 
@@ -47,7 +47,7 @@ public class AuthServiceImpl implements AuthExternalService {
     }
 
     @Autowired
-    public void setUserManagementService(UserManagementService userManagementService) {
+    public void setUserManagementInternalService(UserManagementInternalService userManagementService) {
         this.userManagementService = userManagementService;
     }
 
