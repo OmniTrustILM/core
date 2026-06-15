@@ -7,7 +7,8 @@ import com.otilm.api.model.core.auth.*;
 
 import java.util.List;
 
-public interface RoleManagementService extends ResourceExtensionService {
+public interface RoleManagementExternalService {
+
     List<RoleDto> listRoles();
 
     RoleDetailDto getRole(String roleUuid);

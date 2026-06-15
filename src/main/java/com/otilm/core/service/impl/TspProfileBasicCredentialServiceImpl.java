@@ -29,7 +29,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileBasicCredentialService;
 import com.otilm.core.service.SecretExternalService;
-import com.otilm.core.service.UserManagementService;
+import com.otilm.core.service.UserManagementExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.writer.signing.TspProfileBasicCredentialWriter;
 import lombok.extern.slf4j.Slf4j;
@@ -53,7 +53,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     private TspProfileBasicCredentialWriter credentialWriter;
     private VaultProfileInternalService vaultProfileService;
     private SecretExternalService secretService;
-    private UserManagementService userManagementService;
+    private UserManagementExternalService userManagementService;
     private CredentialVerificationCache credentialVerificationCache;
     private CacheEvictor cacheEvictor;
 
@@ -310,7 +310,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     }
 
     @Autowired
-    public void setUserManagementService(UserManagementService userManagementService) {
+    public void setUserManagementExternalService(UserManagementExternalService userManagementService) {
         this.userManagementService = userManagementService;
     }
 
