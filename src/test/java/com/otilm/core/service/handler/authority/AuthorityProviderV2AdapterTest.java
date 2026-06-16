@@ -297,6 +297,22 @@ class AuthorityProviderV2AdapterTest {
         verify(authorityClient).validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs);
     }
 
+    // --- validate attributes (v2 delegates to the connector /validate endpoints) ---
+
+    @Test
+    void validateIssueAttributes_delegatesToCertClient() throws Exception {
+        List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
+        adapter.validateIssueAttributes(authority, attrs);
+        verify(certClient).validateIssueCertificateAttributes(connectorInfo, "auth-instance-uuid", attrs);
+    }
+
+    @Test
+    void validateRevokeAttributes_delegatesToCertClient() throws Exception {
+        List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
+        adapter.validateRevokeAttributes(authority, attrs);
+        verify(certClient).validateRevokeCertificateAttributes(connectorInfo, "auth-instance-uuid", attrs);
+    }
+
     // --- error handling ---
 
     @Test

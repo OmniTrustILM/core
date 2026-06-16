@@ -7,6 +7,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
 import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
@@ -339,5 +340,111 @@ class AuthorityProviderV3AdapterTest {
                 .thenThrow(new NotFoundException("Connector not found"));
 
         assertThrows(ConnectorException.class, () -> adapter.listIssueAttributes(authority, null));
+    }
+
+    // ---- renew ----
+
+    @Test
+    void renewMaps200ToSyncOk() throws ConnectorException {
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setCertificateData("renewed==");
+        when(certClientV3.renew(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
+
+        AdapterOperationResult result = adapter.renew(oldCert, cert, new ClientCertificateRenewRequestDto());
+
+        assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
+        assertEquals("renewed==", result.certificateData());
+    }
+
+    @Test
+    void renewMaps202ToAsyncAccepted() throws ConnectorException {
+        when(certClientV3.renew(eq(connectorInfo), any())).thenReturn(ResponseEntity.status(202).build());
+
+        AdapterOperationResult result = adapter.renew(oldCert, cert, new ClientCertificateRenewRequestDto());
+
+        assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
+    }
+
+    // ---- attribute listing / validation / connection check ----
+
+    @Test
+    void listAuthorityInstanceAttributesDelegates() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(authorityClientV3.listAuthorityAttributes(connectorInfo)).thenReturn(expected);
+        assertEquals(expected, adapter.listAuthorityInstanceAttributes(authority));
+    }
+
+    @Test
+    void listIssueAttributesDelegates() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(certClientV3.listIssueAttributes(eq(connectorInfo), any())).thenReturn(expected);
+        assertEquals(expected, adapter.listIssueAttributes(authority, raProfile));
+    }
+
+    @Test
+    void listRevokeAttributesDelegates() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(certClientV3.listRevokeAttributes(eq(connectorInfo), any())).thenReturn(expected);
+        assertEquals(expected, adapter.listRevokeAttributes(authority, raProfile));
+    }
+
+    @Test
+    void listRegisterAttributesDelegates() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(certClientV3.listRegisterAttributes(eq(connectorInfo), any())).thenReturn(expected);
+        assertEquals(expected, adapter.listRegisterAttributes(authority, raProfile));
+    }
+
+    @Test
+    void validateAttributesAreNoOpForV3() {
+        // v3 dropped the connector-side /validate; these must neither call the connector nor throw.
+        adapter.validateIssueAttributes(authority, List.of());
+        adapter.validateRevokeAttributes(authority, List.of());
+        verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void checkAuthorityConnectionDelegates() throws ConnectorException {
+        adapter.checkAuthorityConnection(authority, List.of());
+        verify(authorityClientV3).checkAuthorityConnection(eq(connectorInfo), any());
+    }
+
+    // ---- pollStatus: revoke + register branches ----
+
+    @Test
+    void pollStatusUsesRevokeEndpointForRevoke() throws ConnectorException {
+        CertificateOperationStatusResponseDto resp = new CertificateOperationStatusResponseDto();
+        resp.setStatus(CertificateOperationStatus.IN_PROGRESS);
+        when(certClientV3.getRevokeStatus(eq(connectorInfo), any())).thenReturn(resp);
+
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.REVOKE);
+
+        assertEquals(CertificateOperationStatus.IN_PROGRESS, result.status());
+        verify(certClientV3).getRevokeStatus(eq(connectorInfo), any());
+    }
+
+    @Test
+    void pollStatusUsesRegisterEndpointForRegister() throws ConnectorException {
+        CertificateOperationStatusResponseDto resp = new CertificateOperationStatusResponseDto();
+        resp.setStatus(CertificateOperationStatus.FAILED);
+        resp.setReason("rejected upstream");
+        when(certClientV3.getRegisterStatus(eq(connectorInfo), any())).thenReturn(resp);
+
+        StatusPollResult result = adapter.pollStatus(cert, CertificateOperation.REGISTER);
+
+        assertEquals(CertificateOperationStatus.FAILED, result.status());
+        assertEquals("rejected upstream", result.reason());
+    }
+
+    // ---- cancel: revoke branch ----
+
+    @Test
+    void cancelUsesCancelRevokeForRevoke() throws ConnectorException {
+        when(certClientV3.cancelRevoke(eq(connectorInfo), any())).thenReturn(ResponseEntity.noContent().build());
+
+        CancelResult result = adapter.cancel(cert, CertificateOperation.REVOKE);
+
+        assertEquals(CancelOutcome.CANCELLED, result.outcome());
+        verify(certClientV3).cancelRevoke(eq(connectorInfo), any());
     }
 }
