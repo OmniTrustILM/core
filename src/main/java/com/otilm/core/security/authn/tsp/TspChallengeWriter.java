@@ -25,7 +25,10 @@ public class TspChallengeWriter {
     }
 
     private String buildChallenge(TspProfileModel profile) {
-        List<TspAuthenticationMethod> methods = profile == null ? List.of() : profile.allowedAuthenticationMethods();
+        if (profile == null) {
+            return null;
+        }
+        List<TspAuthenticationMethod> methods = profile.allowedAuthenticationMethods();
         List<String> challenges = new ArrayList<>();
         if (methods.contains(TspAuthenticationMethod.BASIC_PASSWORD)) {
             challenges.add("Basic realm=\"" + profile.name() + "\"");

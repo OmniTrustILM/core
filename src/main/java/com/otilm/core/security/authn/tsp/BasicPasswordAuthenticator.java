@@ -49,7 +49,7 @@ public class BasicPasswordAuthenticator implements TspAuthenticator {
     @Override
     public boolean authenticate(HttpServletRequest request, TspProfileModel profile) {
         String[] credentials = decodeBasicCredentials(request.getHeader(HttpHeaders.AUTHORIZATION));
-        if (credentials == null) {
+        if (credentials.length != 2) {
             return false;
         }
         String username = credentials[0];
@@ -109,12 +109,12 @@ public class BasicPasswordAuthenticator implements TspAuthenticator {
             String decoded = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
             int separator = decoded.indexOf(':');
             if (separator < 0) {
-                return null;
+                return new String[0];
             }
             return new String[]{decoded.substring(0, separator), decoded.substring(separator + 1)};
         } catch (IllegalArgumentException e) {
             log.warn("TSP authentication: malformed Basic credentials.");
-            return null;
+            return new String[0];
         }
     }
 }

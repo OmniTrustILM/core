@@ -243,9 +243,7 @@ class TspAuthenticationFilterTest {
             // then
             assertThat(response.getStatus()).isEqualTo(401);
             String header = response.getHeader("WWW-Authenticate");
-            assertThat(header).isNotNull();
-            assertThat(header).contains("Bearer");
-            assertThat(header).doesNotContain("Basic");
+            assertThat(header).isNotNull().contains("Bearer").doesNotContain("Basic");
             assertThat(chain.getRequest()).isNull();
         }
     }
@@ -338,12 +336,13 @@ class TspAuthenticationFilterTest {
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.BEARER_TOKEN)));
             request.addHeader("Authorization", "Bearer the.jwt.token");
+            Instant issuedAt = Instant.parse("2026-01-01T00:00:00Z");
             Jwt jwt = Jwt.withTokenValue("the.jwt.token")
                     .header("alg", "none")
                     .claim("sub", "alice")
                     .claim("jti", "jti-1")
-                    .issuedAt(Instant.now())
-                    .expiresAt(Instant.now().plusSeconds(60))
+                    .issuedAt(issuedAt)
+                    .expiresAt(issuedAt.plusSeconds(60))
                     .build();
             when(jwtDecoder.decode("the.jwt.token")).thenReturn(jwt);
             when(authClient.authenticateByToken(any())).thenReturn(authenticatedInfo());
@@ -479,8 +478,7 @@ class TspAuthenticationFilterTest {
             // then
             assertThat(response.getStatus()).isEqualTo(401);
             String header = response.getHeader("WWW-Authenticate");
-            assertThat(header).isNotNull();
-            assertThat(header).contains("Basic realm=\"p1\"");
+            assertThat(header).isNotNull().contains("Basic realm=\"p1\"");
         }
     }
 
