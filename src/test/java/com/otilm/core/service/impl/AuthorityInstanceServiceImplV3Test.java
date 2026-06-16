@@ -130,10 +130,7 @@ class AuthorityInstanceServiceImplV3Test {
     @Test
     void createV3AuthoritySavesWithConnectorInterfaceUuid() throws Exception {
         UUID ifaceUuid = UUID.randomUUID();
-        // Set UUID on the interface entity via reflection (UniquelyIdentified has a protected uuid field)
-        java.lang.reflect.Field uuidField = findUuidField(ConnectorInterfaceEntity.class);
-        uuidField.setAccessible(true);
-        uuidField.set(v3Iface, ifaceUuid);
+        v3Iface.setUuid(ifaceUuid);
 
         AuthorityInstanceRequestDto request = buildRequest();
 
@@ -205,9 +202,7 @@ class AuthorityInstanceServiceImplV3Test {
     @Test
     void createV3AuthorityWithExplicitInterfaceUuidSelectsThatInterface() throws Exception {
         UUID ifaceUuid = UUID.randomUUID();
-        java.lang.reflect.Field uuidField = findUuidField(ConnectorInterfaceEntity.class);
-        uuidField.setAccessible(true);
-        uuidField.set(v3Iface, ifaceUuid);
+        v3Iface.setUuid(ifaceUuid);
 
         AuthorityInstanceRequestDto request = buildRequest();
         request.setInterfaceUuid(ifaceUuid);
@@ -252,21 +247,5 @@ class AuthorityInstanceServiceImplV3Test {
         req.setAttributes(List.of());
         req.setCustomAttributes(List.of());
         return req;
-    }
-
-    /**
-     * Finds the {@code uuid} field by walking the class hierarchy. The field lives in
-     * {@code UniquelyIdentified} which is a grandparent of {@code ConnectorInterfaceEntity}.
-     */
-    private java.lang.reflect.Field findUuidField(Class<?> clazz) {
-        Class<?> current = clazz;
-        while (current != null) {
-            try {
-                return current.getDeclaredField("uuid");
-            } catch (NoSuchFieldException e) {
-                current = current.getSuperclass();
-            }
-        }
-        throw new IllegalStateException("Could not find 'uuid' field in hierarchy of " + clazz.getName());
     }
 }

@@ -111,7 +111,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.LIST)
     public List<AuthorityInstanceDto> listAuthorityInstances(SecurityFilter filter) {
-        return authorityInstanceReferenceRepository.findUsingSecurityFilter(filter)
+        // fetch-join connectorInterface so mapToDto does not lazy-load it per row (avoids N+1)
+        return authorityInstanceReferenceRepository.findUsingSecurityFilter(filter, List.of("connectorInterface"), null)
                 .stream()
                 .map(AuthorityInstanceReference::mapToDto)
                 .collect(Collectors.toList());
