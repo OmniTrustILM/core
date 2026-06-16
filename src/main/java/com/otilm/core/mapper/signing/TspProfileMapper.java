@@ -6,11 +6,9 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspProfileDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
-import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.util.TspProtocolUrlFactory;
 import com.otilm.core.model.signing.TspProfileModel.BasicCredentialRef;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.List;
 import java.util.Map;
