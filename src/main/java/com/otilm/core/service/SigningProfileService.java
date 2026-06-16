@@ -87,9 +87,9 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException;
 
-    TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid) throws NotFoundException;
+    TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid, String baseUrl) throws NotFoundException;
 
-    TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid) throws NotFoundException;
+    TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid, String baseUrl) throws NotFoundException;
 
     void deactivateTsp(SecuredUUID uuid) throws NotFoundException;
 }

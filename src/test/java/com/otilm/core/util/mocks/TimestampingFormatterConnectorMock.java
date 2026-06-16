@@ -15,10 +15,17 @@ import java.util.UUID;
  * Mock of a V2 timestamping formatter connector — stubs {@code GET /v2/info} advertising
  * {@link ConnectorInterface#SIGNATURE_FORMATTING} with {@link FeatureFlag#TIMESTAMPING}.
  * Used to back {@code TIMESTAMPING} workflow profiles.
+ *
+ * <p>Beyond discovery, {@link #stubFormatDtbs()} and {@link #stubFormatResponse()} implement the
+ * runtime two-round-trip RFC 3161 formatter contract for real: phase 1 returns the genuine CMS
+ * data-to-be-signed for the request's TSTInfo, and phase 2 assembles a real {@code TimeStampToken}
+ * embedding the externally produced signature — so tokens it produces verify against the signer
+ * certificate.
  */
 public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
 
     TimestampingFormatterConnectorMock() {
+        super(new TimestampingFormatDtbsTransformer(), new TimestampingFormatResponseTransformer());
         stubV2InfoDetails(List.of(
                 interfaceInfo(ConnectorInterface.INFO, List.of()),
                 interfaceInfo(ConnectorInterface.HEALTH, List.of()),
@@ -56,6 +63,32 @@ public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize attribute definition for WireMock stub", e);
         }
+        return this;
+    }
+
+    /**
+     * Stubs phase 1 of the RFC 3161 formatter contract ({@code formatDtbs}) — see
+     * {@link TimestampingFormatDtbsTransformer}.
+     */
+    public TimestampingFormatterConnectorMock stubFormatDtbs() {
+        server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatDtbs"))
+                .willReturn(WireMock.aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withTransformers(TimestampingFormatDtbsTransformer.NAME)));
+        return this;
+    }
+
+    /**
+     * Stubs phase 2 of the RFC 3161 formatter contract ({@code formatResponse}) — see
+     * {@link TimestampingFormatResponseTransformer}.
+     */
+    public TimestampingFormatterConnectorMock stubFormatResponse() {
+        server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatResponse"))
+                .willReturn(WireMock.aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withTransformers(TimestampingFormatResponseTransformer.NAME)));
         return this;
     }
 }

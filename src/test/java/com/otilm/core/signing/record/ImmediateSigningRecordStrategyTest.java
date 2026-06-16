@@ -22,7 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
@@ -57,8 +57,8 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
         // given
         SigningProfile persistedProfile = insertSigningProfile("immediate-profile");
         SigningProfileModel<?, ?> signingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
         SigningRecordInput input = aSigningRecordInput()
                 .signingProfile(signingProfile)
@@ -89,7 +89,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
     void recordingDisabledIsNoOp() {
         // given
         SigningProfileModel<?, ?> signingProfile = aSigningProfile()
-                .recordPolicy(recordingDisabled().build())
+                .withRecordPolicy(recordingDisabled().build())
                 .build();
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
@@ -108,8 +108,8 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
         // given
         SigningProfile persistedProfile = insertSigningProfile("metadata-only-profile");
         SigningProfileModel<?, ?> signingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .recordPolicy(notRecording().build())
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(notRecording().build())
                 .build();
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 

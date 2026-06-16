@@ -1,6 +1,5 @@
 package com.otilm.core.mapper.signing;
 
-import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
@@ -19,12 +18,13 @@ import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.scheme.ManagedSigning;
 import com.otilm.core.model.signing.scheme.OneTimeKeyManagedSigning;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
+import com.otilm.core.util.TspProtocolUrlFactory;
 import org.jspecify.annotations.NonNull;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -158,6 +158,7 @@ public class SigningProfileMapper {
         return new SigningProfileModel<>(
                 header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), detectEnabledProtocols(header),
+                header.getTspProfileUuid(),
                 buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes),
                 buildRecordPolicyModel(version));
@@ -180,14 +181,13 @@ public class SigningProfileMapper {
     // Public mappers — list / simple / TSP
     // ──────────────────────────────────────────────────────────────────────────
 
-    public static TspActivationDetailDto toTspActivationDto(SigningProfile profile) {
+    public static TspActivationDetailDto toTspActivationDto(SigningProfile profile, String baseUrl) {
         TspActivationDetailDto dto = new TspActivationDetailDto();
         if (profile.getTspProfile() != null) {
             dto.setUuid(profile.getTspProfile().getUuid().toString());
             dto.setName(profile.getTspProfile().getName());
             dto.setAvailable(true);
-            dto.setSigningUrl(ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString()
-                    + "/v1/protocols/tsp/signingProfile/" + profile.getName() + "/sign");
+            dto.setSigningUrl(TspProtocolUrlFactory.forSigningProfile(baseUrl, profile.getName()));
         } else {
             dto.setAvailable(false);
         }

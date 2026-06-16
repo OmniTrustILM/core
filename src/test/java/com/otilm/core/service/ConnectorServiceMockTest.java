@@ -27,6 +27,8 @@ import java.util.*;
 @SpringBootTest
 class ConnectorServiceMockTest {
 
+    private static final String CONNECTOR_URL = "http://localhost";
+
     @Mock
     private ConnectorApiClient connectorApiClient;
 
@@ -128,7 +130,7 @@ class ConnectorServiceMockTest {
         Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
-        request.setUrl("http://localhost");
+        request.setUrl(CONNECTOR_URL);
 
         Assertions.assertNotNull(connectorService.connect(request).getFirst().getErrorMessage());
     }
@@ -142,7 +144,7 @@ class ConnectorServiceMockTest {
         Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
-        request.setUrl("http://localhost");
+        request.setUrl(CONNECTOR_URL);
 
         Assertions.assertNotNull(connectorService.connect(request).getFirst().getErrorMessage());
     }
@@ -156,7 +158,7 @@ class ConnectorServiceMockTest {
         Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
-        request.setUrl("http://localhost");
+        request.setUrl(CONNECTOR_URL);
 
         Assertions.assertDoesNotThrow(() -> connectorService.connect(request));
     }

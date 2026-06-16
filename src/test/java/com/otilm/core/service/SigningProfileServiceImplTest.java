@@ -107,6 +107,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
     private static final String CUSTOM_ATTR_UUID = "c1d2e3f4-0001-0002-0003-000000000004";
     private static final String CUSTOM_ATTR_NAME = "signingProfileTestAttribute";
+    private static final String BASE_URL = "http://localhost";
 
     @Autowired
     private SigningProfileService signingProfileService;
@@ -314,7 +315,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         defaultTspProtocol = tspProfileService.createTspProfile(
                 aTspProfileRequest()
                         .withName("default-tsp-protocol")
-                        .build()
+                        .build(),
+                BASE_URL
         );
     }
 
@@ -593,7 +595,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // when: link a TSP protocol to the profile
             signingProfileService.activateTsp(SecuredUUID.fromString(createdProfile.getUuid()),
-                    SecuredUUID.fromString(defaultTspProtocol.getUuid()));
+                    SecuredUUID.fromString(defaultTspProtocol.getUuid()), BASE_URL);
 
             // then
             SigningProfileDto updatedProfile = signingProfileService.getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -1109,7 +1111,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     aTspProfileRequest()
                             .withName("expected-tsp-name")
                             .withDefaultSigningProfile(timestampingProfileUuid.getValue())
-                            .build()
+                            .build(),
+                    BASE_URL
             );
 
 
@@ -1227,7 +1230,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                         aTspProfileRequest()
                                 .withName("blocking-tsp")
                                 .withDefaultSigningProfile(UUID.fromString(defaultTimestampingProfile.getUuid()))
-                                .build()
+                                .build(),
+                        BASE_URL
                 );
                 SigningProfileDto second = signingProfileService.createSigningProfile(
                         aSigningProfileRequest()
@@ -1401,12 +1405,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             // given: a TIMESTAMPING signing profile and a TSP profile
             SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
             TspProfileDto tsp = tspProfileService.createTspProfile(
-                    aTspProfileRequest().withName("test-tsp-profile").build());
+                    aTspProfileRequest().withName("test-tsp-profile").build(), BASE_URL);
             SecuredUUID tspUuid = SecuredUUID.fromString(tsp.getUuid());
 
             // when
             TspActivationDetailDto activationDto = signingProfileService.activateTsp(
-                    timestampingProfileUuid, tspUuid);
+                    timestampingProfileUuid, tspUuid, BASE_URL);
 
             // then
             assertTrue(activationDto.isAvailable());
@@ -1422,7 +1426,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SecuredUUID nonExistentTspUuid = SecuredUUID.fromString("00000000-0000-0000-0000-000000000002");
 
             // when
-            Executable activate = () -> signingProfileService.activateTsp(timestampingProfileUuid, nonExistentTspUuid);
+            Executable activate = () -> signingProfileService.activateTsp(timestampingProfileUuid, nonExistentTspUuid, BASE_URL);
 
             // then
             assertThrows(NotFoundException.class, activate);
@@ -1432,14 +1436,14 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         void activate_replacesExistingLink() throws AlreadyExistException, AttributeException, NotFoundException {
             // given: a signing profile linked to tsp1
             SecuredUUID timestampingProfileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
-            TspProfileDto tsp1 = tspProfileService.createTspProfile(aTspProfileRequest().withName("tsp-profile-1").build());
-            TspProfileDto tsp2 = tspProfileService.createTspProfile(aTspProfileRequest().withName("tsp-profile-2").build());
+            TspProfileDto tsp1 = tspProfileService.createTspProfile(aTspProfileRequest().withName("tsp-profile-1").build(), BASE_URL);
+            TspProfileDto tsp2 = tspProfileService.createTspProfile(aTspProfileRequest().withName("tsp-profile-2").build(), BASE_URL);
             SecuredUUID tsp1Uuid = SecuredUUID.fromString(tsp1.getUuid());
             SecuredUUID tsp2Uuid = SecuredUUID.fromString(tsp2.getUuid());
-            signingProfileService.activateTsp(timestampingProfileUuid, tsp1Uuid);
+            signingProfileService.activateTsp(timestampingProfileUuid, tsp1Uuid, BASE_URL);
 
             // when: replace with tsp2
-            signingProfileService.activateTsp(timestampingProfileUuid, tsp2Uuid);
+            signingProfileService.activateTsp(timestampingProfileUuid, tsp2Uuid, BASE_URL);
 
             // then: tsp2 is the active TSP (signing URL references its UUID, not tsp1's)
             assertTrue(signingProfileService.getSigningProfile(timestampingProfileUuid, null)
@@ -1454,7 +1458,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SecuredUUID tspUuid = SecuredUUID.fromString(defaultTspProtocol.getUuid());
 
             // when
-            Executable activate = () -> signingProfileService.activateTsp(rawSingingProfileUuid, tspUuid);
+            Executable activate = () -> signingProfileService.activateTsp(rawSingingProfileUuid, tspUuid, BASE_URL);
 
             // then
             assertThrows(ValidationException.class, activate);
@@ -1467,7 +1471,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SecuredUUID tspUuid = SecuredUUID.fromString(defaultTspProtocol.getUuid());
 
             // when
-            Executable activate = () -> signingProfileService.activateTsp(contentSigningProfileUuid, tspUuid);
+            Executable activate = () -> signingProfileService.activateTsp(contentSigningProfileUuid, tspUuid, BASE_URL);
 
             // then
             assertThrows(ValidationException.class, activate);
@@ -1477,7 +1481,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         void deactivate_removesFromEnabledProtocols() throws NotFoundException {
             // given: a TIMESTAMPING signing profile linked to a TSP profile
             SecuredUUID profileUuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
-            signingProfileService.activateTsp(profileUuid, SecuredUUID.fromString(defaultTspProtocol.getUuid()));
+            signingProfileService.activateTsp(profileUuid, SecuredUUID.fromString(defaultTspProtocol.getUuid()), BASE_URL);
             assertTrue(signingProfileService.getSigningProfile(profileUuid, null)
                     .getEnabledProtocols().contains(SigningProtocol.TSP));
 
