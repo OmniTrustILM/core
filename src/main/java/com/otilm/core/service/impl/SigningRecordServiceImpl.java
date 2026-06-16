@@ -74,6 +74,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_NAME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE, signingProfileRepository.findAllNames()),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_PROTOCOL),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_TIME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT),
