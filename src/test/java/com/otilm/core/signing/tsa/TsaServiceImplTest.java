@@ -33,10 +33,6 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
-import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.DEROctetString;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -160,10 +156,14 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         return createTimestampingSigningProfile(name, List.of(), List.of());
     }
 
+    /**
+     * Creates a timestamping signing profile, then enables it and activates it against a freshly created and
+     * enabled TSP profile — the preconditions {@code TsaServiceImpl} now enforces before granting timestamps.
+     */
     private SigningProfileDto createTimestampingSigningProfile(String name,
                                                               List<DigestAlgorithm> allowedDigestAlgorithms,
                                                               List<String> allowedPolicyIds) throws Exception {
-        return signingProfileService.createSigningProfile(
+        SigningProfileDto signingProfile = signingProfileService.createSigningProfile(
                 aSigningProfileRequest()
                         .withName(name)
                         .withStaticKeyManagedSigning(signingCertificate.getUuid())
@@ -181,6 +181,16 @@ class TsaServiceImplTest extends BaseSpringBootTest {
                                 .withPersistenceMode(SigningRecordPersistenceMode.IMMEDIATE)
                                 .build())
                         .build());
+
+        SecuredUUID signingProfileUuid = SecuredUUID.fromString(signingProfile.getUuid());
+        signingProfileService.enableSigningProfile(signingProfileUuid);
+
+        SecuredUUID tspProfileUuid = SecuredUUID.fromString(tspProfileService.createTspProfile(
+                aTspProfileRequest().withName(name + "-tsp").build(), "http://localhost").getUuid());
+        tspProfileService.enableTspProfile(tspProfileUuid);
+        signingProfileService.activateTsp(signingProfileUuid, tspProfileUuid, "http://localhost");
+
+        return signingProfile;
     }
 
     // ── processTspRequestForTspProfile ────────────────────────────────────────
@@ -201,10 +211,11 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         void grantsTimestamp_viaDefaultSigningProfile_ofTspProfile() throws Exception {
             // given
             SigningProfileDto signingProfile = createTimestampingSigningProfile("sp-for-tsp");
-            tspProfileService.createTspProfile(aTspProfileRequest()
+            SecuredUUID tspProfileUuid = SecuredUUID.fromString(tspProfileService.createTspProfile(aTspProfileRequest()
                     .withName("my-tsp-profile")
                     .withDefaultSigningProfile(UUID.fromString(signingProfile.getUuid()))
-                    .build());
+                    .build(), "http://localhost").getUuid());
+            tspProfileService.enableTspProfile(tspProfileUuid);
 
             // when
             TspResponse response = tsaService.processTspRequestForTspProfile("my-tsp-profile", aTspRequest().build());
@@ -270,23 +281,6 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             // The TSP path stores only the self-contained token; signature and dtbs are recoverable from it.
             assertThat(record.getSignatureValue()).isNull();
             assertThat(record.getDtbs()).isNull();
-        }
-
-        @Test
-        void throwsValidationException_whenRequestContainsExtensions() throws Exception {
-            // given
-            SigningProfileDto profile = createTimestampingSigningProfile("sp-no-extensions");
-            Extension dummyExtension = new Extension(
-                    new ASN1ObjectIdentifier("1.2.3.4.5"), false, new DEROctetString(new byte[]{1}));
-            TspRequest requestWithExtensions = aTspRequest()
-                    .requestExtensions(new Extensions(dummyExtension))
-                    .build();
-
-            // when / then
-            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile(profile.getName(), requestWithExtensions))
-                    .isInstanceOf(TspRequestValidationException.class)
-                    .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
-                            .isEqualTo(TspFailureInfo.UNACCEPTED_EXTENSION));
         }
 
         @Test

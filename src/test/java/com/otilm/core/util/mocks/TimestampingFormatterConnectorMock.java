@@ -8,6 +8,7 @@ import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -89,6 +90,34 @@ public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withTransformers(TimestampingFormatResponseTransformer.NAME)));
+        return this;
+    }
+
+    /**
+     * Stubs the two-phase timestamp assembly with fixed, request-agnostic responses: {@code formatDtbs}
+     * returns placeholder data-to-be-signed, and {@code formatResponse} returns the given pre-built RFC 3161
+     * token bytes verbatim. Unlike {@link #stubFormatDtbs()}/{@link #stubFormatResponse()} (which assemble a
+     * token derived from the request and therefore require a fully-populated request, e.g. a policy OID), this
+     * returns a caller-supplied token regardless of request content — suited to minimal-request unit tests.
+     * The token must be structurally parseable as a CMS {@code TimeStampToken}; it need not cryptographically
+     * verify unless the profile enables token-signature validation.
+     */
+    public TimestampingFormatterConnectorMock stubTokenAssembly(byte[] timestampTokenBytes) {
+        String dtbs = Base64.getEncoder().encodeToString("placeholder-dtbs".getBytes());
+        String token = Base64.getEncoder().encodeToString(timestampTokenBytes);
+        server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatDtbs"))
+                .willReturn(WireMock.okJson("{\"dtbs\":\"" + dtbs + "\"}")));
+        server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatResponse"))
+                .willReturn(WireMock.okJson("{\"response\":\"" + token + "\"}")));
+        return this;
+    }
+
+    /**
+     * Stubs the {@code formatDtbs} phase to fail, so the engine surfaces a {@code SYSTEM_FAILURE} rejection.
+     */
+    public TimestampingFormatterConnectorMock stubTokenAssemblyFailure() {
+        server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatDtbs"))
+                .willReturn(WireMock.serverError()));
         return this;
     }
 }

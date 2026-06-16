@@ -34,7 +34,7 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.UUID;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -142,7 +142,7 @@ class ManagedTimestampEngineTest {
         // given — the profile pins an explicit persistence mode; the engine must route recording to that mode's strategy
         var timestampToken = aTokenEncodingTo(new byte[]{1, 2, 3});
         var profileWithImmediateMode = aSigningProfile()
-                .recordPolicy(new SigningRecordPolicyModel(true, false, false, false, false, null, false, SigningRecordPersistenceMode.IMMEDIATE))
+                .withRecordPolicy(new SigningRecordPolicyModel(true, false, false, false, false, null, false, SigningRecordPersistenceMode.IMMEDIATE))
                 .build();
 
         when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);

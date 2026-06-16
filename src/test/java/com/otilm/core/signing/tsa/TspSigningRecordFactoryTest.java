@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.otilm.core.model.signing.SigningProfileModelBuilder;
+import com.otilm.core.util.builders.SigningProfileModelBuilder;
 import com.otilm.core.signing.record.SigningRecordInput;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +14,7 @@ import java.math.BigInteger;
 import java.time.Instant;
 import java.util.Map;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.aSigningRecordPolicy;
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -55,7 +55,7 @@ class TspSigningRecordFactoryTest {
         var policyOid = "1.2.3.4.5";
         var nonce = BigInteger.valueOf(255);           // decimal "255" — distinct from the hex serial
         var hashAlgorithm = DigestAlgorithm.SHA_256;
-        var profile = aRecordingProfile().name(profileName).version(profileVersion).build();
+        var profile = aRecordingProfile().withName(profileName).withVersion(profileVersion).build();
         var request = aTspRequest().hashAlgorithm(hashAlgorithm).policy(policyOid).nonce(nonce).build();
 
         // when
@@ -112,7 +112,7 @@ class TspSigningRecordFactoryTest {
         // given
         var profileName = "my-tsa-profile";
         var serialNumber = BigInteger.valueOf(255);   // hex "ff"
-        var profile = aSigningProfile().name(profileName).build();
+        var profile = aSigningProfile().withName(profileName).build();
 
         // when
         SigningRecordInput input = factory.build(profile, aTspRequest().build(), serialNumber, GEN_TIME, ENCODED_TOKEN);
@@ -161,7 +161,7 @@ class TspSigningRecordFactoryTest {
     }
 
     private static SigningProfileModelBuilder aRecordingProfile() {
-        return aSigningProfile().recordPolicy(aSigningRecordPolicy().recordRequestMetadata(true).build());
+        return aSigningProfile().withRecordPolicy(aSigningRecordPolicy().recordRequestMetadata(true).build());
     }
 
     private Map<String, Object> parseMetadata(String json) throws JsonProcessingException {

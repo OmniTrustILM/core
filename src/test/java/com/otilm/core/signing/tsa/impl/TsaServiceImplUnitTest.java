@@ -88,7 +88,7 @@ class TsaServiceImplUnitTest {
             when(tspProfileService.getTspProfile("tsp-profile"))
                     .thenReturn(aTspProfile().withDefaultSigningProfileName("signing-profile").build());
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
-            when(managedTimestampEngine.process(any(), any())).thenReturn(TspResponse.granted(new byte[]{1, 2, 3}));
+            when(managedTimestampEngine.process(any(), any(), any())).thenReturn(TspResponse.granted(new byte[]{1, 2, 3}));
 
             // when
             TspResponse response = tsaService.processTspRequestForTspProfile("tsp-profile", aTspRequest().build());
@@ -96,7 +96,7 @@ class TsaServiceImplUnitTest {
             // then — the TSP profile's default signing profile is resolved and dispatched to the engine
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
             verify(signingProfileResolverFactory).resolve(argThat(profile -> "signing-profile".equals(profile.name())));
-            verify(managedTimestampEngine).process(any(), any());
+            verify(managedTimestampEngine).process(any(), any(), any());
         }
 
         @Test
@@ -245,7 +245,7 @@ class TsaServiceImplUnitTest {
             // given
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
-            when(managedTimestampEngine.process(any(), any())).thenReturn(TspResponse.granted(new byte[]{7, 8, 9}));
+            when(managedTimestampEngine.process(any(), any(), any())).thenReturn(TspResponse.granted(new byte[]{7, 8, 9}));
 
             // when
             TspResponse response = tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
@@ -253,7 +253,7 @@ class TsaServiceImplUnitTest {
             // then
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
             verify(tspRequestValidator).validate(any(), any());
-            verify(managedTimestampEngine).process(any(), any());
+            verify(managedTimestampEngine).process(any(), any(), any());
         }
 
         @Test
@@ -278,7 +278,7 @@ class TsaServiceImplUnitTest {
             // given — the engine signals an internal failure (e.g. degraded time quality)
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
-            when(managedTimestampEngine.process(any(), any()))
+            when(managedTimestampEngine.process(any(), any(), any()))
                     .thenReturn(TspResponse.rejected(TspFailureInfo.SYSTEM_FAILURE, "internal error"));
 
             // when
