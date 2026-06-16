@@ -122,7 +122,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         boolean usernameChanged = !Objects.equals(credential.getUsername(), request.getUsername());
         if (usernameChanged && !rotate) {
             throw new ValidationException(
-                    "Changing the username also requires a new password so the stored credential fingerprint can be regenerated.");
+                    "Changing the username requires providing a new password so the backing secret can be rotated.");
         }
         if (rotate) {
             rotateVaultSecret(credential.getSecretUuid(), request.getUsername(), request.getPassword());
