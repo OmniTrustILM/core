@@ -201,7 +201,6 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         authorityInstanceRef.setConnectorName(connector.getName());
         if (iface != null) {
             authorityInstanceRef.setConnectorInterface(iface);
-            authorityInstanceRef.setConnectorInterfaceUuid(iface.getUuid());
         }
         authorityInstanceReferenceRepository.save(authorityInstanceRef);
 
@@ -401,7 +400,6 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         ref.setKind(kind);
         if (iface != null) {
             ref.setConnectorInterface(iface);
-            ref.setConnectorInterfaceUuid(iface.getUuid());
         }
         return ref;
     }

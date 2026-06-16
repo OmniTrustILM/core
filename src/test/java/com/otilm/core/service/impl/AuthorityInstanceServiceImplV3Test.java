@@ -31,10 +31,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,16 +84,9 @@ class AuthorityInstanceServiceImplV3Test {
         v3Iface.setVersion("v3");
         v3Iface.setConnectorUuid(connectorUuid);
 
-        Set<ConnectorInterfaceEntity> interfaces = new HashSet<>();
-        interfaces.add(v3Iface);
-
         connectorEntity = new Connector();
         connectorEntity.setName("v3-connector");
-
-        // Use reflection to set interfaces (field is populated via Hibernate in prod, not a setter)
-        java.lang.reflect.Field ifacesField = Connector.class.getDeclaredField("interfaces");
-        ifacesField.setAccessible(true);
-        ifacesField.set(connectorEntity, interfaces);
+        connectorEntity.getInterfaces().add(v3Iface);
 
         connectorDto = new ConnectorDto();
         connectorDto.setName("v3-connector");
@@ -167,6 +158,16 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
+    void createV3AuthorityReturnsDtoWithConnectorAndInterface() throws Exception {
+        AuthorityInstanceDto result = service.createAuthorityInstance(buildRequest());
+
+        assertThat(result.getConnector()).isNotNull();
+        assertThat(result.getConnector().getName()).isEqualTo("v3-connector");
+        assertThat(result.getConnectorInterface()).isNotNull();
+        assertThat(result.getConnectorInterface().getVersion()).isEqualTo("v3");
+    }
+
+    @Test
     void createV3AuthorityValidatesAttributesAgainstV3Definitions() throws Exception {
         List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
         when(v3Adapter.listAuthorityInstanceAttributes(any())).thenReturn(definitions);
@@ -232,11 +233,7 @@ class AuthorityInstanceServiceImplV3Test {
         secondIface.setInterfaceCode(ConnectorInterface.AUTHORITY);
         secondIface.setVersion("v2");
         secondIface.setConnectorUuid(connectorUuid);
-        java.lang.reflect.Field ifacesField = Connector.class.getDeclaredField("interfaces");
-        ifacesField.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Set<ConnectorInterfaceEntity> ifaces = (Set<ConnectorInterfaceEntity>) ifacesField.get(connectorEntity);
-        ifaces.add(secondIface);
+        connectorEntity.getInterfaces().add(secondIface);
 
         AuthorityInstanceRequestDto request = buildRequest(); // no interfaceUuid → ambiguous
 
