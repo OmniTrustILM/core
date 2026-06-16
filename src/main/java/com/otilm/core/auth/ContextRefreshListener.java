@@ -12,7 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -57,7 +59,16 @@ public class ContextRefreshListener {
                     listingEndpoints.put(annotatedValues.resourceName(), e.getKey().getPatternValues().iterator().next());
                 });
         //Iterate and get all the methods that are annotated with ExternalAuthentication
+        ConfigurableListableBeanFactory beanFactory =
+                ((ConfigurableApplicationContext) applicationContext).getBeanFactory();
         for (String beanName : applicationContext.getBeanDefinitionNames()) {
+            // Skip non-singleton beans (e.g. the request/session-scoped scopedTarget.* targets):
+            // instantiating them here, during context refresh, runs outside any web request and
+            // would fail with ScopeNotActiveException. Authorization/attribute annotations only
+            // ever live on singleton controllers and services.
+            if (!beanFactory.getBeanDefinition(beanName).isSingleton()) {
+                continue;
+            }
             Method[] methods = AopUtils.getTargetClass(applicationContext.getBean(beanName)).getDeclaredMethods();
 
             for (Method m : methods) {

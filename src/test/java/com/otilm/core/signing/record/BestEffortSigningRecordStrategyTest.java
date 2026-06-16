@@ -20,7 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -58,9 +58,9 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
         SigningProfile persistedProfile = insertSigningProfile("round-trip-profile");
         insertProfileVersion(persistedProfile, 7);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .version(7)
-                .recordPolicy(recordingEverything().build())
+                .withUuid(persistedProfile.getUuid())
+                .withVersion(7)
+                .withRecordPolicy(recordingEverything().build())
                 .build();
 
         // when
@@ -93,8 +93,8 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
         SigningProfile persistedProfile = insertSigningProfile("batched-profile");
         insertProfileVersion(persistedProfile, 1);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
 
         // when

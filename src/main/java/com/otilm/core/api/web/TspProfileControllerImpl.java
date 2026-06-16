@@ -23,6 +23,7 @@ import com.otilm.core.service.TspProfileService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.List;
 import java.util.UUID;
@@ -47,25 +48,25 @@ public class TspProfileControllerImpl implements TspProfileController {
     @AuthEndpoint(resourceName = Resource.TSP_PROFILE)
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.LIST)
     public PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request) {
-        return tspProfileService.listTspProfiles(request, SecurityFilter.create());
+        return tspProfileService.listTspProfiles(request, SecurityFilter.create(), currentBaseUrl());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.DETAIL)
     public TspProfileDto getTspProfile(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return tspProfileService.getTspProfile(SecuredUUID.fromUUID(uuid));
+        return tspProfileService.getTspProfile(SecuredUUID.fromUUID(uuid), currentBaseUrl());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.CREATE)
     public TspProfileDto createTspProfile(@Valid TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
-        return tspProfileService.createTspProfile(request);
+        return tspProfileService.createTspProfile(request, currentBaseUrl());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.UPDATE)
     public TspProfileDto updateTspProfile(@LogResource(uuid = true) UUID uuid, @Valid TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
-        return tspProfileService.updateTspProfile(SecuredUUID.fromUUID(uuid), request);
+        return tspProfileService.updateTspProfile(SecuredUUID.fromUUID(uuid), request, currentBaseUrl());
     }
 
     @Override
@@ -102,5 +103,9 @@ public class TspProfileControllerImpl implements TspProfileController {
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.DISABLE)
     public List<BulkActionMessageDto> bulkDisableTspProfiles(@LogResource(uuid = true) List<UUID> uuids) {
         return tspProfileService.bulkDisableTspProfiles(SecuredUUID.fromUuidList(uuids));
+    }
+
+    private static String currentBaseUrl() {
+        return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     }
 }

@@ -17,16 +17,17 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface TspProfileService extends ResourceExtensionService {
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
-    PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter);
+    PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter, String baseUrl);
 
     SecuredList<TspProfile> listTspProfilesUsingSigningProfileAsDefault(SecuredUUID signingProfileUuid, SecurityFilter filter);
 
-    TspProfileDto getTspProfile(SecuredUUID uuid) throws NotFoundException;
+    TspProfileDto getTspProfile(SecuredUUID uuid, String baseUrl) throws NotFoundException;
 
     TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException;
 
@@ -34,9 +35,11 @@ public interface TspProfileService extends ResourceExtensionService {
 
     TspProfileModel getTspProfile(String name) throws NotFoundException;
 
-    TspProfileDto createTspProfile(TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
+    TspProfileModel getTspProfile(UUID uuid) throws NotFoundException;
 
-    TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
+    TspProfileDto createTspProfile(TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException;
+
+    TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException;
 
     void deleteTspProfile(SecuredUUID uuid) throws NotFoundException;
 

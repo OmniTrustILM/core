@@ -40,6 +40,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
 
 class TspProfileSearchTest extends BaseSpringBootTest {
 
+    private static final String BASE_URL = "http://localhost";
     private static final String CUSTOM_ATTR_NAME = "tsp-tag";
     private static final String CUSTOM_ATTR_VALUE = "alpha-tag-value";
 
@@ -221,7 +222,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
                 aPropertyFilter(FilterField.TSP_PROFILE_NAME, FilterConditionOperator.CONTAINS, "-tsp"),
                 aPropertyEqualsFilter(FilterField.TSP_PROFILE_ENABLED, true)
         ));
-        PaginationResponseDto<TspProfileListDto> response = tspProfileService.listTspProfiles(request, SecurityFilter.create());
+        PaginationResponseDto<TspProfileListDto> response = tspProfileService.listTspProfiles(request, SecurityFilter.create(), BASE_URL);
 
         Assertions.assertEquals(2, response.getTotalItems());
         Assertions.assertTrue(response.getItems().stream().allMatch(TspProfileListDto::isEnabled));
@@ -255,6 +256,6 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     private List<TspProfileListDto> listWithFilters(SearchFilterRequestDto... filters) {
         SearchRequestDto request = new SearchRequestDto();
         request.setFilters(List.of(filters));
-        return tspProfileService.listTspProfiles(request, SecurityFilter.create()).getItems();
+        return tspProfileService.listTspProfiles(request, SecurityFilter.create(), BASE_URL).getItems();
     }
 }

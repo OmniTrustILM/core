@@ -10,7 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
@@ -53,7 +53,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         var recordingDisabledInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
-                                .recordPolicy(
+                                .withRecordPolicy(
                                         recordingDisabled()
                                                 .build())
                                 .build())
@@ -74,7 +74,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         var metadataOnlyInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
-                                .recordPolicy(
+                                .withRecordPolicy(
                                         notRecording()
                                                 .build())
                                 .build())
@@ -119,7 +119,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
 
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(recordingEverything().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(recordingEverything().build()).build())
                 .build();
     }
 

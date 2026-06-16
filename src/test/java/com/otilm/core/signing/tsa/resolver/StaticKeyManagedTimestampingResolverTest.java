@@ -76,7 +76,7 @@ class StaticKeyManagedTimestampingResolverTest {
         return new SigningProfileModel<>(
                 UUID.fromString("99999999-9999-9999-9999-999999999999"),
                 "ts-profile", "a description", 2, true,
-                List.of(SigningProtocol.TSP), workflow, scheme,
+                List.of(SigningProtocol.TSP), UUID.fromString("88888888-8888-8888-8888-888888888888"), workflow, scheme,
                 SigningRecordPolicyModelBuilder.notRecording().build());
     }
 

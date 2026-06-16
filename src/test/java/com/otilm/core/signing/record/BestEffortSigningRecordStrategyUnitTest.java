@@ -12,7 +12,7 @@ import org.junit.jupiter.api.function.Executable;
 
 import java.util.List;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
@@ -62,7 +62,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var recordingDisabledInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
-                                .recordPolicy(
+                                .withRecordPolicy(
                                         recordingDisabled()
                                                 .build())
                                 .build())
@@ -84,7 +84,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var metadataOnlyInput = aSigningRecordInput()
                 .signingProfile(
                         aSigningProfile()
-                                .recordPolicy(
+                                .withRecordPolicy(
                                         notRecording()
                                                 .build())
                                 .build())
@@ -229,7 +229,7 @@ class BestEffortSigningRecordStrategyUnitTest {
 
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(recordingEverything().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(recordingEverything().build()).build())
                 .build();
     }
 

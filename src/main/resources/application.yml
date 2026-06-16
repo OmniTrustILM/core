@@ -23,10 +23,10 @@ caching:
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
     max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
-  # TSP Profile cache caches TSP Profile by profile name for the timestamping hot path
+  # TSP Profile cache caches TSP Profile for the timestamping hot path, keyed by both name (protocol path) and UUID (signing-profile path)
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
-    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Max cache entries; a profile uses up to 2 (name + UUID), so effective profile capacity is up to half this
   # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
   signing-profiles:
     ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
