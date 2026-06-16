@@ -5,7 +5,9 @@ import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
+import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -39,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -113,6 +116,45 @@ class ManagedTimestampEngineTest {
         // then
         assertThat(response).isInstanceOf(TspResponse.Granted.class);
         assertThat(((TspResponse.Granted) response).timestampBytes()).isEqualTo(new byte[]{1, 2, 3});
+    }
+
+    @Test
+    void recordsSigning_whenTokenIsGranted() throws Exception {
+        // given — a token is produced; the engine must record the granted signing exactly once
+        var timestampToken = aTokenEncodingTo(new byte[]{1, 2, 3});
+        var recordInput = mock(SigningRecordInput.class);
+
+        when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
+        when(signingCertificateValidator.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
+        when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
+        when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(timestampToken);
+        when(tspSigningRecordFactory.build(any(), any(), any(), any(), any())).thenReturn(recordInput);
+
+        // when
+        engine.process(aTspRequest().build(), signingProfile, aResolvedProfile(false, null));
+
+        // then — the input built from the granted token is handed to the strategy
+        verify(signingRecordStrategy).recordSigning(recordInput);
+    }
+
+    @Test
+    void routesRecordingToStrategyForProfilePersistenceMode() throws Exception {
+        // given — the profile pins an explicit persistence mode; the engine must route recording to that mode's strategy
+        var timestampToken = aTokenEncodingTo(new byte[]{1, 2, 3});
+        var profileWithImmediateMode = aSigningProfile()
+                .recordPolicy(new SigningRecordPolicyModel(true, false, false, false, false, null, false, SigningRecordPersistenceMode.IMMEDIATE))
+                .build();
+
+        when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
+        when(signingCertificateValidator.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
+        when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
+        when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(timestampToken);
+
+        // when
+        engine.process(aTspRequest().build(), profileWithImmediateMode, aResolvedProfile(false, null));
+
+        // then
+        verify(signingRecordStrategyFactory).strategyFor(SigningRecordPersistenceMode.IMMEDIATE);
     }
 
     @Test
