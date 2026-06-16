@@ -6,8 +6,9 @@ import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialCreateRequestDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialDto;
-import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialRequestDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialUpdateRequestDto;
 import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
@@ -78,7 +79,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE_BASIC_CREDENTIAL, action = ResourceAction.CREATE, parentResource = Resource.TSP_PROFILE, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public TspBasicCredentialDto create(SecuredParentUUID tspProfileUuid, TspBasicCredentialRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
+    public TspBasicCredentialDto create(SecuredParentUUID tspProfileUuid, TspBasicCredentialCreateRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
         TspProfile profile = getTspProfile(tspProfileUuid);
         if (profile.getVaultProfileUuid() == null) {
             throw new ValidationException("A vault profile is required on the TSP profile before adding Basic credentials.");
@@ -111,17 +112,18 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE_BASIC_CREDENTIAL, action = ResourceAction.UPDATE, parentResource = Resource.TSP_PROFILE, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public TspBasicCredentialDto update(SecuredParentUUID tspProfileUuid, SecuredUUID uuid, TspBasicCredentialRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
+    public TspBasicCredentialDto update(SecuredParentUUID tspProfileUuid, SecuredUUID uuid, TspBasicCredentialUpdateRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
         TspProfile profile = getTspProfile(tspProfileUuid);
         TspProfileBasicCredential credential = getCredentialScoped(tspProfileUuid, uuid);
         ensureUsernameAvailable(profile.getUuid(), request.getUsername(), credential.getUuid());
         validateMappedUserExists(request.getMappedUserUuid());
 
-        // Vault rotation can run only when a new password is supplied.
-        // On a username-only change the secret's stored username is left stale - it is informational only;
-        // verification reads the username from the credential row, never from the secret content.
-        // A later password rotation heals it, since rotation writes the current username too.
         boolean rotate = request.getPassword() != null && !request.getPassword().isBlank();
+        boolean usernameChanged = !Objects.equals(credential.getUsername(), request.getUsername());
+        if (usernameChanged && !rotate) {
+            throw new ValidationException(
+                    "Changing the username requires providing a new password so the backing secret can be rotated.");
+        }
         if (rotate) {
             rotateVaultSecret(credential.getSecretUuid(), request.getUsername(), request.getPassword());
         }
