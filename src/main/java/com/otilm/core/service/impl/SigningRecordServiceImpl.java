@@ -8,7 +8,6 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -42,7 +41,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -76,8 +74,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_NAME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE, signingProfileRepository.findAllNames()),
-                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_PROTOCOL,
-                        Arrays.stream(SigningProtocol.values()).map(SigningProtocol::getCode).toList()),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_PROTOCOL),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_TIME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT),
