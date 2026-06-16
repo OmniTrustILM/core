@@ -18,8 +18,9 @@ public class TspResponseBuilder {
 
     public static byte[] fromEngineResponse(TspResponse response) {
         return switch (response) {
-            case TspResponse.Granted granted -> granted(granted.timestampBytes());
-            case TspResponse.Rejected rejected -> buildRejection(rejected.failureInfo(), rejected.statusString());
+            case TspResponse.Granted(byte[] timestampBytes) -> granted(timestampBytes);
+            case TspResponse.Rejected(TspFailureInfo failureInfo, String statusString) ->
+                    buildRejection(failureInfo, statusString);
         };
     }
 
