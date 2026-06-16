@@ -62,7 +62,7 @@ class SigningRecordInputMapperTest {
     void toRecord_capturesProtocol_evenWhenPolicyRecordsNothing() {
         // given protocol is intrinsic operation metadata, not gated by the content record* toggles
         SigningRecordInput input = aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(notRecording().build()).build())
                 .protocol(SigningProtocol.CSC_API)
                 .build();
 
@@ -227,7 +227,7 @@ class SigningRecordInputMapperTest {
     void toOutbox_capturesProtocol_evenWhenPolicyRecordsNothing() {
         // given protocol is intrinsic operation metadata, not gated by the content record* toggles
         SigningRecordInput input = aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(notRecording().build()).build())
                 .protocol(SigningProtocol.CSC_API)
                 .build();
 
