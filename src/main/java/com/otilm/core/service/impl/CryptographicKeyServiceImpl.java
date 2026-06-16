@@ -73,7 +73,6 @@ import java.security.PublicKey;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static java.util.function.Predicate.not;
 
@@ -240,13 +239,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
 
         List<CryptographicKeyItem> filteredKeys = cryptographicKeyItemRepository.findFullByUuidInOrderByCreatedAtDesc(filteredKeyUuids);
 
-        List<Integer> associationsCounts = cryptographicKeyItemRepository.getCountsOfAssociations(filteredKeyUuids);
+        // Look the counts up by key-item uuid rather than zipping two lists positionally: the counts
+        // query groups by uuid (one row per item, missing items default to 0) while findFull can return
+        // duplicate rows from the groups collection fetch. distinct() collapses those duplicates.
+        Map<UUID, Long> associationCounts = cryptographicKeyItemRepository.getAssociationCounts(filteredKeyUuids).stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
 
-        List<KeyItemDto> listedKeyDtos = IntStream.range(0, filteredKeys.size())
-                .mapToObj(i -> {
-                    CryptographicKeyItem cki = filteredKeys.get(i);
+        List<KeyItemDto> listedKeyDtos = filteredKeys.stream()
+                .distinct()
+                .map(cki -> {
                     KeyItemDto dto = cki.mapToSummaryDto();
-                    dto.setAssociations(associationsCounts.get(i));
+                    dto.setAssociations(associationCounts.getOrDefault(cki.getUuid(), 0L).intValue());
                     return dto;
                 })
                 .toList();

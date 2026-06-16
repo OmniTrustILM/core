@@ -51,17 +51,16 @@ public interface CryptographicKeyItemRepository extends SecurityFilterRepository
     void insertWithFingerprintConflictResolve(@Param("cki") CryptographicKeyItem keyItem);
 
     @Query(value = """
-            SELECT COUNT(c.uuid)
+            SELECT cki.uuid, COUNT(c.uuid)
                 FROM CryptographicKeyItem cki
-                JOIN cki.key ck
+                LEFT JOIN cki.key ck
                 LEFT JOIN Certificate c
                     ON c.keyUuid = ck.uuid
                     OR c.altKeyUuid = ck.uuid
                 WHERE cki.uuid IN :uuids
                 GROUP BY cki.uuid
-                ORDER BY cki.createdAt DESC
             """)
-    List<Integer> getCountsOfAssociations(@Param("uuids") List<UUID> uuids);
+    List<Object[]> getAssociationCounts(@Param("uuids") List<UUID> uuids);
 
     @EntityGraph(attributePaths = {
             "key",
