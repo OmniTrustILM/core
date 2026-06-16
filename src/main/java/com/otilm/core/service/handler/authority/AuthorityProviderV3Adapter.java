@@ -38,6 +38,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Adapter for v3 authority provider connectors. Wraps {@link CertificateSyncApiClient} (v3)
@@ -150,9 +151,8 @@ public class AuthorityProviderV3Adapter
 
     @Override
     public void validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
-        // v3 dropped the connector-side /validate endpoint (interfaces #560). Structural
-        // validation against the listed definitions is done locally by the caller via
-        // AttributeEngine.validateUpdateDataAttributes — no connector round-trip needed.
+        // v3 has no connector-side /validate; the caller validates structurally against the listed
+        // definitions (AttributeEngine.validateUpdateDataAttributes) — no connector round-trip.
     }
 
     @Override
@@ -200,14 +200,6 @@ public class AuthorityProviderV3Adapter
 
     // ---- AsyncOperationCapability ----
 
-    /**
-     * Issues 3 separate {@code attribute_content_2_object} reads (cert meta + authority
-     * attrs + RA profile attrs) plus the connector HTTP call per poll message. Bounded
-     * constant per message (not per cert), so the absolute round-trip cost is small —
-     * but in high-throughput async pipelines (thousands of in-flight cert ops) a single
-     * batched lookup would halve the DB load from this listener. Tracked as M4-M9
-     * follow-up; the API surface change in AttributeEngine is out of scope for this batch.
-     */
     @Override
     public StatusPollResult pollStatus(Certificate cert, CertificateOperation op) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
@@ -274,7 +266,7 @@ public class AuthorityProviderV3Adapter
      */
     private AdapterOperationResult executeWithAcceptanceGuard(
             CertificateOperation op, ConnectorCall call,
-            java.util.function.Function<ResponseEntity<CertificateDataResponseDto>, AdapterOperationResult> mapper)
+            Function<ResponseEntity<CertificateDataResponseDto>, AdapterOperationResult> mapper)
             throws ConnectorException {
         boolean connectorAccepted = false;
         try {

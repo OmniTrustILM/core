@@ -45,10 +45,8 @@ class AuthorityProviderAdapterFactoryTest {
 
     @Test
     void missingInterfaceFallsBackToV2() {
-        // A null connector interface is expected for framework-v1 connectors that implement the
-        // v2 authority wire protocol (e.g. ejbca-ng) — they declare no connector_interface row,
-        // so the M0 backfill leaves the FK null. The factory routes these to the v2 adapter
-        // (the protocol they speak). Legacy v1-authority connectors never reach this factory.
+        // A null connector interface = a framework-v1 connector speaking the v2 authority protocol
+        // (e.g. ejbca-ng), which declares no connector_interface row → routes to the v2 adapter.
         AuthorityInstanceReference auth = new AuthorityInstanceReference();
         auth.setUuid(UUID.randomUUID());
         // connector interface left null

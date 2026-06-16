@@ -33,21 +33,6 @@ class AdapterOperationResultTest {
     }
 
     @Test
-    void cancelOutcomeAllValues() {
-        assertNotNull(CancelOutcome.CANCELLED);
-        assertNotNull(CancelOutcome.NOT_TRACKED);
-        assertNotNull(CancelOutcome.REFUSED_PAST_POINT_OF_NO_RETURN);
-    }
-
-    @Test
-    void certificateOperationAllValues() {
-        assertNotNull(CertificateOperation.ISSUE);
-        assertNotNull(CertificateOperation.RENEW);
-        assertNotNull(CertificateOperation.REVOKE);
-        assertNotNull(CertificateOperation.REGISTER);
-    }
-
-    @Test
     void statusPollResultRecord() {
         StatusPollResult r = new StatusPollResult(CertificateOperationStatus.COMPLETED, "data", List.of(), null);
         assertEquals(CertificateOperationStatus.COMPLETED, r.status());
