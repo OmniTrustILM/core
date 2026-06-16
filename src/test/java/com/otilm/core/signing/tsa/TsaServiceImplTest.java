@@ -8,7 +8,6 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
-import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
@@ -39,6 +38,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Base64;
 import java.util.List;
@@ -127,7 +127,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
 
         KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         cryptographyProviderMock.stubKeyPairCreation(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
-        KeyDetailDto ignoredKey = cryptographicKeyService.createKey(
+        cryptographicKeyService.createKey(
                 UUID.fromString(tokenInstance.getUuid()),
                 SecuredParentUUID.fromString(tokenProfile.getUuid()),
                 KeyRequestType.KEY_PAIR,
@@ -140,14 +140,18 @@ class TsaServiceImplTest extends BaseSpringBootTest {
 
         // The connector signs the DTBS and assembles the token; the assembled token is a real RFC 3161 token.
         timestampTokenBytes = TimestampTokenTestUtil.createTimestampToken().getEncoded();
-        cryptographyProviderMock.stubSignData("connector-signature".getBytes());
+        cryptographyProviderMock.stubSignData("connector-signature".getBytes(StandardCharsets.UTF_8));
         timestampingFormatterMock.stubFormatterAttributes().stubTokenAssembly(timestampTokenBytes);
     }
 
     @AfterEach
     void stopConnectorMocks() {
-        cryptographyProviderMock.stop();
-        timestampingFormatterMock.stop();
+        if (cryptographyProviderMock != null) {
+            cryptographyProviderMock.stop();
+        }
+        if (timestampingFormatterMock != null) {
+            timestampingFormatterMock.stop();
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
