@@ -597,15 +597,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
-    public TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid) throws NotFoundException {
+    public TspActivationDetailDto getTspActivationDetails(SecuredUUID uuid, String baseUrl) throws NotFoundException {
         SigningProfile signingProfile = findByUuid(uuid);
-        return SigningProfileMapper.toTspActivationDto(signingProfile);
+        return SigningProfileMapper.toTspActivationDto(signingProfile, baseUrl);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
-    public TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid) throws NotFoundException {
+    public TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid, String baseUrl) throws NotFoundException {
         SigningProfile signingProfile = findByUuid(signingProfileUuid);
         validateSupportedProtocol(signingProfile.getWorkflowType(), SigningProtocol.TSP);
         TspProfile tspProfile = tspProfileService.getTspProfileEntity(tspProfileUuid);
@@ -613,7 +613,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         signingProfileRepository.save(signingProfile);
         tspProfileService.evictAllCachedModels();
         evictSigningProfileCache(signingProfile.getName());
-        return SigningProfileMapper.toTspActivationDto(signingProfile);
+        return SigningProfileMapper.toTspActivationDto(signingProfile, baseUrl);
     }
 
     @Override

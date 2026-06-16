@@ -59,6 +59,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
     private static final String CUSTOM_ATTR_UUID = "a1b2c3d4-0001-0002-0003-000000000002";
     private static final String CUSTOM_ATTR_NAME = "tspTestAttribute";
+    private static final String BASE_URL = "http://localhost";
 
     @Autowired
     private TspProfileService tspService;
@@ -150,7 +151,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     @Test
     void testListTspProfiles_returnsExistingEntries() {
         SearchRequestDto request = new SearchRequestDto();
-        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create());
+        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create(), BASE_URL);
 
         assertNotNull(response);
         assertNotNull(response.getItems());
@@ -162,7 +163,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     @Test
     void testListTspProfiles_withoutDefaultSigningProfile_signingUrlIsNull() {
         SearchRequestDto request = new SearchRequestDto();
-        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create());
+        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create(), BASE_URL);
 
         assertEquals(1, response.getTotalItems());
         assertNull(response.getItems().getFirst().getSigningUrl(),
@@ -183,12 +184,12 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         savedTspProfile = tspRepository.save(savedTspProfile);
 
         SearchRequestDto request = new SearchRequestDto();
-        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create());
+        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create(), BASE_URL);
 
         TspProfileListDto listDto = response.getItems().getFirst();
         assertNotNull(listDto.getSigningUrl(),
                 "signingUrl must be populated on the list DTO when a default signing profile is set");
-        assertTrue(listDto.getSigningUrl().endsWith("/v1/protocols/tsp/" + savedTspProfile.getName() + "/sign"),
+        assertTrue(listDto.getSigningUrl().endsWith("/v1/protocols/tsp/" + savedTspProfile.getName()),
                 "Unexpected signingUrl: " + listDto.getSigningUrl());
     }
 
@@ -197,7 +198,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         tspRepository.delete(savedTspProfile);
 
         SearchRequestDto request = new SearchRequestDto();
-        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create());
+        PaginationResponseDto<TspProfileListDto> response = tspService.listTspProfiles(request, SecurityFilter.create(), BASE_URL);
 
         assertNotNull(response);
         assertEquals(0, response.getTotalItems());
@@ -210,7 +211,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
     @Test
     void testGetTspProfile_returnsCorrectDto() throws NotFoundException {
-        TspProfileDto dto = tspService.getTspProfile(savedTspProfile.getSecuredUuid());
+        TspProfileDto dto = tspService.getTspProfile(savedTspProfile.getSecuredUuid(), BASE_URL);
 
         assertNotNull(dto);
         assertEquals(savedTspProfile.getUuid().toString(), dto.getUuid());
@@ -223,7 +224,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
     void testGetTspProfile_notFound() {
         assertThrows(NotFoundException.class,
                 () -> tspService.getTspProfile(
-                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001")));
+                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001"), BASE_URL));
     }
 
     @Test
@@ -288,7 +289,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName("new-tsp-profile");
         request.setDescription("New TSP profile description");
 
-        TspProfileDto dto = tspService.createTspProfile(request);
+        TspProfileDto dto = tspService.createTspProfile(request, BASE_URL);
 
         // Assert returned DTO
         assertNotNull(dto);
@@ -314,7 +315,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName("updated-tsp-profile");
         request.setDescription("Updated description");
 
-        TspProfileDto dto = tspService.updateTspProfile(savedTspProfile.getSecuredUuid(), request);
+        TspProfileDto dto = tspService.updateTspProfile(savedTspProfile.getSecuredUuid(), request, BASE_URL);
 
         // Assert returned DTO
         assertNotNull(dto);
@@ -337,7 +338,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
         assertThrows(NotFoundException.class,
                 () -> tspService.updateTspProfile(
-                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001"), request));
+                        SecuredUUID.fromString("00000000-0000-0000-0000-000000000001"), request, BASE_URL));
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -350,7 +351,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
 
         assertFalse(tspRepository.findById(savedTspProfile.getUuid()).isPresent());
         assertThrows(NotFoundException.class,
-                () -> tspService.getTspProfile(savedTspProfile.getSecuredUuid()));
+                () -> tspService.getTspProfile(savedTspProfile.getSecuredUuid(), BASE_URL));
     }
 
     @Test
@@ -530,7 +531,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName("tsp-with-custom-attr");
         request.setCustomAttributes(List.of(customAttr));
 
-        TspProfileDto dto = tspService.createTspProfile(request);
+        TspProfileDto dto = tspService.createTspProfile(request, BASE_URL);
 
         assertNotNull(dto.getCustomAttributes());
         assertFalse(dto.getCustomAttributes().isEmpty(),
@@ -547,7 +548,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         TspProfileRequestDto createRequest = new TspProfileRequestDto();
         createRequest.setName("tsp-update-custom-attr");
         createRequest.setCustomAttributes(List.of(createAttr));
-        TspProfileDto created = tspService.createTspProfile(createRequest);
+        TspProfileDto created = tspService.createTspProfile(createRequest, BASE_URL);
 
         RequestAttributeV3 updateAttr = new RequestAttributeV3(UUID.fromString(CUSTOM_ATTR_UUID),
                 CUSTOM_ATTR_NAME, AttributeContentType.STRING,
@@ -556,7 +557,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         updateRequest.setName("tsp-update-custom-attr");
         updateRequest.setCustomAttributes(List.of(updateAttr));
         TspProfileDto updated = tspService.updateTspProfile(
-                SecuredUUID.fromString(created.getUuid()), updateRequest);
+                SecuredUUID.fromString(created.getUuid()), updateRequest, BASE_URL);
 
         assertNotNull(updated.getCustomAttributes());
         assertFalse(updated.getCustomAttributes().isEmpty());
@@ -574,7 +575,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName(savedTspProfile.getName());
 
         assertThrows(AlreadyExistException.class,
-                () -> tspService.createTspProfile(request));
+                () -> tspService.createTspProfile(request, BASE_URL));
     }
 
     @Test
@@ -587,7 +588,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName(savedTspProfile.getName());
 
         assertThrows(AlreadyExistException.class,
-                () -> tspService.updateTspProfile(second.getSecuredUuid(), request));
+                () -> tspService.updateTspProfile(second.getSecuredUuid(), request, BASE_URL));
     }
 
     @Test
@@ -596,7 +597,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setName(savedTspProfile.getName());
         request.setDescription("updated description");
 
-        TspProfileDto dto = tspService.updateTspProfile(savedTspProfile.getSecuredUuid(), request);
+        TspProfileDto dto = tspService.updateTspProfile(savedTspProfile.getSecuredUuid(), request, BASE_URL);
 
         assertEquals(savedTspProfile.getName(), dto.getName());
         assertEquals("updated description", dto.getDescription());
@@ -691,7 +692,7 @@ class TspProfileServiceImplTest extends BaseSpringBootTest {
         request.setAllowedAuthenticationMethods(List.of(TspAuthenticationMethod.BASIC_PASSWORD));
         request.setVaultProfileUuid(vaultProfile.getUuid());
 
-        TspProfileDto dto = tspService.createTspProfile(request);
+        TspProfileDto dto = tspService.createTspProfile(request, BASE_URL);
 
         assertNotNull(dto.getVaultProfile(), "vaultProfile in response DTO must not be null");
         assertEquals(vaultProfile.getUuid().toString(), dto.getVaultProfile().getUuid());

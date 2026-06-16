@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.UUID;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.*;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +26,7 @@ class SigningRecordInputMapperTest {
         var signingTime = Instant.parse("2026-03-01T12:00:00Z");
         var profileVersion = 7;
         var displayName = "my-record";
-        SigningProfileModel<?, ?> profile = aSigningProfile().uuid(profileUuid).version(profileVersion).build();
+        SigningProfileModel<?, ?> profile = aSigningProfile().withUuid(profileUuid).withVersion(profileVersion).build();
         SigningRecordInput input = aSigningRecordInput()
                 .signingProfile(profile)
                 .signingTime(signingTime)
@@ -161,8 +161,8 @@ class SigningRecordInputMapperTest {
         var signingTime = Instant.parse("2026-03-01T12:00:00Z");
         var displayName = "my-record";
         SigningProfileModel<?, ?> profile = aSigningProfile()
-                .uuid(profileUuid)
-                .version(profileVersion)
+                .withUuid(profileUuid)
+                .withVersion(profileVersion)
                 .build();
         SigningRecordInput input = aSigningRecordInput()
                 .signingProfile(profile)
@@ -281,7 +281,7 @@ class SigningRecordInputMapperTest {
 
     private SigningRecordInput inputWithPolicy(SigningRecordPolicyModel policy) {
         return aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(policy).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(policy).build())
                 .build();
     }
 }

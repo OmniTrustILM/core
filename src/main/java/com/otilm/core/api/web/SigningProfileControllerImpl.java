@@ -33,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.List;
 import java.util.UUID;
@@ -154,18 +155,22 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.DETAIL)
     public TspActivationDetailDto getTspActivationDetails(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return signingProfileService.getTspActivationDetails(SecuredUUID.fromUUID(uuid));
+        return signingProfileService.getTspActivationDetails(SecuredUUID.fromUUID(uuid), currentBaseUrl());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.ACTIVATE_PROTOCOL)
     public TspActivationDetailDto activateTsp(@LogResource(uuid = true) UUID signingProfileUuid, @LogResource(uuid = true, affiliated = true) UUID tspProfileUuid) throws NotFoundException {
-        return signingProfileService.activateTsp(SecuredUUID.fromUUID(signingProfileUuid), SecuredUUID.fromUUID(tspProfileUuid));
+        return signingProfileService.activateTsp(SecuredUUID.fromUUID(signingProfileUuid), SecuredUUID.fromUUID(tspProfileUuid), currentBaseUrl());
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.DEACTIVATE_PROTOCOL)
     public void deactivateTsp(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
         signingProfileService.deactivateTsp(SecuredUUID.fromUUID(uuid));
+    }
+
+    private static String currentBaseUrl() {
+        return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     }
 }

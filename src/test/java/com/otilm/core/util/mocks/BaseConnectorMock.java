@@ -8,13 +8,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.github.tomakehurst.wiremock.extension.Extension;
 
 import java.util.List;
 
 import static com.otilm.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
 
 /**
- * Base for WireMock servers that impersonate a ITILM connector.
+ * Base for WireMock servers that impersonate an OTILM connector.
  * <p>
  * Owns the WireMock server lifecycle and the generic discovery stubs shared by every connector flavour:
  * {@code GET /v1} (V1 function-group discovery) and {@code GET /v2/info} (V2 interface discovery).
@@ -31,6 +33,15 @@ public abstract class BaseConnectorMock {
 
     protected BaseConnectorMock() {
         this.server = new WireMockServer(0);
+        this.server.start();
+    }
+
+    /**
+     * Variant for mocks whose responses are computed per request (e.g. real signing or token assembly):
+     * WireMock response transformers can only be registered at server creation time.
+     */
+    protected BaseConnectorMock(Extension... extensions) {
+        this.server = new WireMockServer(WireMockConfiguration.options().port(0).extensions(extensions));
         this.server.start();
     }
 

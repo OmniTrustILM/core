@@ -9,18 +9,8 @@ import org.springframework.stereotype.Component;
 public class TspRequestValidator {
 
     public void validate(TimestampingWorkflow timestampingWorkflow, TspRequest request) throws TspRequestValidationException {
-        validateExtensions(request);
         validateHashAlgorithmAllowed(timestampingWorkflow, request);
         validatePolicy(timestampingWorkflow, request);
-    }
-
-    private void validateExtensions(TspRequest request) throws TspRequestValidationException {
-        if (request.requestExtensions() != null) {
-            throw new TspRequestValidationException(
-                    TspFailureInfo.UNACCEPTED_EXTENSION,
-                    "Request contains extensions, but no extensions are configured as allowed by the profile",
-                    "Extensions are not supported by the chosen profile");
-        }
     }
 
     private void validateHashAlgorithmAllowed(TimestampingWorkflow timestampingWorkflow, TspRequest request) throws TspRequestValidationException {
