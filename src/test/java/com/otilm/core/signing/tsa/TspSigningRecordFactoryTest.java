@@ -72,20 +72,6 @@ class TspSigningRecordFactoryTest {
     }
 
     @Test
-    void build_leavesMetadataJsonNull_whenRecordRequestMetadataOff() {
-        // given
-        var profile = aSigningProfile()
-                .recordPolicy(aSigningRecordPolicy().recordRequestMetadata(false).build())
-                .build();
-
-        // when
-        SigningRecordInput input = factory.build(profile, aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN);
-
-        // then
-        assertNull(input.getRequestMetadataJson());
-    }
-
-    @Test
     void build_metadataHashAlgorithmNull_whenHashAlgorithmNull() throws Exception {
         // given a request whose hash algorithm is absent, with policy and nonce present to isolate this branch
         var request = aTspRequest().hashAlgorithm(null).policy("1.2.3").nonce(BigInteger.TEN).build();

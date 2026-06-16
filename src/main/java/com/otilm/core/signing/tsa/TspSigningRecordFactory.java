@@ -16,10 +16,9 @@ import java.util.Map;
  * Builds the {@link SigningRecordInput} for a granted RFC 3161 timestamp from the signing profile, the
  * request, and the artifacts produced during token assembly.
  *
- * <p>The per-field {@code record*} content toggles are applied downstream by the signing-record mapper; this
- * factory only assembles the full input. The one exception is {@code requestMetadataJson}, which it builds
- * only when {@link com.otilm.core.model.signing.SigningRecordPolicyModel#recordRequestMetadata()} is on so the
- * JSON serialization is skipped when the metadata would be discarded.
+ * <p>The per-field {@code record*} content toggles are applied downstream by the signing-record mapper, which is
+ * the single source of truth for what gets persisted; this factory only assembles the full input, including
+ * {@code requestMetadataJson}, unconditionally.
  *
  * <p>{@code requestedBy} is left {@code null}: the TSP caller identity is resolved in the protocol layer and is
  * not currently threaded down to the TSA engine.
@@ -36,9 +35,6 @@ public class TspSigningRecordFactory {
     public SigningRecordInput build(SigningProfileModel<?, ?> signingProfile, TspRequest request,
                                     BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
         String serialHex = serialNumber.toString(16);
-        String requestMetadataJson = signingProfile.recordPolicy().recordRequestMetadata()
-                ? buildRequestMetadataJson(signingProfile, request, serialHex)
-                : null;
 
         // The timestamp token is the self-contained signed artifact: it already embeds the signature value and the
         // signed attributes (DTBS), so both are recoverable from it. Storing them again under signature/dtbs would
@@ -48,7 +44,7 @@ public class TspSigningRecordFactory {
                 .signingTime(genTime)
                 .requestedBy(null)
                 .displayName(signingProfile.name() + " #" + serialHex)
-                .requestMetadataJson(requestMetadataJson)
+                .requestMetadataJson(buildRequestMetadataJson(signingProfile, request, serialHex))
                 .signedDocument(encodedToken)
                 .build();
     }
