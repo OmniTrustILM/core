@@ -8,6 +8,7 @@ import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -103,7 +104,7 @@ public class TimestampingFormatterConnectorMock extends BaseConnectorMock {
      * verify unless the profile enables token-signature validation.
      */
     public TimestampingFormatterConnectorMock stubTokenAssembly(byte[] timestampTokenBytes) {
-        String dtbs = Base64.getEncoder().encodeToString("placeholder-dtbs".getBytes());
+        String dtbs = Base64.getEncoder().encodeToString("placeholder-dtbs".getBytes(StandardCharsets.UTF_8));
         String token = Base64.getEncoder().encodeToString(timestampTokenBytes);
         server.stubFor(WireMock.post(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/formatDtbs"))
                 .willReturn(WireMock.okJson("{\"dtbs\":\"" + dtbs + "\"}")));
