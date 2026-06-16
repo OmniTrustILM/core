@@ -3,6 +3,7 @@ package com.otilm.core.signing.record;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
@@ -177,6 +178,7 @@ class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
         signingRecord.setUuid(UUID.randomUUID());
         signingRecord.setSigningProfileUuid(signingProfileUuid);
         signingRecord.setSigningProfileVersion(1);
+        signingRecord.setProtocol(SigningProtocol.TSP);
         signingRecord.setSigningTime(Instant.now());
         signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
         return recordRepo.saveAndFlush(signingRecord);

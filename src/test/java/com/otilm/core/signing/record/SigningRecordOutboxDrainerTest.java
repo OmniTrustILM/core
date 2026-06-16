@@ -2,6 +2,7 @@ package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
@@ -189,6 +190,7 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
         var row = persistOutboxRow(aSigningRecordOutboxRow()
                 .withName("audit-record-2026")
                 .withSigningProfileVersion(4)
+                .withProtocol(SigningProtocol.CSC_API)
                 .withSignatureValue(new byte[]{1, 2, 3})
                 .withSignedDocument(new byte[]{4, 5, 6})
                 .withDtbs(dtbs)
@@ -202,6 +204,7 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
         assertEquals("audit-record-2026", persisted.getName());
         assertEquals(signingProfileUuid, persisted.getSigningProfileUuid());
         assertEquals(4, persisted.getSigningProfileVersion());
+        assertEquals(SigningProtocol.CSC_API, persisted.getProtocol());
         assertEquals(row.getSigningTime(), persisted.getSigningTime());
         assertArrayEquals(new byte[]{1, 2, 3}, persisted.getSignatureValue());
         assertArrayEquals(new byte[]{4, 5, 6}, persisted.getSignedDocument());
@@ -264,6 +267,7 @@ class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
         signingRecord.setUuid(row.getUuid());
         signingRecord.setSigningProfileUuid(row.getSigningProfileUuid());
         signingRecord.setSigningProfileVersion(row.getSigningProfileVersion());
+        signingRecord.setProtocol(row.getProtocol());
         signingRecord.setSigningTime(row.getSigningTime());
         recordRepo.saveAndFlush(signingRecord);
     }

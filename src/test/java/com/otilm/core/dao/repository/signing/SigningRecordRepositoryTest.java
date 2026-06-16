@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.signing;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
@@ -85,6 +86,20 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
 
         // then
         assertFalse(exists);
+    }
+
+    @Test
+    void protocol_roundTripsThroughThePersistedRecord() {
+        // given
+        SigningProfile profile = insertProfile("protocol-roundtrip");
+        insertProfileVersion(profile, 1);
+        SigningRecord record = insertRecordWithProtocol(profile, SigningProtocol.CSC_API);
+
+        // when
+        SigningRecord reloaded = repository.findById(record.getUuid()).orElseThrow();
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, reloaded.getProtocol());
     }
 
     @Test
@@ -213,8 +228,18 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         SigningRecord signingRecord = new SigningRecord();
         signingRecord.setSigningProfileUuid(profile.getUuid());
         signingRecord.setSigningProfileVersion(version);
+        signingRecord.setProtocol(SigningProtocol.TSP);
         signingRecord.setSigningTime(signingTime);
         signingRecord.setSignedDocumentRetrievedAt(signedDocumentRetrievedAt);
+        return repository.saveAndFlush(signingRecord);
+    }
+
+    private SigningRecord insertRecordWithProtocol(SigningProfile profile, SigningProtocol protocol) {
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setSigningProfileUuid(profile.getUuid());
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setProtocol(protocol);
+        signingRecord.setSigningTime(Instant.now());
         return repository.saveAndFlush(signingRecord);
     }
 

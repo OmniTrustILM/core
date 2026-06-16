@@ -1,5 +1,6 @@
 package com.otilm.core.mapper.signing;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.model.signing.SigningProfileModel;
@@ -43,6 +44,33 @@ class SigningRecordInputMapperTest {
         assertEquals(signingTime, signingRecord.getSigningTime());
         assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), signingRecord.getRequestedByUuid());
         assertEquals(input.getRequestedBy().getName(), signingRecord.getRequestedByUsername());
+    }
+
+    @Test
+    void toRecord_capturesProtocol() {
+        // given
+        SigningRecordInput input = aSigningRecordInput().protocol(SigningProtocol.CSC_API).build();
+
+        // when
+        SigningRecord signingRecord = mapper.toRecord(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, signingRecord.getProtocol());
+    }
+
+    @Test
+    void toRecord_capturesProtocol_evenWhenPolicyRecordsNothing() {
+        // given protocol is intrinsic operation metadata, not gated by the content record* toggles
+        SigningRecordInput input = aSigningRecordInput()
+                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .protocol(SigningProtocol.CSC_API)
+                .build();
+
+        // when
+        SigningRecord signingRecord = mapper.toRecord(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, signingRecord.getProtocol());
     }
 
     @Test
@@ -181,6 +209,33 @@ class SigningRecordInputMapperTest {
         assertEquals(signingTime, outbox.getSigningTime());
         assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), outbox.getRequestedByUuid());
         assertEquals(input.getRequestedBy().getName(), outbox.getRequestedByUsername());
+    }
+
+    @Test
+    void toOutbox_capturesProtocol() {
+        // given
+        SigningRecordInput input = aSigningRecordInput().protocol(SigningProtocol.CSC_API).build();
+
+        // when
+        SigningRecordOutbox outbox = mapper.toOutbox(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, outbox.getProtocol());
+    }
+
+    @Test
+    void toOutbox_capturesProtocol_evenWhenPolicyRecordsNothing() {
+        // given protocol is intrinsic operation metadata, not gated by the content record* toggles
+        SigningRecordInput input = aSigningRecordInput()
+                .signingProfile(aSigningProfile().recordPolicy(notRecording().build()).build())
+                .protocol(SigningProtocol.CSC_API)
+                .build();
+
+        // when
+        SigningRecordOutbox outbox = mapper.toOutbox(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, outbox.getProtocol());
     }
 
     @Test

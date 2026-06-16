@@ -1,6 +1,7 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.SigningProfileModel;
 
 import java.nio.charset.StandardCharsets;
@@ -15,6 +16,7 @@ import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningPr
 public final class SigningRecordInputBuilder {
 
     private SigningProfileModel<?, ?> signingProfile = aSigningProfile().build();
+    private SigningProtocol protocol = SigningProtocol.TSP;
     private Instant signingTime = Instant.parse("2026-01-01T00:00:00Z");
     private NameAndUuidDto requestedBy = new NameAndUuidDto("99999999-9999-9999-9999-999999999999", "alice");
     private String displayName = "test-record";
@@ -29,6 +31,11 @@ public final class SigningRecordInputBuilder {
 
     public SigningRecordInputBuilder signingProfile(SigningProfileModel<?, ?> signingProfile) {
         this.signingProfile = signingProfile;
+        return this;
+    }
+
+    public SigningRecordInputBuilder protocol(SigningProtocol protocol) {
+        this.protocol = protocol;
         return this;
     }
 
@@ -70,6 +77,7 @@ public final class SigningRecordInputBuilder {
     public SigningRecordInput build() {
         return SigningRecordInput.builder()
                 .signingProfile(signingProfile)
+                .protocol(protocol)
                 .signingTime(signingTime)
                 .requestedBy(requestedBy)
                 .displayName(displayName)
