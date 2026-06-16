@@ -23,17 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 public class TspControllerImpl implements TspController {
 
-    private TsaService tsaService;
+    private final TsaService tsaService;
 
-    private AuditResultOverride auditResultOverride;
+    private final AuditResultOverride auditResultOverride;
 
     @Autowired
-    public void setTspService(TsaService tsaService) {
+    public TspControllerImpl(TsaService tsaService, AuditResultOverride auditResultOverride) {
         this.tsaService = tsaService;
-    }
-
-    @Autowired
-    public void setAuditResultOverride(AuditResultOverride auditResultOverride) {
         this.auditResultOverride = auditResultOverride;
     }
 

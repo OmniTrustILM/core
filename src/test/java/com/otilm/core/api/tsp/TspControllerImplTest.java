@@ -42,9 +42,7 @@ class TspControllerImplTest {
     void setUp() {
         tsaService = mock(TsaService.class);
         auditResultOverride = mock(AuditResultOverride.class);
-        controller = new TspControllerImpl();
-        controller.setTspService(tsaService);
-        controller.setAuditResultOverride(auditResultOverride);
+        controller = new TspControllerImpl(tsaService, auditResultOverride);
     }
 
     @Test

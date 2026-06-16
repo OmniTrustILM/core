@@ -44,9 +44,7 @@ class TspSigningProfileControllerImplTest {
     void setUp() {
         tsaService = mock(TsaService.class);
         auditResultOverride = mock(AuditResultOverride.class);
-        controller = new TspSigningProfileControllerImpl();
-        controller.setTspService(tsaService);
-        controller.setAuditResultOverride(auditResultOverride);
+        controller = new TspSigningProfileControllerImpl(tsaService, auditResultOverride);
     }
 
     @Test
