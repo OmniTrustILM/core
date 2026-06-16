@@ -117,11 +117,12 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         ensureUsernameAvailable(profile.getUuid(), request.getUsername(), credential.getUuid());
         validateMappedUserExists(request.getMappedUserUuid());
 
-        // Vault rotation can run only when a new password is supplied.
-        // On a username-only change the secret's stored username is left stale - it is informational only;
-        // verification reads the username from the credential row, never from the secret content.
-        // A later password rotation heals it, since rotation writes the current username too.
         boolean rotate = request.getPassword() != null && !request.getPassword().isBlank();
+        boolean usernameChanged = !Objects.equals(credential.getUsername(), request.getUsername());
+        if (usernameChanged && !rotate) {
+            throw new ValidationException(
+                    "Changing the username also requires a new password so the stored credential fingerprint can be regenerated.");
+        }
         if (rotate) {
             rotateVaultSecret(credential.getSecretUuid(), request.getUsername(), request.getPassword());
         }
