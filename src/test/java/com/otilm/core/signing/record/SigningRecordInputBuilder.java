@@ -7,7 +7,7 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 
 /**
  * Test builder for {@link SigningRecordInput} pre-populated with valid defaults, so a test only sets

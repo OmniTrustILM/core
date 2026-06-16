@@ -9,6 +9,7 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.scheme.ManagedSigning;
@@ -153,6 +154,36 @@ class SigningProfileMapperTest {
         }
 
         @Test
+        void carriesTspProfileUuid_whenLinkedToTspProfile() {
+            // given
+            SigningProfile header = newHeader();
+            header.setTspProfile(newTspProfile("linked-tsp-profile"));
+            SigningProfileVersion version = newStaticKeyTimestampingVersion();
+
+            // when
+            SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
+                    SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
+
+            // then
+            assertThat(model.tspProfileUuid()).isEqualTo(TSP_UUID);
+        }
+
+        @Test
+        void carriesNullTspProfileUuid_whenNoTspProfile() {
+            // given
+            SigningProfile header = newHeader();
+            header.setTspProfile(null);
+            SigningProfileVersion version = newStaticKeyTimestampingVersion();
+
+            // when
+            SigningProfileModel<ManagedTimestampingWorkflow, ManagedSigning> model =
+                    SigningProfileMapper.toManagedTimestampingModel(header, version, List.of(), List.of());
+
+            // then
+            assertThat(model.tspProfileUuid()).isNull();
+        }
+
+        @Test
         void carriesNoEnabledProtocols_whenNoTspProfile() {
             // given
             SigningProfile header = newHeader();
@@ -287,6 +318,24 @@ class SigningProfileMapperTest {
             p.setTimeQualityConfigurationUuid(TQC_UUID);
             p.setTspProfileUuid(TSP_UUID);
             return p;
+        }
+
+        private static TspProfile newTspProfile(String name) {
+            TspProfile tspProfile = new TspProfile();
+            tspProfile.setUuid(TSP_UUID);
+            tspProfile.setName(name);
+            return tspProfile;
+        }
+
+        /**
+         * A timestamping version whose static-key scheme details are irrelevant to the test under exercise.
+         */
+        private static SigningProfileVersion newStaticKeyTimestampingVersion() {
+            SigningProfileVersion version = newTimestampingVersion();
+            version.setSigningScheme(SigningScheme.MANAGED);
+            version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+            version.setCertificateUuid(CERT_UUID);
+            return version;
         }
 
         private static SigningProfileVersion newTimestampingVersion() {

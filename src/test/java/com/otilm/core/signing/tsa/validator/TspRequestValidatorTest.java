@@ -21,18 +21,15 @@ class TspRequestValidatorTest {
     // ── extensions ────────────────────────────────────────────────────────────
 
     @Test
-    void throwsUnacceptedExtension_whenRequestContainsExtensions() {
-        // given — extensions are not supported; any non-null Extensions value triggers the check
+    void doesNotThrow_whenRequestContainsExtensions() {
+        // given — any well-formed extension is accepted; the validator does not filter extensions
         var workflow = aManagedTimestampingWorkflow().build();
         var request = aTspRequest()
                 .requestExtensions(mock(Extensions.class))
                 .build();
 
         // when / then
-        assertThatThrownBy(() -> validator.validate(workflow, request))
-                .isInstanceOf(TspRequestValidationException.class)
-                .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo())
-                        .isEqualTo(TspFailureInfo.UNACCEPTED_EXTENSION));
+        assertThatCode(() -> validator.validate(workflow, request)).doesNotThrowAnyException();
     }
 
     @Test

@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class SigningProfileCacheCoherenceTest extends SigningProfileTestBase {
 
+    private static final String BASE_URL = "http://localhost";
+
     @Autowired
     private TspProfileService tspProfileService;
 
@@ -125,7 +127,7 @@ class SigningProfileCacheCoherenceTest extends SigningProfileTestBase {
         assertThat(cache.get(tsp.getName(), TspProfileModel.class)).isNotNull();
 
         // when - this signing profile is activated as the TSP backend
-        signingProfileService.activateTsp(SecuredUUID.fromString(profileDto.getUuid()), tsp.getSecuredUuid());
+        signingProfileService.activateTsp(SecuredUUID.fromString(profileDto.getUuid()), tsp.getSecuredUuid(), BASE_URL);
 
         // then - the TSP cache entry has been evicted
         assertThat(cache.get(tsp.getName(), TspProfileModel.class)).isNull();
@@ -138,7 +140,7 @@ class SigningProfileCacheCoherenceTest extends SigningProfileTestBase {
         SigningProfileDto profileDto = signingProfileService.createSigningProfile(
                 buildDelegatedTimestampingRequest("timestamping-for-cache-deactivate"));
         TspProfile tsp = warmTspProfile();
-        signingProfileService.activateTsp(SecuredUUID.fromString(profileDto.getUuid()), tsp.getSecuredUuid());
+        signingProfileService.activateTsp(SecuredUUID.fromString(profileDto.getUuid()), tsp.getSecuredUuid(), BASE_URL);
         Cache cache = cache();
         tspProfileService.getTspProfile(tsp.getName());
         assertThat(cache.get(tsp.getName(), TspProfileModel.class)).isNotNull();
