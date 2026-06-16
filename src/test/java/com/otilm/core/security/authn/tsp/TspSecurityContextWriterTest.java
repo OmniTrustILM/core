@@ -1,6 +1,8 @@
 package com.otilm.core.security.authn.tsp;
 
+import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.util.AuthHelper;
 import org.junit.jupiter.api.AfterEach;
@@ -31,11 +33,13 @@ class TspSecurityContextWriterTest {
     void createWriterAndClearContext() {
         writer = new TspSecurityContextWriter(authHelper);
         SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
     }
 
     @AfterEach
     void clearContext() {
         SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
     }
 
     // ── SetFromAuthInfo ───────────────────────────────────────────────────────
@@ -60,12 +64,18 @@ class TspSecurityContextWriterTest {
         @Test
         void populatesContext_whenInfoValid() {
             // given
-            AuthenticationInfo info = new AuthenticationInfo(AuthMethod.CERTIFICATE, "uuid-1", "alice",
+            UUID principalUuid = UUID.randomUUID();
+            AuthenticationInfo info = new AuthenticationInfo(AuthMethod.CERTIFICATE, principalUuid.toString(), "alice",
                     List.of(new SimpleGrantedAuthority("ROLE_USER")));
 
             // when / then
             assertThat(writer.setFromAuthInfo(info)).isTrue();
             assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+            // the TSP audit actor is attributed to the authenticated principal, not a system user
+            assertThat(LoggingHelper.hasActorInfo()).isTrue();
+            assertThat(LoggingHelper.getActorType()).isEqualTo(ActorType.USER);
+            assertThat(LoggingHelper.getActorInfo().uuid()).isEqualTo(principalUuid);
+            assertThat(LoggingHelper.getActorInfo().name()).isEqualTo("alice");
         }
     }
 
@@ -76,13 +86,16 @@ class TspSecurityContextWriterTest {
 
         @Test
         void returnsFalseAndClearsContext_whenProxyFails() {
-            // given
+            // given — authenticateAsUser populates actor MDC before the failing proxy call
             UUID userUuid = UUID.randomUUID();
+            LoggingHelper.putActorInfoWhenNull(ActorType.USER, userUuid.toString(), "mapped-user");
             doThrow(new RuntimeException("auth service down")).when(authHelper).authenticateAsUser(userUuid);
 
             // when / then
             assertThat(writer.authenticateAsUser(userUuid)).isFalse();
             assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+            // actor attribution must be dropped so the failure is not misattributed to the mapped user
+            assertThat(LoggingHelper.hasActorInfo()).isFalse();
         }
 
         @Test

@@ -273,7 +273,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
      */
     @Cacheable(value = CacheConfig.SIGNING_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
-    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException, IllegalStateException {
+    SigningProfileModel<?, ?> loadSigningProfileModel(String name) throws NotFoundException {
         SigningProfile profile = signingProfileRepository.findByName(name)
                 .orElseThrow(() -> new NotFoundException(SigningProfile.class, name));
         SigningProfileVersion currentVersion = profile.getVersions().stream()

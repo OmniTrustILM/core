@@ -1,5 +1,6 @@
 package com.otilm.core.security.authn.tsp;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.signing.TspAuthenticationMethod;
 import com.otilm.core.model.signing.TspProfileModel;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpHeaders;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
@@ -97,7 +99,7 @@ public class BasicPasswordAuthenticator implements TspAuthenticator {
     private String computeFingerprint(String username, String password, TspProfileModel profile) {
         try {
             return SecretsUtil.calculateSecretContentFingerprint(new BasicAuthSecretContent(username, password));
-        } catch (Exception e) {
+        } catch (JsonProcessingException | NoSuchAlgorithmException e) {
             log.warn("TSP authentication: failed to compute credential fingerprint for profile '{}': {}", profile.name(), e.getMessage());
             return null;
         }

@@ -12,12 +12,11 @@ import com.otilm.core.security.authn.tsp.TspAuthenticator;
 import com.otilm.core.security.authn.tsp.TspChallengeWriter;
 import com.otilm.core.security.authn.tsp.TspRouteResolver;
 import com.otilm.core.security.authn.tsp.TspSecurityContextWriter;
-
-import java.util.List;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.TspProfileService;
 import com.otilm.core.util.AuthHelper;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
