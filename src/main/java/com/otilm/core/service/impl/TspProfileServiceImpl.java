@@ -69,6 +69,8 @@ import java.util.stream.Collectors;
 @Service(Resource.Codes.TSP_PROFILE)
 @Slf4j
 public class TspProfileServiceImpl implements TspProfileService {
+    private static final String TSP_PROFILE_NOT_FOUND = "TSP Profile not found: ";
+
     private AttributeEngine attributeEngine;
     private CacheEvictor cacheEvictor;
     private TspProfileServiceImpl self;
@@ -139,7 +141,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional(readOnly = true)
     public TspProfileModel loadTspProfileModel(String name) throws NotFoundException {
         TspProfile tspConfiguration = tspProfileRepository.findByName(name)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + name));
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + name));
 
         return toModel(tspConfiguration);
     }
@@ -154,7 +156,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional(readOnly = true)
     public TspProfileModel loadTspProfileModelByUuid(UUID uuid) throws NotFoundException {
         TspProfile tspConfiguration = tspProfileRepository.findByUuid(SecuredUUID.fromUUID(uuid))
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + uuid));
 
         return toModel(tspConfiguration);
     }
@@ -337,7 +339,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional(readOnly = true)
     public TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
         return tspProfileRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + uuid));
     }
 
     @Override
