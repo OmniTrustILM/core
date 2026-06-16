@@ -26,10 +26,7 @@ import java.util.UUID;
  * @param enabled           Whether the profile is currently enabled.
  * @param enabledProtocols  Protocols enabled on this profile (e.g. TSP).
  * @param tspProfileUuid    UUID of the TSP Profile this signing profile is linked to (TSP activation),
- *                          or {@code null} if TSP is not activated. Carried as a stable UUID — rather than
- *                          the TSP Profile's mutable name — so the live TSP Profile model can be looked up
- *                          on the hot path and its current state read fresh, and so a TSP-profile rename
- *                          cannot leave this cached reference dangling.
+ *                          or {@code null} if TSP is not activated.
  * @param workflow          Workflow-type-specific configuration.
  * @param signingScheme     Signing scheme configuration.
  * @param recordPolicy      Signing record policy (what is captured, retention, persistence mode).
