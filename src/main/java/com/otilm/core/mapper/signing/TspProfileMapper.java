@@ -7,8 +7,8 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspProfileListDto;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.model.signing.TspProfileModel;
-import com.otilm.core.util.TspProtocolUrlFactory;
 import com.otilm.core.model.signing.TspProfileModel.BasicCredentialRef;
+import com.otilm.core.util.TspProtocolUrlFactory;
 
 import java.util.List;
 import java.util.Map;
