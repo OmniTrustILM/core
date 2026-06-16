@@ -239,7 +239,7 @@ class AuthorityInstanceServiceImplV3Test {
 
     // ---- helpers ----
 
-    private AuthorityInstanceRequestDto buildRequest() throws Exception {
+    private AuthorityInstanceRequestDto buildRequest() {
         AuthorityInstanceRequestDto req = new AuthorityInstanceRequestDto();
         req.setName("v3-authority");
         req.setConnectorUuid(connectorUuid.toString());
