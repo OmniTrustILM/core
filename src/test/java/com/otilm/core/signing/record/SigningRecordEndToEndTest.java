@@ -86,7 +86,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", deferredDurable.name());
 
         // when the record is written through the factory-selected writer
-        factory.strategyFor(version).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version.getPersistenceMode()).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is accepted at intake and staged in the outbox, not yet persisted into signing_record
         assertRecordInOutbox();
@@ -116,7 +116,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", immediate.name());
 
         // when the record is written through the factory-selected writer
-        factory.strategyFor(version).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version.getPersistenceMode()).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is selectable through the service straight away, never staged in the outbox, and the counter advanced
         assertRecordExists();
@@ -138,7 +138,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         double persistBefore = counterValue("signing_record.persist", "mode", bestEffort.name());
 
         // when the record is written through the factory-selected writer
-        factory.strategyFor(version).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
+        factory.strategyFor(version.getPersistenceMode()).recordSigning(aSigningRecordInput().signingProfile(recordingProfile).build());
 
         // then it is admitted at intake straight away, before any persistence
         assertEquals(intakeBefore + 1, counterValue("signing_record.intake", "mode", bestEffort.name()));

@@ -140,14 +140,14 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             SigningProfile signingProfile = createTimestampingSigningProfile("sp-for-tsp");
             createTspProfileFor("my-tsp-profile", signingProfile);
 
-            when(managedTimestampEngine.process(any(), any()))
+            when(managedTimestampEngine.process(any(), any(), any()))
                     .thenReturn(TspResponse.granted(new byte[]{1, 2, 3}));
 
             // when
             tsaService.processTspRequestForTspProfile("my-tsp-profile", aTspRequest().build());
 
             // then
-            verify(managedTimestampEngine).process(any(), argThat(profile -> "sp-for-tsp".equals(profile.name())));
+            verify(managedTimestampEngine).process(any(), argThat(profile -> "sp-for-tsp".equals(profile.name())), any());
         }
     }
 
@@ -158,7 +158,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
 
         @BeforeEach
         void stubEngineGranted() throws TspException {
-            when(managedTimestampEngine.process(any(), any()))
+            when(managedTimestampEngine.process(any(), any(), any()))
                     .thenReturn(TspResponse.granted(new byte[]{7, 8, 9}));
         }
 
@@ -180,7 +180,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
 
             // then
-            verify(managedTimestampEngine).process(any(), argThat(p -> "unconstrained-sp".equals(p.name())));
+            verify(managedTimestampEngine).process(any(), argThat(p -> "unconstrained-sp".equals(p.name())), any());
         }
 
         @Test
@@ -242,7 +242,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
             // given — engine signals an internal failure (e.g. degraded time quality)
             SigningProfile profile = createTimestampingSigningProfile("sp-engine-rejects");
 
-            when(managedTimestampEngine.process(any(), any()))
+            when(managedTimestampEngine.process(any(), any(), any()))
                     .thenReturn(TspResponse.rejected(TspFailureInfo.SYSTEM_FAILURE, "internal error"));
 
             // when
