@@ -1,9 +1,12 @@
 package com.otilm.core.dao.entity.signing;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import com.otilm.core.service.model.Securable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.JoinColumn;
@@ -35,6 +38,10 @@ public class SigningRecord extends UniquelyIdentifiedAndAudited implements Secur
 
     @Column(name = "signing_profile_uuid", nullable = false)
     private UUID signingProfileUuid;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "protocol", nullable = false)
+    private SigningProtocol protocol;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "signing_profile_uuid", insertable = false, updatable = false)

@@ -1,10 +1,17 @@
 package com.otilm.core.mapper.signing;
 
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -28,6 +35,7 @@ class SigningRecordMapperTest {
         outbox.setSignatureValue("the-signature".getBytes());
         outbox.setSignedDocument("the-signed-document".getBytes());
         outbox.setDtbs("the-data-to-be-signed".getBytes());
+        outbox.setProtocol(SigningProtocol.CSC_API);
 
         // when
         SigningRecord signingRecord = SigningRecordMapper.toRecord(outbox);
@@ -44,6 +52,54 @@ class SigningRecordMapperTest {
         assertArrayEquals(outbox.getSignatureValue(), signingRecord.getSignatureValue());
         assertArrayEquals(outbox.getSignedDocument(), signingRecord.getSignedDocument());
         assertArrayEquals(outbox.getDtbs(), signingRecord.getDtbs());
+        assertEquals(outbox.getProtocol(), signingRecord.getProtocol());
+    }
+
+    @Test
+    void toDto_exposesProtocol() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
+
+        // when
+        SigningRecordDto dto = SigningRecordMapper.toDto(signingRecord);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
+    }
+
+    @Test
+    void toListDto_exposesProtocol() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
+
+        // when
+        SigningRecordListDto dto = SigningRecordMapper.toListDto(signingRecord);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
+    }
+
+    /**
+     * A {@link SigningRecord} with the minimum the DTO mappers dereference: a non-null profile association
+     * (via the composite key) and a {@code created} audit timestamp.
+     */
+    private static SigningRecord aPersistedRecord() {
+        SigningProfile profile = new SigningProfile();
+        profile.setUuid(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        profile.setName("profile-x");
+        profile.setLatestVersion(1);
+        profile.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
+        profile.setSigningScheme(SigningScheme.MANAGED);
+
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+        signingRecord.setSigningProfile(profile);
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
+        signingRecord.setCreated(OffsetDateTime.parse("2026-03-01T12:00:01Z"));
+        return signingRecord;
     }
 
     @Test

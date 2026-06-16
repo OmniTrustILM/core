@@ -26,6 +26,7 @@ import com.otilm.api.model.core.logging.enums.*;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.secret.SecretState;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeAccount_;
 import com.otilm.core.dao.entity.acme.AcmeProfile_;
@@ -239,6 +240,7 @@ public enum FilterField {
     // Signing Record
     SIGNING_RECORD_NAME(Resource.SIGNING_RECORD, null, null, SigningRecord_.name, "Name", SearchFieldTypeEnum.STRING),
     SIGNING_RECORD_SIGNING_PROFILE(Resource.SIGNING_RECORD, Resource.SIGNING_PROFILE, List.of(SigningRecord_.signingProfile), SigningProfile_.name, "Signing Profile", SearchFieldTypeEnum.LIST),
+    SIGNING_RECORD_PROTOCOL(Resource.SIGNING_RECORD, null, null, SigningRecord_.protocol, "Protocol", SearchFieldTypeEnum.LIST, SigningProtocol.class),
     SIGNING_RECORD_SIGNING_PROFILE_VERSION(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingProfileVersion, "Signing Profile Version", SearchFieldTypeEnum.NUMBER),
     SIGNING_RECORD_SIGNING_TIME(Resource.SIGNING_RECORD, null, null, SigningRecord_.signingTime, "Signing Time", SearchFieldTypeEnum.DATETIME),
     SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT(Resource.SIGNING_RECORD, null, null, SigningRecord_.signedDocumentRetrievedAt, "Signed Document Retrieved At", SearchFieldTypeEnum.DATETIME),
