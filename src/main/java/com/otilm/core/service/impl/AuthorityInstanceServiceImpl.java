@@ -5,6 +5,7 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
 import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -112,7 +113,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.LIST)
     public List<AuthorityInstanceDto> listAuthorityInstances(SecurityFilter filter) {
         // fetch-join connectorInterface so mapToDto does not lazy-load it per row (avoids N+1)
-        return authorityInstanceReferenceRepository.findUsingSecurityFilter(filter, List.of("connectorInterface"), null)
+        return authorityInstanceReferenceRepository.findUsingSecurityFilter(filter, List.of(AuthorityInstanceReference_.CONNECTOR_INTERFACE), null)
                 .stream()
                 .map(AuthorityInstanceReference::mapToDto)
                 .collect(Collectors.toList());
@@ -156,7 +157,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.CREATE)
-    public AuthorityInstanceDto createAuthorityInstance(com.otilm.api.model.client.authority.AuthorityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
+    public AuthorityInstanceDto createAuthorityInstance(AuthorityInstanceRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         if (authorityInstanceReferenceRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException(AuthorityInstanceReference.class, request.getName());
         }
@@ -456,7 +457,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     }
 
     private AuthorityInstanceDto createV3Authority(
-            com.otilm.api.model.client.authority.AuthorityInstanceRequestDto request,
+            AuthorityInstanceRequestDto request,
             AuthorityInstanceReference authorityInstanceRef,
             List<?> dataAttributes)
             throws ConnectorException, AttributeException, ValidationException, NotFoundException {

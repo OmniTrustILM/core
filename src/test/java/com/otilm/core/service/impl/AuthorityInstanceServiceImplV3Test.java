@@ -214,6 +214,18 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
+    void createV3AuthorityFallsBackToSoleAuthorityInterfaceWhenNoInterfaceUuid() throws Exception {
+        // exactly one AUTHORITY interface + no interfaceUuid → the sole interface is selected
+        ArgumentCaptor<com.otilm.core.dao.entity.AuthorityInstanceReference> captor =
+                ArgumentCaptor.forClass(com.otilm.core.dao.entity.AuthorityInstanceReference.class);
+
+        service.createAuthorityInstance(buildRequest());
+
+        verify(authorityInstanceReferenceRepository).save(captor.capture());
+        assertThat(captor.getValue().getConnectorInterface()).isSameAs(v3Iface);
+    }
+
+    @Test
     void createRejectsUnknownInterfaceUuid() throws Exception {
         AuthorityInstanceRequestDto request = buildRequest();
         request.setInterfaceUuid(UUID.randomUUID()); // not present on the connector
