@@ -27,7 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Duration;
 import java.util.List;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
@@ -79,8 +79,8 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         var deferredDurable = SigningRecordPersistenceMode.DEFERRED_DURABLE;
         SigningProfileVersion version = insertSigningProfile(deferredDurable);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(version.getSigningProfileUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(version.getSigningProfileUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
         double intakeBefore = counterValue("signing_record.intake", "mode", deferredDurable.name());
         double persistBefore = counterValue("signing_record.persist", "mode", deferredDurable.name());
@@ -110,8 +110,8 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         var immediate = SigningRecordPersistenceMode.IMMEDIATE;
         SigningProfileVersion version = insertSigningProfile(immediate);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(version.getSigningProfileUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(version.getSigningProfileUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
         double persistBefore = counterValue("signing_record.persist", "mode", immediate.name());
 
@@ -131,8 +131,8 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
         var bestEffort = SigningRecordPersistenceMode.BEST_EFFORT;
         SigningProfileVersion version = insertSigningProfile(bestEffort);
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(version.getSigningProfileUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(version.getSigningProfileUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
         double intakeBefore = counterValue("signing_record.intake", "mode", bestEffort.name());
         double persistBefore = counterValue("signing_record.persist", "mode", bestEffort.name());

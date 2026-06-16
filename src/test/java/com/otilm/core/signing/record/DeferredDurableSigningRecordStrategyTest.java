@@ -18,7 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.time.Instant;
 import java.util.List;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
@@ -55,9 +55,9 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
         // given
         SigningProfile persistedProfile = insertSigningProfile("round-trip-profile");
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .version(7)
-                .recordPolicy(recordingEverything().build())
+                .withUuid(persistedProfile.getUuid())
+                .withVersion(7)
+                .withRecordPolicy(recordingEverything().build())
                 .build();
 
         // when
@@ -89,7 +89,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
     void record_recordingDisabled_stagesNothing() {
         // given
         SigningProfileModel<?, ?> recordingDisabledProfile = aSigningProfile()
-                .recordPolicy(recordingDisabled().build())
+                .withRecordPolicy(recordingDisabled().build())
                 .build();
 
         // when
@@ -104,7 +104,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
     void record_stagesMetadataOnlyOutboxRow_whenRecordingEnabledButNoContentSelected() {
         // given
         SigningProfileModel<?, ?> metadataOnlyProfile = aSigningProfile()
-                .recordPolicy(notRecording().build())
+                .withRecordPolicy(notRecording().build())
                 .build();
 
         // when
@@ -132,8 +132,8 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
         SigningProfile persistedProfile = insertSigningProfile("violation-profile");
         Instant missingSigningTime = null;
         SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
-                .uuid(persistedProfile.getUuid())
-                .recordPolicy(recordingEverything().build())
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(recordingEverything().build())
                 .build();
 
         // when
