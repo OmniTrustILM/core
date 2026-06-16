@@ -93,10 +93,10 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         // given
         SigningProfile profile = insertProfile("protocol-roundtrip");
         insertProfileVersion(profile, 1);
-        SigningRecord record = insertRecordWithProtocol(profile, SigningProtocol.CSC_API);
+        SigningRecord signingRecord = insertRecordWithProtocol(profile, SigningProtocol.CSC_API);
 
         // when
-        SigningRecord reloaded = repository.findById(record.getUuid()).orElseThrow();
+        SigningRecord reloaded = repository.findById(signingRecord.getUuid()).orElseThrow();
 
         // then
         assertEquals(SigningProtocol.CSC_API, reloaded.getProtocol());
@@ -239,7 +239,7 @@ class SigningRecordRepositoryTest extends BaseSpringBootTest {
         signingRecord.setSigningProfileUuid(profile.getUuid());
         signingRecord.setSigningProfileVersion(1);
         signingRecord.setProtocol(protocol);
-        signingRecord.setSigningTime(Instant.now());
+        signingRecord.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
         return repository.saveAndFlush(signingRecord);
     }
 

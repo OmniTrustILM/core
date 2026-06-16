@@ -58,11 +58,11 @@ class SigningRecordMapperTest {
     @Test
     void toDto_exposesProtocol() {
         // given
-        SigningRecord record = aPersistedRecord();
-        record.setProtocol(SigningProtocol.CSC_API);
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
 
         // when
-        SigningRecordDto dto = SigningRecordMapper.toDto(record);
+        SigningRecordDto dto = SigningRecordMapper.toDto(signingRecord);
 
         // then
         assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
@@ -71,11 +71,11 @@ class SigningRecordMapperTest {
     @Test
     void toListDto_exposesProtocol() {
         // given
-        SigningRecord record = aPersistedRecord();
-        record.setProtocol(SigningProtocol.CSC_API);
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
 
         // when
-        SigningRecordListDto dto = SigningRecordMapper.toListDto(record);
+        SigningRecordListDto dto = SigningRecordMapper.toListDto(signingRecord);
 
         // then
         assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
@@ -93,13 +93,13 @@ class SigningRecordMapperTest {
         profile.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
         profile.setSigningScheme(SigningScheme.MANAGED);
 
-        SigningRecord record = new SigningRecord();
-        record.setUuid(UUID.fromString("22222222-2222-2222-2222-222222222222"));
-        record.setSigningProfile(profile);
-        record.setSigningProfileVersion(1);
-        record.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
-        record.setCreated(OffsetDateTime.parse("2026-03-01T12:00:01Z"));
-        return record;
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+        signingRecord.setSigningProfile(profile);
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
+        signingRecord.setCreated(OffsetDateTime.parse("2026-03-01T12:00:01Z"));
+        return signingRecord;
     }
 
     @Test
