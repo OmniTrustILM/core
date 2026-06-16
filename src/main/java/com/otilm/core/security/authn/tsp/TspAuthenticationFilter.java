@@ -2,6 +2,7 @@ package com.otilm.core.security.authn.tsp;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.signing.TspAuthenticationMethod;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import jakarta.servlet.FilterChain;
@@ -92,10 +93,12 @@ public class TspAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Clears any {@link SecurityContext} an authenticator may have partially populated.
+     * Clears any {@link SecurityContext} and actor MDC attribution an authenticator may have partially populated, so a
+     * rejected request leaks no identity onto the request thread, then writes the 401 challenge.
      */
     private void reject(HttpServletResponse response, TspProfileModel profile) {
         SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
         challengeWriter.send401(response, profile);
     }
 }

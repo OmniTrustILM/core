@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>a TSP request with no credentials is rejected with {@code 401} by the TSP chain;</li>
  *   <li>the {@code /v1/tspProfiles} management API is served by the catch-all {@code @Order(2)} chain and is
  *       unaffected by the TSP chain's {@code 401} backstop;</li>
- *   <li>the JDBC session / cookie filter does not run for a TSP request (no session cookie is set).</li>
+ *   <li>a TSP request establishes no session cookie (the JDBC session filter sets no {@code SESSION} cookie).</li>
  * </ul>
  */
 @AutoConfigureMockMvc
@@ -129,7 +129,7 @@ class TspSecurityChainIntegrationTest extends BaseSpringBootTestNoAuth {
                 .andExpect(status().isUnauthorized())
                 .andReturn();
 
-        // then — the JDBC session / cookie filter must not run for TSP requests: no session cookie is established
+        // then — a TSP request establishes no session cookie
         assertThat(result.getResponse().getCookie(CookieConfig.COOKIE_NAME))
                 .as("TSP chain must not set a session cookie")
                 .isNull();

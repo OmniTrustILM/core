@@ -314,7 +314,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         if (profile.getTspProfileUuid() == null) {
             return null;
         }
-        return profile.getTspProfile().getName();
+        TspProfile tspProfile = profile.getTspProfile();
+        if (tspProfile == null) {
+            throw new NotFoundException(TspProfile.class, profile.getTspProfileUuid());
+        }
+        return tspProfile.getName();
     }
 
     /**

@@ -53,8 +53,10 @@ public class TspSecurityContextWriter {
             return true;
         } catch (RuntimeException e) {
             // The credential matched, but the user-proxy authentication call failed (e.g. auth service outage).
-            // Leave the context unauthenticated.
+            // Leave the context unauthenticated and drop the actor attribution that authenticateAsUser set before
+            // the failing proxy call, so the failure is not misattributed to the mapped user.
             SecurityContextHolder.clearContext();
+            LoggingHelper.clearActorInfo();
             log.warn("TSP authentication: user-proxy authentication failed after credential match: {}", e.getMessage());
             return false;
         }
