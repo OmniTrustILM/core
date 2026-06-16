@@ -21,7 +21,6 @@ import com.otilm.core.util.serialnumber.SerialNumberGenerationException;
 import com.otilm.core.util.serialnumber.SerialNumberGenerator;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.tsp.TSPValidationException;
-import org.bouncycastle.tsp.TimeStampToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -93,9 +92,10 @@ public class ManagedTimestampEngine {
                 token.validate(verifier);
             }
 
-            recordSigning(signingProfile, request, serialNumber, genTime, token);
+            byte[] encodedToken = token.getEncoded();
+            recordSigning(signingProfile, request, serialNumber, genTime, encodedToken);
 
-            return TspResponse.granted(token.getEncoded());
+            return TspResponse.granted(encodedToken);
 
         } catch (TspException e) {
             throw e; // TspController maps this to a proper rejection response
@@ -120,9 +120,9 @@ public class ManagedTimestampEngine {
      * failure must never downgrade the response: it is logged and swallowed, leaving the granted token intact.
      * The {@code recordingEnabled} policy gate lives inside the strategy, so disabled profiles are a no-op.
      */
-    private void recordSigning(SigningProfileModel<?, ?> signingProfile, TspRequest request, BigInteger serialNumber, Instant genTime, TimeStampToken token) {
+    private void recordSigning(SigningProfileModel<?, ?> signingProfile, TspRequest request, BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
         try {
-            SigningRecordInput input = tspSigningRecordFactory.build(signingProfile, request, serialNumber, genTime, token);
+            SigningRecordInput input = tspSigningRecordFactory.build(signingProfile, request, serialNumber, genTime, encodedToken);
             signingRecordStrategyFactory.strategyFor(signingProfile.recordPolicy().persistenceMode()).recordSigning(input);
         } catch (Exception e) {
             logger.error("Failed to record signing for signing profile '{}'; the timestamp was granted regardless", signingProfile.name(), e);
