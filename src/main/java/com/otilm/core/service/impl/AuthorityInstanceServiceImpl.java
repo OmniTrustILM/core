@@ -7,6 +7,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.authority.AuthorityInstanceUpdateRequestDto;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.NameAndIdDto;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -27,11 +28,14 @@ import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +60,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     private RaProfileService raProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
+    private ConnectorRepository connectorRepository;
+    private AuthorityProviderAdapterFactory adapterFactory;
 
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
@@ -90,6 +96,16 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setConnectorRepository(ConnectorRepository connectorRepository) {
+        this.connectorRepository = connectorRepository;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
     }
 
     @Override
@@ -153,13 +169,21 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
                 break;
             }
         }
+        // Resolve the interface BEFORE attribute validation so v3 authorities validate against
+        // the v3 attribute endpoint, not the legacy v1 function-group path.
+        ConnectorInterfaceEntity iface = resolveAuthorityInterface(connectorUuid.getValue(), request.getInterfaceUuid());
+        AuthorityInstanceReference probeRef = transientAuthorityRef(connectorUuid, connector, iface, request.getKind());
         attributeEngine.validateCustomAttributesContent(Resource.AUTHORITY, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(connectorUuid, codeToSearch, request.getAttributes(), request.getKind());
+        mergeAndValidateAuthorityAttributes(probeRef, iface, codeToSearch, request.getAttributes(), request.getKind());
 
         // Load complete credential data and resource data
         var dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid.getValue(), request.getAttributes());
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
+
+        if (isV3(iface)) {
+            return createV3Authority(request, probeRef, dataAttributes);
+        }
 
         AuthorityProviderInstanceRequestDto authorityInstanceDto = new AuthorityProviderInstanceRequestDto();
         authorityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
@@ -175,6 +199,10 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         authorityInstanceRef.setConnectorUuid(connectorUuid.getValue());
         authorityInstanceRef.setKind(request.getKind());
         authorityInstanceRef.setConnectorName(connector.getName());
+        if (iface != null) {
+            authorityInstanceRef.setConnectorInterface(iface);
+            authorityInstanceRef.setConnectorInterfaceUuid(iface.getUuid());
+        }
         authorityInstanceReferenceRepository.save(authorityInstanceRef);
 
         AuthorityInstanceDto dto = authorityInstanceRef.mapToDto();
@@ -198,20 +226,28 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
                 break;
             }
         }
+        ConnectorInterfaceEntity iface = authorityInstanceRef.getConnectorInterface();
         attributeEngine.validateCustomAttributesContent(Resource.AUTHORITY, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(authorityInstanceRef.getConnectorUuid()), codeToSearch, request.getAttributes(), ref.getKind());
+        mergeAndValidateAuthorityAttributes(authorityInstanceRef, iface, codeToSearch, request.getAttributes(), ref.getKind());
 
         // Load complete credential data
         var dataAttributes = attributeEngine.getDataAttributesByContent(authorityInstanceRef.getConnectorUuid(), request.getAttributes());
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
 
-        AuthorityProviderInstanceRequestDto authorityInstanceDto = new AuthorityProviderInstanceRequestDto();
-        authorityInstanceDto.setKind(ref.getKind());
-        authorityInstanceDto.setName(ref.getName());
-        authorityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
-        connectorApiFactory.getAuthorityInstanceApiClient(connector).updateAuthorityInstance(connector,
-                authorityInstanceRef.getAuthorityInstanceUuid(), authorityInstanceDto);
+        if (isV3(iface)) {
+            // v3 is stateless: no updateAuthorityInstance endpoint — re-probe connectivity with
+            // the new attributes; persisting the attribute content below is the actual update.
+            adapterFactory.forAuthority(authorityInstanceRef)
+                    .checkAuthorityConnection(authorityInstanceRef, AttributeDefinitionUtils.getClientAttributes(dataAttributes));
+        } else {
+            AuthorityProviderInstanceRequestDto authorityInstanceDto = new AuthorityProviderInstanceRequestDto();
+            authorityInstanceDto.setKind(ref.getKind());
+            authorityInstanceDto.setName(ref.getName());
+            authorityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
+            connectorApiFactory.getAuthorityInstanceApiClient(connector).updateAuthorityInstance(connector,
+                    authorityInstanceRef.getAuthorityInstanceUuid(), authorityInstanceDto);
+        }
         authorityInstanceReferenceRepository.save(authorityInstanceRef);
 
         AuthorityInstanceDto dto = authorityInstanceRef.mapToDto();
@@ -345,6 +381,98 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         getAuthorityInstanceReferenceEntity(uuid);
         // Since there are is no parent to the Authority, exclusive parent permission evaluation need not be done
+    }
+
+    private static boolean isV3(ConnectorInterfaceEntity iface) {
+        return iface != null && "v3".equals(iface.getVersion());
+    }
+
+    /**
+     * Builds an unpersisted {@link AuthorityInstanceReference} carrying just enough state
+     * (connector UUID, kind, connector interface) for {@link AuthorityProviderAdapterFactory}
+     * to pick the version-correct adapter and for that adapter to reach the connector. Used to
+     * validate attributes and probe the connection during create, before the row is saved.
+     */
+    private AuthorityInstanceReference transientAuthorityRef(SecuredUUID connectorUuid, ConnectorDto connector,
+                                                             ConnectorInterfaceEntity iface, String kind) {
+        AuthorityInstanceReference ref = new AuthorityInstanceReference();
+        ref.setConnectorUuid(connectorUuid.getValue());
+        ref.setConnectorName(connector.getName());
+        ref.setKind(kind);
+        if (iface != null) {
+            ref.setConnectorInterface(iface);
+            ref.setConnectorInterfaceUuid(iface.getUuid());
+        }
+        return ref;
+    }
+
+    /**
+     * Validate + merge authority-instance attribute definitions for the connector version.
+     * v1/v2 use the legacy function-group attribute path (connector /validate + /attributes by
+     * kind). v3 is stateless: definitions come from GET /v3/authorityProvider/authorities/attributes
+     * (no kind) and there is no connector-side /validate — Core validates locally
+     * against the listed definitions.
+     */
+    private void mergeAndValidateAuthorityAttributes(AuthorityInstanceReference authorityRef, ConnectorInterfaceEntity iface,
+                                                     FunctionGroupCode codeToSearch, List<RequestAttribute> attributes,
+                                                     String kind)
+            throws ConnectorException, AttributeException, NotFoundException {
+        if (isV3(iface)) {
+            List<RequestAttribute> attrs = attributes != null ? attributes : List.of();
+            List<BaseAttribute> definitions = adapterFactory.forAuthority(authorityRef).listAuthorityInstanceAttributes(authorityRef);
+            attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), null, definitions, attrs);
+        } else {
+            connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(authorityRef.getConnectorUuid()),
+                    codeToSearch, attributes, kind);
+        }
+    }
+
+    /**
+     * Resolve the AUTHORITY connector interface to bind a new authority to. When the request
+     * carries an explicit interfaceUuid (mirrors VaultInstanceRequestDto), validate it belongs
+     * to the connector and is an AUTHORITY interface, then use it — this is how an operator
+     * selects v3 on a connector that exposes both v2 and v3. When absent (older callers, or
+     * legacy connectors that declare no interface), fall back to the sole AUTHORITY interface;
+     * if the connector exposes more than one, require an explicit interfaceUuid rather than
+     * picking a non-deterministic one.
+     */
+    private ConnectorInterfaceEntity resolveAuthorityInterface(UUID connectorUuid, UUID interfaceUuid) {
+        var interfaces = connectorRepository.findByUuid(connectorUuid)
+                .map(c -> c.getInterfaces().stream()
+                        .filter(i -> i.getInterfaceCode() == ConnectorInterface.AUTHORITY)
+                        .toList())
+                .orElse(List.of());
+        if (interfaceUuid != null) {
+            return interfaces.stream()
+                    .filter(i -> interfaceUuid.equals(i.getUuid()))
+                    .findFirst()
+                    .orElseThrow(() -> new ValidationException(
+                            "Connector " + connectorUuid + " has no AUTHORITY interface with UUID " + interfaceUuid));
+        }
+        if (interfaces.size() > 1) {
+            throw new ValidationException(
+                    "Connector " + connectorUuid + " exposes multiple AUTHORITY interfaces; supply interfaceUuid to select one.");
+        }
+        return interfaces.stream().findFirst().orElse(null);
+    }
+
+    private AuthorityInstanceDto createV3Authority(
+            com.otilm.api.model.client.authority.AuthorityInstanceRequestDto request,
+            AuthorityInstanceReference authorityInstanceRef,
+            List<?> dataAttributes)
+            throws ConnectorException, AttributeException, ValidationException, NotFoundException {
+        authorityInstanceRef.setName(request.getName());
+        authorityInstanceRef.setStatus("connected");
+
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authorityInstanceRef);
+        adapter.checkAuthorityConnection(authorityInstanceRef, AttributeDefinitionUtils.getClientAttributes(dataAttributes));
+
+        authorityInstanceReferenceRepository.save(authorityInstanceRef);
+
+        AuthorityInstanceDto dto = authorityInstanceRef.mapToDto();
+        dto.setCustomAttributes(attributeEngine.updateObjectCustomAttributesContent(Resource.AUTHORITY, authorityInstanceRef.getUuid(), request.getCustomAttributes()));
+        dto.setAttributes(attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authorityInstanceRef.getUuid()).connector(authorityInstanceRef.getConnectorUuid()).build(), request.getAttributes()));
+        return dto;
     }
 
     private AuthorityInstanceReference getAuthorityInstanceReferenceEntity(SecuredUUID uuid) throws NotFoundException {
