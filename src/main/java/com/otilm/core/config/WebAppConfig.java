@@ -1,5 +1,6 @@
 package com.otilm.core.config;
 
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -98,6 +99,12 @@ public class WebAppConfig implements WebMvcConfigurer {
             @Override
             public KeyAlgorithm convert(String source) {
                 return KeyAlgorithm.findByCode(source);
+            }
+        });
+        registry.addConverter(new Converter<String, SigningRecordStatisticsPeriod>() {
+            @Override
+            public SigningRecordStatisticsPeriod convert(String source) {
+                return SigningRecordStatisticsPeriod.findByCode(source);
             }
         });
     }
