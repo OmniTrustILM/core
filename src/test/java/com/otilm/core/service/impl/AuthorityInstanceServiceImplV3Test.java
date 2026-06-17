@@ -312,7 +312,7 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
-    void validateRAProfileAttributesPropagatesInvalidContentForV3() {
+    void validateRAProfileAttributesPropagatesInvalidContentForV3() throws Exception {
         AuthorityInstanceReference existing = v3AuthorityEntity();
         when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
         when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of());
