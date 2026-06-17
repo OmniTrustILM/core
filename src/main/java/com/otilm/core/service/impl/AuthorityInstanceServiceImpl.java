@@ -326,7 +326,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
             // content throws ValidationException and a definition/schema failure throws
             // AttributeException — both surface to the caller, matching the v2 connector-validate path.
             List<BaseAttribute> definitions = adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
-            attributeEngine.validateUpdateDataAttributes(authorityInstance.getConnectorUuid(), null, definitions, attributes);
+            attributeEngine.validateUpdateDataAttributes(authorityInstance.getConnectorUuid(), null, definitions,
+                    attributes != null ? attributes : List.of());
             return true;
         }
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstance.getConnectorUuid());

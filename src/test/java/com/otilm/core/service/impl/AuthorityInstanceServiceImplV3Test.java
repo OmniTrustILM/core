@@ -323,6 +323,15 @@ class AuthorityInstanceServiceImplV3Test {
                 .isInstanceOf(ValidationException.class);
     }
 
+    @Test
+    void validateRAProfileAttributesToleratesNullAttributesForV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of());
+
+        assertThat(service.validateRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid), null)).isTrue();
+    }
+
     // ---- helpers ----
 
     private AuthorityInstanceRequestDto buildRequest() {
