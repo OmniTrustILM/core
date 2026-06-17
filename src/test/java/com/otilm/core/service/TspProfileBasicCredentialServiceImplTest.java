@@ -5,8 +5,9 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialCreateRequestDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialDto;
-import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialRequestDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialUpdateRequestDto;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.secret.SecretDetailDto;
 import com.otilm.core.dao.entity.VaultInstance;
@@ -16,6 +17,7 @@ import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.service.impl.SecretServiceImpl;
+import com.otilm.core.service.impl.UserManagementServiceImpl;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -53,7 +55,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
     @MockitoBean
     private SecretServiceImpl secretService;
     @MockitoBean
-    private UserManagementService userManagementService;
+    private UserManagementServiceImpl userManagementService;
 
     private TspProfile profileWithVault;
     private TspProfile profileNoVault;
@@ -99,8 +101,16 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
         return dto;
     }
 
-    private TspBasicCredentialRequestDto request(String username, String password) {
-        TspBasicCredentialRequestDto request = new TspBasicCredentialRequestDto();
+    private TspBasicCredentialCreateRequestDto createRequest(String username, String password) {
+        TspBasicCredentialCreateRequestDto request = new TspBasicCredentialCreateRequestDto();
+        request.setUsername(username);
+        request.setPassword(password);
+        request.setMappedUserUuid(mappedUserUuid);
+        return request;
+    }
+
+    private TspBasicCredentialUpdateRequestDto updateRequest(String username, String password) {
+        TspBasicCredentialUpdateRequestDto request = new TspBasicCredentialUpdateRequestDto();
         request.setUsername(username);
         request.setPassword(password);
         request.setMappedUserUuid(mappedUserUuid);
@@ -118,7 +128,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
 
             // when / then
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileNoVault.getUuid());
-            TspBasicCredentialRequestDto req = request("svc", "secret");
+            TspBasicCredentialCreateRequestDto req = createRequest("svc", "secret");
             assertThatThrownBy(() -> service.create(parent, req))
                     .isInstanceOf(ValidationException.class);
         }
@@ -129,7 +139,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
 
             // when
-            TspBasicCredentialDto created = service.create(parent, request("svc-account", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc-account", "secret"));
 
             // then
             assertThat(created).isNotNull();
@@ -157,10 +167,10 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
                     .thenReturn(secretDtoWithUuid(secretUuidA))
                     .thenReturn(secretDtoWithUuid(secretUuidB));
 
-            service.create(parent, request("dup", "secret"));
+            service.create(parent, createRequest("dup", "secret"));
 
             // when / then — the duplicate is rejected
-            assertThatThrownBy(() -> service.create(parent, request("dup", "secret2")))
+            assertThatThrownBy(() -> service.create(parent, createRequest("dup", "secret2")))
                     .isInstanceOf(AlreadyExistException.class);
 
             // then — best-effort cleanup of the orphaned second vault secret
@@ -176,7 +186,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
                     .thenThrow(new ConnectorCommunicationException("connection refused to 10.0.0.5:8200", null));
 
             // when / then — transient connector failure surfaces as a connector exception (HTTP 503), not 422
-            assertThatThrownBy(() -> service.create(parent, request("svc", "secret")))
+            assertThatThrownBy(() -> service.create(parent, createRequest("svc", "secret")))
                     .isInstanceOf(ConnectorCommunicationException.class)
                     .hasMessageNotContaining("10.0.0.5");
             assertThat(service.list(parent)).isEmpty();
@@ -190,7 +200,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
                     .thenThrow(new AttributeException("missing required attribute"));
 
             // when / then — attribute problems propagate unchanged (HTTP 400)
-            assertThatThrownBy(() -> service.create(parent, request("svc", "secret")))
+            assertThatThrownBy(() -> service.create(parent, createRequest("svc", "secret")))
                     .isInstanceOf(AttributeException.class);
             assertThat(service.list(parent)).isEmpty();
         }
@@ -208,31 +218,55 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
 
             UUID secretUuid = UUID.randomUUID();
             when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
-            TspBasicCredentialDto created = service.create(parent, request("svc", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
 
             // when
-            service.update(parent, credentialUuid, request("svc-renamed", "newsecret"));
+            service.update(parent, credentialUuid, updateRequest("svc-renamed", "newsecret"));
 
             // then
             verify(secretService, times(1)).updateSecret(eq(secretUuid), any());
         }
 
         @Test
-        void doesNotRotateOrEvict_whenPasswordAbsent() throws Exception {
+        void rejectsUsernameChange_whenPasswordAbsent() throws Exception {
             // given
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
 
             UUID secretUuid = UUID.randomUUID();
             when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
-            TspBasicCredentialDto created = service.create(parent, request("svc", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
 
-            // when — null password, then blank password
-            service.update(parent, credentialUuid, request("svc-renamed", null));
-            service.update(parent, credentialUuid, request("svc-renamed-2", "  "));
+            // when / then — a username change without a new password is rejected: the stored verification
+            // fingerprint encodes the username, so it can only be regenerated by rotating the secret.
+            TspBasicCredentialUpdateRequestDto nullPassword = updateRequest("svc-renamed", null);
+            TspBasicCredentialUpdateRequestDto blankPassword = updateRequest("svc-renamed", "  ");
+            assertThatThrownBy(() -> service.update(parent, credentialUuid, nullPassword))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("requires providing a new password");
+            assertThatThrownBy(() -> service.update(parent, credentialUuid, blankPassword))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("requires providing a new password");
+            verify(secretService, never()).updateSecret(any(), any());
+        }
 
-            // then
+        @Test
+        void updatesMappedUser_withoutRotation_whenUsernameUnchanged() throws Exception {
+            // given
+            SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
+
+            UUID secretUuid = UUID.randomUUID();
+            when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
+            SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
+
+            // when — same username, no password, only the mapped user changes
+            TspBasicCredentialUpdateRequestDto request = updateRequest("svc", null);
+            request.setMappedUserUuid(UUID.randomUUID());
+            service.update(parent, credentialUuid, request);
+
+            // then — no secret rotation is triggered for a mapped-user-only change
             verify(secretService, never()).updateSecret(any(), any());
         }
 
@@ -242,13 +276,13 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
             UUID secretUuid = UUID.randomUUID();
             when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
-            TspBasicCredentialDto created = service.create(parent, request("svc", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
             when(secretService.updateSecret(eq(secretUuid), any()))
                     .thenThrow(new ConnectorCommunicationException("vault timeout", null));
 
             // when / then — rotation against an unreachable vault surfaces as a connector exception (HTTP 503)
-            assertThatThrownBy(() -> service.update(parent, credentialUuid, request("svc", "newsecret")))
+            assertThatThrownBy(() -> service.update(parent, credentialUuid, updateRequest("svc", "newsecret")))
                     .isInstanceOf(ConnectorCommunicationException.class);
         }
 
@@ -259,13 +293,13 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             when(secretService.createSecret(any(), any(), any()))
                     .thenReturn(secretDtoWithUuid(UUID.randomUUID()))
                     .thenReturn(secretDtoWithUuid(UUID.randomUUID()));
-            service.create(parent, request("svc-a", "secret"));
-            TspBasicCredentialDto credentialB = service.create(parent, request("svc-b", "secret"));
+            service.create(parent, createRequest("svc-a", "secret"));
+            TspBasicCredentialDto credentialB = service.create(parent, createRequest("svc-b", "secret"));
             SecuredUUID credentialBUuid = SecuredUUID.fromUUID(credentialB.getUuid());
 
             // when renaming B onto A's username while also rotating its password
             // then the collision is rejected BEFORE the vault is touched, so vault and DB stay aligned
-            assertThatThrownBy(() -> service.update(parent, credentialBUuid, request("svc-a", "newsecret")))
+            assertThatThrownBy(() -> service.update(parent, credentialBUuid, updateRequest("svc-a", "newsecret")))
                     .isInstanceOf(AlreadyExistException.class);
             verify(secretService, never()).updateSecret(any(), any());
         }
@@ -283,7 +317,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
 
             UUID secretUuid = UUID.randomUUID();
             when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
-            TspBasicCredentialDto created = service.create(parent, request("svc", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
 
             // when
@@ -304,7 +338,7 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
         void scopesToParent() throws Exception {
             // given
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
-            TspBasicCredentialDto created = service.create(parent, request("svc", "secret"));
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
             SecuredParentUUID otherParent = SecuredParentUUID.fromUUID(profileNoVault.getUuid());
 

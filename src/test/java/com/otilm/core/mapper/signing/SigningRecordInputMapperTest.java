@@ -1,5 +1,6 @@
 package com.otilm.core.mapper.signing;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.model.signing.SigningProfileModel;
@@ -10,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.UUID;
 
-import static com.otilm.core.model.signing.SigningProfileModelBuilder.aSigningProfile;
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.*;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,7 +27,7 @@ class SigningRecordInputMapperTest {
         var signingTime = Instant.parse("2026-03-01T12:00:00Z");
         var profileVersion = 7;
         var displayName = "my-record";
-        SigningProfileModel<?, ?> profile = aSigningProfile().uuid(profileUuid).version(profileVersion).build();
+        SigningProfileModel<?, ?> profile = aSigningProfile().withUuid(profileUuid).withVersion(profileVersion).build();
         SigningRecordInput input = aSigningRecordInput()
                 .signingProfile(profile)
                 .signingTime(signingTime)
@@ -43,6 +44,33 @@ class SigningRecordInputMapperTest {
         assertEquals(signingTime, signingRecord.getSigningTime());
         assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), signingRecord.getRequestedByUuid());
         assertEquals(input.getRequestedBy().getName(), signingRecord.getRequestedByUsername());
+    }
+
+    @Test
+    void toRecord_capturesProtocol() {
+        // given
+        SigningRecordInput input = aSigningRecordInput().protocol(SigningProtocol.CSC_API).build();
+
+        // when
+        SigningRecord signingRecord = mapper.toRecord(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, signingRecord.getProtocol());
+    }
+
+    @Test
+    void toRecord_capturesProtocol_evenWhenPolicyRecordsNothing() {
+        // given protocol is intrinsic operation metadata, not gated by the content record* toggles
+        SigningRecordInput input = aSigningRecordInput()
+                .signingProfile(aSigningProfile().withRecordPolicy(notRecording().build()).build())
+                .protocol(SigningProtocol.CSC_API)
+                .build();
+
+        // when
+        SigningRecord signingRecord = mapper.toRecord(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, signingRecord.getProtocol());
     }
 
     @Test
@@ -161,8 +189,8 @@ class SigningRecordInputMapperTest {
         var signingTime = Instant.parse("2026-03-01T12:00:00Z");
         var displayName = "my-record";
         SigningProfileModel<?, ?> profile = aSigningProfile()
-                .uuid(profileUuid)
-                .version(profileVersion)
+                .withUuid(profileUuid)
+                .withVersion(profileVersion)
                 .build();
         SigningRecordInput input = aSigningRecordInput()
                 .signingProfile(profile)
@@ -181,6 +209,33 @@ class SigningRecordInputMapperTest {
         assertEquals(signingTime, outbox.getSigningTime());
         assertEquals(UUID.fromString(input.getRequestedBy().getUuid()), outbox.getRequestedByUuid());
         assertEquals(input.getRequestedBy().getName(), outbox.getRequestedByUsername());
+    }
+
+    @Test
+    void toOutbox_capturesProtocol() {
+        // given
+        SigningRecordInput input = aSigningRecordInput().protocol(SigningProtocol.CSC_API).build();
+
+        // when
+        SigningRecordOutbox outbox = mapper.toOutbox(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, outbox.getProtocol());
+    }
+
+    @Test
+    void toOutbox_capturesProtocol_evenWhenPolicyRecordsNothing() {
+        // given protocol is intrinsic operation metadata, not gated by the content record* toggles
+        SigningRecordInput input = aSigningRecordInput()
+                .signingProfile(aSigningProfile().withRecordPolicy(notRecording().build()).build())
+                .protocol(SigningProtocol.CSC_API)
+                .build();
+
+        // when
+        SigningRecordOutbox outbox = mapper.toOutbox(input);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, outbox.getProtocol());
     }
 
     @Test
@@ -281,7 +336,7 @@ class SigningRecordInputMapperTest {
 
     private SigningRecordInput inputWithPolicy(SigningRecordPolicyModel policy) {
         return aSigningRecordInput()
-                .signingProfile(aSigningProfile().recordPolicy(policy).build())
+                .signingProfile(aSigningProfile().withRecordPolicy(policy).build())
                 .build();
     }
 }

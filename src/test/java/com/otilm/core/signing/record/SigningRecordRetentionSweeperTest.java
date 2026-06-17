@@ -2,6 +2,7 @@ package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
@@ -90,6 +91,7 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
         SigningRecord signingRecord = new SigningRecord();
         signingRecord.setSigningProfileUuid(signingProfileUuid);
         signingRecord.setSigningProfileVersion(1);
+        signingRecord.setProtocol(SigningProtocol.TSP);
         signingRecord.setSigningTime(signingTime);
         return recordRepository.saveAndFlush(signingRecord);
     }

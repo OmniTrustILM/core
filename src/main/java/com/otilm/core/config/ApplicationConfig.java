@@ -195,6 +195,18 @@ public class ApplicationConfig {
         return new SchedulerApiClient();
     }
 
+    // Connectors v3 API Clients
+
+    @Bean
+    public com.otilm.api.clients.v3.CertificateApiClient certificateApiClientV3(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v3.CertificateApiClient(webClient, defaultTrustManagers);
+    }
+
+    @Bean
+    public com.otilm.api.clients.v3.AuthorityApiClient authorityApiClientV3(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v3.AuthorityApiClient(webClient, defaultTrustManagers);
+    }
+
     @Bean
     public SignatureFormatterApiClient signatureFormatterApiClient(WebClient webClient, TrustManager[] defaultTrustManagers) {
         return new SignatureFormatterApiClient(webClient, defaultTrustManagers);

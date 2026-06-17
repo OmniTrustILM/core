@@ -69,6 +69,8 @@ import java.util.stream.Collectors;
 @Service(Resource.Codes.TSP_PROFILE)
 @Slf4j
 public class TspProfileServiceImpl implements TspProfileService {
+    private static final String TSP_PROFILE_NOT_FOUND = "TSP Profile not found: ";
+
     private AttributeEngine attributeEngine;
     private CacheEvictor cacheEvictor;
     private TspProfileServiceImpl self;
@@ -96,12 +98,12 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.LIST)
     @Transactional(readOnly = true)
-    public PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter) {
+    public PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter, String baseUrl) {
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         TriFunction<Root<TspProfile>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate = (root, cb, cq) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cq, root, request.getFilters());
         List<TspProfileListDto> profiles = tspProfileRepository.findUsingSecurityFilter(filter, List.of(), predicate, p, (root, cb) -> cb.desc(root.get(Audited_.CREATED)))
                 .stream()
-                .map(TspProfileMapper::toListDto)
+                .map(profile -> TspProfileMapper.toListDto(profile, baseUrl))
                 .toList();
         PaginationResponseDto<TspProfileListDto> response = new PaginationResponseDto<>();
         response.setItems(profiles);
@@ -123,10 +125,10 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
-    public TspProfileDto getTspProfile(SecuredUUID uuid) throws NotFoundException {
+    public TspProfileDto getTspProfile(SecuredUUID uuid, String baseUrl) throws NotFoundException {
         TspProfile profile = getTspProfileEntity(uuid);
         List<ResponseAttribute> customAttributes = attributeEngine.getObjectCustomAttributesContent(Resource.TSP_PROFILE, uuid.getValue());
-        return TspProfileMapper.toDto(profile, customAttributes);
+        return TspProfileMapper.toDto(profile, customAttributes, baseUrl);
     }
 
     @Override
@@ -139,8 +141,27 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional(readOnly = true)
     public TspProfileModel loadTspProfileModel(String name) throws NotFoundException {
         TspProfile tspConfiguration = tspProfileRepository.findByName(name)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + name));
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + name));
 
+        return toModel(tspConfiguration);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
+    public TspProfileModel getTspProfile(UUID uuid) throws NotFoundException {
+        return self.loadTspProfileModelByUuid(uuid);
+    }
+
+    @Cacheable(value = CacheConfig.TSP_PROFILE_CACHE, key = "#uuid", sync = true)
+    @Transactional(readOnly = true)
+    public TspProfileModel loadTspProfileModelByUuid(UUID uuid) throws NotFoundException {
+        TspProfile tspConfiguration = tspProfileRepository.findByUuid(SecuredUUID.fromUUID(uuid))
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + uuid));
+
+        return toModel(tspConfiguration);
+    }
+
+    private TspProfileModel toModel(TspProfile tspConfiguration) {
         List<ResponseAttribute> customAttributes = attributeEngine.getObjectCustomAttributesContent(Resource.TSP_PROFILE, tspConfiguration.getUuid());
         return TspProfileMapper.toModel(tspConfiguration, customAttributes, loadLatestFingerprints(tspConfiguration));
     }
@@ -159,19 +180,19 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.CREATE)
     @Transactional
-    public TspProfileDto createTspProfile(TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
+    public TspProfileDto createTspProfile(TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException {
         if (tspProfileRepository.findByName(request.getName()).isPresent()) {
             throw new AlreadyExistException("TSP Profile with name '" + request.getName() + "' already exists.");
         }
         ValidatedReferences refs = validateCreateUpdateRequest(request);
         TspProfile profile = new TspProfile();
-        return updateAndMapToDto(profile, request, refs);
+        return updateAndMapToDto(profile, request, refs, baseUrl);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
-    public TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException {
+    public TspProfileDto updateTspProfile(SecuredUUID uuid, TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException {
         TspProfile profile = getTspProfileEntity(uuid);
         String oldName = profile.getName();
 
@@ -182,11 +203,11 @@ public class TspProfileServiceImpl implements TspProfileService {
 
         ValidatedReferences refs = validateCreateUpdateRequest(request);
         guardAgainstOrphaningBasicCredentials(profile, request);
-        evictTspProfileCache(oldName);
+        evictTspProfileCache(profile.getUuid(), oldName);
         if (!oldName.equals(request.getName())) {
-            evictTspProfileCache(request.getName());
+            evictTspProfileCache(profile.getUuid(), request.getName());
         }
-        return updateAndMapToDto(profile, request, refs);
+        return updateAndMapToDto(profile, request, refs, baseUrl);
     }
 
     @Override
@@ -318,7 +339,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Transactional(readOnly = true)
     public TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException {
         return tspProfileRepository.findByUuid(uuid)
-                .orElseThrow(() -> new NotFoundException("TSP Profile not found: " + uuid));
+                .orElseThrow(() -> new NotFoundException(TSP_PROFILE_NOT_FOUND + uuid));
     }
 
     @Override
@@ -365,7 +386,7 @@ public class TspProfileServiceImpl implements TspProfileService {
         }
     }
 
-    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request, ValidatedReferences refs) throws AlreadyExistException, AttributeException, NotFoundException {
+    private TspProfileDto updateAndMapToDto(TspProfile profile, TspProfileRequestDto request, ValidatedReferences refs, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException {
         profile.setName(request.getName());
         profile.setDescription(request.getDescription());
         profile.setDefaultSigningProfile(refs.defaultSigningProfile());
@@ -379,7 +400,7 @@ public class TspProfileServiceImpl implements TspProfileService {
         }
 
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.TSP_PROFILE, saved.getUuid(), request.getCustomAttributes());
-        return TspProfileMapper.toDto(saved, customAttributes);
+        return TspProfileMapper.toDto(saved, customAttributes, baseUrl);
     }
 
     private void deleteTspProfile(TspProfile profile) {
@@ -395,26 +416,33 @@ public class TspProfileServiceImpl implements TspProfileService {
             );
         }
 
+        UUID uuid = profile.getUuid();
         String name = profile.getName();
         basicCredentialService.deleteSecretsForProfile(profile.getUuid());
         attributeEngine.deleteObjectAttributeContent(Resource.TSP_PROFILE, profile.getUuid());
         tspProfileRepository.delete(profile);
-        evictTspProfileCache(name);
+        evictTspProfileCache(uuid, name);
     }
 
     private void enableTspProfile(TspProfile profile) {
         profile.setEnabled(true);
         tspProfileRepository.save(profile);
-        evictTspProfileCache(profile.getName());
+        evictTspProfileCache(profile.getUuid(), profile.getName());
     }
 
     private void disableTspProfile(TspProfile profile) {
         profile.setEnabled(false);
         tspProfileRepository.save(profile);
-        evictTspProfileCache(profile.getName());
+        evictTspProfileCache(profile.getUuid(), profile.getName());
     }
 
-    private void evictTspProfileCache(String name) {
+    /**
+     * Evicts the TSP Profile model under both its cache keys — the name (used by the protocol path)
+     * and the UUID (used by the signing-profile path). Both must be cleared on every mutation, or one
+     * access path would serve stale data.
+     */
+    private void evictTspProfileCache(UUID uuid, String name) {
+        cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, uuid);
         cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, name);
     }
 

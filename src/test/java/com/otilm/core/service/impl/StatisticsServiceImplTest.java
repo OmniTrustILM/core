@@ -20,7 +20,7 @@ class StatisticsServiceImplTest {
 
     @Mock private CertificateService certificateService;
     @Mock private DiscoveryService discoveryService;
-    @Mock private GroupService groupService;
+    @Mock private GroupInternalService groupService;
     @Mock private RaProfileService raProfileService;
     @Mock private SecretInternalService secretService;
     @Mock private VaultInstanceInternalService vaultInstanceService;

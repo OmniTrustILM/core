@@ -5,8 +5,9 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.web.TspProfileBasicCredentialController;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialCreateRequestDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialDto;
-import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialRequestDto;
+import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialUpdateRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -46,13 +47,13 @@ public class TspProfileBasicCredentialControllerImpl implements TspProfileBasicC
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE_BASIC_CREDENTIAL, affiliatedResource = Resource.TSP_PROFILE, operation = Operation.CREATE)
-    public TspBasicCredentialDto create(@LogResource(uuid = true, affiliated = true) UUID tspProfileUuid, @Valid TspBasicCredentialRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
+    public TspBasicCredentialDto create(@LogResource(uuid = true, affiliated = true) UUID tspProfileUuid, @Valid TspBasicCredentialCreateRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
         return service.create(SecuredParentUUID.fromUUID(tspProfileUuid), request);
     }
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE_BASIC_CREDENTIAL, affiliatedResource = Resource.TSP_PROFILE, operation = Operation.UPDATE)
-    public TspBasicCredentialDto update(@LogResource(uuid = true, affiliated = true) UUID tspProfileUuid, @LogResource(uuid = true) UUID uuid, @Valid TspBasicCredentialRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
+    public TspBasicCredentialDto update(@LogResource(uuid = true, affiliated = true) UUID tspProfileUuid, @LogResource(uuid = true) UUID uuid, @Valid TspBasicCredentialUpdateRequestDto request) throws AlreadyExistException, AttributeException, ConnectorCommunicationException, NotFoundException {
         return service.update(SecuredParentUUID.fromUUID(tspProfileUuid), SecuredUUID.fromUUID(uuid), request);
     }
 

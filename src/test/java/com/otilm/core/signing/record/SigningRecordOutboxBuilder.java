@@ -1,5 +1,6 @@
 package com.otilm.core.signing.record;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 
 import java.nio.charset.StandardCharsets;
@@ -16,6 +17,7 @@ public final class SigningRecordOutboxBuilder {
     private UUID uuid = UUID.randomUUID();
     private String name = "test-record";
     private UUID signingProfileUuid = UUID.randomUUID();
+    private SigningProtocol protocol = SigningProtocol.TSP;
     private Integer signingProfileVersion = 1;
     private Instant signingTime = Instant.parse("2026-01-01T00:00:00Z");
     private UUID requestedByUuid = UUID.fromString("99999999-9999-9999-9999-999999999999");
@@ -53,6 +55,11 @@ public final class SigningRecordOutboxBuilder {
 
     public SigningRecordOutboxBuilder withSigningProfileUuid(UUID signingProfileUuid) {
         this.signingProfileUuid = signingProfileUuid;
+        return this;
+    }
+
+    public SigningRecordOutboxBuilder withProtocol(SigningProtocol protocol) {
+        this.protocol = protocol;
         return this;
     }
 
@@ -101,6 +108,7 @@ public final class SigningRecordOutboxBuilder {
         row.setUuid(uuid);
         row.setName(name);
         row.setSigningProfileUuid(signingProfileUuid);
+        row.setProtocol(protocol);
         row.setSigningProfileVersion(signingProfileVersion);
         row.setSigningTime(signingTime);
         row.setRequestedByUuid(requestedByUuid);
