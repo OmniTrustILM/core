@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verify;
  * correctly routes messages from the RabbitMQ exchange to the queue and that
  * {@link EventListener} receives and processes the deserialized message.</p>
  *
- * <p>Flow: EventProducer → /exchanges/czertainly/event → [RabbitMQ binding] →
+ * <p>Flow: EventProducer → /exchanges/ilm/event → [RabbitMQ binding] →
  * /queues/core.events → EventJmsEndpointConfig listener → EventListener.processMessage()</p>
  *
  * <p>{@code inheritProfiles = false} is required: {@code BaseSpringBootTest} adds the {@code "test"}
