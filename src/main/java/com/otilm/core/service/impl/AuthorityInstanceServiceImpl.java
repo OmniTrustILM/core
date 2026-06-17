@@ -137,6 +137,12 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
             return authorityInstanceDto;
         }
 
+        if (isV3(authorityInstanceReference.getConnectorInterface())) {
+            // v3 is stateless — no connector-side instance to fetch; local data attributes are authoritative
+            authorityInstanceDto.setAttributes(attributes);
+            return authorityInstanceDto;
+        }
+
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceReference.getConnectorUuid());
         AuthorityProviderInstanceDto authorityProviderInstanceDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getAuthorityInstance(connectorDto,
                 authorityInstanceReference.getAuthorityInstanceUuid());
@@ -269,6 +275,9 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.DETAIL)
     public List<NameAndIdDto> listEndEntityProfiles(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         AuthorityInstanceReference authorityInstanceRef = getAuthorityInstanceReferenceEntity(uuid);
+        if (isV3(authorityInstanceRef.getConnectorInterface())) {
+            return List.of(); // v3 authorities do not use the EJBCA end-entity-profile model
+        }
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listEndEntityProfiles(connectorDto,
@@ -279,6 +288,9 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.DETAIL)
     public List<NameAndIdDto> listCertificateProfiles(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException {
         AuthorityInstanceReference authorityInstanceRef = getAuthorityInstanceReferenceEntity(uuid);
+        if (isV3(authorityInstanceRef.getConnectorInterface())) {
+            return List.of();
+        }
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listCertificateProfiles(connectorDto,
@@ -289,6 +301,9 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.DETAIL)
     public List<NameAndIdDto> listCAsInProfile(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException {
         AuthorityInstanceReference authorityInstanceRef = getAuthorityInstanceReferenceEntity(uuid);
+        if (isV3(authorityInstanceRef.getConnectorInterface())) {
+            return List.of();
+        }
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listCAsInProfile(connectorDto,
@@ -299,15 +314,21 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
     public List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         AuthorityInstanceReference authorityInstance = getAuthorityInstanceReferenceEntity(uuid);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstance.getConnectorUuid());
-
-        return connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).listRAProfileAttributes(connectorDto, authorityInstance.getAuthorityInstanceUuid());
+        return adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
-    public Boolean validateRAProfileAttributes(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
+    public Boolean validateRAProfileAttributes(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
         AuthorityInstanceReference authorityInstance = getAuthorityInstanceReferenceEntity(uuid);
+        if (isV3(authorityInstance.getConnectorInterface())) {
+            // v3 is stateless: validate locally against the listed RA-profile definitions. Invalid
+            // content throws ValidationException and a definition/schema failure throws
+            // AttributeException — both surface to the caller, matching the v2 connector-validate path.
+            List<BaseAttribute> definitions = adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
+            attributeEngine.validateUpdateDataAttributes(authorityInstance.getConnectorUuid(), null, definitions, attributes);
+            return true;
+        }
         ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstance.getConnectorUuid());
 
         return connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstance.getAuthorityInstanceUuid(),
@@ -489,7 +510,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
         if (error != null) {
             throw new ValidationException(error);
         }
-        if (authorityInstanceRef.getConnector() != null) {
+        if (authorityInstanceRef.getConnector() != null && !isV3(authorityInstanceRef.getConnectorInterface())) {
             try {
                 ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
                 connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).removeAuthorityInstance(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
@@ -500,7 +521,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, A
                 throw new ValidationException(e.getMessage());
             }
         } else {
-            logger.debug("Deleting authority without connector: {}", authorityInstanceRef);
+            // v3 is stateless (no connector-side instance) or the connector is gone — local cleanup only
+            logger.debug("Deleting authority without a connector-side instance: {}", authorityInstanceRef);
         }
         attributeEngine.deleteObjectAttributeContent(Resource.AUTHORITY, authorityInstanceRef.getUuid());
         authorityInstanceReferenceRepository.delete(authorityInstanceRef);

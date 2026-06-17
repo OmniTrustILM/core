@@ -136,6 +136,13 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
+    public List<BaseAttribute> listRaProfileAttributes(AuthorityInstanceReference authority) throws ConnectorException {
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        return connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto)
+                .listRaProfileAttributes(connectorDto, authorityAttributesFor(authority));
+    }
+
+    @Override
     public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getCertificateApiClientV3(connectorDto)

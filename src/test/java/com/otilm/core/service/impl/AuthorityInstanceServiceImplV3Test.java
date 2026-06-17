@@ -9,6 +9,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -39,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -101,7 +103,7 @@ class AuthorityInstanceServiceImplV3Test {
 
         // save returns the passed entity after assigning a UUID (simulates @PrePersist)
         when(authorityInstanceReferenceRepository.save(any())).thenAnswer(inv -> {
-            com.otilm.core.dao.entity.AuthorityInstanceReference ref = inv.getArgument(0);
+            AuthorityInstanceReference ref = inv.getArgument(0);
             if (ref.uuid == null) ref.uuid = UUID.randomUUID();
             return ref;
         });
@@ -136,11 +138,11 @@ class AuthorityInstanceServiceImplV3Test {
 
         service.createAuthorityInstance(request);
 
-        ArgumentCaptor<com.otilm.core.dao.entity.AuthorityInstanceReference> captor =
-                ArgumentCaptor.forClass(com.otilm.core.dao.entity.AuthorityInstanceReference.class);
+        ArgumentCaptor<AuthorityInstanceReference> captor =
+                ArgumentCaptor.forClass(AuthorityInstanceReference.class);
         verify(authorityInstanceReferenceRepository).save(captor.capture());
 
-        com.otilm.core.dao.entity.AuthorityInstanceReference saved = captor.getValue();
+        AuthorityInstanceReference saved = captor.getValue();
         assertThat(saved.getConnectorInterfaceUuid()).isEqualTo(ifaceUuid);
     }
 
@@ -178,8 +180,8 @@ class AuthorityInstanceServiceImplV3Test {
 
     @Test
     void editV3AuthorityReprobesAndSkipsConnectorUpdateCall() throws Exception {
-        com.otilm.core.dao.entity.AuthorityInstanceReference existing =
-                new com.otilm.core.dao.entity.AuthorityInstanceReference();
+        AuthorityInstanceReference existing =
+                new AuthorityInstanceReference();
         existing.uuid = UUID.randomUUID();
         existing.setName("v3-authority");
         existing.setKind("ApiKey");
@@ -216,8 +218,8 @@ class AuthorityInstanceServiceImplV3Test {
     @Test
     void createV3AuthorityFallsBackToSoleAuthorityInterfaceWhenNoInterfaceUuid() throws Exception {
         // exactly one AUTHORITY interface + no interfaceUuid → the sole interface is selected
-        ArgumentCaptor<com.otilm.core.dao.entity.AuthorityInstanceReference> captor =
-                ArgumentCaptor.forClass(com.otilm.core.dao.entity.AuthorityInstanceReference.class);
+        ArgumentCaptor<AuthorityInstanceReference> captor =
+                ArgumentCaptor.forClass(AuthorityInstanceReference.class);
 
         service.createAuthorityInstance(buildRequest());
 
@@ -249,6 +251,78 @@ class AuthorityInstanceServiceImplV3Test {
                 .hasMessageContaining("multiple AUTHORITY interfaces");
     }
 
+    @Test
+    void getV3AuthorityReturnsLocalWithoutConnectorCall() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        existing.setConnector(connectorEntity); // non-null connector → not the "deleted" branch
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        when(attributeEngine.getObjectDataAttributesContent(any(ObjectAttributeContentInfo.class))).thenReturn(List.of());
+        when(attributeEngine.getObjectCustomAttributesContent(any(), any())).thenReturn(List.of());
+
+        AuthorityInstanceDto result = service.getAuthorityInstance(SecuredUUID.fromUUID(existing.uuid));
+
+        assertThat(result).isNotNull();
+        verify(connectorApiFactory, never()).getAuthorityInstanceApiClient(any()); // v3 stateless — no connector detail fetch
+    }
+
+    @Test
+    void deleteV3AuthoritySkipsConnectorRemoveCall() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        existing.setConnector(connectorEntity);
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+
+        service.deleteAuthorityInstance(SecuredUUID.fromUUID(existing.uuid));
+
+        verify(connectorApiFactory, never()).getAuthorityInstanceApiClient(any()); // v3 stateless — no connector delete
+        verify(authorityInstanceReferenceRepository).delete(existing);
+    }
+
+    @Test
+    void listProfilesReturnEmptyForV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        SecuredUUID id = SecuredUUID.fromUUID(existing.uuid);
+
+        assertThat(service.listEndEntityProfiles(id)).isEmpty();
+        assertThat(service.listCertificateProfiles(id, 1)).isEmpty();
+        assertThat(service.listCAsInProfile(id, 1)).isEmpty();
+        verify(connectorApiFactory, never()).getEndEntityProfileApiClient(any());
+    }
+
+    @Test
+    void listRAProfileAttributesRoutesThroughAdapterForV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(definitions);
+
+        assertThat(service.listRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid))).isSameAs(definitions);
+    }
+
+    @Test
+    void validateRAProfileAttributesValidatesLocallyForV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of());
+
+        Boolean valid = service.validateRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid), List.of());
+
+        assertThat(valid).isTrue();
+        verify(attributeEngine).validateUpdateDataAttributes(eq(connectorUuid), any(), any(), any());
+    }
+
+    @Test
+    void validateRAProfileAttributesPropagatesInvalidContentForV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of());
+        doThrow(new ValidationException("invalid")).when(attributeEngine)
+                .validateUpdateDataAttributes(any(), any(), any(), any());
+
+        assertThatThrownBy(() -> service.validateRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid), List.of()))
+                .isInstanceOf(ValidationException.class);
+    }
+
     // ---- helpers ----
 
     private AuthorityInstanceRequestDto buildRequest() {
@@ -259,5 +333,15 @@ class AuthorityInstanceServiceImplV3Test {
         req.setAttributes(List.of());
         req.setCustomAttributes(List.of());
         return req;
+    }
+
+    private AuthorityInstanceReference v3AuthorityEntity() {
+        AuthorityInstanceReference ref = new AuthorityInstanceReference();
+        ref.uuid = UUID.randomUUID();
+        ref.setName("v3-authority");
+        ref.setKind("ApiKey");
+        ref.setConnectorUuid(connectorUuid);
+        ref.setConnectorInterface(v3Iface);
+        return ref;
     }
 }

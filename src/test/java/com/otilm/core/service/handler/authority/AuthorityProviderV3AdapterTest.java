@@ -375,6 +375,13 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
+    void listRaProfileAttributesDelegates() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(authorityClientV3.listRaProfileAttributes(eq(connectorInfo), any())).thenReturn(expected);
+        assertEquals(expected, adapter.listRaProfileAttributes(authority));
+    }
+
+    @Test
     void listIssueAttributesDelegates() throws ConnectorException {
         List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
         when(certClientV3.listIssueAttributes(eq(connectorInfo), any())).thenReturn(expected);
