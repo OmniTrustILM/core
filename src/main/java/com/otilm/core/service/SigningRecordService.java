@@ -4,6 +4,8 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
@@ -26,6 +28,13 @@ public interface SigningRecordService {
      * visibility is required even when reached via a profile-scoped endpoint.
      */
     PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter);
+
+    /**
+     * Computes the Signing Records dashboard statistics from the shared {@code signing_record} table, scoped to the
+     * signing profiles the caller may access. Only the volume-over-time series depends on {@code period}; the badge
+     * counts and breakdown maps are window-independent.
+     */
+    SigningRecordStatisticsDto getSigningRecordStatistics(SigningRecordStatisticsPeriod period, SecurityFilter filter);
 
     SigningRecordDto getSigningRecord(SecuredUUID uuid) throws NotFoundException;
 

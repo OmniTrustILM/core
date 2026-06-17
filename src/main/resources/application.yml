@@ -77,7 +77,7 @@ info:
 logging:
   level:
     com:
-      otilm: ${CZERTAINLY_LOG_LEVEL:INFO}
+      otilm: ${PLATFORM_LOG_LEVEL:INFO}
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
@@ -184,7 +184,7 @@ spring:
     # Legacy RabbitMQ connection properties (used if broker-url is not set)
     host: ${BROKER_HOST:}
     port: ${BROKER_PORT:5672}
-    exchange: ${BROKER_EXCHANGE:czertainly}
+    exchange: ${BROKER_EXCHANGE:ilm}
     # --- Authentication ---
     # For RabbitMQ: username/password required
     # For ServiceBus: either username/password (SAS) OR aad-auth (AAD) required
@@ -264,7 +264,7 @@ proxy:
   # Feature flag to enable/disable proxy messaging support
   enabled: ${PROXY_ENABLED:false}
   # Azure Service Bus topic / RabbitMQ exchange name for proxy messages
-  exchange: ${BROKER_PROXY_EXCHANGE:czertainly-proxy}
+  exchange: ${BROKER_PROXY_EXCHANGE:ilm-proxy}
   # Azure Service Bus subscription / RabbitMQ queue name for receiving responses
   response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
   # Unique identifier for this Core instance (defaults to hostname/pod name)

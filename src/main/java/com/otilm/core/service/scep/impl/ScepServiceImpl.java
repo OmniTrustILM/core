@@ -30,6 +30,7 @@ import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
+import com.otilm.core.intune.scepvalidation.IntuneConfigProperties;
 import com.otilm.core.intune.scepvalidation.IntuneScepServiceClient;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -58,7 +59,6 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -96,8 +96,7 @@ public class ScepServiceImpl implements ScepService {
             "SCEPStandard"
     );
 
-    @Value("${app.version}")
-    private String appVersion;
+    private IntuneConfigProperties intuneConfigProperties;
 
     private List<X509Certificate> caCertificateChain = new ArrayList<>();
     private X509Certificate recipient;
@@ -122,6 +121,11 @@ public class ScepServiceImpl implements ScepService {
     @Autowired
     public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
         this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
+    public void setIntuneConfigProperties(IntuneConfigProperties intuneConfigProperties) {
+        this.intuneConfigProperties = intuneConfigProperties;
     }
 
     @Autowired
@@ -776,13 +780,7 @@ public class ScepServiceImpl implements ScepService {
     }
 
     private Properties getIntuneConfiguration() {
-        // Create the properties based on the SCEP profile Intune properties
-        Properties configProperties = new Properties();
-        configProperties.put("AAD_APP_ID", scepProfile.getIntuneApplicationId());
-        configProperties.put("AAD_APP_KEY", scepProfile.getIntuneApplicationKey());
-        configProperties.put("TENANT", scepProfile.getIntuneTenant());
-        configProperties.put("PROVIDER_NAME_AND_VERSION", "CZERTAINLY-V" + appVersion);
-        return configProperties;
+        return intuneConfigProperties.forScepProfile(scepProfile);
     }
 
     private IntuneScepServiceClient buildIntuneClient(Properties configProperties) {
