@@ -1,6 +1,7 @@
 package com.otilm.core.util.builders;
 
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 
 import java.time.Instant;
@@ -17,6 +18,7 @@ public class SigningRecordEntityBuilder {
     private SigningProfileDto signingProfile = null;
     private UUID signingProfileUuid = null;
     private int version = 1;
+    private SigningProtocol protocol = SigningProtocol.TSP;
     private String name = null;
     private Instant signingTime = Instant.now().truncatedTo(ChronoUnit.MILLIS);
     private byte[] signatureValue = null;
@@ -43,6 +45,11 @@ public class SigningRecordEntityBuilder {
 
     public SigningRecordEntityBuilder withVersion(int version) {
         this.version = version;
+        return this;
+    }
+
+    public SigningRecordEntityBuilder withProtocol(SigningProtocol protocol) {
+        this.protocol = protocol;
         return this;
     }
 
@@ -102,6 +109,7 @@ public class SigningRecordEntityBuilder {
         }
         signingRecord.setName(name != null ? name : (signingProfile != null ? signingProfile.getName() : null));
         signingRecord.setSigningProfileVersion(version);
+        signingRecord.setProtocol(protocol);
         signingRecord.setSigningTime(signingTime);
         signingRecord.setSignatureValue(signatureValue);
         signingRecord.setDtbs(dtbs);

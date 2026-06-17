@@ -28,6 +28,7 @@ public class SigningRecordMapper {
         signingRecord.setSigningProfileUuid(outbox.getSigningProfileUuid());
         signingRecord.setSigningProfileVersion(outbox.getSigningProfileVersion());
         signingRecord.setSigningTime(outbox.getSigningTime());
+        signingRecord.setProtocol(outbox.getProtocol());
         signingRecord.setRequestedByUuid(outbox.getRequestedByUuid());
         signingRecord.setRequestedByUsername(outbox.getRequestedByUsername());
         signingRecord.setSignatureValue(outbox.getSignatureValue());
@@ -42,6 +43,7 @@ public class SigningRecordMapper {
         dto.setUuid(signingRecord.getUuid().toString());
         dto.setName(signingRecord.getName());
         dto.setSigningProfile(toSigningProfileListDto(signingRecord));
+        dto.setProtocol(signingRecord.getProtocol());
         Instant signingTime = signingRecord.getSigningTime();
         dto.setSigningTime(signingTime);
         if (signingRecord.getRequestedByUuid() != null) {
@@ -64,6 +66,7 @@ public class SigningRecordMapper {
         SigningRecordListDto dto = new SigningRecordListDto();
         dto.setUuid(signingRecord.getUuid().toString());
         dto.setName(signingRecord.getName());
+        dto.setProtocol(signingRecord.getProtocol());
         Instant signingTime = signingRecord.getSigningTime();
         dto.setSigningTime(signingTime);
         OffsetDateTime createdAtZoned = signingRecord.getCreated();
