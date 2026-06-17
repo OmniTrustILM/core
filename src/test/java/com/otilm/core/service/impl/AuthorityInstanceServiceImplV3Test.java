@@ -228,7 +228,7 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
-    void createRejectsUnknownInterfaceUuid() throws Exception {
+    void createRejectsUnknownInterfaceUuid() {
         AuthorityInstanceRequestDto request = buildRequest();
         request.setInterfaceUuid(UUID.randomUUID()); // not present on the connector
 
@@ -237,7 +237,7 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
-    void createRejectsMultipleAuthorityInterfacesWithoutInterfaceUuid() throws Exception {
+    void createRejectsMultipleAuthorityInterfacesWithoutInterfaceUuid() {
         ConnectorInterfaceEntity secondIface = new ConnectorInterfaceEntity();
         secondIface.setInterfaceCode(ConnectorInterface.AUTHORITY);
         secondIface.setVersion("v2");
@@ -312,14 +312,15 @@ class AuthorityInstanceServiceImplV3Test {
     }
 
     @Test
-    void validateRAProfileAttributesPropagatesInvalidContentForV3() throws Exception {
+    void validateRAProfileAttributesPropagatesInvalidContentForV3() {
         AuthorityInstanceReference existing = v3AuthorityEntity();
         when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
         when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of());
         doThrow(new ValidationException("invalid")).when(attributeEngine)
                 .validateUpdateDataAttributes(any(), any(), any(), any());
+        SecuredUUID id = SecuredUUID.fromUUID(existing.uuid);
 
-        assertThatThrownBy(() -> service.validateRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid), List.of()))
+        assertThatThrownBy(() -> service.validateRAProfileAttributes(id, List.of()))
                 .isInstanceOf(ValidationException.class);
     }
 
