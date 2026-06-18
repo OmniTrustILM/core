@@ -54,9 +54,20 @@ public class CertificateRevocationFinalizer {
         applyPreservedRevokeAttributes(cert);
         boolean destroyKey = Boolean.TRUE.equals(cert.getPendingRevokeDestroyKey());
         UUID keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
+        clearPendingRevokeFields(cert);
+        return new KeyCleanup(destroyKey, keyUuid);
+    }
+
+    /**
+     * Clear the pending-revoke fields ({@code pendingRevokeDestroyKey}, {@code pendingRevokeAttributes})
+     * without applying preserved attributes or destroying the key. Used when a revoke <em>fails</em> or
+     * times out: the certificate returns to {@code ISSUED}, and it must not retain the pending-revoke
+     * parameters — otherwise an otherwise-valid cert looks like a revocation is still in flight, which
+     * is the exact state divergence the operator-cancel path ({@code commitLocalCancel}) avoids.
+     */
+    public void clearPendingRevokeFields(Certificate cert) {
         cert.setPendingRevokeDestroyKey(null);
         cert.setPendingRevokeAttributes(null);
-        return new KeyCleanup(destroyKey, keyUuid);
     }
 
     /**

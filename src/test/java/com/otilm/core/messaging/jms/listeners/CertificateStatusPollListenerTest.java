@@ -167,11 +167,33 @@ class CertificateStatusPollListenerTest {
     }
 
     // -----------------------------------------------------------------------
-    // completedTransitionsToTerminalSuccess (ISSUE → ISSUED)
+    // completedIssueWithDataPersistsCertificate (ISSUE + cert data → issueRequestedCertificate)
     // -----------------------------------------------------------------------
 
     @Test
-    void completedTransitionsToTerminalSuccess() throws MessageHandlingException, ConnectorException {
+    void completedIssueWithDataPersistsCertificate() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // Issue success persists content via issueRequestedCertificate (sets state itself); the
+        // state machine is NOT used for this transition.
+        verify(certificateService).issueRequestedCertificate(eq(CERT_UUID), eq("PEMDATA"), eq(List.of()));
+        verify(stateMachine, never()).transition(any(), any(), any(), any());
+        verify(pollProducer, never()).produceMessage(any());
+    }
+
+    // -----------------------------------------------------------------------
+    // completedIssueWithoutDataFailsTransition (COMPLETED but no cert content → FAILED)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedIssueWithoutDataFailsTransition() throws Exception {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
@@ -181,8 +203,9 @@ class CertificateStatusPollListenerTest {
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
+        // COMPLETED with no certificate data must NOT reach ISSUED — treated as a failed operation.
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
+        verify(certificateService, never()).issueRequestedCertificate(any(), any(), any());
         verify(pollProducer, never()).produceMessage(any());
     }
 
@@ -240,7 +263,31 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        // A failed revoke must clear the pending-revoke params so the cert (back in ISSUED) does
+        // not look like a revoke is still in flight.
+        verify(revocationFinalizer).clearPendingRevokeFields(cert);
         verify(transactionHandler).runInNewTransaction(any(Runnable.class));
+    }
+
+    // -----------------------------------------------------------------------
+    // revokeTimeoutClearsPendingFields
+    // -----------------------------------------------------------------------
+
+    @Test
+    void revokeTimeoutClearsPendingFields() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.IN_PROGRESS, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+
+        // attempt == maxAttempts → timeout path returns the revoke to ISSUED.
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 3));
+
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        verify(revocationFinalizer).clearPendingRevokeFields(cert);
+        verify(pollProducer, never()).produceMessage(any());
     }
 
     // -----------------------------------------------------------------------
@@ -248,22 +295,22 @@ class CertificateStatusPollListenerTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void metaUpdateExceptionDoesNotBlockTransition() throws MessageHandlingException, ConnectorException, AttributeException {
+    void metaUpdateExceptionDoesNotBlockTransition() throws Exception {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
 
         var meta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
-                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, meta, null));
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", meta, null));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
                 .thenReturn(Optional.of(cert));
         doThrow(new AttributeException("meta fail"))
                 .when(attributeEngine).updateMetadataAttributes(any(), any(ObjectAttributeContentInfo.class));
 
-        // Should NOT throw — transition committed before meta update, meta failure swallowed.
+        // Should NOT throw — cert persisted/committed before the meta update, meta failure swallowed.
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        verify(certificateService).issueRequestedCertificate(eq(CERT_UUID), eq("PEMDATA"), eq(List.of()));
         verify(transactionHandler).runInNewTransaction(any(Runnable.class));
         verify(attributeEngine).updateMetadataAttributes(eq(meta), any(ObjectAttributeContentInfo.class));
     }

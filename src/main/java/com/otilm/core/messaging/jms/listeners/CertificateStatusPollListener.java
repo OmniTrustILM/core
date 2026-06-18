@@ -118,9 +118,13 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
         boolean completed = status.status() == CertificateOperationStatus.COMPLETED;
-        boolean issueWithData = completed
-                && (op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW)
+        boolean isIssueOrRenew = op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW;
+        boolean issueWithData = completed && isIssueOrRenew
                 && status.certificateData() != null && !status.certificateData().isEmpty();
+        // A connector that reports COMPLETED for issue/renew but returns no certificate content is
+        // self-contradictory: we cannot reach ISSUED without persisting a certificate. Treat it as a
+        // failed operation rather than transitioning to ISSUED with an empty, contentless certificate.
+        boolean completedIssueWithoutData = completed && isIssueOrRenew && !issueWithData;
         boolean revokeCompleted = completed && op == CertificateOperation.REVOKE;
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         String reason = status.reason() != null ? status.reason()
@@ -154,12 +158,21 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                     throw new IllegalStateException(
                             "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
                 }
+            } else if (completedIssueWithoutData) {
+                stateMachine.transition(locked, op.terminalFailureState(), null,
+                        "Async " + op + " reported COMPLETED but connector returned no certificate data");
             } else if (revokeCompleted) {
                 // Shared revoke finalization (apply preserved attrs, capture destroyKey, clear
                 // pending fields); destroyKey runs post-commit via the finalizer below.
                 revokeCleanupHolder[0] = revocationFinalizer.prepareRevokeFinalization(locked);
                 stateMachine.transition(locked, targetState, null, reason);
             } else {
+                // Failure paths (and the COMPLETED-REGISTER success). A failed/cancelled REVOKE
+                // returns the cert to ISSUED, so the pending-revoke params must be cleared or the
+                // cert looks like a revoke is still in flight.
+                if (op == CertificateOperation.REVOKE) {
+                    revocationFinalizer.clearPendingRevokeFields(locked);
+                }
                 stateMachine.transition(locked, targetState, null, reason);
             }
         });
@@ -201,6 +214,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                     .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
             if (!isPendingFor(locked.getState(), op)) {
                 return;
+            }
+            // A revoke that times out returns the cert to ISSUED — clear the pending-revoke params
+            // so it doesn't look like a revoke is still in flight (see applyTerminalTransition).
+            if (op == CertificateOperation.REVOKE) {
+                revocationFinalizer.clearPendingRevokeFields(locked);
             }
             stateMachine.transition(locked, op.terminalFailureState(), null,
                     "Operation " + op + " timed out after max poll attempts");
