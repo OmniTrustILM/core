@@ -12,6 +12,7 @@ import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
 import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
 import com.otilm.core.signing.tsa.validator.TspRequestValidator;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,6 +56,13 @@ class TsaServiceImplUnitTest {
     TsaServiceImpl tsaService;
 
     private static final UUID TSP_PROFILE_UUID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+
+    @BeforeEach
+    void wireSelf() {
+        // Authorization is applied via @ExternalAuthorization on the self-invoked authorizeAndProcess* methods;
+        // outside a Spring proxy the aspect is inert, so point self at the bean to exercise the delegation path.
+        tsaService.setSelf(tsaService);
+    }
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -220,6 +230,24 @@ class TsaServiceImplUnitTest {
                     .isInstanceOf(TspRequestValidationException.class)
                     .satisfies(ex -> assertThat(((TspRequestValidationException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_ALG));
         }
+
+        @Test
+        void mapsAuthorizationDenialToNotFound() throws Exception {
+            // given — the @ExternalAuthorization aspect denies access; the outcome must be indistinguishable from a
+            // non-existent profile so an unauthorized caller cannot enumerate which profiles exist
+            var deniedSelf = mock(TsaServiceImpl.class);
+            when(deniedSelf.authorizeAndProcessForTspProfile(any(), any(), any()))
+                    .thenThrow(new AccessDeniedException("Access is denied"));
+            tsaService.setSelf(deniedSelf);
+            when(tspProfileService.getTspProfile("tsp-profile"))
+                    .thenReturn(aTspProfile().withDefaultSigningProfileName("signing-profile").build());
+
+            // when
+            Executable call = () -> tsaService.processTspRequestForTspProfile("tsp-profile", aTspRequest().build());
+
+            // then
+            assertThatThrownBy(call::execute).isInstanceOf(NotFoundException.class);
+        }
     }
 
     // ── processTspRequestForSigningProfile ────────────────────────────────────
@@ -290,8 +318,9 @@ class TsaServiceImplUnitTest {
         }
 
         @Test
-        void throwsBadRequest_whenSigningProfileHasNoTspProfileAssociated() throws NotFoundException {
-            // given
+        void propagatesNotFound_whenSigningProfileHasNoTspProfileAssociated() throws NotFoundException {
+            // given — no linked TSP profile means there is nothing to authorize against, so it must be
+            // indistinguishable from a non-existent profile (enumeration defense), i.e. NotFound, not a descriptive error
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
                     .withTspProfileUuid(null)
@@ -302,10 +331,7 @@ class TsaServiceImplUnitTest {
             Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
 
             // then
-            assertThatThrownBy(call::execute)
-                    .isInstanceOf(TspException.class)
-                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
-                    .hasMessageContaining("does not have a TSP profile associated");
+            assertThatThrownBy(call::execute).isInstanceOf(NotFoundException.class);
         }
 
         @Test
@@ -352,12 +378,13 @@ class TsaServiceImplUnitTest {
         }
 
         @Test
-        void throwsBadRequest_whenSigningProfileDoesNotHaveTspProtocolAssociated() throws NotFoundException {
-            // given
+        void throwsBadRequest_whenTspProtocolNotEnabled_butTspProfileLinked() throws NotFoundException {
+            // given — a linked TSP profile exists (so authorization runs), but the signing profile does not enable
+            // the TSP protocol. This check is post-authorization, so an authorized caller is told the concrete reason.
             var signingProfile = aSigningProfile()
                     .withName("signing-profile")
                     .withEnabledProtocols(List.of())
-                    .withTspProfileUuid(null)
+                    .withTspProfileUuid(TSP_PROFILE_UUID)
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
 
@@ -368,7 +395,7 @@ class TsaServiceImplUnitTest {
             assertThatThrownBy(call::execute)
                     .isInstanceOf(TspException.class)
                     .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
-                    .hasMessageContaining("does not have a TSP profile associated");
+                    .hasMessageContaining("does not have the TSP protocol enabled");
         }
 
         @Test
@@ -406,6 +433,23 @@ class TsaServiceImplUnitTest {
                         assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
                         assertThat(((TspException) ex).getClientMessage()).isEqualTo("The system is misconfigured.");
                     });
+        }
+
+        @Test
+        void mapsAuthorizationDenialToNotFound() throws Exception {
+            // given — the @ExternalAuthorization aspect denies access; the outcome must be indistinguishable from a
+            // non-existent profile so an unauthorized caller cannot enumerate which profiles exist
+            var deniedSelf = mock(TsaServiceImpl.class);
+            when(deniedSelf.authorizeAndProcessForSigningProfile(any(), any(), any()))
+                    .thenThrow(new AccessDeniedException("Access is denied"));
+            tsaService.setSelf(deniedSelf);
+            doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
+
+            // when
+            Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
+
+            // then
+            assertThatThrownBy(call::execute).isInstanceOf(NotFoundException.class);
         }
     }
 }
