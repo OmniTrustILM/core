@@ -23,7 +23,21 @@ public interface CertificateStatusPollRepository extends JpaRepository<Certifica
      */
     List<CertificateStatusPoll> findByNextPollAtLessThanEqualOrderByNextPollAt(OffsetDateTime cutoff, Pageable pageable);
 
-    boolean existsByCertificateUuid(UUID certificateUuid);
+    /**
+     * Inserts a new in-flight poll, or does nothing if one already exists for the certificate. Atomic on the
+     * unique {@code certificate_uuid} — unlike an exists-check-then-insert, a concurrent loser is a clean no-op
+     * (no constraint violation, no aborted transaction).
+     */
+    @Modifying
+    @Query(value = """
+            INSERT INTO certificate_status_poll (uuid, certificate_uuid, operation, attempt, next_poll_at)
+            VALUES (:uuid, :certificateUuid, :operation, 0, :nextPollAt)
+            ON CONFLICT (certificate_uuid) DO NOTHING
+            """, nativeQuery = true)
+    void scheduleIfAbsent(@Param("uuid") UUID uuid,
+                          @Param("certificateUuid") UUID certificateUuid,
+                          @Param("operation") String operation,
+                          @Param("nextPollAt") OffsetDateTime nextPollAt);
 
     @Modifying
     @Query("UPDATE CertificateStatusPoll p SET p.attempt = :attempt, p.nextPollAt = :nextPollAt WHERE p.certificateUuid = :certificateUuid")
