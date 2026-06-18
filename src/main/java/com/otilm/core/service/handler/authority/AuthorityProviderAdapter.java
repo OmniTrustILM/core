@@ -59,6 +59,13 @@ public interface AuthorityProviderAdapter {
     List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException;
 
     /**
+     * RA-profile attribute schema for the authority — the attributes an operator fills when defining
+     * an RA profile under this authority. v2 keys it by {@code authorityInstanceUuid}; v3 is stateless
+     * and resolves it from the authority's own data attributes.
+     */
+    List<BaseAttribute> listRaProfileAttributes(AuthorityInstanceReference authority) throws ConnectorException;
+
+    /**
      * Dynamic issue-attribute schema scoped to a specific RA profile. v3 carries both
      * {@code authorityAttributes} (auth/identity to the upstream CA) and {@code raProfileAttributes}
      * (which profile/template determines the schema). v2 ignores {@code raProfile} — its endpoint

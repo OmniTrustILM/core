@@ -224,7 +224,7 @@ class AuthorityInstanceServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testValidateRaProfileAttributes() throws ConnectorException, NotFoundException {
+    void testValidateRaProfileAttributes() throws ConnectorException, AttributeException, NotFoundException {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
                 .willReturn(WireMock.okJson("true")));
