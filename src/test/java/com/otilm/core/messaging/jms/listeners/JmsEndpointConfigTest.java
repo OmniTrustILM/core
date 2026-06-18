@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class JmsEndpointConfigTest {
 
-    private static final String EXCHANGE = "czertainly";
+    private static final String EXCHANGE = "ilm";
 
     @Mock
     private MessagingProperties messagingProperties;

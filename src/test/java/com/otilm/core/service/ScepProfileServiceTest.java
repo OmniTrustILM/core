@@ -29,6 +29,7 @@ import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
+import com.otilm.core.intune.scepvalidation.IntuneConfigProperties;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.model.SecuredItem;
@@ -44,10 +45,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 class ScepProfileServiceTest extends BaseSpringBootTest {
     @Autowired
@@ -82,6 +80,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
+
+    @Autowired
+    private IntuneConfigProperties intuneConfigProperties;
 
     @MockitoSpyBean
     private RaProfileService raProfileService;
@@ -447,5 +448,18 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(scepProfile.getUuid().toString(), messages.getFirst().getUuid());
         Assertions.assertEquals(scepProfile.getName(), messages.getFirst().getName());
         Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    @Test
+    void testIntuneConfigProperties() {
+        scepProfile.setIntuneTenant("tenant123");
+        scepProfile.setIntuneApplicationId("appId123");
+        scepProfile.setIntuneApplicationKey("appKey123");
+        scepProfileRepository.save(scepProfile);
+        Properties properties = intuneConfigProperties.forScepProfile(scepProfile);
+        Assertions.assertEquals(scepProfile.getIntuneApplicationId(), properties.get("AAD_APP_ID"));
+        Assertions.assertEquals(scepProfile.getIntuneApplicationKey(), properties.get("AAD_APP_KEY"));
+        Assertions.assertEquals(scepProfile.getIntuneTenant(), properties.get("TENANT"));
+        Assertions.assertNotNull(properties.get("PROVIDER_NAME_AND_VERSION"));
     }
 }

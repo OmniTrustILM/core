@@ -27,6 +27,7 @@ public class SigningRecordInputMapper {
         signingRecord.setSigningProfileUuid(input.getSigningProfile().uuid());
         signingRecord.setSigningProfileVersion(input.getSigningProfile().version());
         signingRecord.setSigningTime(input.getSigningTime());
+        signingRecord.setProtocol(input.getProtocol());
         applyRequester(input, signingRecord::setRequestedByUuid, signingRecord::setRequestedByUsername);
         applyRecordableContent(input,
                 signingRecord::setRequestMetadataJson, signingRecord::setSignatureValue,
@@ -44,6 +45,7 @@ public class SigningRecordInputMapper {
         outbox.setSigningProfileUuid(input.getSigningProfile().uuid());
         outbox.setSigningProfileVersion(input.getSigningProfile().version());
         outbox.setSigningTime(input.getSigningTime());
+        outbox.setProtocol(input.getProtocol());
         applyRequester(input, outbox::setRequestedByUuid, outbox::setRequestedByUsername);
         applyRecordableContent(input,
                 outbox::setRequestMetadataJson, outbox::setSignatureValue,

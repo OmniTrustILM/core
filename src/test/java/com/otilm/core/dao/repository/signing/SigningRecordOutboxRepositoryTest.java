@@ -1,5 +1,6 @@
 package com.otilm.core.dao.repository.signing;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
@@ -202,6 +203,7 @@ class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
         outbox.setUuid(UUID.randomUUID());
         outbox.setSigningProfileUuid(UUID.randomUUID());
         outbox.setSigningProfileVersion(anyProfileVersion);
+        outbox.setProtocol(SigningProtocol.TSP);
         outbox.setSigningTime(signingTime);
         outbox.setAttempts(attempts);
         return repository.saveAndFlush(outbox);

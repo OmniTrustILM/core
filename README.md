@@ -76,7 +76,7 @@ Application supports two types of message brokers:
 
 ## Docker container
 
-`Core` is provided as a Docker container. Use the `czertainly/czertainly-core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
+`Core` is provided as a Docker container. Use the `hub.omnitrustregistry.com/ilm/core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
 
 | Variable                              | Description                                                                                                                                      | Required                                                  | Default value       |
 |---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|---------------------|
@@ -104,7 +104,7 @@ Application supports two types of message brokers:
 | `BROKER_AZURE_CLIENT_SECRET`          | Azure AD client secret (required for ServiceBus+AAD authentication)                                                                              | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
 | `BROKER_AZURE_TOKEN_REFRESH_INTERVAL` | Azure AD token refresh interval in seconds (required for ServiceBus+AAD authentication)                                                          | ![](https://img.shields.io/badge/-NO-red.svg)             | `300`               |
 | `BROKER_AZURE_TOKEN_GETTING_TIMEOUT`  | Azure AD token getting timeout in seconds (required for ServiceBus+AAD authentication)                                                           | ![](https://img.shields.io/badge/-NO-red.svg)             | `30`                |
-| `BROKER_EXCHANGE`                     | Message broker exchange/topic name                                                                                                               | ![](https://img.shields.io/badge/-NO-red.svg)             | `czertainly`        |
+| `BROKER_EXCHANGE`                     | Message broker exchange/topic name                                                                                                               | ![](https://img.shields.io/badge/-NO-red.svg)             | `ilm`               |
 | `BROKER_VHOST`                        | Message broker vhost (for RabbitMQ only)                                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg)             | `N/A`               |
 | `BROKER_SESSION_CACHE_SIZE`           | ConnectionCachingFactory session cache size (only for RabbitMQ)                                                                                  | ![](https://img.shields.io/badge/-NO-red.svg)             | `25`                |
 | `BROKER_QUEUE_AUDIT_LOGS`             | Queue name for audit logs (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.audit-logs`   |

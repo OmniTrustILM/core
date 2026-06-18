@@ -1,6 +1,7 @@
 package com.otilm.core.service;
 
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
@@ -72,6 +73,7 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
         SigningRecord rec = new SigningRecord();
         rec.setSigningProfile(profile);
         rec.setSigningProfileVersion(1);
+        rec.setProtocol(SigningProtocol.TSP);
         rec.setSigningTime(Instant.now());
         recordRepo.saveAndFlush(rec);
 
@@ -129,6 +131,7 @@ class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
         SigningRecord rec = new SigningRecord();
         rec.setSigningProfile(profile);
         rec.setSigningProfileVersion(1);
+        rec.setProtocol(SigningProtocol.TSP);
         rec.setSigningTime(Instant.now());
         recordRepo.saveAndFlush(rec);
 

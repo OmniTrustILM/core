@@ -7,12 +7,19 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsDto;
+import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.comparator.SearchFieldDataComparator;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.core.dao.entity.Audited_;
+import com.otilm.core.dao.entity.signing.SigningProfile_;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion_;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.entity.signing.SigningRecord_;
 import com.otilm.core.enums.FilterField;
@@ -31,6 +38,9 @@ import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
@@ -40,13 +50,21 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
 @Slf4j
 public class SigningRecordServiceImpl implements SigningRecordService {
+
+    private static final String SIGNING_PROFILE_PARENT_REF = "signingProfileUuid";
+    private static final int TOP_REQUESTERS = 10;
+    private static final String SCHEME_PAIR_SEPARATOR = "::";
 
     private final SigningRecordRepository signingRecordRepository;
     private final SigningRecordWriter signingRecordWriter;
@@ -74,6 +92,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_NAME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE, signingProfileRepository.findAllNames()),
+                SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_PROTOCOL),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_PROFILE_VERSION),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNING_TIME),
                 SearchHelper.prepareSearch(FilterField.SIGNING_RECORD_SIGNED_DOCUMENT_RETRIEVED_AT),
@@ -96,6 +115,85 @@ public class SigningRecordServiceImpl implements SigningRecordService {
     @Transactional(readOnly = true)
     public PaginationResponseDto<SigningRecordListDto> listSigningRecordsForProfile(UUID signingProfileUuid, SearchRequestDto request, SecurityFilter filter) {
         return listRecords(request, filter, signingProfileUuid);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_RECORD, action = ResourceAction.LIST, parentResource = Resource.SIGNING_PROFILE, parentAction = ResourceAction.LIST)
+    @Transactional(readOnly = true)
+    public SigningRecordStatisticsDto getSigningRecordStatistics(SigningRecordStatisticsPeriod period, SecurityFilter filter) {
+        filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
+        Instant now = Instant.now();
+
+        SigningRecordStatisticsDto dto = new SigningRecordStatisticsDto();
+        dto.setTotalRetained(signingRecordRepository.countUsingSecurityFilter(filter));
+        dto.setCountLast24h(signingRecordRepository.countUsingSecurityFilter(filter, signedSince(now.minus(Duration.ofDays(1)))));
+        dto.setCountLast7d(signingRecordRepository.countUsingSecurityFilter(filter, signedSince(now.minus(Duration.ofDays(7)))));
+
+        Map<String, Long> byProfile = signingRecordRepository.countGroupedUsingSecurityFilter(
+                filter, SigningRecord_.signingProfile, SigningProfile_.name, null, null);
+        dto.setStatByProfile(byProfile);
+        dto.setActiveProfileCount((long) byProfile.size());
+
+        Map<String, Long> byRequester = signingRecordRepository.countGroupedUsingSecurityFilter(
+                filter, null, SigningRecord_.requestedByUsername, null, null);
+        dto.setDistinctRequesterCount((long) byRequester.size());
+        dto.setStatByRequester(SigningRecordStatisticsCalculator.topRequesters(byRequester, TOP_REQUESTERS));
+
+        Map<String, Long> byWorkflow = signingRecordRepository.countGroupedUsingSecurityFilter(
+                filter, SigningRecord_.signingProfileVersionEntity, SigningProfileVersion_.workflowType, null, null);
+        dto.setStatByWorkflowType(byWorkflow);
+
+        Map<String, Long> byProtocol = signingRecordRepository.countGroupedUsingSecurityFilter(
+                filter, null, SigningRecord_.protocol, null, null);
+        dto.setStatByProtocol(byProtocol);
+        dto.setStatByScheme(flattenSchemes(filter));
+
+        dto.setVolumeOverTime(volumeOverTime(filter, period, now));
+        return dto;
+    }
+
+    /** Counts grouped by the flattened signing scheme, derived from the (scheme, managed type) pair on the profile version. */
+    private Map<String, Long> flattenSchemes(SecurityFilter filter) {
+        Map<String, Long> bySchemePair = signingRecordRepository.countGroupedUsingSecurityFilter(
+                filter, null, null, this::signingSchemePairExpression, null);
+        Map<String, Long> byScheme = new LinkedHashMap<>();
+        bySchemePair.forEach((pair, count) -> {
+            String[] parts = pair.split(SCHEME_PAIR_SEPARATOR, -1);
+            if (parts.length != 2 || parts[0].isEmpty()) {
+                return;
+            }
+            ManagedSigningType managedType = parts[1].isEmpty() ? null : ManagedSigningType.valueOf(parts[1]);
+            byScheme.merge(SigningRecordStatisticsCalculator.flattenScheme(SigningScheme.valueOf(parts[0]), managedType), count, Long::sum);
+        });
+        return byScheme;
+    }
+
+    /** {@code signing_scheme::managed_signing_type} (managed type blank for delegated), grouped on the joined profile version. */
+    private Expression<String> signingSchemePairExpression(Root<SigningRecord> root, CriteriaBuilder cb) {
+        Join<SigningRecord, SigningProfileVersion> version = root.join(SigningRecord_.signingProfileVersionEntity, JoinType.LEFT);
+        Expression<String> scheme = version.get(SigningProfileVersion_.signingScheme).as(String.class);
+        Expression<String> managedType = cb.coalesce(version.get(SigningProfileVersion_.managedSigningType).as(String.class), "");
+        return cb.concat(cb.concat(scheme, SCHEME_PAIR_SEPARATOR), managedType);
+    }
+
+    private Map<String, Long> volumeOverTime(SecurityFilter filter, SigningRecordStatisticsPeriod period, Instant now) {
+        Instant from = now.minus(period.getWindow());
+        String truncUnit = period.getBucket() == SigningRecordStatisticsPeriod.Bucket.HOUR ? "hour" : "day";
+        String format = period.getBucket() == SigningRecordStatisticsPeriod.Bucket.HOUR
+                ? "YYYY-MM-DD\"T\"HH24:00:00\"Z\""
+                : "YYYY-MM-DD\"T\"00:00:00\"Z\"";
+        Map<String, Long> sparse = signingRecordRepository.countGroupedUsingSecurityFilter(filter, null, null,
+                (root, cb) -> {
+                    Expression<?> atUtc = cb.function("timezone", java.sql.Timestamp.class, cb.literal("UTC"), root.get(SigningRecord_.signingTime));
+                    Expression<?> truncated = cb.function("date_trunc", java.sql.Timestamp.class, cb.literal(truncUnit), atUtc);
+                    return cb.function("to_char", String.class, truncated, cb.literal(format));
+                },
+                signedSince(from));
+        return SigningRecordStatisticsCalculator.denseBuckets(from, now, period.getBucket(), sparse);
+    }
+
+    private TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> signedSince(Instant cutoff) {
+        return (root, cb, cq) -> cb.greaterThanOrEqualTo(root.get(SigningRecord_.signingTime), cutoff);
     }
 
     @Override
@@ -163,7 +261,7 @@ public class SigningRecordServiceImpl implements SigningRecordService {
      * when {@code signingProfileUuid} is non-null.
      */
     private PaginationResponseDto<SigningRecordListDto> listRecords(SearchRequestDto request, SecurityFilter filter, UUID signingProfileUuid) {
-        filter.setParentRefProperty("signingProfileUuid");
+        filter.setParentRefProperty(SIGNING_PROFILE_PARENT_REF);
         Pageable p = PageRequest.of(request.getPageNumber() - 1, request.getItemsPerPage());
         TriFunction<Root<SigningRecord>, CriteriaBuilder, CriteriaQuery<?>, Predicate> predicate =
                 (root, cb, cq) -> {

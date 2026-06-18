@@ -12,6 +12,7 @@ import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.intune.carequest.CARequestErrorCodes;
 import com.otilm.core.intune.carequest.CARevocationRequest;
 import com.otilm.core.intune.carequest.CARevocationResult;
+import com.otilm.core.intune.scepvalidation.IntuneConfigProperties;
 import com.otilm.core.intune.scepvalidation.IntuneRevocationClient;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.oid.OidHandler;
@@ -27,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MarkerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,10 +49,9 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
 
     private static final String JOB_NAME = "updateIntuneRevocationRequestsJob";
 
-    @Value("${app.version}")
-    private String appVersion;
-
     private static final int MAX_CA_REQUESTS_TO_DOWNLOAD = 500;
+
+    private IntuneConfigProperties intuneConfigProperties;
 
     private ScepProfileRepository scepProfileRepository;
 
@@ -61,6 +60,11 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
     private ClientOperationService clientOperationService;
 
     private AuthHelper authHelper;
+
+    @Autowired
+    public void setIntuneConfigProperties(IntuneConfigProperties intuneConfigProperties) {
+        this.intuneConfigProperties = intuneConfigProperties;
+    }
 
     @Autowired
     public void setAuthHelper(AuthHelper authHelper) {
@@ -110,11 +114,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
         for (ScepProfile scepProfile : scepProfiles) {
             logger.info(MarkerFactory.getMarker("scheduleInfo"), "Processing Intune revocation requests for SCEP profile: {}", scepProfile.getName());
 
-            Properties configProperties = new Properties();
-            configProperties.put("AAD_APP_ID", scepProfile.getIntuneApplicationId());
-            configProperties.put("AAD_APP_KEY", scepProfile.getIntuneApplicationKey());
-            configProperties.put("TENANT", scepProfile.getIntuneTenant());
-            configProperties.put("PROVIDER_NAME_AND_VERSION", "CZERTAINLY-V" + appVersion);
+            Properties configProperties = intuneConfigProperties.forScepProfile(scepProfile);
 
             IntuneRevocationClient intuneRevocationClient = new IntuneRevocationClient(configProperties);
 

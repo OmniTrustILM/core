@@ -1,7 +1,10 @@
 package com.otilm.core.dao.entity.signing;
 
+import com.otilm.api.model.core.signing.SigningProtocol;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -27,6 +30,10 @@ public class SigningRecordOutbox {
 
     @Column(name = "signing_profile_uuid", nullable = false)
     private UUID signingProfileUuid;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "protocol", nullable = false)
+    private SigningProtocol protocol;
 
     @Column(name = "signing_profile_version", nullable = false)
     private Integer signingProfileVersion;
