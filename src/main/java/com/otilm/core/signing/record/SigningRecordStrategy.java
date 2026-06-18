@@ -9,5 +9,11 @@ import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
  * {@link SigningRecordWriter}.
  */
 public interface SigningRecordStrategy {
-    void recordSigning(SigningRecordInput input);
+
+    /**
+     * Records a signing operation supplied as a deferred {@link SigningRecordInputSource}: the
+     * {@code recordingEnabled} gate and intake metrics are evaluated from the source's signing profile, and the
+     * full input is materialized only once recording is known to be on.
+     */
+    void recordSigning(SigningRecordInputSource source);
 }

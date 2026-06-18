@@ -69,7 +69,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(input);
+        strategy.recordSigning(SigningRecordInputSources.of(input));
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -94,7 +94,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        strategy.recordSigning(input);
+        strategy.recordSigning(SigningRecordInputSources.of(input));
 
         // then
         List<SigningRecordListDto> all = signingRecordService
@@ -114,7 +114,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
         SigningRecordInput input = aSigningRecordInput().signingProfile(signingProfile).build();
 
         // when
-        strategy.recordSigning(input);
+        strategy.recordSigning(SigningRecordInputSources.of(input));
 
         // then
         List<SigningRecordListDto> all = signingRecordService

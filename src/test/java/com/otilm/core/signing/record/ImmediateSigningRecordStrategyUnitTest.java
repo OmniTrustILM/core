@@ -60,7 +60,7 @@ class ImmediateSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(recordingDisabledInput);
+        strategy.recordSigning(SigningRecordInputSources.of(recordingDisabledInput));
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -77,7 +77,7 @@ class ImmediateSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(metadataOnlyInput);
+        strategy.recordSigning(SigningRecordInputSources.of(metadataOnlyInput));
 
         // then
         verify(writer).insert(any(SigningRecord.class));
@@ -92,7 +92,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         var recordableInput = recordableInput();
 
         // when
-        strategy.recordSigning(recordableInput);
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput));
 
         // then
         verify(writer).insert(any(SigningRecord.class));
@@ -108,7 +108,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insert(any());
 
         // when
-        Executable signingRecord = () -> strategy.recordSigning(recordableInput());
+        Executable signingRecord = () -> strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         assertThrows(RuntimeException.class, signingRecord);

@@ -60,7 +60,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(recordingDisabledInput);
+        strategy.recordSigning(SigningRecordInputSources.of(recordingDisabledInput));
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -81,7 +81,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(metadataOnlyInput);
+        strategy.recordSigning(SigningRecordInputSources.of(metadataOnlyInput));
 
         // then
         verify(writer).insertOutbox(any(SigningRecordOutbox.class));
@@ -95,7 +95,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         var recordableInput = recordableInput();
 
         // when
-        strategy.recordSigning(recordableInput);
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput));
 
         // then
         verify(writer).insertOutbox(any(SigningRecordOutbox.class));
@@ -110,7 +110,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insertOutbox(any());
 
         // when
-        Executable signingRecord = () -> strategy.recordSigning(recordableInput());
+        Executable signingRecord = () -> strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         assertThrows(RuntimeException.class, signingRecord);
