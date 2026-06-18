@@ -11,6 +11,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 /**
  * One in-flight async certificate operation awaiting a status poll. A row is created when an
@@ -29,7 +30,7 @@ import java.time.OffsetDateTime;
 public class CertificateStatusPoll extends UniquelyIdentified {
 
     @Column(name = "certificate_uuid", nullable = false)
-    private java.util.UUID certificateUuid;
+    private UUID certificateUuid;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "operation", nullable = false)

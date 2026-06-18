@@ -12,6 +12,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateService;
@@ -19,6 +20,7 @@ import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -27,6 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * Consumes {@link CertificateStatusPollMessage}s and drives the async-operation polling loop.
@@ -59,7 +63,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateStatusPollWriter pollWriter;
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
-    private com.otilm.core.events.transaction.TransactionHandler transactionHandler;
+    private TransactionHandler transactionHandler;
     private CertificateService certificateService;
     private CertificateRevocationFinalizer revocationFinalizer;
 
@@ -102,9 +106,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (isTerminalPollError(e)) {
                 // Connector says the operation doesn't exist anymore or never did — no point retrying.
                 // Move the cert to its failure state immediately rather than burning maxAttempts cycles.
-                applyTimeout(cert, msg.op());
+                applyFailure(cert, msg.op(), "Connector reports the " + msg.op() + " operation is no longer tracked");
             } else if (isLastAttempt(msg)) {
-                applyTimeout(cert, msg.op());
+                applyFailure(cert, msg.op(), timeoutReason(msg.op()));
             }
             // Otherwise transient — leave the poll row; the sweep has already rescheduled the retry.
             return;
@@ -112,7 +116,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
         if (status.status() == CertificateOperationStatus.IN_PROGRESS) {
             if (isLastAttempt(msg)) {
-                applyTimeout(cert, msg.op());
+                applyFailure(cert, msg.op(), timeoutReason(msg.op()));
             }
             // Otherwise still in progress — leave the poll row for the sweep's next due tick.
             return;
@@ -124,6 +128,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     /** True when this poll is the final attempt allowed by the backoff schedule for the operation. */
     private boolean isLastAttempt(CertificateStatusPollMessage msg) {
         return msg.attempt() + 1 >= statusPollProperties.scheduleFor(msg.op()).maxAttempts();
+    }
+
+    private static String timeoutReason(CertificateOperation op) {
+        return "Operation " + op + " timed out after the maximum poll attempts";
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
@@ -163,7 +171,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // persistence failure does not roll back the state transition. The connector has
                 // accepted COMPLETED — state must reflect that even if our meta write fails.
                 try {
-                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), java.util.List.of());
+                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
                 } catch (Exception e) {
                     throw new IllegalStateException(
                             "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
@@ -222,22 +230,26 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
     }
 
-    private void applyTimeout(Certificate cert, CertificateOperation op) {
+    /**
+     * Moves a still-pending operation to its terminal failure state with the given audit reason and stops
+     * polling it. Used both when polls are exhausted (timeout) and when the connector reports the operation
+     * is no longer tracked — the reason distinguishes the two in the certificate history.
+     */
+    private void applyFailure(Certificate cert, CertificateOperation op, String reason) {
         transactionHandler.runInNewTransaction(() -> {
             Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                     .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
             if (!isPendingFor(locked.getState(), op)) {
                 return;
             }
-            // A revoke that times out returns the cert to ISSUED — clear the pending-revoke params
-            // so it doesn't look like a revoke is still in flight (see applyTerminalTransition).
+            // A revoke that fails returns the cert to ISSUED — clear the pending-revoke params so it
+            // doesn't look like a revoke is still in flight (see applyTerminalTransition).
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
-            stateMachine.transition(locked, op.terminalFailureState(), null,
-                    "Operation " + op + " timed out after max poll attempts");
+            stateMachine.transition(locked, op.terminalFailureState(), null, reason);
         });
-        // Resolved (timed out, or already resolved by a racing actor) — stop polling it.
+        // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         pollWriter.delete(cert.getUuid());
     }
 
@@ -253,7 +265,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return false;
         }
         ErrorCode code = problem.getProblemDetail().getErrorCode();
-        return com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes.isOperationNotTracked(code)
+        return ConnectorOperationErrorCodes.isOperationNotTracked(code)
                 || code == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
@@ -294,7 +306,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
-    public void setTransactionHandler(com.otilm.core.events.transaction.TransactionHandler transactionHandler) {
+    public void setTransactionHandler(TransactionHandler transactionHandler) {
         this.transactionHandler = transactionHandler;
     }
 
