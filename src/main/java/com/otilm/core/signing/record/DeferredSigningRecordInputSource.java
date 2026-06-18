@@ -1,6 +1,8 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.workflow.SigningWorkflow;
 
 import java.util.function.Supplier;
 
@@ -14,17 +16,17 @@ import java.util.function.Supplier;
  */
 public final class DeferredSigningRecordInputSource implements SigningRecordInputSource {
 
-    private final SigningProfileModel<?, ?> signingProfile;
+    private final SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> signingProfile;
     private final Supplier<SigningRecordInput> inputSupplier;
 
-    public DeferredSigningRecordInputSource(SigningProfileModel<?, ?> signingProfile,
+    public DeferredSigningRecordInputSource(SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> signingProfile,
                                             Supplier<SigningRecordInput> inputSupplier) {
         this.signingProfile = signingProfile;
         this.inputSupplier = inputSupplier;
     }
 
     @Override
-    public SigningProfileModel<?, ?> signingProfile() {
+    public SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel> signingProfile() {
         return signingProfile;
     }
 
