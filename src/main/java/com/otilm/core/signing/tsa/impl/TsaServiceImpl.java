@@ -140,6 +140,6 @@ public class TsaServiceImpl implements TsaService {
         tspRequestValidator.validate(timestampingWorkflow, request);
 
         ResolvedManagedTimestampingProfile resolvedProfile = signingProfileResolverFactory.resolve(signingProfile);
-        return managedTimestampEngine.process(request, resolvedProfile);
+        return managedTimestampEngine.process(request, signingProfile, resolvedProfile);
     }
 }

@@ -1,7 +1,6 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -16,29 +15,23 @@ class SigningRecordStrategyFactoryTest {
     private final SigningRecordStrategyFactory factory =
             new SigningRecordStrategyFactory(immediate, deferredDurable, bestEffort);
 
-    private SigningProfileVersion version(SigningRecordPersistenceMode mode) {
-        SigningProfileVersion v = new SigningProfileVersion();
-        v.setPersistenceMode(mode);
-        return v;
-    }
-
     @Test
     void returnsImmediateForImmediateMode() {
-        assertSame(immediate, factory.strategyFor(version(SigningRecordPersistenceMode.IMMEDIATE)));
+        assertSame(immediate, factory.strategyFor(SigningRecordPersistenceMode.IMMEDIATE));
     }
 
     @Test
     void returnsDeferredDurableForDeferredDurableMode() {
-        assertSame(deferredDurable, factory.strategyFor(version(SigningRecordPersistenceMode.DEFERRED_DURABLE)));
+        assertSame(deferredDurable, factory.strategyFor(SigningRecordPersistenceMode.DEFERRED_DURABLE));
     }
 
     @Test
     void returnsBestEffortForBestEffortMode() {
-        assertSame(bestEffort, factory.strategyFor(version(SigningRecordPersistenceMode.BEST_EFFORT)));
+        assertSame(bestEffort, factory.strategyFor(SigningRecordPersistenceMode.BEST_EFFORT));
     }
 
     @Test
     void defaultsToDeferredDurableWhenModeIsNull() {
-        assertSame(deferredDurable, factory.strategyFor(version(null)));
+        assertSame(deferredDurable, factory.strategyFor(null));
     }
 }

@@ -3,6 +3,7 @@ package com.otilm.core.util.builders;
 import com.otilm.api.model.client.attribute.*;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.*;
 import com.otilm.api.model.client.signing.profile.workflow.*;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -18,6 +19,7 @@ public class SigningProfileRequestDtoBuilder {
     private SigningSchemeRequestDto signingScheme = null;
     private WorkflowRequestDto workflow = new RawSigningWorkflowRequestDto();
     private List<RequestAttribute> customAttributes = null;
+    private SigningRecordPolicyRequestDto recordPolicy = null;
 
     public static SigningProfileRequestDtoBuilder aSigningProfileRequest() {
         return new SigningProfileRequestDtoBuilder();
@@ -54,6 +56,11 @@ public class SigningProfileRequestDtoBuilder {
 
     public SigningProfileRequestDtoBuilder withCustomAttributes(List<RequestAttribute> attrs) {
         this.customAttributes = attrs;
+        return this;
+    }
+
+    public SigningProfileRequestDtoBuilder withRecordPolicy(SigningRecordPolicyRequestDto recordPolicy) {
+        this.recordPolicy = recordPolicy;
         return this;
     }
 
@@ -119,6 +126,7 @@ public class SigningProfileRequestDtoBuilder {
         dto.setSigningScheme(signingScheme);
         dto.setWorkflow(workflow);
         dto.setCustomAttributes(customAttributes);
+        dto.setRecordPolicy(recordPolicy);
         return dto;
     }
 

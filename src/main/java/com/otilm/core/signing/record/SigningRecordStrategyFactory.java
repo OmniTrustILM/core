@@ -1,7 +1,6 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,11 +18,9 @@ public class SigningRecordStrategyFactory {
         this.bestEffort = bestEffort;
     }
 
-    public SigningRecordStrategy strategyFor(SigningProfileVersion version) {
-        SigningRecordPersistenceMode mode = version.getPersistenceMode() != null
-                ? version.getPersistenceMode()
-                : SigningRecordPersistenceMode.DEFERRED_DURABLE;
-        return switch (mode) {
+    public SigningRecordStrategy strategyFor(SigningRecordPersistenceMode mode) {
+        SigningRecordPersistenceMode effectiveMode = mode != null ? mode : SigningRecordPersistenceMode.DEFERRED_DURABLE;
+        return switch (effectiveMode) {
             case IMMEDIATE -> immediate;
             case DEFERRED_DURABLE -> deferredDurable;
             case BEST_EFFORT -> bestEffort;

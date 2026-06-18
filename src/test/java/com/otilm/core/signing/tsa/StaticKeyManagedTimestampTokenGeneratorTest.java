@@ -101,10 +101,11 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
                 .thenReturn(validTokenBytes);
 
         // when
-        TimeStampToken token = generator.generate(request, profile, chain, serialNumber, genTime);
+        TimeStampToken result = generator.generate(request, profile, chain, serialNumber, genTime);
 
         // then
-        assertThat(token).isNotNull();
+        assertThat(result).isNotNull();
+        assertThat(result.getEncoded()).isEqualTo(validTokenBytes);
     }
 
     @Test

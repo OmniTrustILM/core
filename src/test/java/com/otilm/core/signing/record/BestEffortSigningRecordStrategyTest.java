@@ -64,7 +64,7 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(aSigningRecordInput()
+        strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -72,7 +72,7 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
                 .signature("the-signature".getBytes(UTF_8))
                 .signedDocument("the-signed-document".getBytes(UTF_8))
                 .dtbs("the-data-to-be-signed".getBytes(UTF_8))
-                .build());
+                .build()));
 
         // then
         SigningRecord signingRecord = awaitSinglePersistedRecord();
@@ -99,10 +99,10 @@ class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
 
         // when
         for (int i = 0; i < recordedCount; i++) {
-            strategy.recordSigning(aSigningRecordInput()
+            strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput()
                     .signingProfile(recordingProfile)
                     .displayName("batched-record-" + i)
-                    .build());
+                    .build()));
         }
 
         // then
