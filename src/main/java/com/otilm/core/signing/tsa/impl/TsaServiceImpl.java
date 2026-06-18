@@ -60,7 +60,7 @@ public class TsaServiceImpl implements TsaService {
         try {
             return self.authorizeAndProcessForTspProfile(SecuredUUID.fromUUID(tspProfile.uuid()), tspProfile, request);
         } catch (AccessDeniedException e) {
-            throw notFoundForDeniedTimestamping(tspProfile.name(), e);
+            throw notFoundForDeniedTimestamping(TspProfileService.class, tspProfile.name(), e);
         }
     }
 
@@ -94,7 +94,7 @@ public class TsaServiceImpl implements TsaService {
         try {
             return self.authorizeAndProcessForSigningProfile(SecuredUUID.fromUUID(signingProfile.tspProfileUuid()), signingProfile, request);
         } catch (AccessDeniedException e) {
-            throw notFoundForDeniedTimestamping(signingProfile.name(), e);
+            throw notFoundForDeniedTimestamping(SigningProfileService.class, signingProfile.name(), e);
         }
     }
 
@@ -111,12 +111,12 @@ public class TsaServiceImpl implements TsaService {
         return processTspRequest(signingProfile, tspProfile, request);
     }
 
-    private NotFoundException notFoundForDeniedTimestamping(String profileName, AccessDeniedException e) {
+    private NotFoundException notFoundForDeniedTimestamping(Class<?> resourceService, String profileName, AccessDeniedException e) {
         // Collapse authorization denial into not-found: a distinct "forbidden" response would let a caller probe
         // which profiles exist by observing the differing outcome (narration/enumeration defense). The controllers
         // render NotFoundException as the same generic in-band rejection used for a non-existent profile.
-        log.warn("Timestamping authorization denied for profile '{}': {}", profileName, e.getMessage());
-        return new NotFoundException(TspProfileService.class, profileName);
+        log.warn("Timestamping authorization denied for {} '{}': {}", resourceService.getSimpleName(), profileName, e.getMessage());
+        return new NotFoundException(resourceService, profileName);
     }
 
     private TspResponse processTspRequest(SigningProfileModel<?, ?> signingProfile, TspProfileModel tspProfile, TspRequest request) throws TspException {
