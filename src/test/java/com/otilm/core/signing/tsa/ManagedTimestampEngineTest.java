@@ -126,12 +126,13 @@ class ManagedTimestampEngineTest {
         // given — a token is produced; the engine must record the granted signing exactly once
         var timestampToken = aTokenEncodingTo(new byte[]{1, 2, 3});
         var recordInput = mock(SigningRecordInput.class);
+        var recordInputSource = SigningRecordInputSources.of(recordInput);
 
         when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);
         when(signingCertificateValidator.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
         when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
         when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(timestampToken);
-        when(tspSigningRecordFactory.source(any(), any(), any(), any(), any())).thenReturn(SigningRecordInputSources.of(recordInput));
+        when(tspSigningRecordFactory.source(any(), any(), any(), any(), any())).thenReturn(recordInputSource);
 
         // when
         engine.process(aTspRequest().build(), signingProfile, aResolvedProfile(false, null));
