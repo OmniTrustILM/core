@@ -2,6 +2,7 @@ package com.otilm.core.signing.tsa;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.tsa.messages.TspRequest;
@@ -41,6 +42,7 @@ public class TspSigningRecordFactory {
         // duplicate substrings of the token, so only signedDocument is populated for the TSP path.
         return SigningRecordInput.builder()
                 .signingProfile(signingProfile)
+                .protocol(SigningProtocol.TSP)
                 .signingTime(genTime)
                 .requestedBy(null)
                 .displayName(signingProfile.name() + " #" + serialHex)
