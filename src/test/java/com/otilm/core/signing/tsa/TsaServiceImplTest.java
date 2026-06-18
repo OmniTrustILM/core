@@ -272,18 +272,18 @@ class TsaServiceImplTest extends BaseSpringBootTest {
                     .getItems();
             assertThat(records).hasSize(1);
 
-            SigningRecordDto record = signingRecordService
+            SigningRecordDto signingRecord = signingRecordService
                     .getSigningRecord(SecuredUUID.fromString(records.getFirst().getUuid()));
-            assertThat(record.getSignedDocument()).isEqualTo(grantedBytes);
-            assertThat(record.getName()).startsWith(profile.getName() + " #");
-            assertThat(record.getSigningTime()).isNotNull();
+            assertThat(signingRecord.getSignedDocument()).isEqualTo(grantedBytes);
+            assertThat(signingRecord.getName()).startsWith(profile.getName() + " #");
+            assertThat(signingRecord.getSigningTime()).isNotNull();
             // jsonb re-renders whitespace, so assert on content rather than byte-exact JSON
-            assertThat(record.getRequestMetadataJson())
+            assertThat(signingRecord.getRequestMetadataJson())
                     .contains("\"signingProfileName\"")
                     .contains(profile.getName());
             // The TSP path stores only the self-contained token; signature and dtbs are recoverable from it.
-            assertThat(record.getSignatureValue()).isNull();
-            assertThat(record.getDtbs()).isNull();
+            assertThat(signingRecord.getSignatureValue()).isNull();
+            assertThat(signingRecord.getDtbs()).isNull();
         }
 
         @Test
