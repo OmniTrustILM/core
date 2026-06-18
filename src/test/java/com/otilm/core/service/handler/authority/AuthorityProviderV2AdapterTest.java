@@ -276,6 +276,16 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
+    void listRaProfileAttributes_delegatesToAuthorityClient() throws ConnectorException {
+        List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
+        when(authorityClient.listRAProfileAttributes(connectorInfo, "auth-instance-uuid")).thenReturn(expected);
+
+        List<BaseAttribute> result = adapter.listRaProfileAttributes(authority);
+
+        assertSame(expected, result);
+    }
+
+    @Test
     void listRevokeAttributes_delegatesToCertClient() throws ConnectorException {
         List<BaseAttribute> expected = List.of(mock(BaseAttribute.class));
         when(certClient.listRevokeCertificateAttributes(connectorInfo, "auth-instance-uuid")).thenReturn(expected);

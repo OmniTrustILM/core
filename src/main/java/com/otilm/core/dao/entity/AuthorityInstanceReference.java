@@ -83,8 +83,12 @@ public class AuthorityInstanceReference extends UniquelyIdentifiedAndAudited imp
         dto.setKind(kind);
         dto.setConnectorName(this.connectorName);
         if (this.connectorUuid != null) {
+            // connector supersedes the deprecated connectorUuid/connectorName pair, which stays
+            // populated until consumers migrate off it.
             dto.setConnectorUuid(this.connectorUuid.toString());
+            dto.setConnector(new NameAndUuidDto(this.connectorUuid, this.connectorName));
         }
+        dto.setConnectorInterface(this.connectorInterface == null ? null : this.connectorInterface.mapToDto());
         return dto;
     }
 
