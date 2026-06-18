@@ -67,6 +67,10 @@ discovery:
 # Authority-provider async (HTTP 202) operation status polling
 provider:
   status-poll:
+    # How often each node scans the certificate_status_poll due-time table (one node sweeps at a time).
+    sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
+    sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
+    sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
     defaults:
       delays:
         - PT1S

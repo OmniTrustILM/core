@@ -1,7 +1,6 @@
 package com.otilm.core.messaging.jms.producers;
 
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
-import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import lombok.AllArgsConstructor;
 import org.springframework.jms.core.JmsTemplate;
@@ -9,7 +8,6 @@ import org.springframework.lang.NonNull;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.Objects;
 
 @Component
@@ -18,12 +16,14 @@ public class CertificateStatusPollProducer {
     private final JmsTemplate jmsTemplate;
     private final MessagingProperties messagingProperties;
     private final RetryTemplate producerRetryTemplate;
-    private final StatusPollProperties statusPollProperties;
 
+    /**
+     * Sends a poll message immediately. The backoff cadence is owned by the due-time table and
+     * {@link com.otilm.core.messaging.jms.listeners.poll.CertificateStatusPollSweeper}, which only enqueues
+     * a poll once it is due — so this producer carries no delivery delay.
+     */
     public void produceMessage(@NonNull final CertificateStatusPollMessage pollMessage) {
         Objects.requireNonNull(pollMessage, "Poll message cannot be null");
-
-        Duration delay = statusPollProperties.scheduleFor(pollMessage.op()).delayFor(pollMessage.attempt());
 
         producerRetryTemplate.execute(context -> {
             jmsTemplate.convertAndSend(
@@ -31,7 +31,6 @@ public class CertificateStatusPollProducer {
                     pollMessage,
                     message -> {
                         message.setJMSType(messagingProperties.routingKey().providerStatusPoll());
-                        message.setLongProperty("x-delay", delay.toMillis());
                         return message;
                     });
             return null;

@@ -2,7 +2,6 @@ package com.otilm.core.messaging.jms.producers;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
-import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,12 +14,11 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.core.MessagePostProcessor;
 import org.springframework.retry.support.RetryTemplate;
 
-import java.time.Duration;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,16 +28,11 @@ class CertificateStatusPollProducerTest {
 
     @Mock JmsTemplate jmsTemplate;
     @Mock MessagingProperties messagingProperties;
-    @Mock StatusPollProperties statusPollProperties;
 
     private CertificateStatusPollProducer producer;
 
     @BeforeEach
     void setUp() {
-        StatusPollProperties.PollSchedule schedule = new StatusPollProperties.PollSchedule(
-                List.of(Duration.ofSeconds(5), Duration.ofSeconds(10), Duration.ofSeconds(30)), 3
-        );
-        when(statusPollProperties.scheduleFor(any(CertificateOperation.class))).thenReturn(schedule);
         when(messagingProperties.produceDestinationProviderStatusPoll()).thenReturn("/exchanges/czertainly/provider.status-poll");
 
         MessagingProperties.RoutingKey routingKey = new MessagingProperties.RoutingKey(
@@ -49,7 +42,7 @@ class CertificateStatusPollProducerTest {
         );
         lenient().when(messagingProperties.routingKey()).thenReturn(routingKey);
 
-        producer = new CertificateStatusPollProducer(jmsTemplate, messagingProperties, RetryTemplate.defaultInstance(), statusPollProperties);
+        producer = new CertificateStatusPollProducer(jmsTemplate, messagingProperties, RetryTemplate.defaultInstance());
     }
 
     @Test
@@ -69,17 +62,5 @@ class CertificateStatusPollProducerTest {
 
         CertificateStatusPollMessage sent = (CertificateStatusPollMessage) messageCaptor.getValue();
         assertThat(sent).isEqualTo(msg);
-    }
-
-    @Test
-    void produceMessage_usesDelayFromStatusPollProperties() {
-        CertificateStatusPollMessage msg = new CertificateStatusPollMessage(
-                Resource.CERTIFICATE, UUID.randomUUID(), CertificateOperation.ISSUE, 1
-        );
-
-        producer.produceMessage(msg);
-
-        verify(statusPollProperties).scheduleFor(CertificateOperation.ISSUE);
-        verify(jmsTemplate).convertAndSend(anyString(), any(), any(MessagePostProcessor.class));
     }
 }

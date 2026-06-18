@@ -13,7 +13,6 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
-import com.otilm.core.messaging.jms.producers.CertificateStatusPollProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -23,6 +22,7 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +33,17 @@ import org.springframework.stereotype.Component;
  *
  * <p>Flow per message:
  * <ol>
- *   <li>Read cert without lock. Drop if not found or no longer in a pending state.</li>
+ *   <li>Read cert without lock. Drop (and delete the poll row) if not found or no longer pending.</li>
  *   <li>Call {@link AsyncOperationCapability#pollStatus} <em>outside any transaction</em>.</li>
- *   <li>On IN_PROGRESS: re-enqueue (with incremented attempt) or apply timeout.</li>
+ *   <li>On IN_PROGRESS: leave the poll row in place — the {@code certificate_status_poll} sweep has
+ *       already advanced its {@code next_poll_at}, so the next poll fires when due. Only when the last
+ *       allowed attempt is reached does this apply a timeout.</li>
  *   <li>On COMPLETED / FAILED: open an explicit transaction, re-read with pessimistic lock,
  *       assert still pending, apply terminal transition via state machine.</li>
  * </ol>
+ *
+ * <p>The cadence/backoff is owned by the due-time table and its sweep, not by this listener; the listener
+ * only decides the terminal/timeout outcome and deletes the poll row once the operation is resolved.</p>
  *
  * <p>No {@code @Transactional} on {@link #processMessage} — the adapter call must never hold
  * a database transaction or row lock.</p>
@@ -51,7 +56,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateRepository certificateRepository;
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
-    private CertificateStatusPollProducer pollProducer;
+    private CertificateStatusPollWriter pollWriter;
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
     private com.otilm.core.events.transaction.TransactionHandler transactionHandler;
@@ -62,26 +67,30 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
         Certificate cert = certificateRepository.findForPollingByUuid(msg.resourceUuid()).orElse(null);
         if (cert == null) {
-            logger.debug("Certificate {} not found; dropping poll message for op={}", msg.resourceUuid(), msg.op());
+            logger.debug("Certificate {} not found; dropping poll for op={}", msg.resourceUuid(), msg.op());
+            pollWriter.delete(msg.resourceUuid());
             return;
         }
         if (!isPendingFor(cert.getState(), msg.op())) {
-            logger.debug("Certificate {} is in state {}; not pending for {}; dropping poll message",
+            logger.debug("Certificate {} is in state {}; not pending for {}; dropping poll",
                     msg.resourceUuid(), cert.getState(), msg.op());
+            pollWriter.delete(msg.resourceUuid());
             return;
         }
         if (cert.getRaProfile() == null || cert.getRaProfile().getAuthorityInstanceReference() == null) {
-            logger.warn("Certificate {} has no RA profile or authority reference; dropping poll message", msg.resourceUuid());
+            logger.warn("Certificate {} has no RA profile or authority reference; abandoning poll", msg.resourceUuid());
+            pollWriter.delete(msg.resourceUuid());
             return;
         }
 
         AuthorityInstanceReference authority = cert.getRaProfile().getAuthorityInstanceReference();
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
         if (!(adapter instanceof AsyncOperationCapability async)) {
-            logger.warn("Adapter for cert {} (version {}) does not implement AsyncOperationCapability — dropping poll message for op={}",
+            logger.warn("Adapter for cert {} (version {}) does not implement AsyncOperationCapability — abandoning poll for op={}",
                     msg.resourceUuid(),
                     authority.getConnectorInterface() != null ? authority.getConnectorInterface().getVersion() : "unknown",
                     msg.op());
+            pollWriter.delete(msg.resourceUuid());
             return;
         }
 
@@ -94,26 +103,27 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // Connector says the operation doesn't exist anymore or never did — no point retrying.
                 // Move the cert to its failure state immediately rather than burning maxAttempts cycles.
                 applyTimeout(cert, msg.op());
-            } else if (msg.attempt() < statusPollProperties.scheduleFor(msg.op()).maxAttempts()) {
-                pollProducer.produceMessage(new CertificateStatusPollMessage(
-                        Resource.CERTIFICATE, msg.resourceUuid(), msg.op(), msg.attempt() + 1));
-            } else {
+            } else if (isLastAttempt(msg)) {
                 applyTimeout(cert, msg.op());
             }
+            // Otherwise transient — leave the poll row; the sweep has already rescheduled the retry.
             return;
         }
 
         if (status.status() == CertificateOperationStatus.IN_PROGRESS) {
-            if (msg.attempt() < statusPollProperties.scheduleFor(msg.op()).maxAttempts()) {
-                pollProducer.produceMessage(new CertificateStatusPollMessage(
-                        Resource.CERTIFICATE, msg.resourceUuid(), msg.op(), msg.attempt() + 1));
-            } else {
+            if (isLastAttempt(msg)) {
                 applyTimeout(cert, msg.op());
             }
+            // Otherwise still in progress — leave the poll row for the sweep's next due tick.
             return;
         }
 
         applyTerminalTransition(cert, msg.op(), status);
+    }
+
+    /** True when this poll is the final attempt allowed by the backoff schedule for the operation. */
+    private boolean isLastAttempt(CertificateStatusPollMessage msg) {
+        return msg.attempt() + 1 >= statusPollProperties.scheduleFor(msg.op()).maxAttempts();
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
@@ -177,6 +187,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             }
         });
 
+        // Operation is resolved — by us (applied) or by a racing actor (not applied). Either way it is
+        // no longer pending, so stop polling it.
+        pollWriter.delete(cert.getUuid());
+
         if (!applied[0]) {
             return;
         }
@@ -223,6 +237,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             stateMachine.transition(locked, op.terminalFailureState(), null,
                     "Operation " + op + " timed out after max poll attempts");
         });
+        // Resolved (timed out, or already resolved by a racing actor) — stop polling it.
+        pollWriter.delete(cert.getUuid());
     }
 
 
@@ -263,8 +279,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
-    public void setPollProducer(CertificateStatusPollProducer pollProducer) {
-        this.pollProducer = pollProducer;
+    public void setPollWriter(CertificateStatusPollWriter pollWriter) {
+        this.pollWriter = pollWriter;
     }
 
     @Autowired
