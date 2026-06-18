@@ -61,7 +61,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(aSigningRecordInput()
+        strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .displayName("round-trip-record")
                 .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
@@ -69,7 +69,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .signature("the-signature".getBytes(UTF_8))
                 .signedDocument("the-signed-document".getBytes(UTF_8))
                 .dtbs("the-data-to-be-signed".getBytes(UTF_8))
-                .build());
+                .build()));
 
         // then the row is staged into the outbox, never directly into signing_record
         assertEquals(0, recordRepo.count());
@@ -93,7 +93,7 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(aSigningRecordInput().signingProfile(recordingDisabledProfile).build());
+        strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput().signingProfile(recordingDisabledProfile).build()));
 
         // then
         assertEquals(0, outboxRepo.count());
@@ -108,10 +108,10 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy.recordSigning(aSigningRecordInput()
+        strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput()
                 .signingProfile(metadataOnlyProfile)
                 .displayName("metadata-only-record")
-                .build());
+                .build()));
 
         // then the row is staged with intrinsic metadata only; the optional content columns stay null
         assertEquals(0, recordRepo.count());
@@ -137,10 +137,10 @@ class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        Executable signingRecord = () -> strategy.recordSigning(aSigningRecordInput()
+        Executable signingRecord = () -> strategy.recordSigning(SigningRecordInputSources.of(aSigningRecordInput()
                 .signingProfile(recordingProfile)
                 .signingTime(missingSigningTime)
-                .build());
+                .build()));
 
         // then the violation surfaces to the caller and the outbox stays empty
         assertThrows(Exception.class, signingRecord);

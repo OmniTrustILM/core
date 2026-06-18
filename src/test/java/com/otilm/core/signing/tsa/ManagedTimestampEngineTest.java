@@ -8,6 +8,8 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.signing.record.SigningRecordInput;
+import com.otilm.core.signing.record.SigningRecordInputSource;
+import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
@@ -27,6 +29,7 @@ import org.bouncycastle.tsp.TimeStampToken;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -128,13 +131,15 @@ class ManagedTimestampEngineTest {
         when(signingCertificateValidator.validate(any(), anyBoolean())).thenReturn(ValidationResult.ok());
         when(serialNumberGenerator.generate()).thenReturn(BigInteger.ONE);
         when(tokenGenerator.generate(any(), any(), any(), any(), any())).thenReturn(timestampToken);
-        when(tspSigningRecordFactory.build(any(), any(), any(), any(), any())).thenReturn(recordInput);
+        when(tspSigningRecordFactory.source(any(), any(), any(), any(), any())).thenReturn(SigningRecordInputSources.of(recordInput));
 
         // when
         engine.process(aTspRequest().build(), signingProfile, aResolvedProfile(false, null));
 
-        // then — the input built from the granted token is handed to the strategy
-        verify(signingRecordStrategy).recordSigning(recordInput);
+        // then — the deferred source built from the granted token is handed to the strategy, materializing the input
+        var sourceCaptor = ArgumentCaptor.forClass(SigningRecordInputSource.class);
+        verify(signingRecordStrategy).recordSigning(sourceCaptor.capture());
+        assertThat(sourceCaptor.getValue().build()).isSameAs(recordInput);
     }
 
     @Test

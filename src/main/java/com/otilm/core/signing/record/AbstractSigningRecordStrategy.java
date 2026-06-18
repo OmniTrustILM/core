@@ -23,14 +23,15 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
     }
 
     @Override
-    public final void recordSigning(SigningRecordInput input) {
+    public final void recordSigning(SigningRecordInputSource source) {
         metrics.intake(mode().name()).increment();
-        if (!input.getSigningProfile().recordPolicy().recordingEnabled()) {
+        if (!source.signingProfile().recordPolicy().recordingEnabled()) {
             log.debug("Signing Record creation is disabled for signing profile {}; skipping the {} record.",
-                    input.getSigningProfile().uuid(), mode().name());
+                    source.signingProfile().uuid(), mode().name());
             metrics.intakeSkipped(mode().name()).increment();
             return;
         }
+        SigningRecordInput input = source.build();
         metrics.timed(mode().name(), () -> doRecord(input));
     }
 

@@ -59,7 +59,7 @@ class TspSigningRecordFactoryTest {
         var request = aTspRequest().hashAlgorithm(hashAlgorithm).policy(policyOid).nonce(nonce).build();
 
         // when
-        SigningRecordInput input = factory.build(profile, request, serialNumber, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(profile, request, serialNumber, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         Map<String, Object> metadata = parseMetadata(input.getRequestMetadataJson());
@@ -77,7 +77,7 @@ class TspSigningRecordFactoryTest {
         var request = aTspRequest().hashAlgorithm(null).policy("1.2.3").nonce(BigInteger.TEN).build();
 
         // when
-        SigningRecordInput input = factory.build(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertNull(parseMetadata(input.getRequestMetadataJson()).get("hashAlgorithm"));
@@ -89,7 +89,7 @@ class TspSigningRecordFactoryTest {
         var request = aTspRequest().hashAlgorithm(DigestAlgorithm.SHA_256).nonce(BigInteger.TEN).build();
 
         // when
-        SigningRecordInput input = factory.build(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertNull(parseMetadata(input.getRequestMetadataJson()).get("policy"));
@@ -101,7 +101,7 @@ class TspSigningRecordFactoryTest {
         var request = aTspRequest().hashAlgorithm(DigestAlgorithm.SHA_256).policy("1.2.3").build();
 
         // when
-        SigningRecordInput input = factory.build(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(aRecordingProfile().build(), request, SERIAL, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertNull(parseMetadata(input.getRequestMetadataJson()).get("nonce"));
@@ -115,7 +115,7 @@ class TspSigningRecordFactoryTest {
         var profile = aSigningProfile().withName(profileName).build();
 
         // when
-        SigningRecordInput input = factory.build(profile, aTspRequest().build(), serialNumber, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(profile, aTspRequest().build(), serialNumber, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertEquals(profileName + " #ff", input.getDisplayName());
@@ -127,7 +127,7 @@ class TspSigningRecordFactoryTest {
         var encodedToken = new byte[]{1, 2, 3, 4};
 
         // when
-        SigningRecordInput input = factory.build(aSigningProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, encodedToken);
+        SigningRecordInput input = factory.source(aSigningProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, encodedToken).build();
 
         // then
         assertArrayEquals(encodedToken, input.getSignedDocument());
@@ -138,7 +138,7 @@ class TspSigningRecordFactoryTest {
         // given the TSP path stores only the self-contained token, leaving the other content slots empty
 
         // when
-        SigningRecordInput input = factory.build(aSigningProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN);
+        SigningRecordInput input = factory.source(aSigningProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertNull(input.getSignature());
@@ -153,8 +153,8 @@ class TspSigningRecordFactoryTest {
         var factoryWithFailingMapper = new TspSigningRecordFactory(failingMapper);
 
         // when
-        Executable build = () -> factoryWithFailingMapper.build(
-                aRecordingProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN);
+        Executable build = () -> factoryWithFailingMapper.source(
+                aRecordingProfile().build(), aTspRequest().build(), SERIAL, GEN_TIME, ENCODED_TOKEN).build();
 
         // then
         assertThrows(IllegalStateException.class, build);

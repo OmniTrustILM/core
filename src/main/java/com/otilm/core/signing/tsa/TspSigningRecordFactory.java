@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.signing.record.DeferredSigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordInput;
+import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import org.springframework.stereotype.Component;
 
@@ -33,8 +35,20 @@ public class TspSigningRecordFactory {
         this.objectMapper = objectMapper;
     }
 
-    public SigningRecordInput build(SigningProfileModel<?, ?> signingProfile, TspRequest request,
-                                    BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
+    /**
+     * Returns a deferred {@link SigningRecordInputSource} over the same arguments as {@link #build}: the signing
+     * profile is exposed immediately for the recording gate, but the full input — including the
+     * {@code requestMetadataJson} serialization — is assembled only when {@link SigningRecordInputSource#build()}
+     * is called, so disabled profiles never pay for it.
+     */
+    public SigningRecordInputSource source(SigningProfileModel<?, ?> signingProfile, TspRequest request,
+                                           BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
+        return new DeferredSigningRecordInputSource(signingProfile,
+                () -> build(signingProfile, request, serialNumber, genTime, encodedToken));
+    }
+
+    private SigningRecordInput build(SigningProfileModel<?, ?> signingProfile, TspRequest request,
+                                     BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
         String serialHex = serialNumber.toString(16);
 
         // The timestamp token is the self-contained signed artifact: it already embeds the signature value and the
