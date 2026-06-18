@@ -9,7 +9,7 @@ import java.util.function.Supplier;
  *
  * <h2>Resolution order</h2>
  * <ol>
- *   <li>{@code ILM_INSTANCE_ID} environment variable — explicit override, range {@code 0–65535}.</li>
+ *   <li>{@code PLATFORM_INSTANCE_ID} environment variable — explicit override, range {@code 0–65535}.</li>
  *   <li>Auto-derived from the last two octets (lower 16 bits) of the container's private IPv4 address.</li>
  * </ol>
  *
@@ -30,11 +30,11 @@ import java.util.function.Supplier;
  *
  * At startup, the resolved prefix length of the selected interface is checked: a prefix wider than /16
  * triggers a warning. Cross-cluster collisions cannot be detected at runtime.
- * Set {@code ILM_INSTANCE_ID} explicitly whenever the above conditions apply.
+ * Set {@code PLATFORM_INSTANCE_ID} explicitly whenever the above conditions apply.
  */
 final class InstanceIdResolver {
 
-    static final String INSTANCE_ID_ENV_VAR = "ILM_INSTANCE_ID";
+    static final String INSTANCE_ID_ENV_VAR = "PLATFORM_INSTANCE_ID";
 
     private InstanceIdResolver() {
     }
