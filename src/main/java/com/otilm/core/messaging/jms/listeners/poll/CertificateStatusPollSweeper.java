@@ -58,8 +58,15 @@ public class CertificateStatusPollSweeper {
             List<CertificateStatusPollMessage> due = pollClaimer.claimDueBatch(batchSize);
             batchCount = due.size();
             for (CertificateStatusPollMessage message : due) {
-                pollProducer.produceMessage(message);
-                enqueued++;
+                try {
+                    pollProducer.produceMessage(message);
+                    enqueued++;
+                } catch (RuntimeException e) {
+                    // One bad send (broker hiccup) must not abort the rest of the batch. The row is
+                    // already rescheduled, so it is re-enqueued when next due — self-correcting.
+                    logger.warn("Failed to enqueue poll for certificate {} (op {}); will retry when next due",
+                            message.resourceUuid(), message.op(), e);
+                }
             }
             batchesRun++;
         } while (batchCount == batchSize && batchesRun < maxBatchesPerRun);

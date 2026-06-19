@@ -1,7 +1,6 @@
 package com.otilm.core.dao.repository;
 
 import com.otilm.core.dao.entity.CertificateStatusPoll;
-import com.otilm.core.messaging.jms.listeners.poll.CertificateStatusPollSweeper;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -18,8 +17,8 @@ public interface CertificateStatusPollRepository extends JpaRepository<Certifica
 
     /**
      * Returns rows due for polling ({@code next_poll_at} reached), soonest-due first. No row locking:
-     * cross-node mutual exclusion is provided by the cluster-wide advisory lock held by
-     * {@link CertificateStatusPollSweeper}, so a plain ordered read is enough.
+     * cross-node mutual exclusion is provided by the cluster-wide advisory lock held by the status-poll
+     * sweep, so a plain ordered read is enough.
      */
     List<CertificateStatusPoll> findByNextPollAtLessThanEqualOrderByNextPollAt(OffsetDateTime cutoff, Pageable pageable);
 

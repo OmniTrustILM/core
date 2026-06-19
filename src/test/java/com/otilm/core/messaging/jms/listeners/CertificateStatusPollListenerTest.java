@@ -158,7 +158,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(Optional.of(cert));
 
         // attempt+1 >= maxAttempts(3) → timeout path
-        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 3));
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);
@@ -285,7 +285,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(Optional.of(cert));
 
         // attempt+1 >= maxAttempts → timeout path returns the revoke to ISSUED.
-        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 3));
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 2));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
         verify(revocationFinalizer).clearPendingRevokeFields(cert);
@@ -373,7 +373,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(Optional.of(cert));
 
         // Transient error but no attempts left → time out and stop polling.
-        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 3));
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);
