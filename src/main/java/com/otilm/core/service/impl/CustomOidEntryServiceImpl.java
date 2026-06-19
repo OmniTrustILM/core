@@ -5,6 +5,9 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.oid.*;
+import com.otilm.api.model.core.oid.properties.AdditionalOidPropertiesDto;
+import com.otilm.api.model.core.oid.properties.CertificateExtensionOidPropertiesDto;
+import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
@@ -92,7 +95,8 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                     throw new ValidationException("Incorrect type of properties for OID category RDN Attribute type.");
                 code = additionalProperties.getCode();
                 Set<String> allCodes = getAllCodesInLowerCase();
-                if (allCodes.contains(code.toLowerCase())) throw new ValidationException("Code %s is already used".formatted(code));
+                if (allCodes.contains(code.toLowerCase()))
+                    throw new ValidationException("Code %s is already used".formatted(code));
                 ((RdnAttributeTypeCustomOidEntry) customOidEntry).setCode(code);
                 certificateService.updateCertificateDNs(oid, code, oid);
                 altCodes = additionalProperties.getAltCodes();
@@ -103,7 +107,15 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                 ((RdnAttributeTypeCustomOidEntry) customOidEntry).setAltCodes(altCodes);
                 responseAdditionalProperties = ((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto();
             }
-            default -> customOidEntry = new CustomOidEntry();
+            case CERTIFICATE_EXTENSION -> {
+                customOidEntry = new CertificateExtensionCustomOidEntry();
+                if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
+                    throw new ValidationException("Incorrect type of properties for OID category Certificate Extension.");
+                ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(additionalProperties.isDefaultCritical());
+                ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(additionalProperties.getValueEncoding());
+                responseAdditionalProperties = ((CertificateExtensionCustomOidEntry) customOidEntry).mapToPropertiesDto();
+            }
+            default -> throw new UnsupportedOperationException("Unsupported OID category: " + request.getCategory());
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
@@ -126,6 +138,8 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
         CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
         if (customOidEntry.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE)
             response.setAdditionalProperties(((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto());
+        else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry)
+            response.setAdditionalProperties(extensionEntry.mapToPropertiesDto());
         return response;
     }
 
@@ -144,9 +158,10 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
             String oldCode = rdnAttributeTypeOidEntry.getCode();
             Set<String> allCodes = getAllCodesInLowerCase();
             if (!oldCode.equals(code)) {
-            if (allCodes.contains(code.toLowerCase())) throw new ValidationException("Code %s is already used".formatted(code));
-            rdnAttributeTypeOidEntry.setCode(code);
-            certificateService.updateCertificateDNs(oid, code, oldCode);
+                if (allCodes.contains(code.toLowerCase()))
+                    throw new ValidationException("Code %s is already used".formatted(code));
+                rdnAttributeTypeOidEntry.setCode(code);
+                certificateService.updateCertificateDNs(oid, code, oldCode);
             }
 
             altCodes = additionalProperties.getAltCodes();
@@ -157,6 +172,13 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
             }
             rdnAttributeTypeOidEntry.setAltCodes(additionalProperties.getAltCodes());
             responseAdditionalProperties = rdnAttributeTypeOidEntry.mapToPropertiesDto();
+        }
+        else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry) {
+            if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
+                throw new ValidationException("Incorrect properties for OID category Certificate Extension.");
+            extensionEntry.setDefaultCritical(additionalProperties.isDefaultCritical());
+            extensionEntry.setValueEncoding(additionalProperties.getValueEncoding());
+            responseAdditionalProperties = extensionEntry.mapToPropertiesDto();
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
