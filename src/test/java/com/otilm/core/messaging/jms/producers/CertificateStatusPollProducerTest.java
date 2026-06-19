@@ -33,7 +33,7 @@ class CertificateStatusPollProducerTest {
 
     @BeforeEach
     void setUp() {
-        when(messagingProperties.produceDestinationProviderStatusPoll()).thenReturn("/exchanges/czertainly/provider.status-poll");
+        when(messagingProperties.produceDestinationProviderStatusPoll()).thenReturn("/exchanges/ilm/provider.status-poll");
 
         MessagingProperties.RoutingKey routingKey = new MessagingProperties.RoutingKey(
                 "actions", "audit-logs", "event", "notification", "scheduler",
@@ -55,7 +55,7 @@ class CertificateStatusPollProducerTest {
 
         ArgumentCaptor<Object> messageCaptor = ArgumentCaptor.forClass(Object.class);
         verify(jmsTemplate).convertAndSend(
-                eq("/exchanges/czertainly/provider.status-poll"),
+                eq("/exchanges/ilm/provider.status-poll"),
                 messageCaptor.capture(),
                 any(MessagePostProcessor.class)
         );
