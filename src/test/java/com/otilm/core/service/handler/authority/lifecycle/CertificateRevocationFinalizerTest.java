@@ -21,7 +21,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -65,7 +64,7 @@ class CertificateRevocationFinalizerTest {
     }
 
     @Test
-    void prepareRevokeFinalization_noAttributes_noDestroyKey_noKey() throws Exception {
+    void prepareRevokeFinalization_noAttributes_noDestroyKey_noKey() {
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(null);
         when(cert.getPendingRevokeDestroyKey()).thenReturn(null);
@@ -107,7 +106,7 @@ class CertificateRevocationFinalizerTest {
     void destroyKeyIfRequested_destroys() throws Exception {
         finalizer.destroyKeyIfRequested(new CertificateRevocationFinalizer.KeyCleanup(true, KEY_UUID), CERT_UUID);
 
-        verify(keyService).destroyKey(eq(List.of(KEY_UUID.toString())));
+        verify(keyService).destroyKey(List.of(KEY_UUID.toString()));
     }
 
     @Test

@@ -45,4 +45,15 @@ public class CertificateStatusPoll extends UniquelyIdentified {
     @CreationTimestamp
     @Column(name = "i_cre", nullable = false, updatable = false)
     private OffsetDateTime created;
+
+    // Identity is the UUID (see UniquelyIdentified); the added columns do not affect entity equality.
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
 }

@@ -135,22 +135,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
-        boolean completed = status.status() == CertificateOperationStatus.COMPLETED;
-        boolean isIssueOrRenew = op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW;
-        boolean issueWithData = completed && isIssueOrRenew
-                && status.certificateData() != null && !status.certificateData().isEmpty();
-        // A connector that reports COMPLETED for issue/renew but returns no certificate content is
-        // self-contradictory: we cannot reach ISSUED without persisting a certificate. Treat it as a
-        // failed operation rather than transitioning to ISSUED with an empty, contentless certificate.
-        boolean completedIssueWithoutData = completed && isIssueOrRenew && !issueWithData;
-        boolean revokeCompleted = completed && op == CertificateOperation.REVOKE;
-        CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
-        String reason = status.reason() != null ? status.reason()
-                : "Async " + op + " " + status.status().getLabel().toLowerCase();
-
-        // Holders for post-commit side effects run OUTSIDE the lock so a slow connector doesn't
-        // extend the row lock duration. applied distinguishes the no-op drop (state no longer
-        // pending) from a real transition so the post-commit blocks are skipped on a drop.
+        // Holders for post-commit side effects run OUTSIDE the lock so a slow connector doesn't extend the
+        // row lock duration. applied distinguishes the no-op drop (state no longer pending) from a real
+        // transition so the post-commit blocks are skipped on a drop.
         CertificateRevocationFinalizer.KeyCleanup[] revokeCleanupHolder =
                 { CertificateRevocationFinalizer.KeyCleanup.NONE };
         boolean[] applied = {false};
@@ -162,37 +149,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 return;
             }
             applied[0] = true;
-            if (issueWithData) {
-                // Sync-path equivalence: parse + persist cert content + ISSUE event.
-                // issueRequestedCertificate sets state=ISSUED via prepareIssuedCertificate (bypasses SM by design,
-                // matching the sync v2 path in ClientOperationServiceImpl.issueCertificateAction).
-                //
-                // Meta is passed as empty here and written separately AFTER commit so that a meta
-                // persistence failure does not roll back the state transition. The connector has
-                // accepted COMPLETED — state must reflect that even if our meta write fails.
-                try {
-                    certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
-                } catch (Exception e) {
-                    throw new IllegalStateException(
-                            "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
-                }
-            } else if (completedIssueWithoutData) {
-                stateMachine.transition(locked, op.terminalFailureState(), null,
-                        "Async " + op + " reported COMPLETED but connector returned no certificate data");
-            } else if (revokeCompleted) {
-                // Shared revoke finalization (apply preserved attrs, capture destroyKey, clear
-                // pending fields); destroyKey runs post-commit via the finalizer below.
-                revokeCleanupHolder[0] = revocationFinalizer.prepareRevokeFinalization(locked);
-                stateMachine.transition(locked, targetState, null, reason);
-            } else {
-                // Failure paths (and the COMPLETED-REGISTER success). A failed/cancelled REVOKE
-                // returns the cert to ISSUED, so the pending-revoke params must be cleared or the
-                // cert looks like a revoke is still in flight.
-                if (op == CertificateOperation.REVOKE) {
-                    revocationFinalizer.clearPendingRevokeFields(locked);
-                }
-                stateMachine.transition(locked, targetState, null, reason);
-            }
+            revokeCleanupHolder[0] = applyResolvedState(locked, op, status);
         });
 
         // Operation is resolved — by us (applied) or by a racing actor (not applied). Either way it is
@@ -205,28 +162,93 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
         // Post-commit, best-effort key destruction (slow connector HTTP call) — outside the lock.
         revocationFinalizer.destroyKeyIfRequested(revokeCleanupHolder[0], cert.getUuid());
+        // Post-commit meta update — outside the tx (state-divergence rule).
+        updateMetaAfterCommit(cert, op, status);
+    }
 
-        // Post-commit meta update — outside the tx so a meta failure does not roll back the
-        // state transition (state-divergence rule: once connector accepted COMPLETED, local
-        // state reflects that even if downstream local writes fail).
-        if (status.meta() != null && !status.meta().isEmpty()) {
-            AuthorityInstanceReference metaAuthority = cert.getRaProfile() != null
-                    ? cert.getRaProfile().getAuthorityInstanceReference()
-                    : null;
-            if (metaAuthority == null) {
-                logger.warn("Cannot update meta for cert {} — authority not resolvable", cert.getUuid());
-                return;
+    /**
+     * Applies the terminal state inside the held lock and returns the post-commit key-cleanup decision
+     * (NONE unless a revoke completed). Each branch is a single guarded outcome.
+     */
+    private CertificateRevocationFinalizer.KeyCleanup applyResolvedState(
+            Certificate locked, CertificateOperation op, StatusPollResult status) {
+        boolean completed = status.status() == CertificateOperationStatus.COMPLETED;
+        boolean isIssueOrRenew = op == CertificateOperation.ISSUE || op == CertificateOperation.RENEW;
+
+        if (completed && isIssueOrRenew) {
+            if (status.certificateData() != null && !status.certificateData().isEmpty()) {
+                persistIssuedCertificate(locked, op, status);
+            } else {
+                // COMPLETED for issue/renew with no certificate content is self-contradictory: we cannot
+                // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
+                stateMachine.transition(locked, op.terminalFailureState(), null,
+                        "Async " + op + " reported COMPLETED but connector returned no certificate data");
             }
-            try {
-                attributeEngine.updateMetadataAttributes(
-                        status.meta(),
-                        ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
-                                .connector(metaAuthority.getConnectorUuid())
-                                .build());
-            } catch (Exception e) {
-                logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",
-                        cert.getUuid(), op, status.status(), e);
-            }
+            return CertificateRevocationFinalizer.KeyCleanup.NONE;
+        }
+
+        if (completed && op == CertificateOperation.REVOKE) {
+            // Shared revoke finalization (apply preserved attrs, capture destroyKey, clear pending fields);
+            // destroyKey runs post-commit via the finalizer.
+            CertificateRevocationFinalizer.KeyCleanup cleanup = revocationFinalizer.prepareRevokeFinalization(locked);
+            stateMachine.transition(locked, op.terminalSuccessState(), null, reasonFor(op, status));
+            return cleanup;
+        }
+
+        // Failure paths (and the COMPLETED-REGISTER success). A failed/cancelled REVOKE returns the cert to
+        // ISSUED, so the pending-revoke params must be cleared or it looks like a revoke is still in flight.
+        if (op == CertificateOperation.REVOKE) {
+            revocationFinalizer.clearPendingRevokeFields(locked);
+        }
+        CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
+        stateMachine.transition(locked, targetState, null, reasonFor(op, status));
+        return CertificateRevocationFinalizer.KeyCleanup.NONE;
+    }
+
+    /**
+     * Sync-path equivalence for a completed issue/renew: parse + persist cert content + ISSUE event.
+     * {@code issueRequestedCertificate} sets state=ISSUED via prepareIssuedCertificate (matching the sync v2
+     * path). Meta is passed empty here and written after commit so a meta-persistence failure does not roll
+     * back the transition — the connector accepted COMPLETED, so state must reflect that.
+     */
+    private void persistIssuedCertificate(Certificate locked, CertificateOperation op, StatusPollResult status) {
+        try {
+            certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
+        }
+    }
+
+    private static String reasonFor(CertificateOperation op, StatusPollResult status) {
+        return status.reason() != null ? status.reason()
+                : "Async " + op + " " + status.status().getLabel().toLowerCase();
+    }
+
+    /**
+     * Best-effort post-commit meta write, outside the tx (state-divergence rule: once the connector accepted
+     * COMPLETED, local state reflects that even if this downstream write fails).
+     */
+    private void updateMetaAfterCommit(Certificate cert, CertificateOperation op, StatusPollResult status) {
+        if (status.meta() == null || status.meta().isEmpty()) {
+            return;
+        }
+        AuthorityInstanceReference metaAuthority = cert.getRaProfile() != null
+                ? cert.getRaProfile().getAuthorityInstanceReference()
+                : null;
+        if (metaAuthority == null) {
+            logger.warn("Cannot update meta for cert {} — authority not resolvable", cert.getUuid());
+            return;
+        }
+        try {
+            attributeEngine.updateMetadataAttributes(
+                    status.meta(),
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, cert.getUuid())
+                            .connector(metaAuthority.getConnectorUuid())
+                            .build());
+        } catch (Exception e) {
+            logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",
+                    cert.getUuid(), op, status.status(), e);
         }
     }
 

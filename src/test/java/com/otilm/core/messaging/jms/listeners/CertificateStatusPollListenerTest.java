@@ -182,7 +182,7 @@ class CertificateStatusPollListenerTest {
 
         // Issue success persists content via issueRequestedCertificate (sets state itself); the
         // state machine is NOT used for this transition.
-        verify(certificateService).issueRequestedCertificate(eq(CERT_UUID), eq("PEMDATA"), eq(List.of()));
+        verify(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         verify(pollWriter).delete(CERT_UUID);
     }
@@ -337,7 +337,7 @@ class CertificateStatusPollListenerTest {
         // Should NOT throw — cert persisted/committed before the meta update, meta failure swallowed.
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        verify(certificateService).issueRequestedCertificate(eq(CERT_UUID), eq("PEMDATA"), eq(List.of()));
+        verify(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
         verify(pollWriter).delete(CERT_UUID);
         verify(attributeEngine).updateMetadataAttributes(eq(meta), any(ObjectAttributeContentInfo.class));
     }

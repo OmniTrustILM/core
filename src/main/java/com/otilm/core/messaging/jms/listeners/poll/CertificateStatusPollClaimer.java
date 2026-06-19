@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,7 +63,7 @@ public class CertificateStatusPollClaimer {
             return List.of();
         }
         List<CertificateStatusPoll> due = pollRepository
-                .findByNextPollAtLessThanEqualOrderByNextPollAt(OffsetDateTime.now(), PageRequest.of(0, batchSize));
+                .findByNextPollAtLessThanEqualOrderByNextPollAt(OffsetDateTime.now(ZoneOffset.UTC), PageRequest.of(0, batchSize));
         List<CertificateStatusPollMessage> messages = new ArrayList<>(due.size());
         for (CertificateStatusPoll poll : due) {
             messages.add(new CertificateStatusPollMessage(
@@ -70,7 +71,7 @@ public class CertificateStatusPollClaimer {
 
             int nextAttempt = poll.getAttempt() + 1;
             Duration nextDelay = statusPollProperties.scheduleFor(poll.getOperation()).delayFor(nextAttempt);
-            pollWriter.reschedule(poll.getCertificateUuid(), nextAttempt, OffsetDateTime.now().plus(nextDelay));
+            pollWriter.reschedule(poll.getCertificateUuid(), nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(nextDelay));
         }
         return messages;
     }
