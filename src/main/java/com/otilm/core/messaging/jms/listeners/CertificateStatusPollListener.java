@@ -3,6 +3,7 @@ package com.otilm.core.messaging.jms.listeners;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.MessageHandlingException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -247,8 +248,12 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         return false;
     }
 
-    /** Non-recoverable persist failure after a COMPLETED poll — fail the operation fast instead of looping to timeout. */
-    private static final class DeterministicPersistException extends RuntimeException {
+    /**
+     * Non-recoverable persist failure after a COMPLETED poll — fail the operation fast instead of looping to
+     * timeout. Implements {@link PlatformException} (its message is shaped, no raw cause) per the rule that every
+     * core exception be wire-safe-gateable, even though this one is caught internally and never reaches a caller.
+     */
+    private static final class DeterministicPersistException extends RuntimeException implements PlatformException {
         DeterministicPersistException(String message) {
             super(message);
         }
