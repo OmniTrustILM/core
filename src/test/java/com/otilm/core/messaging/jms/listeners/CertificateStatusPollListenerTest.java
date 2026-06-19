@@ -31,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -91,9 +92,12 @@ class CertificateStatusPollListenerTest {
         lenient().when(schedule.maxAttempts()).thenReturn(3);
         lenient().when(statusPollProperties.scheduleFor(any())).thenReturn(schedule);
 
-        // Execute the runnable synchronously so the locked-transaction body runs in-test.
+        // Execute the transaction body synchronously so the locked-transaction logic runs in-test —
+        // both the Runnable form (applyFailure) and the Supplier form (applyTerminalTransition).
         lenient().doAnswer(inv -> { ((Runnable) inv.getArgument(0)).run(); return null; })
                 .when(transactionHandler).runInNewTransaction(any(Runnable.class));
+        lenient().doAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get())
+                .when(transactionHandler).runInNewTransaction(any(Supplier.class));
         lenient().when(adapterFactory.forAuthority(any())).thenReturn(adapter);
     }
 
@@ -162,9 +166,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(pollWriter).delete(CERT_UUID);
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
-    }
+        verify(pollWriter).delete(CERT_UUID);    }
 
     // -----------------------------------------------------------------------
     // completedIssueWithDataPersistsCertificate (ISSUE + cert data → issueRequestedCertificate)
@@ -271,9 +273,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
-        verify(pollWriter).delete(CERT_UUID);
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
-    }
+        verify(pollWriter).delete(CERT_UUID);    }
 
     // -----------------------------------------------------------------------
     // failedTransitionsToTerminalFailure (ISSUE → FAILED)
@@ -291,9 +291,7 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(pollWriter).delete(CERT_UUID);
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
-    }
+        verify(pollWriter).delete(CERT_UUID);    }
 
     // -----------------------------------------------------------------------
     // failedRevokeTransitionsBackToIssued
@@ -314,9 +312,7 @@ class CertificateStatusPollListenerTest {
         // A failed revoke must clear the pending-revoke params so the cert (back in ISSUED) does
         // not look like a revoke is still in flight.
         verify(revocationFinalizer).clearPendingRevokeFields(cert);
-        verify(pollWriter).delete(CERT_UUID);
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
-    }
+        verify(pollWriter).delete(CERT_UUID);    }
 
     // -----------------------------------------------------------------------
     // completedRevokeTransitionsToRevokedAndDestroysKey
@@ -409,9 +405,7 @@ class CertificateStatusPollListenerTest {
 
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         // Resolved by the racing actor — still stop polling.
-        verify(pollWriter).delete(CERT_UUID);
-        verify(transactionHandler).runInNewTransaction(any(Runnable.class));
-    }
+        verify(pollWriter).delete(CERT_UUID);    }
 
     // -----------------------------------------------------------------------
     // connectorExceptionTransientLeavesPollRow

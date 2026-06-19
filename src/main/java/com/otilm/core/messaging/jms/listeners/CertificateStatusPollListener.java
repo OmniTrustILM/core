@@ -135,22 +135,17 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
-        // Holders for post-commit side effects run OUTSIDE the lock so a slow connector doesn't extend the
-        // row lock duration. applied distinguishes the no-op drop (state no longer pending) from a real
-        // transition so the post-commit blocks are skipped on a drop.
-        CertificateRevocationFinalizer.KeyCleanup[] revokeCleanupHolder =
-                { CertificateRevocationFinalizer.KeyCleanup.NONE };
-        boolean[] applied = {false};
-
+        // The locked transition runs under a row lock; its post-commit side effects (key destroy, meta) run
+        // afterwards, outside the lock, so a slow connector call doesn't extend the lock duration.
+        Resolution resolution;
         try {
-            transactionHandler.runInNewTransaction(() -> {
+            resolution = transactionHandler.runInNewTransaction(() -> {
                 Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
                         .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
                 if (!isPendingFor(locked.getState(), op)) {
-                    return;
+                    return Resolution.NOT_APPLIED;
                 }
-                applied[0] = true;
-                revokeCleanupHolder[0] = applyResolvedState(locked, op, status);
+                return Resolution.applied(applyResolvedState(locked, op, status));
             });
         } catch (DeterministicPersistException e) {
             // The connector reported COMPLETED but the certificate could not be persisted, and retrying would
@@ -160,18 +155,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return;
         }
 
-        // Operation is resolved — by us (applied) or by a racing actor (not applied). Either way it is
-        // no longer pending, so stop polling it.
+        // Resolved — by us or by a racing actor — so stop polling it either way.
         pollWriter.delete(cert.getUuid());
-
-        if (!applied[0]) {
+        if (!resolution.applied()) {
             return;
         }
-
-        // Post-commit, best-effort key destruction (slow connector HTTP call) — outside the lock.
-        revocationFinalizer.destroyKeyIfRequested(revokeCleanupHolder[0], cert.getUuid());
-        // Post-commit meta update — outside the tx (state-divergence rule).
+        // Post-commit, outside the lock/tx: best-effort key destruction, then the meta write (a meta failure
+        // must not roll back the committed transition — state-divergence rule).
+        revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
         updateMetaAfterCommit(cert, op, status);
+    }
+
+    /** Outcome of the locked terminal transition: whether it was applied, and any post-commit key cleanup. */
+    private record Resolution(boolean applied, CertificateRevocationFinalizer.KeyCleanup keyCleanup) {
+        static final Resolution NOT_APPLIED = new Resolution(false, CertificateRevocationFinalizer.KeyCleanup.NONE);
+        static Resolution applied(CertificateRevocationFinalizer.KeyCleanup keyCleanup) {
+            return new Resolution(true, keyCleanup);
+        }
     }
 
     /**
