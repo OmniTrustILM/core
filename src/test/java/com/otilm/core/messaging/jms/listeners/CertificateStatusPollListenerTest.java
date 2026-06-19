@@ -272,6 +272,31 @@ class CertificateStatusPollListenerTest {
     }
 
     // -----------------------------------------------------------------------
+    // completedRevokeTransitionsToRevokedAndDestroysKey
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedRevokeTransitionsToRevokedAndDestroysKey() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        var cleanup = new com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer.KeyCleanup(
+                true, UUID.randomUUID());
+        when(revocationFinalizer.prepareRevokeFinalization(cert)).thenReturn(cleanup);
+
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0));
+
+        verify(revocationFinalizer).prepareRevokeFinalization(cert);
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.REVOKED), isNull(), anyString());
+        // Key destruction runs post-commit, outside the lock, from the captured cleanup decision.
+        verify(revocationFinalizer).destroyKeyIfRequested(cleanup, CERT_UUID);
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
     // revokeTimeoutClearsPendingFields
     // -----------------------------------------------------------------------
 

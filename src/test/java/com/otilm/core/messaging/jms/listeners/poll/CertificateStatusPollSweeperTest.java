@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -54,5 +55,18 @@ class CertificateStatusPollSweeperTest {
         verify(pollProducer).produceMessage(msg);
         // Claiming is the only transactional/lock-holding step; sends happen after it.
         verify(pollClaimer).claimDueBatch(anyInt());
+    }
+
+    @Test
+    void sendFailure_doesNotAbortTheSweep() {
+        CertificateStatusPollMessage msg = new CertificateStatusPollMessage(
+                Resource.CERTIFICATE, UUID.randomUUID(), CertificateOperation.ISSUE, 1);
+        when(pollClaimer.claimDueBatch(BATCH_SIZE)).thenReturn(List.of(msg));
+        doThrow(new RuntimeException("broker down")).when(pollProducer).produceMessage(msg);
+
+        // One bad send must not propagate — the row is already rescheduled and retries when next due.
+        sweeper.sweep();
+
+        verify(pollProducer).produceMessage(msg);
     }
 }
