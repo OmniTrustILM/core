@@ -68,4 +68,14 @@ public interface PermissionEvaluator {
     void signingProfiles(List<SecuredUUID> uuids);
 
     void vaultInstance(SecuredUUID uuid);
+
+    /**
+     * Function to evaluate the TIMESTAMP permission on a TSP profile. Used by the timestamping flow to authorize the
+     * action on its own, separately from request processing, so a denial can be caught precisely without masking an
+     * authorization failure raised deeper in the processing path.
+     *
+     * @param uuid UUID of the TSP profile
+     * @throws NotFoundException when the TSP profile with the requested UUID is not found
+     */
+    void tspProfileTimestamping(SecuredUUID uuid) throws NotFoundException;
 }

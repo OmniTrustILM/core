@@ -79,4 +79,10 @@ public class AuthPermissionEvaluationServiceImpl implements PermissionEvaluator 
         // Method empty to only evaluate permissions based on ExternalAuthorization annotation
     }
 
+    @Override
+    @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.TIMESTAMP)
+    public void tspProfileTimestamping(SecuredUUID uuid) {
+        // Method empty to only evaluate permissions based on ExternalAuthorization annotation
+    }
+
 }
