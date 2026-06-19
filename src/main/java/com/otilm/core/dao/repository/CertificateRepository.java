@@ -74,7 +74,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * released immediately on query completion.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
+    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items",
+            "raProfile", "raProfile.authorityInstanceReference"})
     Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
 
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})

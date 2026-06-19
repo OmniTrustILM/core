@@ -8,7 +8,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -21,7 +20,7 @@ import java.util.UUID;
  *
  * <p>{@code next_poll_at} is the due time the sweep scans for; {@code attempt} is how many polls have
  * been scheduled so far and indexes the backoff curve. This is internal polling machinery, not a
- * user-facing entity, so it carries no author/update audit columns — only a creation timestamp.</p>
+ * user-facing entity, so it carries no author/update audit columns — only a DB-populated creation timestamp.</p>
  */
 @Getter
 @Setter
@@ -42,8 +41,9 @@ public class CertificateStatusPoll extends UniquelyIdentified {
     @Column(name = "next_poll_at", nullable = false)
     private OffsetDateTime nextPollAt;
 
-    @CreationTimestamp
-    @Column(name = "i_cre", nullable = false, updatable = false)
+    // Populated by the DB default (the row is inserted via the native scheduleIfAbsent query, not a JPA
+    // persist), so this is a read-only mapping — JPA never writes it.
+    @Column(name = "i_cre", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime created;
 
     // Identity is the UUID (see UniquelyIdentified); the added columns do not affect entity equality.

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -185,6 +186,52 @@ class CertificateStatusPollListenerTest {
         verify(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
+    // completedIssueDeterministicPersistFailureFailsFast
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedIssueDeterministicPersistFailureFailsFast() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        // Deterministic persist failure (e.g. parse error / already-exists on redelivery).
+        doThrow(new AttributeException("cannot parse"))
+                .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // Does not loop to timeout: resolves straight to FAILED and stops polling.
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
+    // completedIssueTransientPersistFailurePropagatesForRetry
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedIssueTransientPersistFailurePropagatesForRetry() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        // Transient persist failure must NOT become a terminal FAILED — it propagates so the operation is
+        // retried on the next poll, leaving the poll row in place.
+        doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
+                .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
+
+        assertThrows(RuntimeException.class, () -> listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0)));
+
+        verify(stateMachine, never()).transition(any(), any(), any(), any());
+        verify(pollWriter, never()).delete(any());
     }
 
     // -----------------------------------------------------------------------

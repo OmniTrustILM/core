@@ -37,8 +37,8 @@ class CertificateStatusPollProducerTest {
 
         MessagingProperties.RoutingKey routingKey = new MessagingProperties.RoutingKey(
                 "actions", "audit-logs", "event", "notification", "scheduler",
-                "validation", "time-quality-config-request", "time-quality-config",
-                "time-quality-results", "provider.status-poll"
+                "validation", "time-quality.config-request", "time-quality.config",
+                "time-quality.results", "provider.status-poll"
         );
         lenient().when(messagingProperties.routingKey()).thenReturn(routingKey);
 

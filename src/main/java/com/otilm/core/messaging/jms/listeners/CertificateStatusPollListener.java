@@ -142,15 +142,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 { CertificateRevocationFinalizer.KeyCleanup.NONE };
         boolean[] applied = {false};
 
-        transactionHandler.runInNewTransaction(() -> {
-            Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
-                    .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
-            if (!isPendingFor(locked.getState(), op)) {
-                return;
-            }
-            applied[0] = true;
-            revokeCleanupHolder[0] = applyResolvedState(locked, op, status);
-        });
+        try {
+            transactionHandler.runInNewTransaction(() -> {
+                Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(cert.getUuid())
+                        .orElseThrow(() -> new IllegalStateException("Certificate " + cert.getUuid() + " disappeared under lock"));
+                if (!isPendingFor(locked.getState(), op)) {
+                    return;
+                }
+                applied[0] = true;
+                revokeCleanupHolder[0] = applyResolvedState(locked, op, status);
+            });
+        } catch (DeterministicPersistException e) {
+            // The connector reported COMPLETED but the certificate could not be persisted, and retrying would
+            // hit the same deterministic error. The locked transaction rolled back, so resolve the operation to
+            // its failure state in a fresh transaction (and delete the poll row) instead of re-polling to timeout.
+            applyFailure(cert, op, e.getMessage());
+            return;
+        }
 
         // Operation is resolved — by us (applied) or by a racing actor (not applied). Either way it is
         // no longer pending, so stop polling it.
@@ -215,8 +223,34 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         try {
             certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
         } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to persist async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
+            if (isTransient(e)) {
+                // Transient (e.g. a DB blip) — let it propagate so the operation is retried on the next poll.
+                throw new IllegalStateException(
+                        "Transient failure persisting async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
+            }
+            // Deterministic failure (parse error, already-exists on redelivery, ...): retrying hits the same
+            // error, so fail fast. The authority did complete the operation, so the reason points at the
+            // local/upstream divergence to reconcile (raw cause is logged, not surfaced).
+            logger.warn("Async {} for cert {} completed at the authority but could not be persisted (deterministic): {}",
+                    op, locked.getUuid(), e.getMessage());
+            throw new DeterministicPersistException(
+                    "Async " + op + " completed at the authority but the certificate could not be persisted; reconcile manually");
+        }
+    }
+
+    private static boolean isTransient(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof org.springframework.dao.TransientDataAccessException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Non-recoverable persist failure after a COMPLETED poll — fail the operation fast instead of looping to timeout. */
+    private static final class DeterministicPersistException extends RuntimeException {
+        DeterministicPersistException(String message) {
+            super(message);
         }
     }
 
