@@ -18,6 +18,7 @@ import com.otilm.core.dao.entity.oid.ExtendedKeyUsageCustomOidEntry;
 import com.otilm.core.dao.entity.oid.GenericCustomOidEntry;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
+import com.otilm.core.mapper.oid.CustomOidEntryMapper;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -105,7 +106,6 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                         throw new ValidationException("Alt Code %s is already used".formatted(altCode));
                 }
                 ((RdnAttributeTypeCustomOidEntry) customOidEntry).setAltCodes(altCodes);
-                responseAdditionalProperties = ((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto();
             }
             case CERTIFICATE_EXTENSION -> {
                 customOidEntry = new CertificateExtensionCustomOidEntry();
@@ -113,7 +113,6 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                     throw new ValidationException("Incorrect type of properties for OID category Certificate Extension.");
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(additionalProperties.isDefaultCritical());
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(additionalProperties.getValueEncoding());
-                responseAdditionalProperties = ((CertificateExtensionCustomOidEntry) customOidEntry).mapToPropertiesDto();
             }
             default -> throw new UnsupportedOperationException("Unsupported OID category: " + request.getCategory());
         }
@@ -125,29 +124,21 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
 
         customOidEntryRepository.save(customOidEntry);
 
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        response.setAdditionalProperties(responseAdditionalProperties);
         OidHandler.cacheOid(request.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes));
-        return response;
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.DETAIL)
     public CustomOidEntryDetailResponseDto getCustomOidEntry(String oid) throws NotFoundException {
         CustomOidEntry customOidEntry = customOidEntryRepository.findById(oid).orElseThrow(() -> new NotFoundException(OID_ENTRY, oid));
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        if (customOidEntry.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE)
-            response.setAdditionalProperties(((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto());
-        else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry)
-            response.setAdditionalProperties(extensionEntry.mapToPropertiesDto());
-        return response;
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.UPDATE)
     public CustomOidEntryDetailResponseDto editCustomOidEntry(String oid, CustomOidEntryUpdateRequestDto request) throws NotFoundException {
         CustomOidEntry customOidEntry = customOidEntryRepository.findById(oid).orElseThrow(() -> new NotFoundException(OID_ENTRY, oid));
-        AdditionalOidPropertiesDto responseAdditionalProperties = null;
         String code = null;
         List<String> altCodes = null;
 
@@ -171,25 +162,21 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                     throw new ValidationException("Alt Code %s is already used".formatted(altCode));
             }
             rdnAttributeTypeOidEntry.setAltCodes(additionalProperties.getAltCodes());
-            responseAdditionalProperties = rdnAttributeTypeOidEntry.mapToPropertiesDto();
         }
         else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry) {
             if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
                 throw new ValidationException("Incorrect properties for OID category Certificate Extension.");
             extensionEntry.setDefaultCritical(additionalProperties.isDefaultCritical());
             extensionEntry.setValueEncoding(additionalProperties.getValueEncoding());
-            responseAdditionalProperties = extensionEntry.mapToPropertiesDto();
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
         customOidEntry.setDescription(request.getDescription());
         customOidEntryRepository.save(customOidEntry);
 
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        response.setAdditionalProperties(responseAdditionalProperties);
         if (SystemOid.fromOID(oid) == null)
             OidHandler.cacheOid(customOidEntry.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes));
-        return response;
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     private static Set<String> getAllCodesInLowerCase() {
@@ -226,7 +213,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
         final TriFunction<Root<CustomOidEntry>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
         final List<CustomOidEntryResponseDto> oidEntries = customOidEntryRepository.findUsingSecurityFilter(SecurityFilter.create(), List.of(), additionalWhereClause, p, (root, cb) -> cb.desc(root.get(CustomOidEntry_.oid)))
                 .stream()
-                .map(CustomOidEntry::mapToDto).toList();
+                .map(CustomOidEntryMapper::toDto).toList();
         final Long totalItems = customOidEntryRepository.countUsingSecurityFilter(SecurityFilter.create(), additionalWhereClause);
         CustomOidEntryListResponseDto response = new CustomOidEntryListResponseDto();
         response.setOidEntries(oidEntries);
