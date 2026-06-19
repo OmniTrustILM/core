@@ -33,6 +33,16 @@ public class CertificateStatusPollWriter {
         pollRepository.scheduleIfAbsent(UUID.randomUUID(), certificateUuid, operation.name(), nextPollAt);
     }
 
+    /**
+     * Advances a poll row's {@code attempt}/{@code next_poll_at}. {@code REQUIRED} (not {@code REQUIRES_NEW})
+     * so it joins the sweep claimer's lock-holding transaction — a row is claimed and rescheduled atomically,
+     * or neither. All {@code @Modifying} writes go through this writer per the repository-boundary rule.
+     */
+    @Transactional
+    public void reschedule(UUID certificateUuid, int attempt, OffsetDateTime nextPollAt) {
+        pollRepository.reschedule(certificateUuid, attempt, nextPollAt);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void delete(UUID certificateUuid) {
         pollRepository.deleteByCertificateUuid(certificateUuid);

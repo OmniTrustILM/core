@@ -6,6 +6,7 @@ import com.otilm.core.dao.entity.CertificateStatusPoll;
 import com.otilm.core.dao.repository.CertificateStatusPollRepository;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -35,13 +36,16 @@ public class CertificateStatusPollClaimer {
 
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final CertificateStatusPollRepository pollRepository;
+    private final CertificateStatusPollWriter pollWriter;
     private final StatusPollProperties statusPollProperties;
 
     public CertificateStatusPollClaimer(ClusterOperationSynchronizer clusterSynchronizer,
                                         CertificateStatusPollRepository pollRepository,
+                                        CertificateStatusPollWriter pollWriter,
                                         StatusPollProperties statusPollProperties) {
         this.clusterSynchronizer = clusterSynchronizer;
         this.pollRepository = pollRepository;
+        this.pollWriter = pollWriter;
         this.statusPollProperties = statusPollProperties;
     }
 
@@ -66,7 +70,7 @@ public class CertificateStatusPollClaimer {
 
             int nextAttempt = poll.getAttempt() + 1;
             Duration nextDelay = statusPollProperties.scheduleFor(poll.getOperation()).delayFor(nextAttempt);
-            pollRepository.reschedule(poll.getCertificateUuid(), nextAttempt, OffsetDateTime.now().plus(nextDelay));
+            pollWriter.reschedule(poll.getCertificateUuid(), nextAttempt, OffsetDateTime.now().plus(nextDelay));
         }
         return messages;
     }

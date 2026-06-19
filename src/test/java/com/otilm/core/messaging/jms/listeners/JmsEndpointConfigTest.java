@@ -6,6 +6,7 @@ import com.otilm.core.messaging.jms.listeners.actions.ActionsJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.auditlogs.AuditLogsJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.event.EventJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.notification.NotificationJmsEndpointConfig;
+import com.otilm.core.messaging.jms.listeners.poll.PollJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.scheduler.SchedulerJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.validation.ValidationJmsEndpointConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -265,6 +266,34 @@ class JmsEndpointConfigTest {
         void serviceBus_setsTopicDestination_subscriptionAndSelector() {
             givenServiceBus("core.validation");
             assertServiceBus(config.listenerEndpoint(), "core.validation", "validation");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PollJmsEndpointConfig
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class PollEndpointConfigTests {
+
+        private PollJmsEndpointConfig config;
+
+        @BeforeEach
+        void setUp() {
+            config = new PollJmsEndpointConfig(
+                    new ObjectMapper(), mockProcessor(), retryTemplate, messagingProperties, concurrencyProperties);
+        }
+
+        @Test
+        void rabbitMQ_setsQueueDestination_noSubscriptionOrSelector() {
+            givenRabbitMQ("provider.status-poll");
+            assertRabbitMQ(config.listenerEndpoint(), "provider.status-poll");
+        }
+
+        @Test
+        void serviceBus_setsTopicDestination_subscriptionAndSelector() {
+            givenServiceBus("provider.status-poll");
+            assertServiceBus(config.listenerEndpoint(), "provider.status-poll", "provider.status-poll");
         }
     }
 }

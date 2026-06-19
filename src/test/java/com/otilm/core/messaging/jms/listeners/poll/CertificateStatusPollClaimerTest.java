@@ -6,6 +6,7 @@ import com.otilm.core.dao.repository.CertificateStatusPollRepository;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +33,7 @@ class CertificateStatusPollClaimerTest {
 
     @Mock private ClusterOperationSynchronizer clusterSynchronizer;
     @Mock private CertificateStatusPollRepository pollRepository;
+    @Mock private CertificateStatusPollWriter pollWriter;
     @Mock private StatusPollProperties statusPollProperties;
 
     private static final int BATCH_SIZE = 200;
@@ -40,7 +42,7 @@ class CertificateStatusPollClaimerTest {
 
     @BeforeEach
     void setUp() {
-        claimer = new CertificateStatusPollClaimer(clusterSynchronizer, pollRepository, statusPollProperties);
+        claimer = new CertificateStatusPollClaimer(clusterSynchronizer, pollRepository, pollWriter, statusPollProperties);
 
         StatusPollProperties.PollSchedule schedule = new StatusPollProperties.PollSchedule(
                 List.of(Duration.ofSeconds(5), Duration.ofSeconds(30)), 100);
@@ -55,7 +57,7 @@ class CertificateStatusPollClaimerTest {
         assertThat(claimer.claimDueBatch(BATCH_SIZE)).isEmpty();
 
         verify(pollRepository, never()).findByNextPollAtLessThanEqualOrderByNextPollAt(any(), any());
-        verify(pollRepository, never()).reschedule(any(), anyInt(), any());
+        verify(pollWriter, never()).reschedule(any(), anyInt(), any());
     }
 
     @Test
@@ -66,7 +68,7 @@ class CertificateStatusPollClaimerTest {
 
         assertThat(claimer.claimDueBatch(BATCH_SIZE)).isEmpty();
 
-        verify(pollRepository, never()).reschedule(any(), anyInt(), any());
+        verify(pollWriter, never()).reschedule(any(), anyInt(), any());
     }
 
     @Test
@@ -84,7 +86,7 @@ class CertificateStatusPollClaimerTest {
         assertThat(messages.get(0).attempt()).isEqualTo(2);
 
         // attempt advanced and next_poll_at pushed out so the row is not re-claimed until next due.
-        verify(pollRepository).reschedule(eq(certUuid), eq(3), any(OffsetDateTime.class));
+        verify(pollWriter).reschedule(eq(certUuid), eq(3), any(OffsetDateTime.class));
     }
 
     private CertificateStatusPoll pollRow(UUID certUuid, CertificateOperation op, int attempt) {
