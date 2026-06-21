@@ -106,8 +106,6 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         } catch (ConnectorException e) {
             logger.warn("Poll status call failed for cert {} op {}: {}", msg.resourceUuid(), msg.op(), e.getMessage());
             if (isTerminalPollError(e)) {
-                // Connector says the operation doesn't exist anymore or never did — no point retrying.
-                // Move the cert to its failure state immediately rather than burning maxAttempts cycles.
                 applyFailure(cert, msg.op(), "Connector reports the " + msg.op() + " operation is no longer tracked");
             } else if (isLastAttempt(msg)) {
                 applyFailure(cert, msg.op(), timeoutReason(msg.op()));
@@ -137,8 +135,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
-        // The locked transition runs under a row lock; its post-commit side effects (key destroy, meta) run
-        // afterwards, outside the lock, so a slow connector call doesn't extend the lock duration.
+        // Hold the row lock only for the local transition; the post-commit side effects run outside it.
         Resolution resolution;
         try {
             resolution = transactionHandler.runInNewTransaction(() -> {
@@ -150,32 +147,25 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 return Resolution.applied(applyResolvedState(locked, op, status));
             });
         } catch (DeterministicPersistException e) {
-            // The connector reported COMPLETED but the certificate could not be persisted, and retrying would
-            // hit the same deterministic error. The locked transaction rolled back, so resolve the operation to
-            // its failure state in a fresh transaction (and delete the poll row) instead of re-polling to timeout.
+            // Deterministic persist failure: the locked tx rolled back, so fail fast to the failure state
+            // instead of re-polling to timeout.
             applyFailure(cert, op, e.getMessage());
             return;
         } catch (RuntimeException e) {
-            // Rethrow with cert/op context — the JMS listener adapter logs only the bare exception against the
-            // endpoint id. The locked transition rolled back (REQUIRES_NEW) and the poll row was left in place, so
-            // the sweep re-enqueues and retries: a transient persist blip recovers on the next tick; a
-            // should-not-happen error (e.g. an unexpected invalid state transition, which the isPendingFor
-            // re-assert above makes very unlikely) keeps retrying to maxAttempts.
+            // Add cert/op context — the JMS adapter logs only the bare exception. The rollback left the poll
+            // row, so the sweep retries (a transient blip recovers; a should-not-happen error retries to maxAttempts).
             throw new IllegalStateException(
                     "Async " + op + " terminal transition for cert " + cert.getUuid()
                             + " did not apply; poll row left for the sweep to retry", e);
         }
 
         if (resolution.applied()) {
-            // Post-commit, outside the lock/tx: best-effort key destruction, then the meta write. These run
-            // BEFORE the poll-row delete so a transient delete failure can't skip them — a completed REVOKE must
-            // still destroy the key. A meta failure must not roll back the committed transition (state-divergence).
+            // Run post-commit side effects before the delete so a transient delete failure can't skip them
+            // (a completed REVOKE must still destroy the key).
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
         }
-        // Resolved — by us or by a racing actor — so stop polling it. Done last and best-effort: if the delete
-        // fails transiently the row survives and the next poll (cert no longer pending) drops it, so the
-        // post-commit side effects above are never skipped by a delete failure.
+        // Stop polling — best-effort: if the delete fails, the next poll drops the now-terminal row.
         try {
             pollWriter.delete(cert.getUuid());
         } catch (RuntimeException e) {
@@ -214,8 +204,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         if (completed && op == CertificateOperation.REVOKE) {
-            // Shared revoke finalization: apply preserved attrs, capture the destroyKey decision, clear pending
-            // fields. destroyKey runs post-commit via the finalizer.
+            // destroyKey is captured here and run post-commit by the finalizer (outside the lock).
             CertificateRevocationFinalizer.KeyCleanup cleanup = revocationFinalizer.prepareRevokeFinalization(locked);
             stateMachine.transition(locked, op.terminalSuccessState(), null, reasonFor(op, status));
             return cleanup;
@@ -242,11 +231,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
         } catch (Exception e) {
             if (isTransient(e)) {
-                // Transient (e.g. a DB blip): propagate so the locked transition rolls back and the poll row is
-                // left in place (applyTerminalTransition skips its delete on the exception path). The sweep then
-                // re-enqueues the surviving row on its next due tick, and that re-poll is what retries the
-                // operation — not JMS redelivery (the listener adapter acknowledges the message even when
-                // processMessage throws).
+                // Propagate so the locked tx rolls back and the row survives; the sweep re-polls (the adapter
+                // swallows the throw, so retry is sweep-driven, not JMS redelivery).
                 throw new IllegalStateException(
                         "Transient failure persisting async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
             }
@@ -324,8 +310,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (!isPendingFor(locked.getState(), op)) {
                 return;
             }
-            // A revoke that fails returns the cert to ISSUED — clear the pending-revoke params so it
-            // doesn't look like a revoke is still in flight (see applyTerminalTransition).
+            // A failed revoke returns to ISSUED — clear pending-revoke params (see applyResolvedState).
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
@@ -354,8 +339,6 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private boolean isPendingFor(CertificateState state, CertificateOperation op) {
         return state == op.pendingState();
     }
-
-    // SETTERs
 
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
