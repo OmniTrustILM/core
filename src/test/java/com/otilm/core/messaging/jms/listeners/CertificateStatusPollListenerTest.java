@@ -225,14 +225,38 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
                 .thenReturn(Optional.of(cert));
-        // Transient persist failure must NOT become a terminal FAILED — it propagates so the operation is
-        // retried on the next poll, leaving the poll row in place.
+        // Transient persist failure must NOT become a terminal FAILED. It propagates — rolling back the locked
+        // transition and leaving the poll row in place — so the sweep re-enqueues and retries on its next tick.
         doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
                 .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
 
         assertThrows(RuntimeException.class, () -> listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0)));
 
         verify(stateMachine, never()).transition(any(), any(), any(), any());
+        verify(pollWriter, never()).delete(any());
+    }
+
+    // -----------------------------------------------------------------------
+    // unexpectedTransitionErrorRetainsPollRowAndPropagates
+    // -----------------------------------------------------------------------
+
+    @Test
+    void unexpectedTransitionErrorRetainsPollRowAndPropagates() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "revoke failed"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        // A should-not-happen invalid transition (anything other than the deterministic-persist case) must not
+        // silently delete the poll row: it propagates so the sweep retries, and is logged with cert/op context
+        // rather than only surfacing in the listener adapter's generic endpoint-level log.
+        doThrow(new IllegalStateException("unexpected invalid transition"))
+                .when(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+
+        assertThrows(RuntimeException.class, () -> listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0)));
+
+        // Not resolved — the poll row stays so the sweep re-enqueues it.
         verify(pollWriter, never()).delete(any());
     }
 

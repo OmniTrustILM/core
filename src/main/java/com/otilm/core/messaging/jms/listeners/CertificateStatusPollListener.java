@@ -29,6 +29,7 @@ import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -154,6 +155,15 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // its failure state in a fresh transaction (and delete the poll row) instead of re-polling to timeout.
             applyFailure(cert, op, e.getMessage());
             return;
+        } catch (RuntimeException e) {
+            // The locked transition rolled back (REQUIRES_NEW) and the poll row was left in place — so the sweep
+            // re-enqueues and retries. A transient persist blip recovers on the next tick; a should-not-happen
+            // error (e.g. an unexpected invalid state transition, which the isPendingFor re-assert above makes
+            // very unlikely) keeps retrying to maxAttempts. The JMS listener adapter only logs the bare exception
+            // against the endpoint id, so surface the cert/op context here before letting it propagate.
+            logger.warn("Async {} terminal transition for cert {} did not apply; poll row left for the sweep to retry",
+                    op, cert.getUuid(), e);
+            throw e;
         }
 
         // Resolved — by us or by a racing actor — so stop polling it either way.
@@ -225,7 +235,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             certificateService.issueRequestedCertificate(locked.getUuid(), status.certificateData(), List.of());
         } catch (Exception e) {
             if (isTransient(e)) {
-                // Transient (e.g. a DB blip) — let it propagate so the operation is retried on the next poll.
+                // Transient (e.g. a DB blip): propagate so the locked transition rolls back and the poll row is
+                // left in place (applyTerminalTransition skips its delete on the exception path). The sweep then
+                // re-enqueues the surviving row on its next due tick, and that re-poll is what retries the
+                // operation — not JMS redelivery (the listener adapter acknowledges the message even when
+                // processMessage throws).
                 throw new IllegalStateException(
                         "Transient failure persisting async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
             }
@@ -241,7 +255,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
     private static boolean isTransient(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
-            if (t instanceof org.springframework.dao.TransientDataAccessException) {
+            if (t instanceof TransientDataAccessException) {
                 return true;
             }
         }
