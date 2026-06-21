@@ -46,7 +46,9 @@ public class CertificateStatusPoll extends UniquelyIdentified {
     @Column(name = "i_cre", nullable = false, insertable = false, updatable = false)
     private OffsetDateTime created;
 
-    // Identity is the UUID (see UniquelyIdentified); the added columns do not affect entity equality.
+    // No-op override required by Sonar S2160 (a field-adding subclass of UniquelyIdentified must override
+    // equals): identity stays the UUID and the added columns deliberately do not affect equality. Matches the
+    // convention used by the other field-adding entities; dropping it just re-raises the finding.
     @Override
     public boolean equals(Object o) {
         return super.equals(o);
