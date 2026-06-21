@@ -1066,9 +1066,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     /**
      * Best-effort enqueue of an async status-poll row (due now) after a connector accepts an operation
-     * with HTTP 202. The certificate is already committed to its {@code PENDING_*} state — per the
-     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The
-     * write is idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
+     * with HTTP 202. The calling {@code *Action} methods run with {@code Propagation.NOT_SUPPORTED}, so the
+     * {@code PENDING_*} transition has already committed in its own transaction by the time this runs — per the
+     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The write is
+     * idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
      */
     private void scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
         try {

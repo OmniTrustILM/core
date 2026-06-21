@@ -230,7 +230,8 @@ class CertificateStatusPollListenerTest {
         doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
                 .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
 
-        assertThrows(RuntimeException.class, () -> listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0)));
+        CertificateStatusPollMessage msg = pollMsg(CertificateOperation.ISSUE, 0);
+        assertThrows(RuntimeException.class, () -> listener.processMessage(msg));
 
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         verify(pollWriter, never()).delete(any());
@@ -241,7 +242,7 @@ class CertificateStatusPollListenerTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void unexpectedTransitionErrorRetainsPollRowAndPropagates() throws MessageHandlingException, ConnectorException {
+    void unexpectedTransitionErrorRetainsPollRowAndPropagates() throws ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_REVOKE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
@@ -254,7 +255,8 @@ class CertificateStatusPollListenerTest {
         doThrow(new IllegalStateException("unexpected invalid transition"))
                 .when(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
 
-        assertThrows(RuntimeException.class, () -> listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0)));
+        CertificateStatusPollMessage msg = pollMsg(CertificateOperation.REVOKE, 0);
+        assertThrows(RuntimeException.class, () -> listener.processMessage(msg));
 
         // Not resolved — the poll row stays so the sweep re-enqueues it.
         verify(pollWriter, never()).delete(any());

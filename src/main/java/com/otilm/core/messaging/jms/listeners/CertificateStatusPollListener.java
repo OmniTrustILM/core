@@ -156,25 +156,32 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             applyFailure(cert, op, e.getMessage());
             return;
         } catch (RuntimeException e) {
-            // The locked transition rolled back (REQUIRES_NEW) and the poll row was left in place — so the sweep
-            // re-enqueues and retries. A transient persist blip recovers on the next tick; a should-not-happen
-            // error (e.g. an unexpected invalid state transition, which the isPendingFor re-assert above makes
-            // very unlikely) keeps retrying to maxAttempts. The JMS listener adapter only logs the bare exception
-            // against the endpoint id, so surface the cert/op context here before letting it propagate.
-            logger.warn("Async {} terminal transition for cert {} did not apply; poll row left for the sweep to retry",
-                    op, cert.getUuid(), e);
-            throw e;
+            // Rethrow with cert/op context — the JMS listener adapter logs only the bare exception against the
+            // endpoint id. The locked transition rolled back (REQUIRES_NEW) and the poll row was left in place, so
+            // the sweep re-enqueues and retries: a transient persist blip recovers on the next tick; a
+            // should-not-happen error (e.g. an unexpected invalid state transition, which the isPendingFor
+            // re-assert above makes very unlikely) keeps retrying to maxAttempts.
+            throw new IllegalStateException(
+                    "Async " + op + " terminal transition for cert " + cert.getUuid()
+                            + " did not apply; poll row left for the sweep to retry", e);
         }
 
-        // Resolved — by us or by a racing actor — so stop polling it either way.
-        pollWriter.delete(cert.getUuid());
-        if (!resolution.applied()) {
-            return;
+        if (resolution.applied()) {
+            // Post-commit, outside the lock/tx: best-effort key destruction, then the meta write. These run
+            // BEFORE the poll-row delete so a transient delete failure can't skip them — a completed REVOKE must
+            // still destroy the key. A meta failure must not roll back the committed transition (state-divergence).
+            revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
+            updateMetaAfterCommit(cert, op, status);
         }
-        // Post-commit, outside the lock/tx: best-effort key destruction, then the meta write (a meta failure
-        // must not roll back the committed transition — state-divergence rule).
-        revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
-        updateMetaAfterCommit(cert, op, status);
+        // Resolved — by us or by a racing actor — so stop polling it. Done last and best-effort: if the delete
+        // fails transiently the row survives and the next poll (cert no longer pending) drops it, so the
+        // post-commit side effects above are never skipped by a delete failure.
+        try {
+            pollWriter.delete(cert.getUuid());
+        } catch (RuntimeException e) {
+            logger.warn("Failed to delete resolved poll row for cert {} ({}); it will be dropped on the next poll",
+                    cert.getUuid(), op, e);
+        }
     }
 
     /** Outcome of the locked terminal transition: whether it was applied, and any post-commit key cleanup. */
@@ -207,8 +214,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         if (completed && op == CertificateOperation.REVOKE) {
-            // Shared revoke finalization (apply preserved attrs, capture destroyKey, clear pending fields);
-            // destroyKey runs post-commit via the finalizer.
+            // Shared revoke finalization: apply preserved attrs, capture the destroyKey decision, clear pending
+            // fields. destroyKey runs post-commit via the finalizer.
             CertificateRevocationFinalizer.KeyCleanup cleanup = revocationFinalizer.prepareRevokeFinalization(locked);
             stateMachine.transition(locked, op.terminalSuccessState(), null, reasonFor(op, status));
             return cleanup;
@@ -247,7 +254,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // error, so fail fast. The authority did complete the operation, so the reason points at the
             // local/upstream divergence to reconcile (raw cause is logged, not surfaced).
             logger.warn("Async {} for cert {} completed at the authority but could not be persisted (deterministic): {}",
-                    op, locked.getUuid(), e.getMessage());
+                    op, locked.getUuid(), e.getMessage(), e);
             throw new DeterministicPersistException(
                     "Async " + op + " completed at the authority but the certificate could not be persisted; reconcile manually");
         }
