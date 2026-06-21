@@ -45,6 +45,8 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
@@ -79,6 +81,8 @@ import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service("clientOperationServiceImplV2")
@@ -118,6 +122,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
+    private CertificateStatusPollWriter pollWriter;
+
+    @Autowired
+    public void setPollWriter(CertificateStatusPollWriter pollWriter) {
+        this.pollWriter = pollWriter;
+    }
 
     @Autowired
     public void setCertificateRelationRepository(CertificateRelationRepository certificateRelationRepository) {
@@ -412,6 +422,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         certificate.setState(CertificateState.PENDING_ISSUE);
         certificateRepository.save(certificate);
+
+        scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
 
         certificateEventHistoryService.addEventHistory(
                 certificate.getUuid(),
@@ -1029,6 +1041,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         certificate.setState(CertificateState.PENDING_REVOKE);
         certificateRepository.save(certificate);
 
+        scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
+
         certificateEventHistoryService.addEventHistory(
                 certificate.getUuid(),
                 CertificateEvent.REVOKE,
@@ -1048,6 +1062,25 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_REVOKE");
 
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
+    }
+
+    /**
+     * Best-effort enqueue of an async status-poll row (due now) after a connector accepts an operation
+     * with HTTP 202. The certificate is already committed to its {@code PENDING_*} state — per the
+     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The
+     * write is idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
+     */
+    private void scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+        try {
+            pollWriter.schedule(certificate.getUuid(), operation, OffsetDateTime.now(ZoneOffset.UTC));
+        } catch (Exception e) {
+            logger.warn("Failed to schedule async status poll for certificate {} (operation {}): {}",
+                    certificate.getUuid(), operation, e.getMessage(), e);
+        }
+    }
+
+    private static CertificateOperation pollOperationFor(ResourceAction originatingAction) {
+        return originatingAction == ResourceAction.ISSUE ? CertificateOperation.ISSUE : CertificateOperation.RENEW;
     }
 
     private Certificate validateOldCertificateForOperation(String certificateUuid, String raProfileUuid, ResourceAction action) throws NotFoundException {
