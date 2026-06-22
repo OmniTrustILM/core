@@ -18,6 +18,16 @@ import com.otilm.api.model.common.attribute.common.content.data.AttributeContent
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.MappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
+import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.SystemOid;
+import com.otilm.core.oid.OidHandler;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -510,6 +520,14 @@ public class AttributeEngine {
 
     private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute) throws AttributeException {
         validateAttributeDefinition(dataAttribute, connectorUuid);
+        if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
+            if (isRequestOperation(operation)) {
+                validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null);
+            } else {
+                logger.warn("DataAttribute '{}' has fieldMapping but is registered outside a request operation context (operation={}); fieldMapping validation skipped",
+                        dataAttribute.getName(), operation);
+            }
+        }
 
         // find by connector uuid and name only because attribute uuid could be generated when data attribute was migrated from RequestAttribute
         AttributeDefinition attributeDefinition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid, UUID.fromString(dataAttribute.getUuid()), dataAttribute.getName()).orElse(null);
@@ -1075,8 +1093,73 @@ public class AttributeEngine {
         if (attribute instanceof DataAttribute dataAttribute && dataAttribute.getContentType() == AttributeContentType.RESOURCE) {
             if (attributeResource == null)
                 throw new AttributeException("Attribute with Resource Content Type is missing resource type in properties", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
-            if (!hasCallback)
+            // A Core-side valueSource (STATIC_LIST) resolves content without a connector callback
+            boolean hasCoreValueSource = attribute instanceof DataAttributeV3 v3
+                    && v3.getValueSource() != null
+                    && v3.getValueSource().getKind() != null
+                    && v3.getValueSource().getKind() != ValueSourceType.NONE
+                    && v3.getValueSource().getKind() != ValueSourceType.CONNECTOR_CALLBACK;
+            if (!hasCallback && !hasCoreValueSource)
                 throw new AttributeException("Attribute with Resource Content Type is missing callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        }
+    }
+
+    private static boolean isRequestOperation(String operation) {
+        return AttributeOperation.CERTIFICATE_ISSUE.equals(operation)
+                || AttributeOperation.SIGN.equals(operation);
+    }
+
+    private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr) throws AttributeException {
+        FieldMapping fieldMapping = attribute.getFieldMapping();
+        if (fieldMapping.getObjectType() == null)
+            throw new AttributeException("fieldMapping.objectType is required",
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        if (fieldMapping.getFields() == null || fieldMapping.getFields().isEmpty())
+            throw new AttributeException("fieldMapping.fields must not be empty",
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        for (MappedField field : fieldMapping.getFields())
+            validateMappedField(attribute, field, connectorUuidStr);
+    }
+
+    private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr) throws AttributeException {
+        if (field.getFieldType() == null)
+            throw new AttributeException("fieldMapping field is missing fieldType",
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        switch (field) {
+            case RdnMappedField rdn -> {
+                if (rdn.getRdn() == null || rdn.getRdn().isBlank())
+                    throw new AttributeException("fieldMapping RDN field is missing rdn",
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+                // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
+                String rdnValue = rdn.getRdn();
+                boolean isOid = rdnValue.matches("\\d+(\\.\\d+)+");
+                if (!isOid && !OidHandler.getCodeToOidMap().containsKey(rdnValue))
+                    throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
+            case SanMappedField san -> {
+                if (san.getGeneralNameType() == null)
+                    throw new AttributeException("fieldMapping SAN field is missing generalNameType",
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+                if (san.getGeneralNameType() == GeneralNameType.OTHER_NAME
+                        && (san.getOtherNameOid() == null || san.getOtherNameOid().isBlank()))
+                    throw new AttributeException("fieldMapping SAN field of type OTHER_NAME is missing otherNameOid",
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
+            case ExtensionMappedField ext -> {
+                if (ext.getExtensionOid() == null || ext.getExtensionOid().isBlank())
+                    throw new AttributeException("fieldMapping EXTENSION field is missing extensionOid",
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+                // Extension OID must be registered so the platform knows defaultCritical and valueEncoding
+                String extOid = ext.getExtensionOid();
+                SystemOid systemOid = SystemOid.fromOID(extOid);
+                if ((systemOid == null || systemOid.getCategory() != OidCategory.CERTIFICATE_EXTENSION)
+                        && OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(extOid) == null)
+                    throw new AttributeException("fieldMapping EXTENSION OID '%s' is not registered in the OID registry".formatted(extOid),
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
+            default ->
+                    throw new IllegalStateException("Unexpected MappedField subtype: " + field.getClass().getSimpleName());
         }
     }
 
