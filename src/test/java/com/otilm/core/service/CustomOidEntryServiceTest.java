@@ -62,7 +62,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         extensionOidEntry.setDisplayName("extension");
         extensionOidEntry.setOid("1.2.3.4.7");
         extensionOidEntry.setDefaultCritical(true);
-        extensionOidEntry.setValueEncoding(CertificateExtensionValueEncoding.IA5_STRING);
+        extensionOidEntry.setValueEncoding(ExtensionValueEncoding.IA5_STRING);
         customOidEntryRepository.save(extensionOidEntry);
     }
 
@@ -125,7 +125,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
 
         CertificateExtensionOidPropertiesDto extensionProperties = new CertificateExtensionOidPropertiesDto();
         extensionProperties.setDefaultCritical(true);
-        extensionProperties.setValueEncoding(CertificateExtensionValueEncoding.UTF8_STRING);
+        extensionProperties.setValueEncoding(ExtensionValueEncoding.UTF8_STRING);
         request.setAdditionalProperties(extensionProperties);
         CustomOidEntryDetailResponseDto response = customOidEntryService.createCustomOidEntry(request);
         Assertions.assertEquals(request.getOid(), response.getOid());
@@ -133,7 +133,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertNotNull(OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(request.getOid()));
         CertificateExtensionOidPropertiesDto responseProps = (CertificateExtensionOidPropertiesDto) response.getAdditionalProperties();
         Assertions.assertTrue(responseProps.isDefaultCritical());
-        Assertions.assertEquals(CertificateExtensionValueEncoding.UTF8_STRING, responseProps.getValueEncoding());
+        Assertions.assertEquals(ExtensionValueEncoding.UTF8_STRING, responseProps.getValueEncoding());
     }
 
     @Test
@@ -163,7 +163,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(OidCategory.CERTIFICATE_EXTENSION, response.getCategory());
         CertificateExtensionOidPropertiesDto props = (CertificateExtensionOidPropertiesDto) response.getAdditionalProperties();
         Assertions.assertTrue(props.isDefaultCritical());
-        Assertions.assertEquals(CertificateExtensionValueEncoding.IA5_STRING, props.getValueEncoding());
+        Assertions.assertEquals(ExtensionValueEncoding.IA5_STRING, props.getValueEncoding());
     }
 
     @Test
@@ -233,7 +233,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         String extensionOidEntryOid = extensionOidEntry.getOid();
         CertificateExtensionOidPropertiesDto extensionUpdateProps = new CertificateExtensionOidPropertiesDto();
         extensionUpdateProps.setDefaultCritical(false);
-        extensionUpdateProps.setValueEncoding(CertificateExtensionValueEncoding.OCTET_STRING);
+        extensionUpdateProps.setValueEncoding(ExtensionValueEncoding.OCTET_STRING);
         CustomOidEntryUpdateRequestDto request = new CustomOidEntryUpdateRequestDto();
         request.setDisplayName("extension2");
         request.setDescription("newDesc");
@@ -241,7 +241,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         CustomOidEntryDetailResponseDto extensionResponse = customOidEntryService.editCustomOidEntry(extensionOidEntryOid, request);
         CertificateExtensionOidPropertiesDto updatedProps = (CertificateExtensionOidPropertiesDto) extensionResponse.getAdditionalProperties();
         Assertions.assertFalse(updatedProps.isDefaultCritical());
-        Assertions.assertEquals(CertificateExtensionValueEncoding.OCTET_STRING, updatedProps.getValueEncoding());
+        Assertions.assertEquals(ExtensionValueEncoding.OCTET_STRING, updatedProps.getValueEncoding());
         Assertions.assertEquals(request.getDisplayName(), extensionResponse.getDisplayName());
         Assertions.assertEquals(request.getDescription(), extensionResponse.getDescription());
     }
