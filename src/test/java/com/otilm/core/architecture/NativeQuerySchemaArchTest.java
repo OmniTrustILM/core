@@ -15,8 +15,10 @@ import java.util.regex.Pattern;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 
 /**
- * Enforces that every native {@code @Query} schema-qualifies its table references with the Hibernate
- * {@code {h-schema}} placeholder.
+ * Tripwire requiring any native {@code @Query} that references a table to contain the Hibernate
+ * {@code {h-schema}} placeholder at least once. It catches a query that forgot the placeholder
+ * entirely, not one mixing qualified and unqualified tables — verifying each reference would mean
+ * parsing CTEs, subqueries, and derived tables, which legitimately appear unqualified here.
  */
 @AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
 public class NativeQuerySchemaArchTest {
@@ -32,7 +34,7 @@ public class NativeQuerySchemaArchTest {
             methods()
                     .that().areAnnotatedWith(Query.class)
                     .should(new ArchCondition<JavaMethod>(
-                            "use the Hibernate {h-schema} placeholder for table references when nativeQuery = true") {
+                            "contain the Hibernate {h-schema} placeholder at least once when nativeQuery = true and the SQL references a table") {
                         @Override
                         public void check(JavaMethod method, ConditionEvents events) {
                             Query query = method.getAnnotationOfType(Query.class);
