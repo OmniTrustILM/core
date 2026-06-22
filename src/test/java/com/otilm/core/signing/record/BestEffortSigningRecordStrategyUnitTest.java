@@ -70,7 +70,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(recordingDisabledInput);
+        strategy.recordSigning(SigningRecordInputSources.of(recordingDisabledInput));
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -92,7 +92,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(metadataOnlyInput);
+        strategy.recordSigning(SigningRecordInputSources.of(metadataOnlyInput));
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -106,7 +106,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(recordableInput());
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -124,7 +124,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(recordableInput());
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         assertEquals(evictedByQueue, evictedCounter());
@@ -136,7 +136,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.recordSigning(recordableInput());
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         verify(queue).enqueueBlocking(any(SigningRecord.class));
@@ -150,7 +150,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.recordSigning(recordableInput());
+        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
 
         // then
         assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));

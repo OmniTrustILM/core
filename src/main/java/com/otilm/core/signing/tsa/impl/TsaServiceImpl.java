@@ -11,6 +11,8 @@ import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.TspProfileService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
@@ -19,9 +21,11 @@ import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.validator.TspRequestValidator;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
+@Slf4j
 public class TsaServiceImpl implements TsaService {
 
     private final TspRequestValidator tspRequestValidator;
@@ -29,13 +33,15 @@ public class TsaServiceImpl implements TsaService {
     private final SigningProfileService signingProfileService;
     private final SigningProfileResolverFactory signingProfileResolverFactory;
     private final ManagedTimestampEngine managedTimestampEngine;
+    private final PermissionEvaluator permissionEvaluator;
 
-    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileService tspProfileService, ManagedTimestampEngine managedTimestampEngine) {
+    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileService tspProfileService, ManagedTimestampEngine managedTimestampEngine, PermissionEvaluator permissionEvaluator) {
         this.tspRequestValidator = tspRequestValidator;
         this.signingProfileService = signingProfileService;
         this.signingProfileResolverFactory = signingProfileResolverFactory;
         this.tspProfileService = tspProfileService;
         this.managedTimestampEngine = managedTimestampEngine;
+        this.permissionEvaluator = permissionEvaluator;
     }
 
     @Override
@@ -43,6 +49,11 @@ public class TsaServiceImpl implements TsaService {
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
         LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
 
+        permissionEvaluator.tspProfileTimestamping(SecuredUUID.fromUUID(tspProfile.uuid()));
+        return processForTspProfile(tspProfile, request);
+    }
+
+    private TspResponse processForTspProfile(TspProfileModel tspProfile, TspRequest request) throws NotFoundException, TspException {
         if (tspProfile.defaultSigningProfileName() == null) {
             var message = "TSP profile '%s' does not have a default signing profile".formatted(tspProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
@@ -57,8 +68,18 @@ public class TsaServiceImpl implements TsaService {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
         LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
 
-        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP) || signingProfile.tspProfileUuid() == null) {
-            var message = "Signing profile '%s' does not have a TSP profile associated.".formatted(signingProfile.name());
+        if (signingProfile.tspProfileUuid() == null) {
+            var message = "Signing profile '%s' does not have the TSP protocol enabled.".formatted(signingProfile.name());
+            throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
+        }
+
+        permissionEvaluator.tspProfileTimestamping(SecuredUUID.fromUUID(signingProfile.tspProfileUuid()));
+        return processForSigningProfile(signingProfile, request);
+    }
+
+    private TspResponse processForSigningProfile(SigningProfileModel<?, ?> signingProfile, TspRequest request) throws NotFoundException, TspException {
+        if (!signingProfile.enabledProtocols().contains(SigningProtocol.TSP)) {
+            var message = "Signing profile '%s' does not have the TSP protocol enabled.".formatted(signingProfile.name());
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
@@ -88,6 +109,6 @@ public class TsaServiceImpl implements TsaService {
         tspRequestValidator.validate(timestampingWorkflow, request);
 
         ResolvedManagedTimestampingProfile resolvedProfile = signingProfileResolverFactory.resolve(signingProfile);
-        return managedTimestampEngine.process(request, resolvedProfile);
+        return managedTimestampEngine.process(request, signingProfile, resolvedProfile);
     }
 }

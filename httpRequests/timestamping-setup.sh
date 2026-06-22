@@ -1156,7 +1156,7 @@ poll_certificate() {
 #
 # Walks issuerCertificateUuid upward from <cert_uuid> and marks the root CA as
 # trustedCa=true. Then waits for the certificate to be re-validated as VALID.
-# Required before creating a signing profile: CZERTAINLY rejects certificates
+# Required before creating a signing profile: ILM rejects certificates
 # whose issuer chain is not fully trusted or whose validation status is not VALID.
 trust_certificate_chain() {
   local cert_uuid="$1"

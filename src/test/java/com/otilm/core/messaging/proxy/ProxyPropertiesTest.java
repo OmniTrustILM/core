@@ -76,7 +76,7 @@ class ProxyPropertiesTest {
                 null, null, null
         );
         assertThat(props.instanceId()).isEqualTo("test-instance");
-        assertThat(props.exchange()).isEqualTo("czertainly-proxy");
+        assertThat(props.exchange()).isEqualTo("ilm-proxy");
         assertThat(props.responseQueue()).isEqualTo("core");
         assertThat(props.requestTimeout()).isEqualTo(Duration.ofSeconds(30));
         assertThat(props.maxPendingRequests()).isEqualTo(1000);

@@ -3,9 +3,12 @@ package com.otilm.core.signing.tsa;
 
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
+import com.otilm.core.signing.record.SigningRecordInputSource;
+import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.signing.tsa.certificate.SigningCertificateValidatorFactory;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -21,6 +24,9 @@ import org.bouncycastle.tsp.TSPValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import java.math.BigInteger;
+import java.time.Instant;
 
 /**
  * Core engine that processes RFC 3161 timestamp requests.
@@ -39,17 +45,21 @@ public class ManagedTimestampEngine {
     private final ManagedTimestampTokenGenerator tokenGenerator;
     private final SigningCertificateValidatorFactory signingCertificateValidatorFactory;
     private final ClockSource clockSource;
+    private final SigningRecordStrategyFactory signingRecordStrategyFactory;
+    private final TspSigningRecordFactory tspSigningRecordFactory;
 
 
-    public ManagedTimestampEngine(TimeQualityRegister timeQualityRegister, SerialNumberGenerator serialNumberGenerator, ManagedTimestampTokenGenerator tokenGenerator, SigningCertificateValidatorFactory signingCertificateValidatorFactory, ClockSource clockSource) {
+    public ManagedTimestampEngine(TimeQualityRegister timeQualityRegister, SerialNumberGenerator serialNumberGenerator, ManagedTimestampTokenGenerator tokenGenerator, SigningCertificateValidatorFactory signingCertificateValidatorFactory, ClockSource clockSource, SigningRecordStrategyFactory signingRecordStrategyFactory, TspSigningRecordFactory tspSigningRecordFactory) {
         this.timeQualityRegister = timeQualityRegister;
         this.serialNumberGenerator = serialNumberGenerator;
         this.tokenGenerator = tokenGenerator;
         this.signingCertificateValidatorFactory = signingCertificateValidatorFactory;
         this.clockSource = clockSource;
+        this.signingRecordStrategyFactory = signingRecordStrategyFactory;
+        this.tspSigningRecordFactory = tspSigningRecordFactory;
     }
 
-    public TspResponse process(TspRequest request, ResolvedManagedTimestampingProfile timestampingProfile) throws TspException {
+    public TspResponse process(TspRequest request, SigningProfileModel<?, ?> signingProfile, ResolvedManagedTimestampingProfile timestampingProfile) throws TspException {
 
         ResolvedManagedScheme signingScheme = timestampingProfile.resolvedScheme();
         var signerCertificateValidator = signingCertificateValidatorFactory.getValidator(signingScheme);
@@ -75,14 +85,17 @@ public class ManagedTimestampEngine {
             var genTime = clockSource.wallTimeInstant();
             var certificateChain = signingScheme.chain();
 
-            var result = tokenGenerator.generate(request, timestampingProfile, certificateChain, serialNumber, genTime);
+            var token = tokenGenerator.generate(request, timestampingProfile, certificateChain, serialNumber, genTime);
 
             if (Boolean.TRUE.equals(timestampingProfile.validateTokenSignature())) {
                 var verifier = new JcaSimpleSignerInfoVerifierBuilder().build(certificateChain.signingCertificate());
-                result.validate(verifier);
+                token.validate(verifier);
             }
 
-            return TspResponse.granted(result.getEncoded());
+            byte[] encodedToken = token.getEncoded();
+            recordSigning(signingProfile, request, serialNumber, genTime, encodedToken);
+
+            return TspResponse.granted(encodedToken);
 
         } catch (TspException e) {
             throw e; // TspController maps this to a proper rejection response
@@ -100,5 +113,21 @@ public class ManagedTimestampEngine {
             return TspResponse.rejected(TspFailureInfo.SYSTEM_FAILURE, "Internal error");
         }
 
+    }
+
+    /**
+     * Records the granted timestamp. The signature has already been produced by the managed key, so a recording
+     * failure must never downgrade the response: it is logged and swallowed, leaving the granted token intact.
+     * The engine hands the strategy a deferred {@link SigningRecordInputSource} so the strategy's
+     * {@code recordingEnabled} gate short-circuits disabled profiles before the input — and its request-metadata
+     * serialization — is assembled on the TSA hot path.
+     */
+    private void recordSigning(SigningProfileModel<?, ?> signingProfile, TspRequest request, BigInteger serialNumber, Instant genTime, byte[] encodedToken) {
+        try {
+            SigningRecordInputSource source = tspSigningRecordFactory.source(signingProfile, request, serialNumber, genTime, encodedToken);
+            signingRecordStrategyFactory.strategyFor(signingProfile.recordPolicy().persistenceMode()).recordSigning(source);
+        } catch (Exception e) {
+            logger.error("Failed to record signing for signing profile '{}'; the timestamp was granted regardless", signingProfile.name(), e);
+        }
     }
 }

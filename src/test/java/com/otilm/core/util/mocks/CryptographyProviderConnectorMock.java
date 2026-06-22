@@ -9,6 +9,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 
 import java.security.PrivateKey;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -167,6 +168,18 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
      */
     public CryptographyProviderConnectorMock registerSigningKey(UUID keyReferenceUuid, PrivateKey privateKey, String jcaSignatureAlgorithm) {
         realSignerTransformer.registerKey(keyReferenceUuid, privateKey, jcaSignatureAlgorithm);
+        return this;
+    }
+
+    /**
+     * Stubs the data-signing endpoint hit by {@code CryptographicOperationService#signDataWithoutEventHistory},
+     * returning the given signature bytes (base64-encoded) under {@code signatures[0].data}. The bytes need not
+     * be a valid signature — downstream consumers in tests treat them as opaque.
+     */
+    public CryptographyProviderConnectorMock stubSignData(byte[] signature) {
+        String sig = Base64.getEncoder().encodeToString(signature);
+        server.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign"))
+                .willReturn(WireMock.okJson("{\"signatures\":[{\"data\":\"" + sig + "\"}]}")));
         return this;
     }
 }

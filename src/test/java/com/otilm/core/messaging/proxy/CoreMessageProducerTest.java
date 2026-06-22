@@ -50,7 +50,7 @@ class CoreMessageProducerTest {
     @BeforeEach
     void setUp() throws Exception {
         proxyProperties = new ProxyProperties(
-                "czertainly-proxy",  // exchange
+                "ilm-proxy",  // exchange
                 "core",              // responseQueue
                 "test-instance",     // instanceId
                 Duration.ofSeconds(30),
@@ -77,7 +77,7 @@ class CoreMessageProducerTest {
         producer.send(message, "proxy-001");
 
         verify(jmsTemplate).convertAndSend(
-                eq("czertainly-proxy"),
+                eq("ilm-proxy"),
                 eq(message),
                 any(MessagePostProcessor.class)
         );
@@ -132,7 +132,7 @@ class CoreMessageProducerTest {
         producer.send(message, "proxy-002");
 
         verify(jmsTemplate).convertAndSend(
-                eq("/exchanges/czertainly-proxy/coremessage.proxy-002"),
+                eq("/exchanges/ilm-proxy/coremessage.proxy-002"),
                 eq(message),
                 any(MessagePostProcessor.class)
         );
