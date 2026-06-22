@@ -113,7 +113,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     );
 
     private SigningProfileServiceImpl self;
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -935,7 +935,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
+    public void setCryptographicOperationService(CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 

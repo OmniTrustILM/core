@@ -19,7 +19,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CustomOidEntryService;
+import com.otilm.core.service.CustomOidEntryExternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
@@ -51,7 +51,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
  */
 class NativeArrayFilterSearchTest extends BaseSpringBootTest {
     @Autowired
-    private CustomOidEntryService customOidEntryService;
+    private CustomOidEntryExternalService customOidEntryService;
 
     @Autowired
     private CustomOidEntryRepository customOidEntryRepository;

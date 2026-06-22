@@ -38,7 +38,9 @@ class EntityInstanceServiceTest extends BaseSpringBootTest {
     private static final String ENTITY_INSTANCE_NAME = "testEntityInstance1";
 
     @Autowired
-    private EntityInstanceService entityInstanceService;
+    private EntityInstanceExternalService entityInstanceService;
+    @Autowired
+    private EntityInstanceInternalService entityInstanceInternalService;
     @Autowired
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     @Autowired
@@ -214,17 +216,17 @@ class EntityInstanceServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = entityInstanceService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = entityInstanceInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = entityInstanceService.getResourceObjectInternal(entityInstance.getUuid());
+        NameAndUuidDto nameAndUuidDto = entityInstanceInternalService.getResourceObjectInternal(entityInstance.getUuid());
         Assertions.assertEquals(entityInstance.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(entityInstance.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = entityInstanceService.getResourceObjectExternal(entityInstance.getSecuredUuid());
+        nameAndUuidDto = entityInstanceInternalService.getResourceObjectExternal(entityInstance.getSecuredUuid());
         Assertions.assertEquals(entityInstance.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(entityInstance.getName(), nameAndUuidDto.getName());
     }

@@ -11,19 +11,19 @@ import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * {@link Signer} implementation that delegates signing to {@link CryptographicOperationService}.
+ * {@link Signer} implementation that delegates signing to {@link CryptographicOperationInternalService}.
  * Created per-request by {@link StaticManagedKeySignerCreator} with pre-resolved key routing information.
  */
 public class CryptographicOperationServiceSigner implements Signer {
 
-    private final CryptographicOperationService cryptographicOperationService;
+    private final CryptographicOperationInternalService cryptographicOperationService;
     private final SecuredParentUUID tokenInstanceUuid;
     private final SecuredUUID tokenProfileUuid;
     private final UUID keyUuid;
@@ -31,7 +31,7 @@ public class CryptographicOperationServiceSigner implements Signer {
     private final List<RequestAttribute> signatureAttributes;
     private final SignatureAlgorithm signatureAlgorithm;
 
-    public CryptographicOperationServiceSigner(CryptographicOperationService cryptographicOperationService,
+    public CryptographicOperationServiceSigner(CryptographicOperationInternalService cryptographicOperationService,
                                                SecuredParentUUID tokenInstanceUuid,
                                                SecuredUUID tokenProfileUuid,
                                                UUID keyUuid,

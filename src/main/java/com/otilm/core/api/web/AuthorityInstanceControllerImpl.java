@@ -18,7 +18,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AuthorityInstanceService;
+import com.otilm.core.service.AuthorityInstanceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,7 +32,7 @@ import java.util.List;
 @RestController
 public class AuthorityInstanceControllerImpl implements AuthorityInstanceController {
 
-    private AuthorityInstanceService authorityInstanceService;
+    private AuthorityInstanceExternalService authorityInstanceService;
 
     @Override
     @AuthEndpoint(resourceName = Resource.AUTHORITY)
@@ -119,7 +119,7 @@ public class AuthorityInstanceControllerImpl implements AuthorityInstanceControl
     // SETTERs
 
     @Autowired
-    public void setAuthorityInstanceService(AuthorityInstanceService authorityInstanceService) {
+    public void setAuthorityInstanceService(AuthorityInstanceExternalService authorityInstanceService) {
         this.authorityInstanceService = authorityInstanceService;
     }
 
