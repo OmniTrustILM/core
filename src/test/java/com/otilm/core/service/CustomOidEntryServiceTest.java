@@ -6,6 +6,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.core.oid.*;
+import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.dao.entity.oid.CustomOidEntry;
