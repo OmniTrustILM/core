@@ -19,7 +19,7 @@ public interface CryptographicOperationExternalService {
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
-     * @param keyAlgorithm      Key algorithm for which the attributes have to be fetched {@Link KeyAlgorithm}
+     * @param keyAlgorithm      Key algorithm for which the attributes have to be fetched {@link KeyAlgorithm}
      * @return List of attributes for Cipher Attributes
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
@@ -37,7 +37,7 @@ public interface CryptographicOperationExternalService {
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
      * @param request           DTO containing the data to encrypt the data
-     * @return Encrypted data response {@Link EncryptDataResponseDto}
+     * @return Encrypted data response {@link EncryptDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     EncryptDataResponseDto encryptData(
@@ -54,7 +54,7 @@ public interface CryptographicOperationExternalService {
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
      * @param request           DTO containing the data to decrypt the data
-     * @return Decrypted data response {@Link DecryptDataResponseDto}
+     * @return Decrypted data response {@link DecryptDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     DecryptDataResponseDto decryptData(
@@ -70,7 +70,7 @@ public interface CryptographicOperationExternalService {
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
-     * @param keyAlgorithm      Key algorithm for which the Signature Attributes has to be fetched {@Link KeyAlgorithm}
+     * @param keyAlgorithm      Key algorithm for which the Signature Attributes has to be fetched {@link KeyAlgorithm}
      * @return List of attributes for the Signature Algorithm
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
@@ -87,8 +87,8 @@ public interface CryptographicOperationExternalService {
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
-     * @param request           DTO containing the data to sign a request {@Link SignDataRequestDto}
-     * @return Signed Data {@Link SignDataResponseDto}
+     * @param request           DTO containing the data to sign a request {@link SignDataRequestDto}
+     * @return Signed Data {@link SignDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     SignDataResponseDto signData(
@@ -103,8 +103,8 @@ public interface CryptographicOperationExternalService {
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
-     * @param request           DTO Containing the data to verify the signature {@Link VerifyDataRequestDto}
-     * @return Verification result {@Link VerifyDataResponseDto}
+     * @param request           DTO Containing the data to verify the signature {@link VerifyDataRequestDto}
+     * @return Verification result {@link VerifyDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     VerifyDataResponseDto verifyData(
@@ -125,8 +125,8 @@ public interface CryptographicOperationExternalService {
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
-     * @param request           DTO containing the information for generating a strong random data {@Link RandomDataRequestDto}
-     * @return Random generated data {@Link RandomDataResponseDto}
+     * @param request           DTO containing the information for generating a strong random data {@link RandomDataRequestDto}
+     * @return Random generated data {@link RandomDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     RandomDataResponseDto randomData(

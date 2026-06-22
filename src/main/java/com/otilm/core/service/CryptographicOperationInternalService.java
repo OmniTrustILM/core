@@ -44,8 +44,8 @@ public interface CryptographicOperationInternalService {
      * @param tokenProfileUUID  UUID of the token profile
      * @param uuid              UUID of the cryptographic key
      * @param keyItemUuid       UUID of the Item inside the key Object
-     * @param request           DTO containing the data to sign a request {@Link SignDataRequestDto}
-     * @return Signed Data {@Link SignDataResponseDto}
+     * @param request           DTO containing the data to sign a request {@link SignDataRequestDto}
+     * @return Signed Data {@link SignDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
     SignDataResponseDto signDataWithoutEventHistory(
@@ -64,7 +64,7 @@ public interface CryptographicOperationInternalService {
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException        When the key or token profile is not found
-     * @throws NoSuchAlgorithmException when thw algorithm is invalid
+     * @throws NoSuchAlgorithmException when the algorithm is invalid
      * @throws InvalidKeySpecException  when the key is invalid
      * @throws IOException              when there are issues with writing the key data as string
      */
