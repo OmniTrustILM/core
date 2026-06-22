@@ -23,7 +23,7 @@ public interface SigningRecordOutboxRepository extends JpaRepository<SigningReco
      * enough and avoids holding row locks across the per-row drain transactions.
      */
     @Query(value = """
-            SELECT uuid FROM signing_record_outbox
+            SELECT uuid FROM {h-schema}signing_record_outbox
             WHERE attempts < :poisonThreshold
             ORDER BY signing_time
             LIMIT :batchSize
