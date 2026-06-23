@@ -5,8 +5,7 @@ import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.security.authz.SecuredUUID;
 
 /**
- * Internal service for managing proxy entities. Methods are intended for internal use only,
- * without authorization checks performed at this layer.
+ * Internal service for managing proxy entities. Methods are intended for internal use only.
  */
 public interface ProxyInternalService extends ResourceExtensionService {
 

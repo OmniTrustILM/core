@@ -21,7 +21,7 @@ import java.util.UUID;
 
 /**
  * Internal cryptographic operations intended for internal callers only (e.g. TSA, signing
- * profiles, client operations), without authorization checks performed at this layer.
+ * profiles, client operations).
  */
 public interface CryptographicOperationInternalService {
 
