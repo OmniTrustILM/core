@@ -2,12 +2,25 @@ package com.otilm.core.config;
 
 import com.otilm.core.auth.oauth2.*;
 import com.otilm.core.security.authn.PlatformAuthenticationFilter;
+import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
+import com.otilm.core.security.authn.tsp.BasicPasswordAuthenticator;
+import com.otilm.core.security.authn.tsp.BearerTokenAuthenticator;
+import com.otilm.core.security.authn.tsp.ClientCertificateAuthenticator;
+import com.otilm.core.security.authn.tsp.TspAuthenticationFilter;
+import com.otilm.core.security.authn.tsp.TspAuthenticator;
+import com.otilm.core.security.authn.tsp.TspChallengeWriter;
+import com.otilm.core.security.authn.tsp.TspRouteResolver;
+import com.otilm.core.security.authn.tsp.TspSecurityContextWriter;
+import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.TspProfileService;
 import com.otilm.core.util.AuthHelper;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -23,6 +36,7 @@ import org.springframework.security.web.authentication.preauth.x509.X509Authenti
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+    private static final String CERTIFICATE_HEADER_NAME = "server.ssl.certificate-header-name";
 
     ProtocolValidationFilter protocolValidationFilter;
 
@@ -42,7 +56,40 @@ public class SecurityConfig {
 
     private PlatformJwtAuthenticationConverter jwtAuthenticationConverter;
 
+    private TspProfileService tspProfileService;
+
+    private SigningProfileService signingProfileService;
+
+    private PlatformJwtDecoder platformJwtDecoder;
+
+    private CredentialVerificationCache credentialVerificationCache;
+
+    private AuthHelper authHelper;
+
     @Bean
+    @Order(1)
+    protected SecurityFilterChain tspSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/v1/protocols/tsp/**")
+                .authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated())
+                .sessionManagement(AbstractHttpConfigurer::disable)
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .oauth2Login(AbstractHttpConfigurer::disable)
+                .oauth2Client(AbstractHttpConfigurer::disable)
+                .x509(AbstractHttpConfigurer::disable)
+                .exceptionHandling(exceptionHandling -> exceptionHandling
+                        .authenticationEntryPoint((request, response, authException) -> response.sendError(HttpServletResponse.SC_UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, accessDeniedException) -> response.sendError(HttpServletResponse.SC_FORBIDDEN))
+                )
+                .addFilterBefore(createTspAuthenticationFilter(), X509AuthenticationFilter.class);
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     protected SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(authorize -> authorize
@@ -91,7 +138,20 @@ public class SecurityConfig {
     }
 
     protected PlatformAuthenticationFilter createPlatformAuthenticationFilter() {
-        return new PlatformAuthenticationFilter(authenticationClient, environment.getProperty("server.ssl.certificate-header-name"), environment.getProperty("server.servlet.context-path"));
+        return new PlatformAuthenticationFilter(authenticationClient, environment.getProperty(CERTIFICATE_HEADER_NAME), environment.getProperty("server.servlet.context-path"));
+    }
+
+    protected TspAuthenticationFilter createTspAuthenticationFilter() {
+        TspSecurityContextWriter contextWriter = new TspSecurityContextWriter(authHelper);
+        // Order matters: a presented client certificate takes precedence over an Authorization header.
+        List<TspAuthenticator> authenticators = List.of(
+                new ClientCertificateAuthenticator(authenticationClient, environment.getProperty(CERTIFICATE_HEADER_NAME), contextWriter),
+                new BearerTokenAuthenticator(platformJwtDecoder, authenticationClient, contextWriter),
+                new BasicPasswordAuthenticator(credentialVerificationCache, contextWriter));
+        return new TspAuthenticationFilter(
+                new TspRouteResolver(tspProfileService, signingProfileService),
+                authenticators,
+                new TspChallengeWriter());
     }
 
     // SETTERs
@@ -139,5 +199,30 @@ public class SecurityConfig {
     @Autowired
     public void setJwtAuthenticationConverter(PlatformJwtAuthenticationConverter jwtAuthenticationConverter) {
         this.jwtAuthenticationConverter = jwtAuthenticationConverter;
+    }
+
+    @Autowired
+    public void setTspProfileService(TspProfileService tspProfileService) {
+        this.tspProfileService = tspProfileService;
+    }
+
+    @Autowired
+    public void setSigningProfileService(SigningProfileService signingProfileService) {
+        this.signingProfileService = signingProfileService;
+    }
+
+    @Autowired
+    public void setPlatformJwtDecoder(PlatformJwtDecoder platformJwtDecoder) {
+        this.platformJwtDecoder = platformJwtDecoder;
+    }
+
+    @Autowired
+    public void setCredentialVerificationCache(CredentialVerificationCache credentialVerificationCache) {
+        this.credentialVerificationCache = credentialVerificationCache;
+    }
+
+    @Autowired
+    public void setAuthHelper(AuthHelper authHelper) {
+        this.authHelper = authHelper;
     }
 }

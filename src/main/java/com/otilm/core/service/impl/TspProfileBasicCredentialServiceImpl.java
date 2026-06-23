@@ -87,7 +87,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new ValidationException("Password is required when creating a Basic credential.");
         }
-        validateMappedUserExists(request.getMappedUserUuid());
+        validateMappedUser(request.getMappedUserUuid());
 
         UUID secretUuid = createVaultSecret(profile, request.getUsername(), request.getPassword());
         TspProfileBasicCredential row = new TspProfileBasicCredential();
@@ -116,7 +116,7 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         TspProfile profile = getTspProfile(tspProfileUuid);
         TspProfileBasicCredential credential = getCredentialScoped(tspProfileUuid, uuid);
         ensureUsernameAvailable(profile.getUuid(), request.getUsername(), credential.getUuid());
-        validateMappedUserExists(request.getMappedUserUuid());
+        validateMappedUser(request.getMappedUserUuid());
 
         boolean rotate = request.getPassword() != null && !request.getPassword().isBlank();
         boolean usernameChanged = !Objects.equals(credential.getUsername(), request.getUsername());
@@ -136,7 +136,9 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
             throw new AlreadyExistException("A Basic credential with username '" + request.getUsername() + "' already exists on this profile.");
         }
 
-        if (rotate || mappedUserChanged) {
+        // Vault updates the secret asynchronously - the cache is notified via SecretContentUpdatedEvent processed by TspProfileSecretEvictionListener.
+        // Evict synchronously here only on mapped-user-only change (no secret update).
+        if (mappedUserChanged) {
             credentialVerificationCache.evictBySecretUuid(credential.getSecretUuid());
         }
         evictModelCache(profile);
@@ -265,10 +267,13 @@ public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCred
         }
     }
 
-    private void validateMappedUserExists(UUID mappedUserUuid) throws NotFoundException {
+    private void validateMappedUser(UUID mappedUserUuid) throws NotFoundException {
         UserDetailDto user = userManagementService.getUser(mappedUserUuid.toString());
         if (user == null) {
             throw new NotFoundException("Mapped user does not exist: " + mappedUserUuid);
+        }
+        if (Boolean.TRUE.equals(user.getSystemUser())) {
+            throw new ValidationException("A Basic credential cannot be mapped to a system user: " + user.getUsername());
         }
     }
 
