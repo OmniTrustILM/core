@@ -13,7 +13,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,10 +23,10 @@ import java.util.UUID;
 @RestController
 public class CryptographicOperationControllerImpl implements CryptographicOperationsController {
 
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationExternalService cryptographicOperationService;
 
     @Autowired
-    public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
+    public void setCryptographicOperationService(CryptographicOperationExternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 

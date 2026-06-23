@@ -56,7 +56,10 @@ class ProxyServiceTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private ProxyService proxyService;
+    private ProxyExternalService proxyService;
+
+    @Autowired
+    private ProxyInternalService proxyInternalService;
 
     @Autowired
     private ProxyRepository proxyRepository;
@@ -221,7 +224,7 @@ class ProxyServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = proxyService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = proxyInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 

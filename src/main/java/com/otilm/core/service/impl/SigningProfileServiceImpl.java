@@ -81,7 +81,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ConnectorService;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.SigningRecordService;
@@ -122,7 +122,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     );
 
     private SigningProfileServiceImpl self;
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -968,7 +968,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
+    public void setCryptographicOperationService(CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 
