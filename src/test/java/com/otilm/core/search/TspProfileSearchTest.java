@@ -23,7 +23,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +45,7 @@ class TspProfileSearchTest extends BaseSpringBootTest {
     private static final String CUSTOM_ATTR_VALUE = "alpha-tag-value";
 
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileExternalService tspProfileService;
 
     @Autowired
     private AttributeEngine attributeEngine;

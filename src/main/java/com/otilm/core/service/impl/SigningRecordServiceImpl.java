@@ -33,7 +33,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
+import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -60,7 +61,7 @@ import java.util.UUID;
 
 @Service
 @Slf4j
-public class SigningRecordServiceImpl implements SigningRecordService {
+public class SigningRecordServiceImpl implements SigningRecordExternalService, SigningRecordInternalService {
 
     private static final String SIGNING_PROFILE_PARENT_REF = "signingProfileUuid";
     private static final int TOP_REQUESTERS = 10;

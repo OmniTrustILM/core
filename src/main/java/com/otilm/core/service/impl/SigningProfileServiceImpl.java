@@ -84,9 +84,10 @@ import com.otilm.core.service.ConnectorService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
+import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.TokenProfileInternalService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.writer.SigningProfileWriter;
 import com.otilm.core.util.CertificateEligibilityUtil;
@@ -127,14 +128,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private ConnectorService connectorService;
     private TokenProfileInternalService tokenProfileService;
     private RaProfileService raProfileService;
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
+    private SigningRecordInternalService signingRecordInternalService;
 
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private SigningProfileRepository signingProfileRepository;
     private SigningProfileVersionRepository signingProfileVersionRepository;
     private SigningProfileWriter signingProfileWriter;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
-    private TspProfileService tspProfileService;
+    private TspProfileInternalService tspProfileService;
     private AttributeEngine attributeEngine;
     private ConnectorApiFactory connectorApiFactory;
     private CacheEvictor cacheEvictor;
@@ -426,7 +428,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         int latestVersion = profile.getLatestVersion();
         SigningProfileVersion currentVersion = signingProfileVersionRepository.findBySigningProfileUuidAndVersion(profile.getUuid(), latestVersion)
                 .orElseThrow(() -> new NotFoundException("Signing Profile version " + latestVersion + " not found"));
-        boolean recordsExist = signingRecordService.doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
+        boolean recordsExist = signingRecordInternalService.doesSigningRecordExistInternal(profile.getUuid(), latestVersion);
         boolean policyRecordDifferent = recordPolicyDiffersFromVersion(currentVersion, request.getRecordPolicy());
         boolean bump = recordsExist || policyRecordDifferent;
 
@@ -502,7 +504,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             );
         }
 
-        if (signingRecordService.doesSigningRecordExistForProfileInternal(signingProfile.getUuid())) {
+        if (signingRecordInternalService.doesSigningRecordExistForProfileInternal(signingProfile.getUuid())) {
             throw new ValidationException(
                     ValidationError.create(String.format(
                             "Cannot delete Signing Profile '%s': it has signing records. Delete the signing records first.",
@@ -1018,13 +1020,18 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setSigningRecordService(SigningRecordService signingRecordService) {
+    public void setSigningRecordService(SigningRecordExternalService signingRecordService) {
         this.signingRecordService = signingRecordService;
     }
 
     @Autowired
+    public void setSigningRecordInternalService(SigningRecordInternalService signingRecordInternalService) {
+        this.signingRecordInternalService = signingRecordInternalService;
+    }
+
+    @Autowired
     @Lazy
-    public void setTspProfileService(TspProfileService tspProfileService) {
+    public void setTspProfileService(TspProfileInternalService tspProfileService) {
         this.tspProfileService = tspProfileService;
     }
 

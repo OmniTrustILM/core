@@ -10,39 +10,18 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
-import com.otilm.core.dao.entity.signing.TspProfile;
-import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
-import java.util.UUID;
 
-public interface TspProfileService extends ResourceExtensionService {
+public interface TspProfileExternalService {
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
     PaginationResponseDto<TspProfileListDto> listTspProfiles(SearchRequestDto request, SecurityFilter filter, String baseUrl);
 
-    SecuredList<TspProfile> listTspProfilesUsingSigningProfileAsDefault(SecuredUUID signingProfileUuid, SecurityFilter filter);
-
     TspProfileDto getTspProfile(SecuredUUID uuid, String baseUrl) throws NotFoundException;
-
-    TspProfile getTspProfileEntity(SecuredUUID uuid) throws NotFoundException;
-
-    List<String> findAllNames();
-
-    TspProfileModel getTspProfile(String name) throws NotFoundException;
-
-    /**
-     * Loads the TSP profile model by name without any authorization check.
-     *
-     * <p>Intended for use by {@code TspAuthenticationFilter}, which runs before a {@code SecurityContext} exists.
-     */
-    TspProfileModel resolveTspProfileForAuthentication(String name) throws NotFoundException;
-
-    TspProfileModel getTspProfile(UUID uuid) throws NotFoundException;
 
     TspProfileDto createTspProfile(TspProfileRequestDto request, String baseUrl) throws AlreadyExistException, AttributeException, NotFoundException;
 
@@ -59,9 +38,4 @@ public interface TspProfileService extends ResourceExtensionService {
     void disableTspProfile(SecuredUUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDisableTspProfiles(List<SecuredUUID> uuids);
-
-    /**
-     * Clears every entry in the TSP profile cache.
-     */
-    void evictAllCachedModels();
 }

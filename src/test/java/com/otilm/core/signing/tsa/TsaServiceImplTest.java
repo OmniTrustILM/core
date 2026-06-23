@@ -20,10 +20,10 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyService;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenProfileExternalService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -76,10 +76,10 @@ class TsaServiceImplTest extends BaseSpringBootTest {
     private SigningProfileService signingProfileService;
 
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileExternalService tspProfileService;
 
     @Autowired
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
 
     @Autowired
     private ConnectorService connectorService;

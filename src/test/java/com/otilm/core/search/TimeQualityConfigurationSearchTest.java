@@ -19,7 +19,7 @@ import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
 import com.otilm.core.dao.repository.signing.TimeQualityConfigurationRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TimeQualityConfigurationService;
+import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +41,7 @@ class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
     private static final String CUSTOM_ATTR_VALUE = "strict-tag-value";
 
     @Autowired
-    private TimeQualityConfigurationService timeQualityConfigurationService;
+    private TimeQualityConfigurationExternalService timeQualityConfigurationService;
 
     @Autowired
     private AttributeEngine attributeEngine;
