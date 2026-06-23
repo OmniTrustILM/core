@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.RemovalListener;
 import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,9 +42,7 @@ public class SecretRefIndex implements RemovalListener<Object, Object> {
      * Register an HMAC cache key under its owning secretUuid.
      */
     public void add(UUID secretUuid, String hmacKey) {
-        if (secretUuid == null) {
-            throw new IllegalStateException("Verified credential must contain a non-null secretUuid");
-        }
+        Objects.requireNonNull(secretUuid, "Verified credential must contain a non-null secretUuid");
         index.computeIfAbsent(secretUuid, k -> ConcurrentHashMap.newKeySet()).add(hmacKey);
     }
 

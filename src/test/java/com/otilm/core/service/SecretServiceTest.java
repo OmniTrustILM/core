@@ -60,6 +60,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
+import com.otilm.core.events.SecretContentUpdatedEvent;
 
 import java.io.Serializable;
 import java.security.NoSuchAlgorithmException;
@@ -68,9 +71,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 
+@RecordApplicationEvents
 class SecretServiceTest extends BaseSpringBootTest {
 
     private static final String TEST_CUSTOM_ATTRIBUTE = "testCustomAttribute";
@@ -84,6 +89,8 @@ class SecretServiceTest extends BaseSpringBootTest {
         registry.add("auth-service.base-url", () -> "http://localhost:" + AUTH_SERVICE_MOCK_PORT);
     }
 
+    @Autowired
+    private ApplicationEvents applicationEvents;
     @Autowired
     private SecretExternalService secretService;
 
@@ -360,6 +367,30 @@ class SecretServiceTest extends BaseSpringBootTest {
         request.setSecret(null);
         secretDetailDto = secretService.updateSecret(secret.getUuid(), request);
         Assertions.assertEquals(2, secretDetailDto.getVersion());
+    }
+
+    @Test
+    void updateSecret_publishesSecretContentUpdatedEvent_whenContentChanges() throws NotFoundException, AttributeException, ConnectorException {
+        // given — an update whose secret content differs from the current version (a password rotation)
+        SecretUpdateRequestDto rotate = new SecretUpdateRequestDto();
+        BasicAuthSecretContent rotatedContent = new BasicAuthSecretContent();
+        rotatedContent.setUsername("testUsername");
+        rotatedContent.setPassword("rotated-password");
+        rotate.setSecret(rotatedContent);
+
+        // when — the content actually changes (the ActionProducer shim runs the action synchronously)
+        secretService.updateSecret(secret.getUuid(), rotate);
+
+        // then — exactly one SecretContentUpdatedEvent is published for this secret
+        assertThat(applicationEvents.stream(SecretContentUpdatedEvent.class).map(SecretContentUpdatedEvent::secretUuid))
+                .containsExactly(secret.getUuid());
+
+        // and — an update that does not touch the secret content publishes no further event
+        SecretUpdateRequestDto noContentChange = new SecretUpdateRequestDto();
+        noContentChange.setDescription("description only");
+        secretService.updateSecret(secret.getUuid(), noContentChange);
+
+        assertThat(applicationEvents.stream(SecretContentUpdatedEvent.class)).hasSize(1);
     }
 
     private void addSyncVaultProfile(Secret secret) {

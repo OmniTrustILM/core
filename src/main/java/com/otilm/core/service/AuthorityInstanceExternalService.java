@@ -13,7 +13,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface AuthorityInstanceService extends ResourceExtensionService {
+public interface AuthorityInstanceExternalService {
     List<AuthorityInstanceDto> listAuthorityInstances(SecurityFilter filter);
 
     AuthorityInstanceDto getAuthorityInstance(SecuredUUID uuid) throws ConnectorException, NotFoundException;

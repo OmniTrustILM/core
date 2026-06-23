@@ -112,6 +112,21 @@ class TspControllerImplTest {
     }
 
     @Test
+    void serviceThrowsAccessDenied_buildsSameRejectionAsNotFound() throws Exception {
+        // an authorization denial must be indistinguishable on the wire from a non-existent profile (enumeration
+        // defense): same BAD_REQUEST failure info and same generic status string as serviceThrowsNotFound
+        when(tsaService.processTspRequestForTspProfile(eq(PROFILE_NAME), any()))
+                .thenThrow(new org.springframework.security.access.AccessDeniedException("Access is denied"));
+
+        // when
+        ResponseEntity<byte[]> response = controller.timestamp(PROFILE_NAME, validSha256RequestBytes());
+
+        // then
+        assertRejection(response, PKIFailureInfo.badRequest, "Resource not found");
+        verify(auditResultOverride).setFailure();
+    }
+
+    @Test
     void serviceThrowsUnexpectedException_buildsSystemFailureRejection() throws Exception {
         // given
         var leakyMessage = "could not execute statement; SQL [n/a]; constraint [tsp_profile_pkey]";

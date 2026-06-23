@@ -29,7 +29,7 @@ import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.EntityInstanceService;
+import com.otilm.core.service.EntityInstanceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +55,7 @@ class EntityInstanceSearchTest extends BaseSpringBootTest {
     @Autowired
     private LocationRepository locationRepository;
     @Autowired
-    private EntityInstanceService entityInstanceService;
+    private EntityInstanceExternalService entityInstanceService;
     private AttributeEngine attributeEngine;
 
     @Autowired

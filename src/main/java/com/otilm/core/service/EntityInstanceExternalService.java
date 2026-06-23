@@ -16,7 +16,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 
-public interface EntityInstanceService extends ResourceExtensionService {
+public interface EntityInstanceExternalService {
 
     /**
      * List available Entity instances

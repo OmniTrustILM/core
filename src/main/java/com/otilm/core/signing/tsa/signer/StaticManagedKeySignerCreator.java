@@ -11,7 +11,7 @@ import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CryptographyUtil;
 import org.springframework.stereotype.Component;
 
@@ -20,9 +20,9 @@ import java.util.List;
 @Component
 public class StaticManagedKeySignerCreator implements SignerCreator {
 
-    private final CryptographicOperationService cryptographicOperationService;
+    private final CryptographicOperationInternalService cryptographicOperationService;
 
-    public StaticManagedKeySignerCreator(CryptographicOperationService cryptographicOperationService) {
+    public StaticManagedKeySignerCreator(CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 
