@@ -18,6 +18,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
+import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
@@ -40,6 +41,7 @@ import java.security.MessageDigest;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.ECGenParameterSpec;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.EnumMap;
 import java.util.List;
@@ -298,10 +300,9 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
 
         // then
         TimeStampResponse tsResponse = parseTspResponse(response);
-        Assertions.assertEquals(PKIStatus.REJECTION, tsResponse.getStatus(),
-                "A signing profile without the TSP protocol enabled must be rejected, but got status: " + tsResponse.getStatus());
-        Assertions.assertEquals("Signing profile '%s' does not have the TSP protocol enabled.".formatted(signingProfileName),
-                tsResponse.getStatusString());
+        assertBadRequestRejection(tsResponse,
+                "Signing profile '%s' does not have the TSP protocol enabled.".formatted(signingProfileName),
+                "A signing profile without the TSP protocol enabled must be rejected");
     }
 
     /**
@@ -322,9 +323,9 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
 
         // then
         TimeStampResponse tsResponse = parseTspResponse(response);
-        Assertions.assertEquals(PKIStatus.REJECTION, tsResponse.getStatus(),
-                "An unknown signing profile must be rejected, but got status: " + tsResponse.getStatus());
-        Assertions.assertEquals("Resource not found. See logs for details.", tsResponse.getStatusString());
+        assertBadRequestRejection(tsResponse,
+                "Resource not found. See logs for details.",
+                "An unknown signing profile must be rejected");
     }
 
     /**
@@ -415,7 +416,7 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
     }
 
     private static byte[] sha256(String input) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(input.getBytes());
+        return MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -429,6 +430,21 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
         String imprintAlg = tsResponse.getTimeStampToken().getTimeStampInfo().getMessageImprintAlgOID().getId();
         Assertions.assertEquals(TSPAlgorithms.SHA256.getId(), imprintAlg,
                 "Message imprint algorithm must be SHA-256");
+    }
+
+    /**
+     * Asserts an RFC 3161 rejection that carries the BAD_REQUEST failure-info bit (not merely
+     * {@link PKIStatus#REJECTION}) plus the exact {@code statusString}. In RFC 3161 BAD_REQUEST is a
+     * {@code PKIFailureInfo} bit, encoded separately from the {@code PKIStatus} value, so verifying the
+     * decoded bit is what actually proves the BAD_REQUEST classification.
+     */
+    private static void assertBadRequestRejection(TimeStampResponse tsResponse, String expectedStatusString, String rejectionMessage) {
+        Assertions.assertEquals(PKIStatus.REJECTION, tsResponse.getStatus(),
+                rejectionMessage + ", but got status: " + tsResponse.getStatus());
+        Assertions.assertNotNull(tsResponse.getFailInfo(), "Rejection must carry a failure-info field");
+        Assertions.assertEquals(PKIFailureInfo.badRequest, tsResponse.getFailInfo().intValue(),
+                "Rejection must carry the BAD_REQUEST failure-info bit");
+        Assertions.assertEquals(expectedStatusString, tsResponse.getStatusString());
     }
 
     /**
