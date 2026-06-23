@@ -137,6 +137,17 @@ public class LoggingHelper {
         if (actorName != null) MDC.put(LoggingHelper.LOG_ACTOR_NAME, actorName);
     }
 
+    /**
+     * Removes the actor attribution keys from the MDC. Used on fail-closed authentication paths so a rejected request
+     * does not retain or misattribute actor information on the request thread.
+     */
+    public static void clearActorInfo() {
+        MDC.remove(LOG_ACTOR_TYPE);
+        MDC.remove(LOG_ACTOR_AUTH_METHOD);
+        MDC.remove(LOG_ACTOR_UUID);
+        MDC.remove(LOG_ACTOR_NAME);
+    }
+
     public static void putLogResourceInfo(Resource resource, boolean affiliated, String resourceUuid, String resourceName) {
         if (affiliated) {
             MDC.put(LoggingHelper.LOG_AUDIT_AFFILIATED_RESOURCE, resource.name());

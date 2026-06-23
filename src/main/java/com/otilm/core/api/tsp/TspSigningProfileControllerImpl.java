@@ -17,6 +17,7 @@ import com.otilm.core.signing.tsa.messages.TspResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -53,6 +54,14 @@ public class TspSigningProfileControllerImpl implements TspSigningProfileControl
             auditResultOverride.setFailure();
             responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
             log.warn("Resource not found while processing TSP request for signing profile '{}': {}", signingProfileName,
+                    e.getMessage());
+        } catch (AccessDeniedException e) {
+            // An authorization denial is rendered as the same generic not-found rejection as a non-existent profile so
+            // a caller cannot probe which profiles exist by observing differing outcomes (enumeration defense). The
+            // real cause is logged for operators but never put on the wire.
+            auditResultOverride.setFailure();
+            responseBytes = TspResponseBuilder.buildRejection(TspFailureInfo.BAD_REQUEST, "Resource not found. See logs for details.");
+            log.warn("Access denied while processing TSP request for signing profile '{}': {}", signingProfileName,
                     e.getMessage());
         } catch (Exception e) {
             auditResultOverride.setFailure();
