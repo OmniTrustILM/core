@@ -34,7 +34,8 @@ import java.util.Optional;
  * </ol>
  *
  * <p>The authenticator order matters: the first whose {@link TspAuthenticator#canHandle} matches wins, so a
- * presented client certificate takes precedence over an {@code Authorization} header.
+ * presented client certificate takes precedence over an {@code Authorization} header. Selection does not fall through:
+ * if that first match is disallowed by the profile or fails, the request is rejected rather than retried with another method.
  */
 public class TspAuthenticationFilter extends OncePerRequestFilter {
 
