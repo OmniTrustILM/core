@@ -16,7 +16,7 @@ import lombok.Setter;
 public class CertificateExtensionCustomOidEntry extends CustomOidEntry {
 
     @Column(name = "default_critical")
-    private boolean defaultCritical;
+    private Boolean defaultCritical;
 
     @Column(name = "value_encoding")
     @Enumerated(EnumType.STRING)
