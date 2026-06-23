@@ -132,7 +132,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(OidCategory.CERTIFICATE_EXTENSION, response.getCategory());
         Assertions.assertNotNull(OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(request.getOid()));
         CertificateExtensionOidPropertiesDto responseProps = (CertificateExtensionOidPropertiesDto) response.getAdditionalProperties();
-        Assertions.assertTrue(responseProps.isDefaultCritical());
+        Assertions.assertTrue(responseProps.getDefaultCritical());
         Assertions.assertEquals(ExtensionValueEncoding.UTF8_STRING, responseProps.getValueEncoding());
     }
 
@@ -162,7 +162,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(extensionOidEntry.getOid(), response.getOid());
         Assertions.assertEquals(OidCategory.CERTIFICATE_EXTENSION, response.getCategory());
         CertificateExtensionOidPropertiesDto props = (CertificateExtensionOidPropertiesDto) response.getAdditionalProperties();
-        Assertions.assertTrue(props.isDefaultCritical());
+        Assertions.assertTrue(props.getDefaultCritical());
         Assertions.assertEquals(ExtensionValueEncoding.IA5_STRING, props.getValueEncoding());
     }
 
@@ -240,7 +240,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         request.setAdditionalProperties(extensionUpdateProps);
         CustomOidEntryDetailResponseDto extensionResponse = customOidEntryService.editCustomOidEntry(extensionOidEntryOid, request);
         CertificateExtensionOidPropertiesDto updatedProps = (CertificateExtensionOidPropertiesDto) extensionResponse.getAdditionalProperties();
-        Assertions.assertFalse(updatedProps.isDefaultCritical());
+        Assertions.assertFalse(updatedProps.getDefaultCritical());
         Assertions.assertEquals(ExtensionValueEncoding.OCTET_STRING, updatedProps.getValueEncoding());
         Assertions.assertEquals(request.getDisplayName(), extensionResponse.getDisplayName());
         Assertions.assertEquals(request.getDescription(), extensionResponse.getDescription());

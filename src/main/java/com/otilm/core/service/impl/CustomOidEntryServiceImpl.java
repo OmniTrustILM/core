@@ -111,7 +111,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
                 customOidEntry = new CertificateExtensionCustomOidEntry();
                 if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
                     throw new ValidationException("Incorrect type of properties for OID category Certificate Extension.");
-                ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(additionalProperties.isDefaultCritical());
+                ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(additionalProperties.getDefaultCritical());
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(additionalProperties.getValueEncoding());
             }
             default -> throw new UnsupportedOperationException("Unsupported OID category: " + request.getCategory());
@@ -166,7 +166,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
         else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry) {
             if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
                 throw new ValidationException("Incorrect properties for OID category Certificate Extension.");
-            extensionEntry.setDefaultCritical(additionalProperties.isDefaultCritical());
+            extensionEntry.setDefaultCritical(additionalProperties.getDefaultCritical());
             extensionEntry.setValueEncoding(additionalProperties.getValueEncoding());
         }
 
