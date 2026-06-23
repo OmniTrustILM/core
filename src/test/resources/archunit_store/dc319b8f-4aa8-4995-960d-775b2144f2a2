@@ -3,3 +3,5 @@ Method <com.otilm.core.service.impl.ScepProfileServiceImpl.listScepCaCertificate
 Method <com.otilm.core.service.impl.SecretServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (SecretServiceImpl.java:178)
 Method <com.otilm.core.service.impl.VaultInstanceServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (VaultInstanceServiceImpl.java:198)
 Method <com.otilm.core.service.impl.VaultProfileServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (VaultProfileServiceImpl.java:239)
+Method <com.otilm.core.service.impl.CustomOidEntryServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (CustomOidEntryServiceImpl.java:222)
+Method <com.otilm.core.service.impl.EntityInstanceServiceImpl.getSearchableFieldInformationByGroup()> is annotated with @ExternalAuthorizationMissing in (EntityInstanceServiceImpl.java:315)

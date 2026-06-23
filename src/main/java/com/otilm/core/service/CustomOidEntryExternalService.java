@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * Service for managing OID entries.
  */
-public interface CustomOidEntryService {
+public interface CustomOidEntryExternalService {
 
     /**
      * Creates a new custom OID entry.

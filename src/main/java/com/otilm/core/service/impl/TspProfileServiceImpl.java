@@ -137,6 +137,11 @@ public class TspProfileServiceImpl implements TspProfileService {
         return self.loadTspProfileModel(name);
     }
 
+    @Override
+    public TspProfileModel resolveTspProfileForAuthentication(String name) throws NotFoundException {
+        return self.loadTspProfileModel(name);
+    }
+
     @Cacheable(value = CacheConfig.TSP_PROFILE_CACHE, key = "#name", sync = true)
     @Transactional(readOnly = true)
     public TspProfileModel loadTspProfileModel(String name) throws NotFoundException {

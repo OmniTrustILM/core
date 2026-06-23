@@ -1,9 +1,7 @@
 package com.otilm.core.service.impl;
 
-import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
-import com.otilm.core.cluster.ClusterOperationSynchronizer;
+
 import com.otilm.api.clients.ApiClientConnectorInfo;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
@@ -14,18 +12,14 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
-import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
-import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
-import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
-import com.otilm.api.model.client.signing.profile.workflow.WorkflowRequestDto;
-import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileListDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
+import com.otilm.api.model.client.signing.profile.SimplifiedSigningProfileDto;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.DelegatedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningRequestSchemeInterface;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
@@ -33,8 +27,14 @@ import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSignin
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.scheme.SigningSchemeRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.StaticKeyManagedSigningRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.RawSigningWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.client.signing.profile.workflow.TimestampingWorkflowRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.WorkflowRequestDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -45,44 +45,53 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
-import com.otilm.core.comparator.SearchFieldDataComparator;
-import com.otilm.core.config.cache.CacheConfig;
-import com.otilm.core.config.cache.CacheEvictor;
-import com.otilm.core.enums.FilterField;
-import com.otilm.core.model.signing.scheme.SigningSchemeModel;
-import com.otilm.core.model.signing.workflow.SigningWorkflow;
-import com.otilm.core.service.*;
-import com.otilm.core.model.signing.SigningProfileModel;
-import com.otilm.core.util.SearchHelper;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
+import com.otilm.core.comparator.SearchFieldDataComparator;
+import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.signing.SigningProfile;
-import com.otilm.core.dao.entity.signing.SigningProfile_;
-import com.otilm.core.dao.entity.signing.SigningProfileVersion;
-import com.otilm.core.dao.entity.signing.TspProfile;
-import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
-import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
-import com.otilm.core.dao.repository.signing.SigningProfileRepository;
-import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
-import com.otilm.core.service.writer.SigningProfileWriter;
-import com.otilm.core.dao.repository.signing.TimeQualityConfigurationRepository;
-import com.otilm.api.model.client.connector.v2.ConnectorInterface;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.entity.signing.SigningProfile_;
+import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
+import com.otilm.core.dao.entity.signing.TspProfile;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.dao.repository.signing.TimeQualityConfigurationRepository;
+import com.otilm.core.enums.FilterField;
 import com.otilm.core.mapper.signing.SigningProfileMapper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.model.signing.TspProfileModel;
+import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.TokenProfileInternalService;
+import com.otilm.core.service.TspProfileService;
 import com.otilm.core.service.model.SecuredList;
+import com.otilm.core.service.writer.SigningProfileWriter;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
+import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -113,7 +122,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     );
 
     private SigningProfileServiceImpl self;
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
     private CertificateService certificateService;
     private ConnectorService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -286,6 +295,30 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         // Narrow scope: only managed-timestamping profiles are cacheable for now.
         return SigningProfileMapper.toManagedTimestampingModel(
                 profile, currentVersion, signingOperationAttributes, signatureFormatterConnectorAttributes);
+    }
+
+    @Override
+    public Optional<TspProfileModel> resolveTspProfileForSigningProfileAuthentication(String signingProfileName) throws NotFoundException {
+        String linkedTspProfileName = self.loadLinkedTspProfileName(signingProfileName);
+        if (linkedTspProfileName == null) {
+            return Optional.empty();
+        }
+        return Optional.of(tspProfileService.resolveTspProfileForAuthentication(linkedTspProfileName));
+    }
+
+    // Self-invoked helper to apply @Transactional.
+    @Transactional(readOnly = true)
+    String loadLinkedTspProfileName(String signingProfileName) throws NotFoundException {
+        SigningProfile profile = signingProfileRepository.findByName(signingProfileName)
+                .orElseThrow(() -> new NotFoundException(SigningProfile.class, signingProfileName));
+        if (profile.getTspProfileUuid() == null) {
+            return null;
+        }
+        TspProfile tspProfile = profile.getTspProfile();
+        if (tspProfile == null) {
+            throw new NotFoundException(TspProfile.class, profile.getTspProfileUuid());
+        }
+        return tspProfile.getName();
     }
 
     /**
@@ -935,7 +968,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
+    public void setCryptographicOperationService(CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 

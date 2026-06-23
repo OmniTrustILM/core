@@ -22,7 +22,8 @@ import com.otilm.core.provisioning.ProxyProvisioningService;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ProxyService;
+import com.otilm.core.service.ProxyExternalService;
+import com.otilm.core.service.ProxyInternalService;
 import com.otilm.core.util.ProxyCodeHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import jakarta.transaction.Transactional;
@@ -39,12 +40,12 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Implementation of {@link ProxyService} for managing proxy entities.
+ * Implementation of {@link ProxyExternalService} and {@link ProxyInternalService} for managing proxy entities.
  */
 @Service(Resource.Codes.PROXY)
 @Transactional
 @RequiredArgsConstructor
-public class ProxyServiceImpl implements ProxyService {
+public class ProxyServiceImpl implements ProxyExternalService, ProxyInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ProxyServiceImpl.class);
 
     private final ProxyRepository proxyRepository;
