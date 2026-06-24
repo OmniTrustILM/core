@@ -3,7 +3,7 @@ package com.otilm.core.security.authn.tsp;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class TspRouteResolverTest {
 
-    @Mock private TspProfileService tspProfileService;
+    @Mock private TspProfileInternalService tspProfileService;
     @Mock private SigningProfileService signingProfileService;
 
     private TspRouteResolver resolver;

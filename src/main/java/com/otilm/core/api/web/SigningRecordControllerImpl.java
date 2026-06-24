@@ -16,7 +16,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -26,10 +26,10 @@ import java.util.UUID;
 @RestController
 public class SigningRecordControllerImpl implements SigningRecordController {
 
-    private final SigningRecordService signingRecordService;
+    private final SigningRecordExternalService signingRecordService;
 
     @Autowired
-    public SigningRecordControllerImpl(SigningRecordService signingRecordService) {
+    public SigningRecordControllerImpl(SigningRecordExternalService signingRecordService) {
         this.signingRecordService = signingRecordService;
     }
 

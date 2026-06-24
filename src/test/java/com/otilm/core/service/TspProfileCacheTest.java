@@ -29,7 +29,10 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     private static final String BASE_URL = "http://localhost";
 
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileExternalService tspProfileService;
+
+    @Autowired
+    private TspProfileInternalService tspProfileInternalService;
 
     @Autowired
     private TspProfileRepository tspProfileRepository;
@@ -61,7 +64,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNull();
 
         // when
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
 
         // then - the model is stored in the cache keyed by profile name
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
@@ -70,10 +73,10 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void secondLookupReturnsCachedInstance() throws NotFoundException {
         // given - populate cache on first call
-        TspProfileModel first = tspProfileService.getTspProfile(profile.getName());
+        TspProfileModel first = tspProfileInternalService.getTspProfile(profile.getName());
 
         // when - second call for the same profile name
-        TspProfileModel second = tspProfileService.getTspProfile(profile.getName());
+        TspProfileModel second = tspProfileInternalService.getTspProfile(profile.getName());
 
         // then - the same Java object is returned, proving no second DB round-trip was made
         assertThat(second).isSameAs(first);
@@ -82,7 +85,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterUpdate() throws AlreadyExistException, AttributeException, NotFoundException {
         // given - cache is warm under the original name
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
 
@@ -98,7 +101,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(oldName, TspProfileModel.class)).isNull();
 
         // and - subsequent lookup under new name re-populates the cache
-        tspProfileService.getTspProfile("renamed-tsp-profile");
+        tspProfileInternalService.getTspProfile("renamed-tsp-profile");
         assertThat(cache.get("renamed-tsp-profile", TspProfileModel.class)).isNotNull();
     }
 
@@ -110,7 +113,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNull();
 
         // when - looked up by UUID (the signing-profile hot path)
-        tspProfileService.getTspProfile(profile.getUuid());
+        tspProfileInternalService.getTspProfile(profile.getUuid());
 
         // then - the model is stored keyed by UUID
         assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
@@ -119,7 +122,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void uuidLookupSurvivesRename() throws AlreadyExistException, AttributeException, NotFoundException {
         // given - cache is warm under the original UUID, the signing-profile path's stable reference
-        tspProfileService.getTspProfile(profile.getUuid());
+        tspProfileInternalService.getTspProfile(profile.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
 
@@ -134,7 +137,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNull();
 
         // and - a fresh UUID lookup still resolves and reflects the new name; the rename never dangles
-        TspProfileModel repopulated = tspProfileService.getTspProfile(profile.getUuid());
+        TspProfileModel repopulated = tspProfileInternalService.getTspProfile(profile.getUuid());
         assertThat(repopulated.name()).isEqualTo("renamed-tsp-profile");
         assertThat(cache.get(profile.getUuid(), TspProfileModel.class)).isNotNull();
     }
@@ -142,7 +145,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterSameNameUpdate() throws AlreadyExistException, AttributeException, NotFoundException {
         // given - cache is warm
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
 
@@ -160,7 +163,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterDelete() throws NotFoundException {
         // given - cache is warm
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
 
@@ -176,7 +179,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         // given - profile is disabled and cache is warm
         profile.setEnabled(false);
         profile = tspProfileRepository.saveAndFlush(profile);
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
 
@@ -187,7 +190,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNull();
 
         // and - subsequent lookup re-populates the cache with the updated state
-        TspProfileModel repopulated = tspProfileService.getTspProfile(profile.getName());
+        TspProfileModel repopulated = tspProfileInternalService.getTspProfile(profile.getName());
         assertThat(repopulated.enabled()).isTrue();
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
     }
@@ -195,7 +198,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterDisable() throws NotFoundException {
         // given - profile is enabled and cache is warm
-        tspProfileService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
 
@@ -206,7 +209,7 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNull();
 
         // and - subsequent lookup re-populates the cache with the updated state
-        TspProfileModel repopulated = tspProfileService.getTspProfile(profile.getName());
+        TspProfileModel repopulated = tspProfileInternalService.getTspProfile(profile.getName());
         assertThat(repopulated.enabled()).isFalse();
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
     }
@@ -218,8 +221,8 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         second.setName("second-tsp-profile");
         second.setEnabled(true);
         second = tspProfileRepository.saveAndFlush(second);
-        tspProfileService.getTspProfile(profile.getName());
-        tspProfileService.getTspProfile(second.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(second.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
         assertThat(cache.get(second.getName(), TspProfileModel.class)).isNotNull();
@@ -244,8 +247,8 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         second.setName("second-tsp-profile");
         second.setEnabled(false);
         second = tspProfileRepository.saveAndFlush(second);
-        tspProfileService.getTspProfile(profile.getName());
-        tspProfileService.getTspProfile(second.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(second.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
         assertThat(cache.get(second.getName(), TspProfileModel.class)).isNotNull();
@@ -268,8 +271,8 @@ class TspProfileCacheTest extends BaseSpringBootTest {
         second.setName("second-tsp-profile");
         second.setEnabled(true);
         second = tspProfileRepository.saveAndFlush(second);
-        tspProfileService.getTspProfile(profile.getName());
-        tspProfileService.getTspProfile(second.getName());
+        tspProfileInternalService.getTspProfile(profile.getName());
+        tspProfileInternalService.getTspProfile(second.getName());
         Cache cache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
         assertThat(cache.get(profile.getName(), TspProfileModel.class)).isNotNull();
         assertThat(cache.get(second.getName(), TspProfileModel.class)).isNotNull();
