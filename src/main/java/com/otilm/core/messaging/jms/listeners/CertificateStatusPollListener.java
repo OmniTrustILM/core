@@ -165,13 +165,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
         }
-        // Stop polling — best-effort: if the delete fails, the next poll drops the now-terminal row.
-        try {
-            pollWriter.delete(cert.getUuid());
-        } catch (RuntimeException e) {
-            logger.warn("Failed to delete resolved poll row for cert {} ({}); it will be dropped on the next poll",
-                    cert.getUuid(), op, e);
-        }
+        // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
+        stopPolling(cert, op);
     }
 
     /** Outcome of the locked terminal transition: whether it was applied, and any post-commit key cleanup. */
@@ -210,9 +205,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return cleanup;
         }
 
-        // Failure paths (and the COMPLETED-REGISTER success). A failed/cancelled REVOKE returns the cert to
-        // ISSUED, so the pending-revoke params must be cleared or it looks like a revoke is still in flight.
+        // Everything else: failures go to the failure state; a COMPLETED REGISTER goes to REGISTERED.
         if (op == CertificateOperation.REVOKE) {
+            // A failed/cancelled REVOKE returns to ISSUED — clear pending-revoke fields so it doesn't look in-flight.
             revocationFinalizer.clearPendingRevokeFields(locked);
         }
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
@@ -317,9 +312,19 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             stateMachine.transition(locked, op.terminalFailureState(), null, reason);
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
-        pollWriter.delete(cert.getUuid());
+        stopPolling(cert, op);
     }
 
+
+    /** Deletes the cert's poll row to stop polling, best-effort; a failed delete is dropped by the next poll. */
+    private void stopPolling(Certificate cert, CertificateOperation op) {
+        try {
+            pollWriter.delete(cert.getUuid());
+        } catch (RuntimeException e) {
+            logger.warn("Failed to delete resolved poll row for cert {} ({}); it will be dropped on the next poll",
+                    cert.getUuid(), op, e);
+        }
+    }
 
     /**
      * Connector-side error codes that mean retrying the status poll is pointless: the
