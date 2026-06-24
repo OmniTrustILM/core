@@ -17,6 +17,7 @@ import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,7 +131,10 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         CustomOidEntryDetailResponseDto response = customOidEntryService.createCustomOidEntry(request);
         Assertions.assertEquals(request.getOid(), response.getOid());
         Assertions.assertEquals(OidCategory.CERTIFICATE_EXTENSION, response.getCategory());
-        Assertions.assertNotNull(OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(request.getOid()));
+        OidRecord cachedRecord = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(request.getOid());
+        Assertions.assertNotNull(cachedRecord);
+        Assertions.assertTrue(cachedRecord.defaultCritical());
+        Assertions.assertEquals(ExtensionValueEncoding.UTF8_STRING, cachedRecord.valueEncoding());
         CertificateExtensionOidPropertiesDto responseProps = (CertificateExtensionOidPropertiesDto) response.getAdditionalProperties();
         Assertions.assertTrue(responseProps.getDefaultCritical());
         Assertions.assertEquals(ExtensionValueEncoding.UTF8_STRING, responseProps.getValueEncoding());
@@ -244,6 +248,10 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(ExtensionValueEncoding.OCTET_STRING, updatedProps.getValueEncoding());
         Assertions.assertEquals(request.getDisplayName(), extensionResponse.getDisplayName());
         Assertions.assertEquals(request.getDescription(), extensionResponse.getDescription());
+        OidRecord cachedRecord = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(extensionOidEntryOid);
+        Assertions.assertNotNull(cachedRecord);
+        Assertions.assertFalse(cachedRecord.defaultCritical());
+        Assertions.assertEquals(ExtensionValueEncoding.OCTET_STRING, cachedRecord.valueEncoding());
     }
 
 }
