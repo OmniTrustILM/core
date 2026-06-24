@@ -172,7 +172,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
     }
 
     /**
-     * Stubs the data-signing endpoint hit by {@code CryptographicOperationService#signDataWithoutEventHistory},
+     * Stubs the data-signing endpoint hit by {@code CryptographicOperationInternalService#signDataWithoutEventHistory},
      * returning the given signature bytes (base64-encoded) under {@code signatures[0].data}. The bytes need not
      * be a valid signature — downstream consumers in tests treat them as opaque.
      */

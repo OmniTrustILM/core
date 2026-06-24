@@ -24,9 +24,10 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.CustomOidEntryService;
+import com.otilm.core.service.CustomOidEntryExternalService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
@@ -48,7 +49,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.OID)
 @Transactional
-public class CustomOidEntryServiceImpl implements CustomOidEntryService {
+public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService {
 
     public static final String OID_ENTRY = "OID Entry";
     private final CustomOidEntryRepository customOidEntryRepository;
@@ -234,6 +235,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
         List<SearchFieldDataDto> fields = List.of(

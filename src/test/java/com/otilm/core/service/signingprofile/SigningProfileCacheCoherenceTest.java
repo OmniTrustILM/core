@@ -10,7 +10,7 @@ import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileInternalService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -28,7 +28,7 @@ class SigningProfileCacheCoherenceTest extends SigningProfileTestBase {
     private static final String BASE_URL = "http://localhost";
 
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileInternalService tspProfileService;
 
     @Autowired
     private CacheManager cacheManager;
