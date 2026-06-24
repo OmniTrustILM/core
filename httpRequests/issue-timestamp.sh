@@ -10,7 +10,7 @@ URL=""
 # HTTP Basic credentials accepted by the TSP profile (defaults match timestamping-setup.sh).
 # Set BASIC_USER to an empty string to send no Authorization header (e.g. when using mTLS client-cert auth).
 BASIC_USER="f.jednicka"
-BASIC_PASS="your-strong-password"
+BASIC_PASS="tsp-test-changeme"
 FILE=""
 DIGEST="sha256"
 TLS_CA_CERT=""
@@ -38,7 +38,7 @@ Options:
   -P TSP_PROFILE  TSP profile name path segment (default: tsp-non-qualified)
   -u URL          Full TSA URL; overrides -H/-P composition
   -U USERNAME     HTTP Basic username (default: f.jednicka; empty to disable Basic auth)
-  -W PASSWORD     HTTP Basic password (default: your-strong-password)
+  -W PASSWORD     HTTP Basic password (default: tsp-test-changeme)
   -f FILE         File to timestamp (default: creates temp file with "Hello TSA")
   -d DIGEST       sha256 | sha384 | sha512 (default: sha256)
   -T TLS_CA       CA certificate for TLS server verification (curl --cacert)
@@ -188,22 +188,18 @@ else:
             echo "AlgorithmIdentifier NULL parameters: ABSENT (may cause verification failure)"
         fi
 
-        # Show expected DigestInfo prefix for the hash algorithm
-        echo ""
-        echo "--- Expected DigestInfo prefixes (DER, with NULL) ---"
-        echo "SHA-256: 3031300d060960864801650304020105000420"
-        echo "SHA-384: 3041300d060960864801650304020205000430"
-        echo "SHA-512: 3051300d060960864801650304020305000440"
-
-        # Compare actual prefix
-        local actual_hex
+        # Compare actual DigestInfo prefix against the expected DER encoding for the hash algorithm
+        local actual_hex expected prefix_len
         actual_hex=$(xxd -p "$outdir/digestinfo.der" | tr -d '\n')
-        local prefix_len
         case "$DIGEST" in
-            sha256) prefix_len=38; expected="3031300d060960864801650304020105000420" ;;  # 19 bytes = 38 hex chars
-            sha384) prefix_len=38; expected="3041300d060960864801650304020205000430" ;;
-            sha512) prefix_len=38; expected="3051300d060960864801650304020305000440" ;;
+            sha256) expected="3031300d060960864801650304020105000420" ;;
+            sha384) expected="3041300d060960864801650304020205000430" ;;
+            sha512) expected="3051300d060960864801650304020305000440" ;;
         esac
+        prefix_len="${#expected}"
+        echo ""
+        echo "--- Expected DigestInfo prefix for $DIGEST (DER, with NULL) ---"
+        echo "$expected"
         local actual_prefix="${actual_hex:0:$prefix_len}"
         if [[ "$actual_prefix" == "$expected" ]]; then
             echo "Actual prefix matches expected for $DIGEST: OK"

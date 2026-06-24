@@ -24,6 +24,7 @@
 #          (qualified profile links to the Time Quality configuration)
 #      16. Links the Signing Profile to the TSP Profile bidirectionally
 #      17. Creates a Basic (username/password) credential on the TSP profile, mapped to the user
+#  18. Grants object-scoped timestamping permissions to the role (applied after both sets exist)
 #
 # Requires: curl, jq, base64
 
@@ -91,7 +92,7 @@ MAPPED_USER_ROLE_NAME="timestamping"
 
 # TSP Basic credential (created on both TSP profiles).
 TSP_CREDENTIAL_USERNAME="f.jednicka"
-TSP_CREDENTIAL_PASSWORD="your-strong-password"
+TSP_CREDENTIAL_PASSWORD="tsp-test-changeme"
 
 # Policy OIDs (hardcoded; can be overridden via CLI)
 POLICY_ID_NON_QUALIFIED="1.2.3.4.5.6"
@@ -176,7 +177,7 @@ Vault / Basic credential options:
   --vault-profile-name NAME   Vault profile name (created if absent; default: timestamping)
   --mapped-user-username NAME Username of the mapped user for Basic credentials (default: f.jednicka)
   --tsp-credential-username NAME  Basic credential username (default: f.jednicka)
-  --tsp-credential-password PASS  Basic credential password (default: your-strong-password)
+  --tsp-credential-password PASS  Basic credential password (default: tsp-test-changeme)
 
 Credential/token options:
   --pkcs12-password PASS      PKCS12 bundle password     (default: 00000000)
@@ -997,7 +998,7 @@ setup_timestamping_role() {
   fi
 }
 
-# --- Step 12: Object-scoped timestamping permissions -------------------------
+# --- Step 18: Object-scoped timestamping permissions -------------------------
 # Applied after both TSA sets exist, so every grant targets concrete object UUIDs rather than the
 # whole resource. The OPA method policy (CZERTAINLY-Auth-OPA-Policies/policies/method_policy.rego)
 # honors object-scoped grants for BOTH request shapes on the timestamp path:
@@ -1050,7 +1051,7 @@ grant_timestamping_permissions() {
   ok "object-scoped permissions granted"
 }
 
-# --- Step 7: Key pair ---------------------------------------------------------
+# --- Step 9: Key pair ---------------------------------------------------------
 # Usage: setup_key_pair <key_name> <out_key_uuid_var> <out_priv_item_uuid_var>
 setup_key_pair() {
   local key_name="$1" out_key_uuid="$2" out_priv_item_uuid="$3"
@@ -1145,7 +1146,7 @@ setup_key_pair() {
   printf -v "$out_priv_item_uuid" '%s' "$_priv_uuid"
 }
 
-# --- Step 8: RA profile (with dynamic EJBCA profile lookup) -------------------
+# --- Step 10: RA profile (with dynamic EJBCA profile lookup) ------------------
 # Usage: setup_ra_profile <ra_name> <cert_profile_name> <out_ra_profile_uuid_var>
 setup_ra_profile() {
   local ra_name="$1" ejbca_cert_profile="$2" out_ra_uuid="$3"
@@ -1301,7 +1302,7 @@ setup_ra_profile() {
   printf -v "$out_ra_uuid" '%s' "$_ra_uuid"
 }
 
-# --- Step 9: Issue TSA certificate --------------------------------------------
+# --- Step 11: Issue TSA certificate -------------------------------------------
 # Usage: issue_certificate <cn> <key_uuid> <priv_item_uuid> <ra_profile_uuid> <out_cert_uuid_var>
 issue_certificate() {
   local cn="$1" key_uuid="$2" priv_item_uuid="$3" ra_profile_uuid="$4" out_cert_uuid="$5"
@@ -1366,7 +1367,7 @@ issue_certificate() {
   printf -v "$out_cert_uuid" '%s' "$_cert_uuid"
 }
 
-# --- Step 10: Poll for certificate issuance result ----------------------------
+# --- Step 12: Poll for certificate issuance result ----------------------------
 # Usage: poll_certificate <cert_uuid> <cn>
 poll_certificate() {
   local cert_uuid="$1" cn="$2"
@@ -1408,7 +1409,7 @@ poll_certificate() {
 }
 
 
-# --- Trust the certificate chain ----------------------------------------------
+# --- Step 13: Trust the certificate chain -------------------------------------
 # Usage: trust_certificate_chain <cert_uuid>
 #
 # Walks issuerCertificateUuid upward from <cert_uuid> and marks the root CA as
@@ -1524,7 +1525,7 @@ wait_for_certificate_validation() {
   done
 }
 
-# --- Step 11: TSP profile -----------------------------------------------------
+# --- Step 14: TSP profile -----------------------------------------------------
 # Usage: setup_tsp_profile <name> <out_tsp_uuid_var>
 setup_tsp_profile() {
   local tsp_name="$1" out_tsp_uuid="$2"
@@ -1559,7 +1560,7 @@ setup_tsp_profile() {
   printf -v "$out_tsp_uuid" '%s' "$_tsp_uuid"
 }
 
-# --- Step 11b: TSP Basic credential ------------------------------------------
+# --- Step 17: TSP Basic credential -------------------------------------------
 # Usage: setup_tsp_basic_credential <tsp_uuid>
 # Creates a username/password credential on the TSP profile, mapped to MAPPED_USER_UUID.
 # Idempotent: usernames are unique per profile (create returns 409), so an existing one is reused.
@@ -1585,7 +1586,7 @@ setup_tsp_basic_credential() {
   ok "Basic credential created"
 }
 
-# --- Step 12: Signing Profile -------------------------------------------------
+# --- Step 15: Signing Profile -------------------------------------------------
 # Usage: setup_signing_profile <sp_name> <cert_uuid> <policy_oid> <time_quality_uuid> <formatter_conn_uuid> <out_sp_uuid_var>
 #
 # Pass a non-empty <time_quality_uuid> for the qualified profile to enable
@@ -1686,7 +1687,7 @@ setup_signing_profile() {
   printf -v "$out_sp_uuid" '%s' "$_sp_uuid"
 }
 
-# --- Step 13: Link Signing Profile ↔ TSP Profile (bidirectional) ---------------
+# --- Step 16: Link Signing Profile ↔ TSP Profile (bidirectional) ---------------
 # Usage: link_tsp_signing_profile <tsp_uuid> <tsp_name> <sp_uuid>
 #
 # Direction 1: TSP profile → Signing Profile (sets defaultSigningProfileUuid)

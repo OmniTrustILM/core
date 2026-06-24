@@ -283,13 +283,6 @@ def format_value_raw(tag_number, value):
     return f"({len(value)} bytes) {h}" if value else ""
 
 
-def get_first_oid(node):
-    for c in node.children:
-        if c.is_universal and c.tag_number == 6 and c.value:
-            return decode_oid(c.value)
-    return None
-
-
 def _extract_oid_value(node):
     """Extract dotted OID string from an OID node."""
     if node.is_universal and node.tag_number == 6 and node.value:
