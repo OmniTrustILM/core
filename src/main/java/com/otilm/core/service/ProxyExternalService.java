@@ -8,7 +8,6 @@ import com.otilm.api.model.core.proxy.ProxyDto;
 import com.otilm.api.model.core.proxy.ProxyInstallInstructionsDto;
 import com.otilm.api.model.core.proxy.ProxyListDto;
 import com.otilm.api.model.core.proxy.ProxyStatus;
-import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
@@ -18,7 +17,7 @@ import java.util.Optional;
 /**
  * Service for managing proxy entities.
  */
-public interface ProxyService extends ResourceExtensionService {
+public interface ProxyExternalService {
 
     /**
      * Lists all proxies accessible by the current user, optionally filtered by status.
@@ -37,15 +36,6 @@ public interface ProxyService extends ResourceExtensionService {
      * @throws NotFoundException if proxy not found
      */
     ProxyDto getProxy(SecuredUUID uuid) throws NotFoundException;
-
-    /**
-     * Retrieves a proxy entity by its UUID.
-     *
-     * @param uuid the proxy UUID
-     * @return proxy entity
-     * @throws NotFoundException if proxy not found
-     */
-    Proxy getProxyEntity(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Creates a new proxy and provisions it via the external provisioning API.

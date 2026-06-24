@@ -13,7 +13,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SigningRecordStatisticsServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
     @Autowired
     private SigningRecordRepository signingRecordRepository;
     @Autowired

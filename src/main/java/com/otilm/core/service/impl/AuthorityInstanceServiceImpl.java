@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.AUTHORITY)
 @Transactional
-public class AuthorityInstanceServiceImpl implements AuthorityInstanceService, AttributeResourceService {
+public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalService, AuthorityInstanceInternalService, AttributeResourceService {
     private static final Logger logger = LoggerFactory.getLogger(AuthorityInstanceServiceImpl.class);
 
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;

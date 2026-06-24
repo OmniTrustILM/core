@@ -9,7 +9,7 @@ import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
 class CryptographicOperationServiceSignerTest {
 
     @Mock
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
 
     private CryptographicOperationServiceSigner signer;
 

@@ -6,7 +6,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StaticManagedKeySignerCreatorTest {
 
     @Mock
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
 
     private StaticManagedKeySignerCreator creator;
 

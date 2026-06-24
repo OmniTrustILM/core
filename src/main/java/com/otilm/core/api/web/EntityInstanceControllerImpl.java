@@ -22,7 +22,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.EntityInstanceService;
+import com.otilm.core.service.EntityInstanceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,11 +35,11 @@ import java.util.List;
 public class EntityInstanceControllerImpl implements EntityInstanceController {
 
     @Autowired
-    public void setEntityInstanceService(EntityInstanceService entityInstanceService) {
+    public void setEntityInstanceService(EntityInstanceExternalService entityInstanceService) {
         this.entityInstanceService = entityInstanceService;
     }
 
-    private EntityInstanceService entityInstanceService;
+    private EntityInstanceExternalService entityInstanceService;
 
     @Override
     @AuthEndpoint(resourceName = Resource.ENTITY)

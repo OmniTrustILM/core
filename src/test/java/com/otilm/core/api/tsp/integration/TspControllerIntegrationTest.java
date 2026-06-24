@@ -90,7 +90,7 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
     @Autowired
     private SigningProfileService signingProfileService;
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileExternalService tspProfileService;
     @Autowired
     private ConnectorService connectorService;
     @Autowired
@@ -143,11 +143,16 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        cryptographyProviderMock = connectorMockFactory.startCryptographyProvider()
+        // Assign each mock field immediately after its server starts — before stubbing — so a stub step
+        // that throws still leaves the started server reachable for tearDown() to stop (avoiding a port leak
+        // and a masking NPE on a null field).
+        cryptographyProviderMock = connectorMockFactory.startCryptographyProvider();
+        cryptographyProviderMock
                 .stubTokenInstanceCreation(UUID.randomUUID())
                 .stubTokenProfileCreation()
                 .stubRealSigning();
-        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter()
+        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter();
+        timestampingFormatterMock
                 .stubFormatterAttributes()
                 .stubFormatDtbs()
                 .stubFormatResponse();
@@ -205,8 +210,12 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
 
     @AfterEach
     public void tearDown() {
-        cryptographyProviderMock.stop();
-        timestampingFormatterMock.stop();
+        if (cryptographyProviderMock != null) {
+            cryptographyProviderMock.stop();
+        }
+        if (timestampingFormatterMock != null) {
+            timestampingFormatterMock.stop();
+        }
     }
 
     /**
