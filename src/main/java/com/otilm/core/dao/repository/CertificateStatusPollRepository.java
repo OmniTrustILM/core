@@ -29,7 +29,7 @@ public interface CertificateStatusPollRepository extends JpaRepository<Certifica
      */
     @Modifying
     @Query(value = """
-            INSERT INTO certificate_status_poll (uuid, certificate_uuid, operation, attempt, next_poll_at)
+            INSERT INTO {h-schema}certificate_status_poll (uuid, certificate_uuid, operation, attempt, next_poll_at)
             VALUES (:uuid, :certificateUuid, :operation, 0, :nextPollAt)
             ON CONFLICT (certificate_uuid) DO NOTHING
             """, nativeQuery = true)
