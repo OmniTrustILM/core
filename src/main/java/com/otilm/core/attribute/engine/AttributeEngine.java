@@ -32,7 +32,6 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
-import com.otilm.core.attribute.engine.records.*;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -1110,6 +1109,9 @@ public class AttributeEngine {
     }
 
     private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr) throws AttributeException {
+        if (attribute.getContentType() != AttributeContentType.STRING && attribute.getContentType() != AttributeContentType.TEXT)
+            throw new AttributeException("fieldMapping is only valid for attributes with STRING or TEXT content type",
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         FieldMapping fieldMapping = attribute.getFieldMapping();
         if (fieldMapping.getObjectType() == null)
             throw new AttributeException("fieldMapping.objectType is required",

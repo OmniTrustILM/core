@@ -1326,6 +1326,19 @@ class AttributeEngineTest extends BaseSpringBootTest {
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
         }
 
+        // ── contentType must be STRING for fieldMapping attributes ────────────────
+
+        @Test
+        void testFieldMapping_nonStringContentType_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_integer");
+            attr.setContentType(AttributeContentType.INTEGER);
+            attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
         // ── isRequestOperation gating ─────────────────────────────────────────────
 
         @Test
