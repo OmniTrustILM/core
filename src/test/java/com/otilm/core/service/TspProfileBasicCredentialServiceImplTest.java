@@ -44,7 +44,7 @@ import static org.mockito.Mockito.when;
 class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
 
     @Autowired
-    private TspProfileBasicCredentialService service;
+    private TspProfileBasicCredentialExternalService service;
 
     @Autowired
     private TspProfileRepository tspProfileRepository;

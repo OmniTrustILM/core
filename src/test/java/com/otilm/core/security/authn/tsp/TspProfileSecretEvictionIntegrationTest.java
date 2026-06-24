@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * End-to-end proof of the rotation-invalidation wiring that the unit tests can only cover link-by-link:
  * a committed {@link SecretContentUpdatedEvent} must flow through {@link TspProfileSecretEvictionListener}
- * (AFTER_COMMIT) into {@code TspProfileBasicCredentialService.evictCachesForSecret} and clear the real
+ * (AFTER_COMMIT) into {@code TspProfileBasicCredentialInternalService.evictCachesForSecret} and clear the real
  * caches. This is the path a password rotation relies on, since {@code update()} intentionally does not
  * evict the verification cache eagerly on rotation.
  */

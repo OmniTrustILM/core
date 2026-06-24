@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Drives {@link SigningRecordService} end to end: signing profiles are created through {@link SigningProfileService}
+ * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through {@link SigningProfileService}
  * against a live {@link SignerConnectorMock}, signing records are persisted through {@link SigningRecordWriter}, and
  * every assertion reads back through the service under test. Nothing touches a repository directly.
  */
@@ -62,7 +62,10 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     private static final String BETA_RECORD_V1 = "beta-record-v1";
 
     @Autowired
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
+
+    @Autowired
+    private SigningRecordInternalService signingRecordInternalService;
 
     @Autowired
     private SigningProfileService signingProfileService;
@@ -495,7 +498,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             Fixture fixture = seedRecordsAcrossProfilesAndVersions();
 
             // when
-            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+            boolean exists = signingRecordInternalService.doesSigningRecordExistInternal(
                     UUID.fromString(fixture.alpha().getUuid()), VERSION_2);
 
             // then
@@ -509,7 +512,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             int versionWithoutRecords = 3;
 
             // when
-            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+            boolean exists = signingRecordInternalService.doesSigningRecordExistInternal(
                     UUID.fromString(fixture.alpha().getUuid()), versionWithoutRecords);
 
             // then
@@ -523,7 +526,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
             Fixture fixture = seedRecordsAcrossProfilesAndVersions();
 
             // when
-            boolean exists = signingRecordService.doesSigningRecordExistInternal(
+            boolean exists = signingRecordInternalService.doesSigningRecordExistInternal(
                     UUID.fromString(fixture.beta().getUuid()), VERSION_2);
 
             // then

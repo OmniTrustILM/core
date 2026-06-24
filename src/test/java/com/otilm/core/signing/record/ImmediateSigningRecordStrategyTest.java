@@ -12,7 +12,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,7 +44,7 @@ class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
     private ImmediateSigningRecordStrategy strategy;
 
     @Autowired
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
 
     @Autowired
     private SigningProfileRepository profileRepo;

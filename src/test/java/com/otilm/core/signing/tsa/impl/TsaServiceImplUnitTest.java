@@ -7,7 +7,7 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.workflow.DelegatedTimestampingWorkflow;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
 class TsaServiceImplUnitTest {
 
     @Mock
-    TspProfileService tspProfileService;
+    TspProfileInternalService tspProfileService;
     @Mock
     SigningProfileService signingProfileService;
     @Mock
@@ -76,7 +76,7 @@ class TsaServiceImplUnitTest {
         void propagatesNotFound_whenTspProfileDoesNotExist() throws NotFoundException {
             // given
             when(tspProfileService.getTspProfile("nonexistent"))
-                    .thenThrow(new NotFoundException(TspProfileService.class, "nonexistent"));
+                    .thenThrow(new NotFoundException(TspProfileInternalService.class, "nonexistent"));
 
             // when
             Executable call = () -> tsaService.processTspRequestForTspProfile("nonexistent", aTspRequest().build());
@@ -396,7 +396,7 @@ class TsaServiceImplUnitTest {
             // given
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID))
-                    .thenThrow(new NotFoundException(TspProfileService.class, "tsp-profile"));
+                    .thenThrow(new NotFoundException(TspProfileInternalService.class, "tsp-profile"));
 
             // when
             Executable call = () -> tsaService.processTspRequestForSigningProfile("signing-profile", aTspRequest().build());

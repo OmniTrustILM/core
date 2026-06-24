@@ -38,7 +38,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TimeQualityConfigurationService;
+import com.otilm.core.service.TimeQualityConfigurationExternalService;
+import com.otilm.core.service.TimeQualityConfigurationInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.SearchHelper;
@@ -67,7 +68,7 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service(Resource.Codes.TIME_QUALITY_CONFIGURATION)
-public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigurationService {
+public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigurationExternalService, TimeQualityConfigurationInternalService {
 
     private static final String NOT_FOUND_MSG = "Time Quality Configuration not found: ";
 
