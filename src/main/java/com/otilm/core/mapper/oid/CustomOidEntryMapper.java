@@ -36,7 +36,7 @@ public class CustomOidEntryMapper {
         }
         if (entry instanceof CertificateExtensionCustomOidEntry ext) {
             CertificateExtensionOidPropertiesDto dto = new CertificateExtensionOidPropertiesDto();
-            dto.setDefaultCritical(ext.isDefaultCritical());
+            dto.setDefaultCritical(ext.getDefaultCritical());
             dto.setValueEncoding(ext.getValueEncoding());
             return dto;
         }
