@@ -2,22 +2,28 @@
 # timestamping-setup.sh
 #
 # Automates the ILM timestamping environment setup:
-#   1. Creates four connectors (credential-provider, EJBCA, crypto-provider, signature-formatter)
+#   1. Creates five connectors (credential-provider v1, EJBCA, crypto-provider, signature-formatter,
+#      and a credential-provider v2 registration used as the vault via its `secret` interface)
 #   2. Creates a SoftKeyStore credential from a PKCS12 bundle
 #   3. Creates an EJBCA authority instance
 #   4. Creates a soft token
 #   5. Creates a token profile
 #   6. Creates a Time Quality configuration (used by the qualified signing profile)
+#   7. Discovers the vault instance (by name) and creates a vault profile under it
+#      (the vault profile backs the TSP profiles' Basic credentials)
+#   8. Creates the dedicated mapped user the Basic credentials authenticate as,
+#      and grants it the TSP timestamping right (role with resource 'tspProfiles' / action 'timestamp')
 #   For each of two sets (non-qualified / qualified):
-#       7. Creates an RSA 2048 key pair
-#       8. Creates an RA profile (resolving EJBCA profile IDs dynamically)
-#       9. Issues a TSA certificate with the requested DN suffix
-#      10. Polls for certificate issuance completion
-#      11. Trusts the certificate chain (marks root CA as trusted, triggers validation)
-#      12. Creates and enables a TSP profile
-#      13. Creates and enables a Signing Profile
+#       9. Creates an RSA 2048 key pair
+#      10. Creates an RA profile (resolving EJBCA profile IDs dynamically)
+#      11. Issues a TSA certificate with the requested DN suffix
+#      12. Polls for certificate issuance completion
+#      13. Trusts the certificate chain (marks root CA as trusted, triggers validation)
+#      14. Creates and enables a TSP profile (clientCertificate + basicPassword, linked to the vault profile)
+#      15. Creates and enables a Signing Profile
 #          (qualified profile links to the Time Quality configuration)
-#      14. Links the Signing Profile to the TSP Profile bidirectionally
+#      16. Links the Signing Profile to the TSP Profile bidirectionally
+#      17. Creates a Basic (username/password) credential on the TSP profile, mapped to the user
 #
 # Requires: curl, jq, base64
 
@@ -62,6 +68,31 @@ TSP_PROFILE_NAME_BASE="tsp"       # -non-qualified / -qualified appended
 SIGNING_PROFILE_NAME_BASE="tsa"   # -non-qualified / -qualified appended
 FORMATTER_CONNECTOR_NAME="signature-formatter"
 
+# Vault backing for TSP Basic credentials.
+# The common-credential-provider, when registered as a v2 connector, exposes the `secret`
+# interface and acts as the vault provider -- no separate vault service is needed. This v2
+# registration runs at the same URL/port as the v1 credential-provider (PORT_CRED_PROVIDER).
+VAULT_CONNECTOR_NAME="common-credential-provider-v2"
+VAULT_INSTANCE_NAME="vault"
+VAULT_PROFILE_NAME="timestamping"
+# The common-credential-provider vault requires no data attributes at either the instance or the
+# profile level (its listVaultAttributes / listVaultProfileAttributes both return an empty list),
+# so both creation requests send an empty attributes array. Hardcoded here; not parametrized.
+
+# Mapped user the TSP Basic credentials authenticate as (created if absent; no certificate).
+MAPPED_USER_USERNAME="f.jednicka"
+MAPPED_USER_FIRST_NAME="Franta Pepa"
+MAPPED_USER_LAST_NAME="Jednicka"
+MAPPED_USER_EMAIL="franta.pepa.jednicka@example.com"
+
+# Role granting the mapped user the TSP timestamping right (resource 'tspProfiles', action 'timestamp').
+# Without it, every TSP request is rejected by the OPA authorization check in TsaServiceImpl.
+MAPPED_USER_ROLE_NAME="timestamping"
+
+# TSP Basic credential (created on both TSP profiles).
+TSP_CREDENTIAL_USERNAME="f.jednicka"
+TSP_CREDENTIAL_PASSWORD="your-strong-password"
+
 # Policy OIDs (hardcoded; can be overridden via CLI)
 POLICY_ID_NON_QUALIFIED="1.2.3.4.5.6"
 POLICY_ID_QUALIFIED="1.2.3.4.5.7"
@@ -89,10 +120,15 @@ CRED_CONN_UUID=""
 EJBCA_CONN_UUID=""
 CRYPTO_CONN_UUID=""
 FORMATTER_CONN_UUID=""
+VAULT_CONN_UUID=""
 CRED_UUID=""
 AUTH_UUID=""
 TOKEN_UUID=""
 TOKEN_PROFILE_UUID=""
+VAULT_INSTANCE_UUID=""
+VAULT_PROFILE_UUID=""
+MAPPED_USER_UUID=""
+MAPPED_USER_ROLE_UUID=""
 
 # Time Quality configuration
 TIME_QUALITY_UUID=""
@@ -132,6 +168,15 @@ Connector options (defaults: localhost, ports 8200/8210/8230/8270):
   --port-formatter PORT       signature-formatter-connector port  (default: 8270)
   --formatter-connector-name NAME
                               Signature Formatter Connector name  (default: signature-formatter)
+  --vault-connector-name NAME credential-provider v2 connector used as vault
+                              (default: common-credential-provider-v2; runs on --port-cred-provider)
+
+Vault / Basic credential options:
+  --vault-instance-name NAME  Vault instance name (created if absent; default: vault)
+  --vault-profile-name NAME   Vault profile name (created if absent; default: timestamping)
+  --mapped-user-username NAME Username of the mapped user for Basic credentials (default: f.jednicka)
+  --tsp-credential-username NAME  Basic credential username (default: f.jednicka)
+  --tsp-credential-password PASS  Basic credential password (default: your-strong-password)
 
 Credential/token options:
   --pkcs12-password PASS      PKCS12 bundle password     (default: 00000000)
@@ -290,6 +335,12 @@ parse_args() {
       --port-crypto-provider)                   PORT_CRYPTO_PROVIDER="$2";                   shift 2 ;;
       --port-formatter)                         PORT_FORMATTER="$2";                         shift 2 ;;
       --formatter-connector-name)               FORMATTER_CONNECTOR_NAME="$2";               shift 2 ;;
+      --vault-connector-name)                   VAULT_CONNECTOR_NAME="$2";                   shift 2 ;;
+      --vault-instance-name)                    VAULT_INSTANCE_NAME="$2";                    shift 2 ;;
+      --vault-profile-name)                     VAULT_PROFILE_NAME="$2";                     shift 2 ;;
+      --mapped-user-username)                   MAPPED_USER_USERNAME="$2";                   shift 2 ;;
+      --tsp-credential-username)                TSP_CREDENTIAL_USERNAME="$2";                shift 2 ;;
+      --tsp-credential-password)                TSP_CREDENTIAL_PASSWORD="$2";                shift 2 ;;
       --ilm-host)                               ILM_HOST="$2";                               shift 2 ;;
       --auth-mode)                              AUTH_MODE="$2";                              shift 2 ;;
       --client-cert-pem)                        CLIENT_CERT_PEM="$2";                        shift 2 ;;
@@ -496,6 +547,11 @@ setup_connectors() {
     '(.interfaces // []) | any(.code=="signatureFormatting" and ((.features // []) | index("timestamping")))' \
     create_formatter_connector
   ok "signature-formatter  $FORMATTER_CONN_UUID"
+
+  discover_or_create_connector VAULT_CONN_UUID "vault (credential-provider v2)" "$CONNECTORS_V2_JSON" \
+    '(.interfaces // []) | any(.code=="secret")' \
+    create_vault_connector
+  ok "$VAULT_CONNECTOR_NAME  $VAULT_CONN_UUID"
 }
 
 create_cred_connector() {
@@ -528,6 +584,14 @@ create_formatter_connector() {
   _resp=$(ilm_curl POST /v2/connectors -d \
     "{\"name\":\"${FORMATTER_CONNECTOR_NAME}\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_FORMATTER}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v2\"}")
   require_uuid "$_resp" "signature-formatter connector"
+}
+
+create_vault_connector() {
+  local _resp
+  log "Creating credential-provider v2 connector for vault use (port ${PORT_CRED_PROVIDER})..."
+  _resp=$(ilm_curl POST /v2/connectors -d \
+    "{\"name\":\"${VAULT_CONNECTOR_NAME}\",\"url\":\"http://${CONNECTOR_HOST}:${PORT_CRED_PROVIDER}\",\"authType\":\"none\",\"customAttributes\":[],\"version\":\"v2\"}")
+  require_uuid "$_resp" "${VAULT_CONNECTOR_NAME} connector"
 }
 
 # --- Step 2: Credential -------------------------------------------------------
@@ -791,6 +855,199 @@ setup_time_quality_config() {
       }')")
   TIME_QUALITY_UUID=$(require_uuid "$_resp" "Time Quality configuration '${TIME_QUALITY_CONFIG_NAME}'")
   ok "Time Quality configuration  $TIME_QUALITY_UUID"
+}
+
+# --- Step 7a: Vault instance -------------------------------------------------
+# Created (or reused) under the credential-provider v2 connector, bound to its `secret` interface.
+# The connector requires no instance data attributes, so the request sends an empty attributes array.
+setup_vault_instance() {
+  local _resp _list _existing iface_uuid
+
+  _list=$(list_paginated /v1/vaults/list)
+  _existing=$(find_named_item "$_list" "$VAULT_INSTANCE_NAME")
+  if [[ -n "$_existing" ]]; then
+    VAULT_INSTANCE_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing vault instance '${VAULT_INSTANCE_NAME}'  $VAULT_INSTANCE_UUID"
+    return 0
+  fi
+
+  iface_uuid=$(vault_secret_interface_uuid)
+
+  log "Creating vault instance '${VAULT_INSTANCE_NAME}'..."
+  _resp=$(ilm_curl POST /v1/vaults -d \
+    "$(jq -n \
+      --arg name      "$VAULT_INSTANCE_NAME" \
+      --arg connUuid  "$VAULT_CONN_UUID" \
+      --arg ifaceUuid "$iface_uuid" \
+      '{connectorUuid: $connUuid, interfaceUuid: $ifaceUuid, name: $name,
+        attributes: [], customAttributes: []}')")
+  VAULT_INSTANCE_UUID=$(require_uuid "$_resp" "vault instance '${VAULT_INSTANCE_NAME}'")
+  ok "vault instance  $VAULT_INSTANCE_UUID"
+}
+
+# vault_secret_interface_uuid -- uuid of the vault connector's `secret` interface (needed as
+# interfaceUuid when creating a vault instance).
+vault_secret_interface_uuid() {
+  local connectors iface
+  connectors=$(ilm_curl POST /v2/connectors/list -d \
+    '{"itemsPerPage":1000,"pageNumber":1,"filters":[]}' | jq '.items // []')
+  iface=$(echo "$connectors" | jq -r --arg u "$VAULT_CONN_UUID" \
+    'first(.[] | select(.uuid==$u) | .interfaces[] | select(.code=="secret") | .uuid) // empty')
+  [[ -z "$iface" ]] && die "Vault connector ${VAULT_CONN_UUID} exposes no 'secret' interface"
+  echo "$iface"
+}
+
+# --- Step 7b: Vault profile --------------------------------------------------
+# Created under the (reused) vault instance; backs the TSP profiles' Basic credentials.
+# The connector requires no profile data attributes, so the request sends an empty attributes array.
+setup_vault_profile() {
+  local _resp _existing _list
+
+  _list=$(list_paginated /v1/vaultProfiles/list)
+  _existing=$(find_named_item "$_list" "$VAULT_PROFILE_NAME")
+  if [[ -n "$_existing" ]]; then
+    VAULT_PROFILE_UUID=$(echo "$_existing" | jq -r '.uuid')
+    if [[ "$(echo "$_existing" | jq -r '.enabled // false')" != "true" ]]; then
+      ilm_curl PATCH "/v1/vaults/${VAULT_INSTANCE_UUID}/vaultProfiles/${VAULT_PROFILE_UUID}/enable" >/dev/null
+    fi
+    ok "reusing existing vault profile '${VAULT_PROFILE_NAME}'  $VAULT_PROFILE_UUID"
+    return 0
+  fi
+
+  log "Creating vault profile '${VAULT_PROFILE_NAME}'..."
+  _resp=$(ilm_curl POST "/v1/vaults/${VAULT_INSTANCE_UUID}/vaultProfiles" -d \
+    "$(jq -n --arg name "$VAULT_PROFILE_NAME" \
+      '{name: $name, description: "", attributes: [], customAttributes: []}')")
+  VAULT_PROFILE_UUID=$(require_uuid "$_resp" "vault profile '${VAULT_PROFILE_NAME}'")
+  ok "vault profile  $VAULT_PROFILE_UUID"
+
+  log "Enabling vault profile..."
+  ilm_curl PATCH "/v1/vaults/${VAULT_INSTANCE_UUID}/vaultProfiles/${VAULT_PROFILE_UUID}/enable" >/dev/null
+  ok "vault profile enabled"
+}
+
+# --- Step 8: Mapped user -----------------------------------------------------
+# The user the TSP Basic credentials authenticate as. Created without a certificate; a basic
+# credential may not map to a system user, so a dedicated regular user is used.
+setup_mapped_user() {
+  local _resp _list _existing
+  _list=$(ilm_curl GET /v1/users)
+  _existing=$(find_named_item "$_list" "$MAPPED_USER_USERNAME")
+  if [[ -z "$_existing" ]]; then
+    # GET /v1/users matches on .username, not .name
+    _existing=$(echo "$_list" | jq -c --arg u "$MAPPED_USER_USERNAME" 'first(.[] | select(.username==$u)) // empty')
+  fi
+  if [[ -n "$_existing" ]]; then
+    MAPPED_USER_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing user '${MAPPED_USER_USERNAME}'  $MAPPED_USER_UUID"
+    return 0
+  fi
+
+  log "Creating user '${MAPPED_USER_USERNAME}' (${MAPPED_USER_FIRST_NAME} ${MAPPED_USER_LAST_NAME})..."
+  _resp=$(ilm_curl POST /v1/users -d \
+    "$(jq -n \
+      --arg username  "$MAPPED_USER_USERNAME" \
+      --arg firstName "$MAPPED_USER_FIRST_NAME" \
+      --arg lastName  "$MAPPED_USER_LAST_NAME" \
+      --arg email     "$MAPPED_USER_EMAIL" \
+      '{username: $username, firstName: $firstName, lastName: $lastName, email: $email, enabled: true}')")
+  MAPPED_USER_UUID=$(require_uuid "$_resp" "user '${MAPPED_USER_USERNAME}'")
+  ok "user  $MAPPED_USER_UUID"
+}
+
+# --- Step 8b: Timestamping role ----------------------------------------------
+# Serving one RFC 3161 timestamp request runs OPA authorization checks as the calling user,
+# scattered across the request path (TsaServiceImpl -> resolver -> CryptographicOperationServiceImpl):
+#   tspProfiles/timestamp   - AuthPermissionEvaluationServiceImpl.tspProfileTimestamping (entry gate)
+#   tspProfiles/detail      - TspProfileServiceImpl.getTspProfile
+#   signingProfiles/detail  - SigningProfileServiceImpl.getSigningProfileModel
+#   keys/sign               - CryptographicOperationServiceImpl.signDataWithoutEventHistory (the actual sign)
+#   tokens/detail           - same method, parentResource on the sign annotation
+#   tokenProfiles/detail    - tokenProfile permission evaluation
+# A freshly created user has none of these, so without this step timestamp requests are rejected
+# (often deep in the chain, not at the gate).
+#
+# This function only creates the role and attaches it to the user. The permissions are object-scoped
+# to the concrete TSP/signing profiles, token and token profile, which only exist after the TSA sets
+# are built -- so they are applied later by grant_timestamping_permissions().
+setup_timestamping_role() {
+  local _resp _existing _list
+
+  _list=$(ilm_curl GET /v1/roles)
+  _existing=$(find_named_item "$_list" "$MAPPED_USER_ROLE_NAME")
+  if [[ -n "$_existing" ]]; then
+    MAPPED_USER_ROLE_UUID=$(echo "$_existing" | jq -r '.uuid')
+    ok "reusing existing role '${MAPPED_USER_ROLE_NAME}'  $MAPPED_USER_ROLE_UUID"
+  else
+    log "Creating role '${MAPPED_USER_ROLE_NAME}'..."
+    _resp=$(ilm_curl POST /v1/roles -d \
+      "$(jq -n --arg name "$MAPPED_USER_ROLE_NAME" \
+        '{name: $name, description: "TSP timestamping for the mapped user", customAttributes: []}')")
+    MAPPED_USER_ROLE_UUID=$(require_uuid "$_resp" "role '${MAPPED_USER_ROLE_NAME}'")
+    ok "role  $MAPPED_USER_ROLE_UUID"
+  fi
+
+  if [[ "$(ilm_curl GET "/v1/users/${MAPPED_USER_UUID}/roles" \
+        | jq -r --arg u "$MAPPED_USER_ROLE_UUID" 'any(.[]; .uuid==$u)')" == "true" ]]; then
+    ok "role already attached to user '${MAPPED_USER_USERNAME}'"
+  else
+    log "Attaching role '${MAPPED_USER_ROLE_NAME}' to user '${MAPPED_USER_USERNAME}'..."
+    ilm_curl PUT "/v1/users/${MAPPED_USER_UUID}/roles/${MAPPED_USER_ROLE_UUID}" >/dev/null
+    ok "role attached"
+  fi
+}
+
+# --- Step 12: Object-scoped timestamping permissions -------------------------
+# Applied after both TSA sets exist, so every grant targets concrete object UUIDs rather than the
+# whole resource. The OPA method policy (CZERTAINLY-Auth-OPA-Policies/policies/method_policy.rego)
+# honors object-scoped grants for BOTH request shapes on the timestamp path:
+#   - checks that carry the object UUID (tspProfiles/timestamp via SecuredUUID; tokens/detail via the
+#     SecuredParentUUID token instance) are matched by the "ActionAllowedForSpecificObject" rule;
+#   - name-based checks that carry NO uuid (tspProfiles/detail and signingProfiles/detail load by
+#     String name) are matched by the "ActionAllowedForSomeObjects" rule, which grants when the action
+#     is allowed for some object under the resource.
+# NOTE on keys/sign: the Auth service rejects object-scoped permissions on the 'keys' resource
+# (objectAccess=false in the Auth seed -> "Resource 'Keys' does not support object access permissions"),
+# so keys/sign must be granted resource-wide as an action, not against any object uuid.
+# savePermissions replaces the role's whole permission set, so this is safe to re-apply.
+grant_timestamping_permissions() {
+  local perm_body
+  local nq_tsp_name="${TSP_PROFILE_NAME_BASE}-non-qualified"
+  local q_tsp_name="${TSP_PROFILE_NAME_BASE}-qualified"
+  local nq_sp_name="${SIGNING_PROFILE_NAME_BASE}-non-qualified"
+  local q_sp_name="${SIGNING_PROFILE_NAME_BASE}-qualified"
+
+  perm_body=$(jq -n \
+    --arg tspNqUuid "$TSP_PROFILE_UUID_NQ" --arg tspNqName "$nq_tsp_name" \
+    --arg tspQUuid  "$TSP_PROFILE_UUID_Q"  --arg tspQName  "$q_tsp_name" \
+    --arg spNqUuid  "$SIGNING_PROFILE_UUID_NQ" --arg spNqName "$nq_sp_name" \
+    --arg spQUuid   "$SIGNING_PROFILE_UUID_Q"  --arg spQName  "$q_sp_name" \
+    --arg tokenUuid "$TOKEN_UUID"          --arg tokenName "$TOKEN_NAME" \
+    --arg tpUuid    "$TOKEN_PROFILE_UUID"  --arg tpName    "$TOKEN_PROFILE_NAME" \
+    '{
+      allowAllResources: false,
+      resources: [
+        {name:"tspProfiles", allowAllActions:false, actions:[], objects:[
+          {uuid:$tspNqUuid, name:$tspNqName, allow:["timestamp","detail"], deny:[]},
+          {uuid:$tspQUuid,  name:$tspQName,  allow:["timestamp","detail"], deny:[]}
+        ]},
+        {name:"signingProfiles", allowAllActions:false, actions:[], objects:[
+          {uuid:$spNqUuid, name:$spNqName, allow:["detail"], deny:[]},
+          {uuid:$spQUuid,  name:$spQName,  allow:["detail"], deny:[]}
+        ]},
+        {name:"keys", allowAllActions:false, actions:["sign"], objects:[]},
+        {name:"tokens", allowAllActions:false, actions:[], objects:[
+          {uuid:$tokenUuid, name:$tokenName, allow:["detail"], deny:[]}
+        ]},
+        {name:"tokenProfiles", allowAllActions:false, actions:[], objects:[
+          {uuid:$tpUuid, name:$tpName, allow:["detail"], deny:[]}
+        ]}
+      ]
+    }')
+
+  log "Granting object-scoped timestamping permissions to role '${MAPPED_USER_ROLE_NAME}'..."
+  ilm_curl POST "/v1/roles/${MAPPED_USER_ROLE_UUID}/permissions" -d "$perm_body" >/dev/null
+  ok "object-scoped permissions granted"
 }
 
 # --- Step 7: Key pair ---------------------------------------------------------
@@ -1287,8 +1544,11 @@ setup_tsp_profile() {
 
   log "Creating TSP profile '${tsp_name}'..."
   _resp=$(ilm_curl POST /v1/tspProfiles -d \
-    "$(jq -n --arg name "$tsp_name" \
-      '{name: $name, allowedAuthenticationMethods: ["clientCertificate"], customAttributes: []}')")
+    "$(jq -n --arg name "$tsp_name" --arg vaultProfileUuid "$VAULT_PROFILE_UUID" \
+      '{name: $name,
+        vaultProfileUuid: $vaultProfileUuid,
+        allowedAuthenticationMethods: ["clientCertificate", "basicPassword"],
+        customAttributes: []}')")
   _tsp_uuid=$(require_uuid "$_resp" "TSP profile '${tsp_name}'")
   ok "TSP profile  $_tsp_uuid"
 
@@ -1297,6 +1557,32 @@ setup_tsp_profile() {
   ok "TSP profile enabled"
 
   printf -v "$out_tsp_uuid" '%s' "$_tsp_uuid"
+}
+
+# --- Step 11b: TSP Basic credential ------------------------------------------
+# Usage: setup_tsp_basic_credential <tsp_uuid>
+# Creates a username/password credential on the TSP profile, mapped to MAPPED_USER_UUID.
+# Idempotent: usernames are unique per profile (create returns 409), so an existing one is reused.
+setup_tsp_basic_credential() {
+  local tsp_uuid="$1"
+  local _creds _existing
+
+  _creds=$(ilm_curl GET "/v1/tspProfiles/${tsp_uuid}/basicCredentials")
+  _existing=$(echo "$_creds" | jq -c --arg u "$TSP_CREDENTIAL_USERNAME" \
+    'first(.[] | select(.username==$u)) // empty')
+  if [[ -n "$_existing" ]]; then
+    ok "reusing existing Basic credential '${TSP_CREDENTIAL_USERNAME}' on TSP profile ${tsp_uuid}"
+    return 0
+  fi
+
+  log "Creating Basic credential '${TSP_CREDENTIAL_USERNAME}' on TSP profile ${tsp_uuid}..."
+  ilm_curl POST "/v1/tspProfiles/${tsp_uuid}/basicCredentials" -d \
+    "$(jq -n \
+      --arg username      "$TSP_CREDENTIAL_USERNAME" \
+      --arg password      "$TSP_CREDENTIAL_PASSWORD" \
+      --arg mappedUserUuid "$MAPPED_USER_UUID" \
+      '{username: $username, password: $password, mappedUserUuid: $mappedUserUuid}')" >/dev/null
+  ok "Basic credential created"
 }
 
 # --- Step 12: Signing Profile -------------------------------------------------
@@ -1409,12 +1695,18 @@ link_tsp_signing_profile() {
   local tsp_uuid="$1" tsp_name="$2" sp_uuid="$3"
   local _resp
 
+  # PUT replaces the resource: re-send vaultProfileUuid and the auth methods or they would be stripped.
   log "Linking TSP profile '${tsp_name}' to Signing Profile (setting default)..."
   ilm_curl PUT "/v1/tspProfiles/${tsp_uuid}" -d \
     "$(jq -n \
       --arg name   "$tsp_name" \
       --arg spUuid "$sp_uuid" \
-      '{name: $name, defaultSigningProfileUuid: $spUuid, allowedAuthenticationMethods: ["clientCertificate"], customAttributes: []}')" \
+      --arg vaultProfileUuid "$VAULT_PROFILE_UUID" \
+      '{name: $name,
+        defaultSigningProfileUuid: $spUuid,
+        vaultProfileUuid: $vaultProfileUuid,
+        allowedAuthenticationMethods: ["clientCertificate", "basicPassword"],
+        customAttributes: []}')" \
     >/dev/null
   ok "TSP profile default Signing Profile set"
 
@@ -1450,9 +1742,15 @@ setup_tsa_set() {
     ra_uuid=$(uuid_of_named "$_list" "$ra_name")
     _list=$(list_paginated /v1/tspProfiles/list)
     tsp_uuid=$(uuid_of_named "$_list" "$tsp_name")
+    # A reused set with no matching TSP profile is a half-configured state: grant_timestamping_permissions
+    # would otherwise emit a tspProfiles grant keyed to an empty UUID, so the timestamp right is silently
+    # never granted and only surfaces as an OPA rejection at request time. Fail fast instead.
+    [[ -z "$tsp_uuid" ]] && die "Reused Signing Profile '${sp_name}' ($sp_uuid) has no matching TSP profile '${tsp_name}'; resolve the inconsistency (recreate or rename the TSP profile) and re-run"
     # The detail DTO nests the cert as signingScheme.certificate (CertificateSimpleDto), not certificateUuid.
     sp_details=$(ilm_curl GET "/v1/signingProfiles/${sp_uuid}")
     cert_uuid=$(echo "$sp_details" | jq -r '.signingScheme.certificate.uuid // empty')
+    [[ -z "$cert_uuid" ]] && die "Reused Signing Profile '${sp_name}' ($sp_uuid) has no signing certificate; resolve the inconsistency and re-run"
+    setup_tsp_basic_credential "$tsp_uuid"
   else
     setup_key_pair    "$key_name" key_uuid priv_uuid
     setup_ra_profile  "$ra_name" "$cert_profile" ra_uuid
@@ -1462,6 +1760,7 @@ setup_tsa_set() {
     setup_tsp_profile "$tsp_name" tsp_uuid
     setup_signing_profile "$sp_name" "$cert_uuid" "$policy_oid" "$tq_uuid" "$FORMATTER_CONN_UUID" sp_uuid
     link_tsp_signing_profile "$tsp_uuid" "$tsp_name" "$sp_uuid"
+    setup_tsp_basic_credential "$tsp_uuid"
   fi
 
   printf -v "KEY_UUID_${g}"             '%s' "$key_uuid"
@@ -1491,10 +1790,15 @@ Setup complete. Created resources:
     connector       ejbca-ng-connector              $EJBCA_CONN_UUID
     connector       software-cryptography-provider  $CRYPTO_CONN_UUID
     connector       $FORMATTER_CONNECTOR_NAME       $FORMATTER_CONN_UUID
+    connector       $VAULT_CONNECTOR_NAME           $VAULT_CONN_UUID
     credential      $CREDENTIAL_NAME                $CRED_UUID
     authority       $AUTHORITY_NAME                 $AUTH_UUID
     token           $TOKEN_NAME                     $TOKEN_UUID
     token-profile   $TOKEN_PROFILE_NAME             $TOKEN_PROFILE_UUID
+    vault-instance  $VAULT_INSTANCE_NAME            $VAULT_INSTANCE_UUID
+    vault-profile   $VAULT_PROFILE_NAME             $VAULT_PROFILE_UUID
+    mapped-user     $MAPPED_USER_USERNAME          $MAPPED_USER_UUID
+    role            $MAPPED_USER_ROLE_NAME         $MAPPED_USER_ROLE_UUID  (object-scoped: tspProfiles, signingProfiles, keys, tokens, tokenProfiles)
 
   TSA non-qualified set:
     key             $nq_key_name    $KEY_UUID_NQ
@@ -1502,6 +1806,7 @@ Setup complete. Created resources:
     certificate     CN=${CERTIFICATE_DN}-non-qualified   $ISSUED_CERT_UUID_NQ
     tsp-profile     $nq_tsp_name    $TSP_PROFILE_UUID_NQ
     signing-profile $nq_sp_name     $SIGNING_PROFILE_UUID_NQ
+    basic-cred      $TSP_CREDENTIAL_USERNAME (mapped user $MAPPED_USER_USERNAME)
 
   TSA qualified set:
     time-quality    $TIME_QUALITY_CONFIG_NAME       $TIME_QUALITY_UUID
@@ -1510,6 +1815,7 @@ Setup complete. Created resources:
     certificate     CN=${CERTIFICATE_DN}-qualified   $ISSUED_CERT_UUID_Q
     tsp-profile     $q_tsp_name     $TSP_PROFILE_UUID_Q
     signing-profile $q_sp_name      $SIGNING_PROFILE_UUID_Q
+    basic-cred      $TSP_CREDENTIAL_USERNAME (mapped user $MAPPED_USER_USERNAME)
 EOF
 }
 
@@ -1523,9 +1829,15 @@ main() {
   setup_token
   setup_token_profile
   setup_time_quality_config
+  setup_vault_instance
+  setup_vault_profile
+  setup_mapped_user
+  setup_timestamping_role
 
   setup_tsa_set "non-qualified" "$EJBCA_CERT_PROFILE"           "$POLICY_ID_NON_QUALIFIED" ""                   NQ
   setup_tsa_set "qualified"     "$EJBCA_CERT_PROFILE_QUALIFIED" "$POLICY_ID_QUALIFIED"     "$TIME_QUALITY_UUID" Q
+
+  grant_timestamping_permissions
 
   print_summary
 }
