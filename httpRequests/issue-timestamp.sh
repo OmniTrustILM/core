@@ -24,8 +24,8 @@ OUTPUT_DIR="./tmp/tsa-test"
 VERBOSE=false
 
 usage() {
-    cat <<'EOF'
-Usage: test-tsa.sh [OPTIONS]
+    cat <<EOF
+Usage: $(basename "\$0") [OPTIONS]
 
 Test an RFC 3161 TSA endpoint using openssl ts and curl.
 
@@ -35,7 +35,7 @@ default to the ones provisioned by timestamping-setup.sh.
 
 Options:
   -H ILM_HOST     ILM API origin (default: http://localhost:8080)
-  -P TSP_PROFILE  TSP profile name path segment (default: tsp-qualified)
+  -P TSP_PROFILE  TSP profile name path segment (default: tsp-non-qualified)
   -u URL          Full TSA URL; overrides -H/-P composition
   -U USERNAME     HTTP Basic username (default: f.jednicka; empty to disable Basic auth)
   -W PASSWORD     HTTP Basic password (default: your-strong-password)
@@ -48,7 +48,7 @@ Options:
   -K CLIENT_KEY   Client key for mTLS
   -p POLICY_OID   Request specific policy OID
   -n              Omit nonce
-  -o OUTPUT_DIR   Output directory (default: /tmp/tsa-test)
+  -o OUTPUT_DIR   Output directory (default: ./tmp/tsa-test)
   -v              Verbose
   -h              Show this help
 EOF
@@ -167,7 +167,7 @@ else:
 
     # RSA-decrypt the signature to reveal DigestInfo
     echo "--- DigestInfo (RSA-decrypted signature) ---"
-    if openssl rsautl -verify -inkey "$outdir/signer_pubkey.pem" -pubin \
+    if openssl pkeyutl -verifyrecover -inkey "$outdir/signer_pubkey.pem" -pubin \
         -in "$outdir/signature.bin" -out "$outdir/digestinfo.der" 2>/dev/null; then
 
         echo "Hex:"

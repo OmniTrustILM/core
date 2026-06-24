@@ -30,7 +30,7 @@ _OID_NAMES = {
     "1.2.840.113549.1.9.16.2.47": "id-smime-aa-signingCertificateV2",
     "1.2.840.113549.1.1.1": "rsaEncryption",
     "1.2.840.113549.1.1.5": "sha1WithRSAEncryption",
-    "1.2.840.113549.1.1.8": "sha256WithRSAEncryption",
+    "1.2.840.113549.1.1.8": "id-mgf1",
     "1.2.840.113549.1.1.10": "rsassa-pss",
     "1.2.840.113549.1.1.11": "sha256WithRSAEncryption",
     "1.2.840.113549.1.1.12": "sha384WithRSAEncryption",
@@ -63,7 +63,7 @@ _OID_NAMES = {
     "1.2.840.10045.4.3.3": "ecdsa-with-SHA384",
     "1.2.840.10045.4.3.4": "ecdsa-with-SHA512",
     "1.2.840.113549.1.9.1": "id-emailAddress",
-    "1.2.840.113549.1.1.9": "id-mgf1",
+    "1.2.840.113549.1.1.9": "id-pSpecified",
 }
 
 _ATTR_NAMES = {
