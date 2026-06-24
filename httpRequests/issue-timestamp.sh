@@ -2,10 +2,14 @@
 set -euo pipefail
 
 # Defaults
-# The TSP endpoint is POST {ILM_HOST}/api/v1/protocols/tsp/{TSP_PROFILE} (single path segment, no /sign suffix).
-# Setting URL directly overrides the ILM_HOST + TSP_PROFILE composition below.
+# Two route modes (-P switches to TSP profile route, -S to signing profile route):
+#   signing profile (default): POST {ILM_HOST}/api/v1/protocols/tsp/signingProfiles/{SIGNING_PROFILE}
+#   TSP profile:               POST {ILM_HOST}/api/v1/protocols/tsp/{TSP_PROFILE}
+# Setting URL directly overrides both.
 ILM_HOST="http://localhost:8080"
 TSP_PROFILE="tsp-non-qualified"
+SIGNING_PROFILE="tsa-non-qualified"
+ROUTE="signing"   # "signing" | "tsp"
 URL=""
 # HTTP Basic credentials accepted by the TSP profile (defaults match timestamping-setup.sh).
 # Set BASIC_USER to an empty string to send no Authorization header (e.g. when using mTLS client-cert auth).
@@ -29,14 +33,19 @@ Usage: $(basename "\$0") [OPTIONS]
 
 Test an RFC 3161 TSA endpoint using openssl ts and curl.
 
-The endpoint is composed as {ILM_HOST}/api/v1/protocols/tsp/{TSP_PROFILE} unless -u
-overrides it with a full URL. Authenticates with HTTP Basic by default; the credentials
-default to the ones provisioned by timestamping-setup.sh.
+Route mode (default: signing profile):
+  -S SIGNING_PROFILE  POST {ILM_HOST}/api/v1/protocols/tsp/signingProfiles/{name}  (default)
+  -P TSP_PROFILE      POST {ILM_HOST}/api/v1/protocols/tsp/{TSP_PROFILE}
+
+Use -u to override the composed URL entirely.
+Authenticates with HTTP Basic by default; the credentials default to the ones provisioned
+by timestamping-setup.sh.
 
 Options:
-  -H ILM_HOST     ILM API origin (default: http://localhost:8080)
-  -P TSP_PROFILE  TSP profile name path segment (default: tsp-non-qualified)
-  -u URL          Full TSA URL; overrides -H/-P composition
+  -H ILM_HOST         ILM API origin (default: http://localhost:8080)
+  -S SIGNING_PROFILE  Signing profile name (default: tsa-non-qualified)
+  -P TSP_PROFILE      TSP profile name (default: tsp-non-qualified); switches route to TSP profile path
+  -u URL              Full TSA URL; overrides -H/-P/-S composition
   -U USERNAME     HTTP Basic username (default: f.jednicka; empty to disable Basic auth)
   -W PASSWORD     HTTP Basic password (default: tsp-test-changeme)
   -f FILE         File to timestamp (default: creates temp file with "Hello TSA")
@@ -55,10 +64,11 @@ EOF
     exit 0
 }
 
-while getopts "H:P:u:U:W:f:d:T:c:t:C:K:p:no:vh" opt; do
+while getopts "H:P:S:u:U:W:f:d:T:c:t:C:K:p:no:vh" opt; do
     case $opt in
         H) ILM_HOST="$OPTARG" ;;
-        P) TSP_PROFILE="$OPTARG" ;;
+        P) TSP_PROFILE="$OPTARG"; ROUTE="tsp" ;;
+        S) SIGNING_PROFILE="$OPTARG"; ROUTE="signing" ;;
         u) URL="$OPTARG" ;;
         U) BASIC_USER="$OPTARG" ;;
         W) BASIC_PASS="$OPTARG" ;;
@@ -78,9 +88,13 @@ while getopts "H:P:u:U:W:f:d:T:c:t:C:K:p:no:vh" opt; do
     esac
 done
 
-# Compose the endpoint URL from host + profile unless an explicit URL was given.
+# Compose the endpoint URL from the active route unless an explicit URL was given.
 if [[ -z "$URL" ]]; then
-    URL="${ILM_HOST%/}/api/v1/protocols/tsp/${TSP_PROFILE}"
+    if [[ "$ROUTE" == "signing" ]]; then
+        URL="${ILM_HOST%/}/api/v1/protocols/tsp/signingProfiles/${SIGNING_PROFILE}"
+    else
+        URL="${ILM_HOST%/}/api/v1/protocols/tsp/${TSP_PROFILE}"
+    fi
 fi
 
 log() {
