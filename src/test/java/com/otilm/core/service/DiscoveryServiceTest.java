@@ -44,7 +44,10 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
 
 
     @Autowired
-    private DiscoveryService discoveryService;
+    private DiscoveryExternalService discoveryService;
+
+    @Autowired
+    private DiscoveryInternalService discoveryInternalService;
 
     @Autowired
     private DiscoveryRepository discoveryRepository;
@@ -173,7 +176,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
     @Disabled("Async method is not throwing exception")
     void testDiscoverCertificates_notFound() {
         // connector uui not set
-        Assertions.assertThrows(NotFoundException.class, () -> discoveryService.runDiscovery(discovery.getUuid(), null));
+        Assertions.assertThrows(NotFoundException.class, () -> discoveryInternalService.runDiscovery(discovery.getUuid(), null));
     }
 
     @Test
@@ -183,7 +186,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v1/discoveryProvider/[^/]+/attributes/validate"))
                 .willReturn(WireMock.okJson("false")));
 
-        Assertions.assertThrows(ValidationException.class, () -> discoveryService.runDiscovery(discovery.getUuid(), null));
+        Assertions.assertThrows(ValidationException.class, () -> discoveryInternalService.runDiscovery(discovery.getUuid(), null));
     }
 
     @Test
@@ -217,7 +220,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
         persisted.setConnectorUuid(UUID.randomUUID());
         discoveryRepository.save(persisted);
 
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
 
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
@@ -236,7 +239,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
 
         mockServer.resetMappings();
 
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
         DiscoveryHistory persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
 
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
@@ -253,7 +256,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
 
         UUID discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
 
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
 
         DiscoveryHistory persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
@@ -273,7 +276,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
 
         dto.setName("RunDiscoveryDuplicated-" + UUID.randomUUID());
         discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
 
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
@@ -314,7 +317,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
         dto.setName("RunDiscoveryLongRunning-" + UUID.randomUUID());
         discoveryUuid = UUID.fromString(discoveryService.createDiscovery(dto, true).getUuid());
 
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
 
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
@@ -341,7 +344,7 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
         persisted.setStartTime(Date.from(Instant.now().minus(7, java.time.temporal.ChronoUnit.DAYS)));
         discoveryRepository.save(persisted);
 
-        discoveryService.runDiscovery(discoveryUuid, null);
+        discoveryInternalService.runDiscovery(discoveryUuid, null);
 
         persisted = discoveryRepository.findByUuid(discoveryUuid).orElseThrow();
         Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
@@ -350,11 +353,11 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = discoveryService.getResourceObjectInternal(discovery.getUuid());
+        NameAndUuidDto nameAndUuidDto = discoveryInternalService.getResourceObjectInternal(discovery.getUuid());
         Assertions.assertEquals(discovery.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(discovery.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = discoveryService.getResourceObjectExternal(discovery.getSecuredUuid());
+        nameAndUuidDto = discoveryInternalService.getResourceObjectExternal(discovery.getSecuredUuid());
         Assertions.assertEquals(discovery.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(discovery.getName(), nameAndUuidDto.getName());
     }
