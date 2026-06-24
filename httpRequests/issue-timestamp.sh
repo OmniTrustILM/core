@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Defaults
+# Defaults below match the provisioning done by the timestamping-setup.sh script in the
+# development-environment repository. Update here if you change values there.
 # Two route modes (-P switches to TSP profile route, -S to signing profile route):
 #   signing profile (default): POST {ILM_HOST}/api/v1/protocols/tsp/signingProfiles/{SIGNING_PROFILE}
 #   TSP profile:               POST {ILM_HOST}/api/v1/protocols/tsp/{TSP_PROFILE}
