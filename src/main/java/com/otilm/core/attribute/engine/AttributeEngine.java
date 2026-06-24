@@ -1093,7 +1093,7 @@ public class AttributeEngine {
         if (attribute instanceof DataAttribute dataAttribute && dataAttribute.getContentType() == AttributeContentType.RESOURCE) {
             if (attributeResource == null)
                 throw new AttributeException("Attribute with Resource Content Type is missing resource type in properties", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
-            // A Core-side valueSource (STATIC_LIST) resolves content without a connector callback
+            // A Core-side valueSource (anything other than NONE / CONNECTOR_CALLBACK) resolves content without a connector callback
             boolean hasCoreValueSource = attribute instanceof DataAttributeV3 v3
                     && v3.getValueSource() != null
                     && v3.getValueSource().getKind() != null
@@ -1154,12 +1154,13 @@ public class AttributeEngine {
                 String extOid = ext.getExtensionOid();
                 SystemOid systemOid = SystemOid.fromOID(extOid);
                 if ((systemOid == null || systemOid.getCategory() != OidCategory.CERTIFICATE_EXTENSION)
-                        && OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(extOid) == null)
+                        && (OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION) == null || OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(extOid) == null))
                     throw new AttributeException("fieldMapping EXTENSION OID '%s' is not registered in the OID registry".formatted(extOid),
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
             default ->
-                    throw new IllegalStateException("Unexpected MappedField subtype: " + field.getClass().getSimpleName());
+                    throw new AttributeException("Unexpected MappedField subtype: " + field.getClass().getSimpleName(),
+                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         }
     }
 
