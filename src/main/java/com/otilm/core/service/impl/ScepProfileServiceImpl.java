@@ -189,7 +189,14 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
-        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null || request.getIntuneApplicationKey() == null)) {
+        ScepProfile scepProfile = getScepProfileEntity(uuid);
+
+        // Secrets (Intune application key, challenge password) are write-only on edit: a blank or omitted
+        // value keeps the stored secret, mirroring OAuth2 clientSecret handling. The form does not prefill
+        // them, so requiring re-entry on every edit would 422 or silently wipe the existing value.
+        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
+        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null
+                || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Missing Intune tenant and/or intune app identification"));
         }
 
@@ -201,12 +208,11 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
             extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, request.getIssueCertificateAttributes());
         }
 
-        ScepProfile scepProfile = getScepProfileEntity(uuid);
         scepProfile.setRequireManualApproval(false);
         scepProfile.setIncludeCaCertificate(request.isIncludeCaCertificate());
         scepProfile.setIncludeCaCertificateChain(request.isIncludeCaCertificateChain());
         if (request.getRenewalThreshold() != null) scepProfile.setRenewalThreshold(request.getRenewalThreshold());
-        if (scepProfile.getChallengePassword() != null)
+        if (request.getChallengePassword() != null && !request.getChallengePassword().isEmpty())
             scepProfile.setChallengePassword(request.getChallengePassword());
 
         // delete old connector data attributes content
@@ -221,7 +227,9 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setIntuneEnabled(intuneEnabled);
         scepProfile.setIntuneTenant(request.getIntuneTenant());
         scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
-        scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+        if (intuneKeyProvided) {
+            scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+        }
 
         UUID certificateAssociationUuid = null;
         ProtocolCertificateAssociations certificateAssociation = null;

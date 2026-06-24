@@ -319,6 +319,44 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testEditScepProfile_keepsSecretsWhenOmitted() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        // challengePassword and intuneApplicationKey omitted (form does not prefill secrets)
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
+        Assertions.assertEquals("originalKey", updated.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testEditScepProfile_updatesSecretsWhenProvided() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setChallengePassword("newChallenge");
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("newChallenge", updated.getChallengePassword());
+    }
+
+    @Test
     void testEditScepProfile_validationFail() {
         ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
         Assertions.assertThrows(ValidationException.class, () -> scepProfileService.editScepProfile(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"), request));
