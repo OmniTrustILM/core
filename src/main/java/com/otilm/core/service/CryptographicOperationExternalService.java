@@ -1,5 +1,6 @@
 package com.otilm.core.service;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -140,30 +141,4 @@ public interface CryptographicOperationExternalService {
             SecuredUUID tokenInstanceUuid,
             RandomDataRequestDto request
     ) throws ConnectorException, NotFoundException;
-
-    /**
-     * Generate the CSR with the key and token profile and CSR parameters.
-     * Pass {@code null} for {@code extensions} when there are no SAN or extension entries.
-     *
-     * @param keyUuid             UUID of the cryptographic key
-     * @param tokenProfileUuid    UUID of the token profile
-     * @param principal             Subject DN
-     * @param extensions          Optional extensions to embed as pkcs-9-at-extensionRequest
-     * @param signatureAttributes Signature attributes
-     * @return Base64 encoded CSR string
-     * @throws NotFoundException        When the key or token profile is not found
-     * @throws NoSuchAlgorithmException when the algorithm is invalid
-     * @throws InvalidKeySpecException  when the key is invalid
-     * @throws IOException              when there are issues with writing the key data as string
-     */
-    String generateCsr(
-            UUID keyUuid,
-            UUID tokenProfileUuid,
-            X500Principal principal,
-            Extensions extensions,
-            List<RequestAttribute> signatureAttributes,
-            UUID altKeyUUid,
-            UUID altTokenProfileUuid,
-            List<RequestAttribute> altSignatureAttributes
-    ) throws NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException, IOException, AttributeException;
 }
