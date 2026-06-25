@@ -10,7 +10,7 @@ import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.x500.X500Name;
+import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 
@@ -27,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class X509RequestContentRendererTest {
 
     @Nested
-    class ToX500Name {
+    class ToX500Principal {
 
         public static final String MYCODE = "MYCODE";
 
@@ -41,7 +42,7 @@ class X509RequestContentRendererTest {
         }
 
         @Test
-        void buildsDnWithStandardAndCustomRdn() {
+        void buildsDnWithStandardAndCustomRdn() throws IOException {
             RdnEntry cn = new RdnEntry();
             cn.setType("CN");
             cn.setValue("host.example.com");
@@ -51,7 +52,7 @@ class X509RequestContentRendererTest {
             X509RequestContent x509 = new X509RequestContent();
             x509.setSubject(List.of(cn, custom));
 
-            X500Name name = X509RequestContentRenderer.toX500Name(x509);
+            X500Principal name = X509RequestContentRenderer.toX500Principal(x509);
 
             String s = name.toString();
             assertTrue(s.contains("CN=host.example.com"));
@@ -59,29 +60,29 @@ class X509RequestContentRendererTest {
         }
 
         @Test
-        void resolvesCustomCodeViaOidCache() {
+        void resolvesCustomCodeViaOidCache() throws IOException {
             RdnEntry entry = new RdnEntry();
             entry.setType(MYCODE);
             entry.setValue("val");
             X509RequestContent x509 = new X509RequestContent();
             x509.setSubject(List.of(entry));
 
-            X500Name name = X509RequestContentRenderer.toX500Name(x509);
+            X500Principal name = X509RequestContentRenderer.toX500Principal(x509);
 
             assertTrue(name.toString().contains("1.2.3.4.5.6=val"));
         }
 
         @Test
-        void emptySubject_returnsEmptyDn() {
+        void emptySubject_returnsEmptyDn() throws IOException {
             X509RequestContent x509 = new X509RequestContent();
             x509.setSubject(List.of());
 
-            assertEquals("", X509RequestContentRenderer.toX500Name(x509).toString());
+            assertEquals("", X509RequestContentRenderer.toX500Principal(x509).toString());
         }
 
         @Test
-        void nullSubject_returnsEmptyDn() {
-            assertEquals("", X509RequestContentRenderer.toX500Name(new X509RequestContent()).toString());
+        void nullSubject_returnsEmptyDn() throws IOException {
+            assertEquals("", X509RequestContentRenderer.toX500Principal(new X509RequestContent()).toString());
         }
 
         @Test
@@ -92,7 +93,7 @@ class X509RequestContentRendererTest {
             X509RequestContent x509 = new X509RequestContent();
             x509.setSubject(List.of(entry));
 
-            assertThrows(IllegalArgumentException.class, () -> X509RequestContentRenderer.toX500Name(x509));
+            assertThrows(IllegalArgumentException.class, () -> X509RequestContentRenderer.toX500Principal(x509));
         }
     }
 

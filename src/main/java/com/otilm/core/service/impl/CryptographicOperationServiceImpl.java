@@ -39,7 +39,10 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateRequestUtils;
 import org.bouncycastle.asn1.DERBitString;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -430,34 +433,23 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
 
     @Override
     @Transactional
-    public String generateCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
-                              UUID altTokenProfileUuid,
-                              List<RequestAttribute> altSignatureAttributes) throws NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException, IOException, AttributeException {
-        // Check if the UUID of the Key is empty
+    public String generateCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, Extensions extensions,
+                              List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
+                              UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes)
+            throws NotFoundException, NoSuchAlgorithmException, InvalidKeySpecException, IOException {
         if (keyUuid == null) {
-            throw new ValidationException(
-                    ValidationError.create(
-                            "Key UUID Cannot be empty"
-                    )
-            );
+            throw new ValidationException(ValidationError.create("Key UUID Cannot be empty"));
         }
-
-        // Token Profile UUID of the request cannot be empty
         if (tokenProfileUuid == null) {
-            throw new ValidationException(
-                    ValidationError.create(
-                            "Token Profile UUID Cannot be empty"
-                    )
-            );
+            throw new ValidationException(ValidationError.create("Token Profile UUID Cannot be empty"));
         }
 
         Map<KeyType, CryptographicKeyItem> defaultKeyPair = getPublicAndPrivateKey(tokenProfileUuid, keyUuid);
         Map<KeyType, CryptographicKeyItem> altKeyPair = new EnumMap<>(KeyType.class);
         if (altKeyUUid != null && altTokenProfileUuid != null) altKeyPair = getPublicAndPrivateKey(altTokenProfileUuid, altKeyUUid);
 
-        // Generate the CSR
         return generateCsr(
-                principal,
+                X500Name.getInstance(principal.getEncoded()), extensions,
                 defaultKeyPair.get(KeyType.PUBLIC_KEY).getKeyData(),
                 defaultKeyPair.get(KeyType.PRIVATE_KEY),
                 defaultKeyPair.get(KeyType.PUBLIC_KEY),
@@ -528,13 +520,13 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
         return key;
     }
 
-    private String generateCsr(X500Principal principal, String key, CryptographicKeyItem privateKeyItem, CryptographicKeyItem publicKeyItem, List<RequestAttribute> signatureAttributes,
-                               String altKey, CryptographicKeyItem altPrivateKeyItem, CryptographicKeyItem altPublicKeyItem, List<RequestAttribute> altSignatureAttributes) throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, NotFoundException {
-        // Build bouncy castle p10 builder
-        PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(
-                principal,
-                CertificateRequestUtils.publicKeyObjectFromString(key, publicKeyItem.getKeyAlgorithm().getCode())
-        );
+    private String generateCsr(X500Name subject, Extensions extensions,
+                               String key, CryptographicKeyItem privateKeyItem, CryptographicKeyItem publicKeyItem,
+                               List<RequestAttribute> signatureAttributes,
+                               String altKey, CryptographicKeyItem altPrivateKeyItem, CryptographicKeyItem altPublicKeyItem,
+                               List<RequestAttribute> altSignatureAttributes) throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, NotFoundException {
+        var publicKey = CertificateRequestUtils.publicKeyObjectFromString(key, publicKeyItem.getKeyAlgorithm().getCode());
+        PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(subject, publicKey);
 
         if (altKey != null && altPrivateKeyItem != null && altPublicKeyItem != null) {
             ApiClientConnectorInfo altConnectorDto = connectorService.getConnectorForApiClient(altPrivateKeyItem.getKey().getTokenInstanceReference().getConnectorUuid());
@@ -571,6 +563,10 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
                 publicKeyItem.getKeyAlgorithm(),
                 signatureAttributes
         );
+
+        if (extensions != null) {
+            p10Builder.addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensions);
+        }
 
         // Build the CSR with the DN generated and the signer
         PKCS10CertificationRequest csr = p10Builder.build(signer);

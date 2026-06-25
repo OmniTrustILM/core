@@ -11,6 +11,8 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 
+import org.bouncycastle.asn1.x509.Extensions;
+
 import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
@@ -172,15 +174,17 @@ public interface CryptographicOperationService {
     ) throws ConnectorException, NotFoundException;
 
     /**
-     * Generate the CSR with the key and token profile and CSR parameters
+     * Generate the CSR with the key and token profile and CSR parameters.
+     * Pass {@code null} for {@code extensions} when there are no SAN or extension entries.
      *
      * @param keyUuid             UUID of the cryptographic key
      * @param tokenProfileUuid    UUID of the token profile
-     * @param principal           X500 Principal
+     * @param subject             Subject DN
+     * @param extensions          Optional extensions to embed as pkcs-9-at-extensionRequest
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException        When the key or token profile is not found
-     * @throws NoSuchAlgorithmException when thw algorithm is invalid
+     * @throws NoSuchAlgorithmException when the algorithm is invalid
      * @throws InvalidKeySpecException  when the key is invalid
      * @throws IOException              when there are issues with writing the key data as string
      */
@@ -188,6 +192,7 @@ public interface CryptographicOperationService {
             UUID keyUuid,
             UUID tokenProfileUuid,
             X500Principal principal,
+            Extensions extensions,
             List<RequestAttribute> signatureAttributes,
             UUID altKeyUUid,
             UUID altTokenProfileUuid,

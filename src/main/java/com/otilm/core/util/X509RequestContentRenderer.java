@@ -6,9 +6,10 @@ import com.otilm.api.model.connector.v3.certificate.RdnEntry;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.core.oid.OidHandler;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x509.*;
+
+import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.util.encoders.Base64;
 
 import java.io.IOException;
@@ -40,14 +41,14 @@ public final class X509RequestContentRenderer {
      * Builds a subject DN from the ordered {@link RdnEntry} list.
      * RDN types are resolved via the OID registry cache, then as dotted-decimal OIDs directly.
      */
-    public static X500Name toX500Name(X509RequestContent x509) {
+    public static X500Principal toX500Principal(X509RequestContent x509) throws IOException {
         Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
         X500NameBuilder builder = new X500NameBuilder();
         List<RdnEntry> subject = x509.getSubject() == null ? List.of() : x509.getSubject();
         for (RdnEntry rdn : subject) {
             builder.addRDN(resolveOid(rdn.getType(), codeToOid), rdn.getValue());
         }
-        return builder.build();
+        return new X500Principal(builder.build().getEncoded());
     }
 
     /**

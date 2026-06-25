@@ -819,7 +819,7 @@ class CryptographicOperationServiceTest extends BaseSpringBootTest {
                         }
                         """)));
 
-        String csr = cryptographicOperationService.generateCsr(defaultKey.getUuid(), tokenProfile.getUuid(), new X500Principal("CN=alt"),
+        String csr = cryptographicOperationService.generateCsr(defaultKey.getUuid(), tokenProfile.getUuid(), new X500Principal("CN=alt"), null,
                 rsaSignatureAttributes, altKey.getUuid(), tokenProfile.getUuid(), new ArrayList<>());
         CertificateRequest certificateRequest = CertificateRequestUtils.createCertificateRequest(csr, CertificateRequestFormat.PKCS10);
         Assertions.assertNotNull(certificateRequest.getAltSignatureAlgorithm());
