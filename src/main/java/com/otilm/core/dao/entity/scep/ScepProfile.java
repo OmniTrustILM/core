@@ -110,6 +110,7 @@ public class ScepProfile extends UniquelyIdentifiedAndAudited implements Seriali
         scepProfileDto.setIncludeCaCertificateChain(includeCaCertificateChain);
         scepProfileDto.setRenewThreshold(renewalThreshold);
         scepProfileDto.setEnableIntune(intuneEnabled);
+        scepProfileDto.setEnableChallengePassword(challengePassword != null);
         return scepProfileDto;
     }
 
@@ -131,6 +132,7 @@ public class ScepProfile extends UniquelyIdentifiedAndAudited implements Seriali
                     + ScepServiceImpl.SCEP_URL_PREFIX + "/" + name + "/pkiclient.exe");
         }
         scepProfileDto.setEnableIntune(intuneEnabled);
+        scepProfileDto.setEnableChallengePassword(challengePassword != null);
         scepProfileDto.setIntuneTenant(intuneTenant);
         scepProfileDto.setIntuneApplicationId(intuneApplicationId);
         // Custom Attributes for the DTO should be set in the methods which require the detail DTO

@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.client.scep.BaseScepProfileRequestDto;
 import com.otilm.api.model.client.scep.ScepProfileEditRequestDto;
 import com.otilm.api.model.client.scep.ScepProfileRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
@@ -147,7 +148,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setRenewalThreshold(request.getRenewalThreshold());
         scepProfile.setIncludeCaCertificateChain(request.isIncludeCaCertificateChain());
         scepProfile.setIncludeCaCertificate(request.isIncludeCaCertificate());
-        scepProfile.setChallengePassword(request.getChallengePassword());
+        applyChallengePassword(scepProfile, request);
         scepProfile.setRequireManualApproval(false);
         scepProfile.setCaCertificateUuid(UUID.fromString(request.getCaCertificateUuid()));
         scepProfile.setIntuneEnabled(intuneEnabled);
@@ -191,9 +192,8 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
 
         ScepProfile scepProfile = getScepProfileEntity(uuid);
 
-        // Secrets (Intune application key, challenge password) are write-only on edit: a blank or omitted
-        // value keeps the stored secret, mirroring OAuth2 clientSecret handling. The form does not prefill
-        // them, so requiring re-entry on every edit would 422 or silently wipe the existing value.
+        // The Intune application key is write-only: when Intune stays enabled and the request omits the key,
+        // keep the stored one (the form does not prefill it). Requiring re-entry otherwise would 422 or wipe it.
         boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null
                 || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
@@ -212,8 +212,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setIncludeCaCertificate(request.isIncludeCaCertificate());
         scepProfile.setIncludeCaCertificateChain(request.isIncludeCaCertificateChain());
         if (request.getRenewalThreshold() != null) scepProfile.setRenewalThreshold(request.getRenewalThreshold());
-        if (request.getChallengePassword() != null && !request.getChallengePassword().isEmpty())
-            scepProfile.setChallengePassword(request.getChallengePassword());
+        applyChallengePassword(scepProfile, request);
 
         // delete old connector data attributes content
         UUID oldConnectorUuid = scepProfile.getRaProfile() == null ? null : scepProfile.getRaProfile().getAuthorityInstanceReference().getConnectorUuid();
@@ -225,10 +224,18 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setDescription(request.getDescription());
         scepProfile.setCaCertificateUuid(UUID.fromString(request.getCaCertificateUuid()));
         scepProfile.setIntuneEnabled(intuneEnabled);
-        scepProfile.setIntuneTenant(request.getIntuneTenant());
-        scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
-        if (intuneKeyProvided) {
-            scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+        if (intuneEnabled) {
+            scepProfile.setIntuneTenant(request.getIntuneTenant());
+            scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
+            // Keep the stored key when the request omits it (write-only secret, not prefilled by the form).
+            if (intuneKeyProvided) {
+                scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+            }
+        } else {
+            // Intune disabled: clear the whole sub-config so no stale secret lingers or gets silently reused.
+            scepProfile.setIntuneTenant(null);
+            scepProfile.setIntuneApplicationId(null);
+            scepProfile.setIntuneApplicationKey(null);
         }
 
         UUID certificateAssociationUuid = null;
@@ -277,6 +284,40 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         }
 
         return dto;
+    }
+
+    /**
+     * Applies the write-only challenge password according to the tri-state {@code enableChallengePassword} toggle.
+     * The toggle MUST be treated as keep-when-null: an absent toggle (legacy clients, or clients that do not send
+     * the field) must never wipe a stored password. Do NOT collapse it with {@code Boolean.TRUE.equals(...)} the way
+     * {@code enableIntune} is handled — that would turn a missing toggle into {@code false} and silently clear the
+     * stored secret.
+     *
+     * <ul>
+     *   <li>toggle {@code null} — set when a value is supplied, otherwise leave the entity untouched
+     *       (keep on edit, no password on create).</li>
+     *   <li>toggle {@code false} — clear the challenge password.</li>
+     *   <li>toggle {@code true} + non-blank value — set the new password.</li>
+     *   <li>toggle {@code true} + blank value — keep the stored password, or reject when none is stored.</li>
+     * </ul>
+     */
+    private void applyChallengePassword(ScepProfile scepProfile, BaseScepProfileRequestDto request) {
+        Boolean enable = request.getEnableChallengePassword();
+        boolean valueProvided = request.getChallengePassword() != null && !request.getChallengePassword().isEmpty();
+
+        if (enable == null) {
+            if (valueProvided) scepProfile.setChallengePassword(request.getChallengePassword());
+            return;
+        }
+        if (!enable) {
+            scepProfile.setChallengePassword(null);
+            return;
+        }
+        if (valueProvided) {
+            scepProfile.setChallengePassword(request.getChallengePassword());
+        } else if (scepProfile.getChallengePassword() == null) {
+            throw new ValidationException(ValidationError.create("Challenge password is required when challenge password protection is enabled"));
+        }
     }
 
     private static ProtocolCertificateAssociations getCertificateAssociation(ScepProfileEditRequestDto request, ScepProfile scepProfile) {
