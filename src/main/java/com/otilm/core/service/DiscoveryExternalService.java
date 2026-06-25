@@ -9,12 +9,11 @@ import com.otilm.api.model.client.discovery.DiscoveryHistoryDetailDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.tasks.ScheduledJobInfo;
 
 import java.util.List;
 import java.util.UUID;
 
-public interface DiscoveryService extends ResourceExtensionService {
+public interface DiscoveryExternalService {
 
     DiscoveryResponseDto listDiscoveries(final SecurityFilter filter, final SearchRequestDto searchRequestDto);
 
@@ -33,20 +32,12 @@ public interface DiscoveryService extends ResourceExtensionService {
     DiscoveryCertificateResponseDto getDiscoveryCertificates(SecuredUUID uuid, Boolean newlyDiscovered, int itemsPerPage, int pageNumber) throws NotFoundException;
 
     DiscoveryHistoryDetailDto createDiscovery(DiscoveryDto request, boolean saveEntity) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
-    DiscoveryHistoryDetailDto runDiscovery(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo);
+
     void runDiscoveryAsync(UUID discoveryUuid);
 
     void deleteDiscovery(SecuredUUID uuid) throws NotFoundException;
 
     void bulkRemoveDiscovery(List<SecuredUUID> discoveryUuids) throws NotFoundException;
 
-    /**
-     * Get the number of discoveries per user for dashboard
-     *
-     * @return Number of discoveries
-     */
-    Long statisticsDiscoveryCount(SecurityFilter filter);
-
     List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup();
-
 }
