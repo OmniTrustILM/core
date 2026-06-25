@@ -102,7 +102,7 @@ public class RsaSignatureAttributes {
         attribute.setUuid(UUID.fromString(ATTRIBUTE_DATA_RSA_SIG_SCHEME_UUID));
         attribute.setName(ATTRIBUTE_DATA_RSA_SIG_SCHEME);
         attribute.setContentType(AttributeContentType.STRING);
-        attribute.setContent(List.of(new StringAttributeContentV2(value.getCode())));
+        attribute.setContent(List.of(new StringAttributeContentV2(value.getLabel(), value.getCode())));
         return attribute;
     }
 
@@ -112,7 +112,7 @@ public class RsaSignatureAttributes {
         attribute.setUuid(UUID.fromString(ATTRIBUTE_DATA_SIG_DIGEST_UUID));
         attribute.setName(ATTRIBUTE_DATA_SIG_DIGEST);
         attribute.setContentType(AttributeContentType.STRING);
-        attribute.setContent(List.of(new StringAttributeContentV2(value.getCode())));
+        attribute.setContent(List.of(new StringAttributeContentV2(value.getLabel(), value.getCode())));
 
         return attribute;
     }
