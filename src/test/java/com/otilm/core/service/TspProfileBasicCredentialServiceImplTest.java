@@ -218,7 +218,9 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             when(userManagementService.getUser(anyString())).thenReturn(systemUser);
 
             // when / then
-            assertThatThrownBy(() -> service.create(SecuredParentUUID.fromUUID(profileWithVault.getUuid()), createRequest("svc", "secret")))
+            SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
+            var request = createRequest("svc", "secret");
+            assertThatThrownBy(() -> service.create(parent, request))
                     .isInstanceOf(ValidationException.class);
 
             // then — guard runs before any vault secret is provisioned
@@ -379,7 +381,8 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             when(userManagementService.getUser(anyString())).thenReturn(systemUser);
 
             // then — rejected, and no secret rotation is attempted
-            assertThatThrownBy(() -> service.update(parent, credentialUuid, updateRequest("svc", "newsecret")))
+            var request = updateRequest("svc", "newsecret");
+            assertThatThrownBy(() -> service.update(parent, credentialUuid, request))
                     .isInstanceOf(ValidationException.class);
             verify(secretService, never()).updateSecret(any(), any());
         }

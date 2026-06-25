@@ -166,7 +166,8 @@ class TsaServiceAuthzTest extends BaseSpringBootTest {
             denyTimestampForObject(tspProfileA.getUuid());
 
             // when / then
-            assertThatThrownBy(() -> tsaService.processTspRequestForTspProfile("tsp-a", aTspRequest().build()))
+            var request = aTspRequest().build();
+            assertThatThrownBy(() -> tsaService.processTspRequestForTspProfile("tsp-a", request))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
@@ -248,7 +249,8 @@ class TsaServiceAuthzTest extends BaseSpringBootTest {
             denyTimestampForObject(linkedTspProfile.getUuid());
 
             // when / then
-            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile("sp-indirect-denied", aTspRequest().build()))
+            var request = aTspRequest().build();
+            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile("sp-indirect-denied", request))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
