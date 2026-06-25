@@ -27,7 +27,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
 
     public static final String NON_EXISTENT_OID = "1.2";
     @Autowired
-    CustomOidEntryService customOidEntryService;
+    CustomOidEntryExternalService customOidEntryService;
 
     @Autowired
     CustomOidEntryRepository customOidEntryRepository;

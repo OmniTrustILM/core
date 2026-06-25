@@ -35,8 +35,9 @@ import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TspProfileService;
-import com.otilm.core.service.TspProfileBasicCredentialService;
+import com.otilm.core.service.TspProfileExternalService;
+import com.otilm.core.service.TspProfileInternalService;
+import com.otilm.core.service.TspProfileBasicCredentialInternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.VaultProfileInternalService;
@@ -68,7 +69,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.TSP_PROFILE)
 @Slf4j
-public class TspProfileServiceImpl implements TspProfileService {
+public class TspProfileServiceImpl implements TspProfileExternalService, TspProfileInternalService {
     private static final String TSP_PROFILE_NOT_FOUND = "TSP Profile not found: ";
 
     private AttributeEngine attributeEngine;
@@ -78,7 +79,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     private VaultProfileInternalService vaultProfileService;
     private TspProfileRepository tspProfileRepository;
     private SecretInternalService secretService;
-    private TspProfileBasicCredentialService basicCredentialService;
+    private TspProfileBasicCredentialInternalService basicCredentialService;
 
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.LIST)
@@ -134,6 +135,11 @@ public class TspProfileServiceImpl implements TspProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.TSP_PROFILE, action = ResourceAction.DETAIL)
     public TspProfileModel getTspProfile(String name) throws NotFoundException {
+        return self.loadTspProfileModel(name);
+    }
+
+    @Override
+    public TspProfileModel resolveTspProfileForAuthentication(String name) throws NotFoundException {
         return self.loadTspProfileModel(name);
     }
 
@@ -482,7 +488,7 @@ public class TspProfileServiceImpl implements TspProfileService {
     }
 
     @Autowired
-    public void setBasicCredentialService(TspProfileBasicCredentialService basicCredentialService) {
+    public void setBasicCredentialService(TspProfileBasicCredentialInternalService basicCredentialService) {
         this.basicCredentialService = basicCredentialService;
     }
 

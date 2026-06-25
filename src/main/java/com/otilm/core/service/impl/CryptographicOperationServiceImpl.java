@@ -32,7 +32,8 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyService;
-import com.otilm.core.service.CryptographicOperationService;
+import com.otilm.core.service.CryptographicOperationExternalService;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.v2.ConnectorService;
@@ -63,7 +64,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.util.*;
 
 @Service
-public class CryptographicOperationServiceImpl implements CryptographicOperationService {
+public class CryptographicOperationServiceImpl implements CryptographicOperationExternalService, CryptographicOperationInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicOperationServiceImpl.class);
 

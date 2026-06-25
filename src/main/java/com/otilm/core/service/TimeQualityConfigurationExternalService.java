@@ -10,14 +10,12 @@ import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
-import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
-import java.util.UUID;
 
-public interface TimeQualityConfigurationService extends ResourceExtensionService {
+public interface TimeQualityConfigurationExternalService {
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
@@ -30,11 +28,6 @@ public interface TimeQualityConfigurationService extends ResourceExtensionServic
     TimeQualityConfigurationDto updateTimeQualityConfiguration(SecuredUUID uuid, TimeQualityConfigurationRequestDto request) throws AlreadyExistException, AttributeException, NotFoundException;
 
     void deleteTimeQualityConfiguration(SecuredUUID uuid) throws NotFoundException;
-
-    /**
-     * Returns the cached model for the given UUID.
-     */
-    TimeQualityConfigurationModel getTimeQualityConfigurationModel(UUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteTimeQualityConfigurations(List<SecuredUUID> uuids);
 }

@@ -34,28 +34,30 @@ class CredentialVerificationCacheTest extends BaseSpringBootTest {
     }
 
     @Test
-    void returnsMappedUserOnHit_andEvictionBySecretClearsIt() {
+    void returnsEmpty_whenNoEntryStored() {
+        // given — nothing has been cached for this secret
+        var secret = UUID.randomUUID();
+
+        // when / then
+        assertThat(cache.getMappedUser(secret, "pw")).isEmpty();
+    }
+
+    @Test
+    void returnsMappedUser_whenEntryStored() {
         // given
         var secret = UUID.randomUUID();
         var mappedUser = UUID.randomUUID();
         var password = "pw";
-        assertThat(cache.getMappedUser(secret, password)).isEmpty();
 
         // when
         cache.putSuccess(secret, password, mappedUser);
 
         // then
         assertThat(cache.getMappedUser(secret, password)).isEqualTo(Optional.of(mappedUser));
-
-        // when — the secret is evicted
-        cache.evictBySecretUuid(secret);
-
-        // then
-        assertThat(cache.getMappedUser(secret, password)).isEmpty();
     }
 
     @Test
-    void evictBySecretUuidClearsEveryPasswordKeyedEntryForThatSecret() {
+    void clearsEveryPasswordKeyedEntryForSecret_andLeavesUnrelatedSecretsUntouched() {
         // given — two distinct passwords for one secret, both registered under the same secretUuid in the secondary index.
         var secret = UUID.randomUUID();
         var otherSecret = UUID.randomUUID();

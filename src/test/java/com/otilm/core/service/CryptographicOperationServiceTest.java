@@ -43,7 +43,10 @@ import java.util.*;
 class CryptographicOperationServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationExternalService cryptographicOperationService;
+
+    @Autowired
+    private CryptographicOperationInternalService cryptographicOperationInternalService;
 
     @Autowired
     private TokenInstanceInternalService tokenInstanceService;

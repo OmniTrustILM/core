@@ -9,7 +9,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.oid.*;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
-import com.otilm.core.service.CustomOidEntryService;
+import com.otilm.core.service.CustomOidEntryExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 
@@ -18,10 +18,10 @@ import java.util.List;
 @Controller
 public class CustomOidEntryControllerImpl implements CustomOidEntryController {
 
-    private CustomOidEntryService customOidEntryService;
+    private CustomOidEntryExternalService customOidEntryService;
 
     @Autowired
-    public void setOidEntryService(CustomOidEntryService customOidEntryService) {
+    public void setOidEntryService(CustomOidEntryExternalService customOidEntryService) {
         this.customOidEntryService = customOidEntryService;
     }
 

@@ -119,7 +119,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
     private CryptographicKeyService keyService;
     private AttributeEngine attributeEngine;
     private CertificateRelationRepository certificateRelationRepository;
@@ -199,7 +199,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Autowired
-    public void setCryptographicOperationService(CryptographicOperationService cryptographicOperationService) {
+    public void setCryptographicOperationService(CryptographicOperationInternalService cryptographicOperationService) {
         this.cryptographicOperationService = cryptographicOperationService;
     }
 

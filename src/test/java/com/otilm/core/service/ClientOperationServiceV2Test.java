@@ -107,7 +107,10 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     private CertificateService certificateService;
 
     @MockitoBean
-    private CryptographicOperationService cryptographicOperationService;
+    private CryptographicOperationInternalService cryptographicOperationService;
+
+    @MockitoBean
+    private CryptographicOperationExternalService cryptographicOperationExternalService;
 
     @Autowired
     private RaProfileRepository raProfileRepository;

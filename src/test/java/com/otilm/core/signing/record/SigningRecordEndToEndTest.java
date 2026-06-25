@@ -16,7 +16,7 @@ import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -70,7 +70,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     @Autowired
     private MeterRegistry registry;
     @Autowired
-    private SigningRecordService signingRecordService;
+    private SigningRecordExternalService signingRecordService;
 
     @Test
     void deferredDurableProfile_stagesWriteInOutbox_thenDrainsIntoSigningRecord_advancingIntakeThenPersistCounters()
@@ -151,7 +151,7 @@ class SigningRecordEndToEndTest extends BaseSpringBootTest {
     }
 
     /**
-     * Asserts that exactly one signing record is reachable through {@link SigningRecordService}, both in the
+     * Asserts that exactly one signing record is reachable through {@link SigningRecordExternalService}, both in the
      * list and when fetched by its own uuid — proving the persisted row is visible through the read path
      * operators use, not just present in the table. With the database isolated per test, that single record is
      * the one this test wrote.

@@ -61,8 +61,8 @@ public class SigningProfileControllerImpl implements SigningProfileController {
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
-    public List<SigningProtocol> listSupportedProtocols(SigningWorkflowType workflowType) {
-        return signingProfileService.listSupportedProtocols(workflowType);
+    public List<SigningProtocol> listSupportedProtocols(SigningWorkflowType signingWorkflowType) {
+        return signingProfileService.listSupportedProtocols(signingWorkflowType);
     }
 
     @Override

@@ -30,11 +30,13 @@ import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorService;
 import com.otilm.core.service.CredentialInternalService;
-import com.otilm.core.service.EntityInstanceService;
+import com.otilm.core.service.EntityInstanceExternalService;
+import com.otilm.core.service.EntityInstanceInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -59,7 +61,7 @@ import java.util.UUID;
 
 @Service(Resource.Codes.ENTITY)
 @Transactional
-public class EntityInstanceServiceImpl implements EntityInstanceService {
+public class EntityInstanceServiceImpl implements EntityInstanceExternalService, EntityInstanceInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(EntityInstanceServiceImpl.class);
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
@@ -308,6 +310,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.ENTITY, false);
 

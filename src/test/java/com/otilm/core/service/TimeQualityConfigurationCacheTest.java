@@ -29,7 +29,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
 
     @Autowired
-    private TimeQualityConfigurationService timeQualityConfigurationService;
+    private TimeQualityConfigurationExternalService timeQualityConfigurationService;
+
+    @Autowired
+    private TimeQualityConfigurationInternalService timeQualityConfigurationInternalService;
 
     @Autowired
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
@@ -67,7 +70,7 @@ class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
         assertThat(cache.get(config.getUuid(), TimeQualityConfigurationModel.class)).isNull();
 
         // when
-        timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
+        timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
 
         // then - model is stored in the cache keyed by UUID
         assertThat(cache.get(config.getUuid(), TimeQualityConfigurationModel.class)).isNotNull();
@@ -77,11 +80,11 @@ class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
     void secondLookupReturnsCachedInstance() throws NotFoundException {
         // given - populate cache on first call
         TimeQualityConfigurationModel first =
-                timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
+                timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
 
         // when - second call for the same UUID
         TimeQualityConfigurationModel second =
-                timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
+                timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
 
         // then - the same Java object is returned, proving no second DB round-trip was made
         assertThat(second).isSameAs(first);
@@ -90,7 +93,7 @@ class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterUpdate() throws AlreadyExistException, AttributeException, NotFoundException {
         // given - cache is warm
-        timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
+        timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE);
         assertThat(cache.get(config.getUuid(), TimeQualityConfigurationModel.class)).isNotNull();
 
@@ -106,7 +109,7 @@ class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
     @Test
     void cacheIsEvictedAfterDelete() throws NotFoundException {
         // given - cache is warm
-        timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
+        timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
         Cache cache = cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE);
         assertThat(cache.get(config.getUuid(), TimeQualityConfigurationModel.class)).isNotNull();
 
@@ -133,8 +136,8 @@ class TimeQualityConfigurationCacheTest extends BaseSpringBootTest {
         second.setLeapSecondGuard(false);
         second = timeQualityConfigurationRepository.saveAndFlush(second);
 
-        timeQualityConfigurationService.getTimeQualityConfigurationModel(config.getUuid());
-        timeQualityConfigurationService.getTimeQualityConfigurationModel(second.getUuid());
+        timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(config.getUuid());
+        timeQualityConfigurationInternalService.getTimeQualityConfigurationModel(second.getUuid());
 
         Cache cache = cacheManager.getCache(CacheConfig.TIME_QUALITY_CONFIGURATION_CACHE);
         assertThat(cache.get(config.getUuid(), TimeQualityConfigurationModel.class)).isNotNull();

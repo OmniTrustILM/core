@@ -18,7 +18,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ProxyService;
+import com.otilm.core.service.ProxyExternalService;
 import com.otilm.core.util.converter.ProxyStatusConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +37,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ProxyControllerImpl implements ProxyController {
 
-    private final ProxyService proxyService;
+    private final ProxyExternalService proxyService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
