@@ -33,7 +33,7 @@ class DiscoveryServiceIntTest extends BaseMessagingIntTest {
     private static final String DISCOVERY_NAME = "testDiscovery1";
 
     @Autowired
-    private DiscoveryService discoveryService;
+    private DiscoveryExternalService discoveryService;
     @Autowired
     private DiscoveryRepository discoveryRepository;
     @Autowired
