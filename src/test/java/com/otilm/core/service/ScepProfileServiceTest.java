@@ -412,8 +412,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         request.setEnableChallengePassword(true);
         // no value and nothing stored -> reject
 
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class,
-                () -> scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request));
+                () -> scepProfileService.editScepProfile(uuid, request));
     }
 
     @Test
@@ -502,6 +503,21 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testEditScepProfile_treatsWhitespaceChallengeAsBlankAndKeeps() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setChallengePassword("   "); // whitespace-only -> blank -> keep, not stored verbatim
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
+    }
+
+    @Test
     void testEditScepProfile_rejectsWhenIntuneEnabledAndNoKeyStored() {
         scepProfile.setIntuneEnabled(false);
         scepProfile.setIntuneApplicationKey(null);
@@ -514,8 +530,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         request.setIntuneApplicationId("appId");
         // key omitted and none stored -> reject
 
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class,
-                () -> scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request));
+                () -> scepProfileService.editScepProfile(uuid, request));
     }
 
     @Test

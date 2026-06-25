@@ -126,7 +126,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
-        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
+        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null || !intuneKeyProvided)) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled"));
         }
@@ -198,7 +198,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
 
         // The Intune application key is write-only: when Intune stays enabled and the request omits the key,
         // keep the stored one (the form does not prefill it). Requiring re-entry otherwise would 422 or wipe it.
-        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
+        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null
                 || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled (the application key may be omitted only if one is already stored)"));
@@ -307,7 +307,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
      */
     private void applyChallengePassword(ScepProfile scepProfile, BaseScepProfileRequestDto request) {
         Boolean enable = request.getEnableChallengePassword();
-        boolean valueProvided = request.getChallengePassword() != null && !request.getChallengePassword().isEmpty();
+        boolean valueProvided = request.getChallengePassword() != null && !request.getChallengePassword().isBlank();
 
         if (enable == null) {
             if (valueProvided) scepProfile.setChallengePassword(request.getChallengePassword());
