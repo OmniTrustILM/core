@@ -532,8 +532,9 @@ public class AttributeEngine {
             attributeDefinition.setType(AttributeType.DATA);
             attributeDefinition.setContentType(dataAttribute.getContentType());
             attributeDefinition.setOperation(operation);
-            attributeDefinition.setVersion(dataAttribute.getVersion());
         }
+
+        attributeDefinition.setVersion(dataAttribute.getVersion());
         attributeDefinition.setLabel(dataAttribute.getProperties().getLabel());
         attributeDefinition.setRequired(dataAttribute.getProperties().isRequired());
         attributeDefinition.setReadOnly(dataAttribute.getProperties().isReadOnly());
