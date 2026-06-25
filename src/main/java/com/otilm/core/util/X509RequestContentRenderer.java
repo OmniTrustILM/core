@@ -4,10 +4,17 @@ import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.RdnEntry;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.core.oid.OidHandler;
+import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x509.*;
+import org.bouncycastle.asn1.x509.OtherName;
 
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.util.encoders.Base64;
@@ -88,7 +95,27 @@ public final class X509RequestContentRenderer {
     }
 
     private static GeneralName toGeneralName(GeneralNameEntry e) {
+        if (e.getType() == GeneralNameType.OTHER_NAME) {
+            ASN1Encodable asn1Value = encodeOtherNameValue(e.getValue(), e.getValueEncoding());
+            return new GeneralName(GeneralName.otherName,
+                    new OtherName(new ASN1ObjectIdentifier(e.getOtherNameOid()), asn1Value));
+        }
         return new GeneralName(e.getType().getBcTag(), e.getValue());
+    }
+
+    private static ASN1Encodable encodeOtherNameValue(String value, ExtensionValueEncoding encoding) {
+        if (encoding == null) {
+            return new DERUTF8String(value);
+        }
+        return switch (encoding) {
+            case IA5_STRING -> new DERIA5String(value);
+            case OCTET_STRING -> new DEROctetString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // DER: caller supplies a base64-encoded DER blob
+            case DER -> org.bouncycastle.util.encoders.Base64.decode(value).length > 0
+                    ? new org.bouncycastle.asn1.DEROctetString(org.bouncycastle.util.encoders.Base64.decode(value))
+                    : new DERUTF8String(value);
+            default -> new DERUTF8String(value);
+        };
     }
 
     private static ASN1ObjectIdentifier resolveOid(String type, Map<String, String> codeToOid) {

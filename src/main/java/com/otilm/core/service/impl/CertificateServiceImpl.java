@@ -2,6 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;

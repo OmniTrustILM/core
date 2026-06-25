@@ -6,7 +6,12 @@ import com.otilm.api.model.common.attribute.common.constraint.BaseAttributeConst
 import com.otilm.api.model.common.attribute.common.constraint.RegexpAttributeConstraint;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.ObjectType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.core.oid.SystemOid;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -14,9 +19,6 @@ import java.util.List;
 @Component
 public class CsrAttributes {
 
-    /**
-     * UUID of the CSR Attributes
-     */
     public static final String COMMON_NAME_UUID = "9abaeba0-973d-11ed-a8fc-0242ac120002";
     public static final String ORGANIZATION_UNIT_UUID = "9abaef60-973d-11ed-a8fc-0242ac120002";
     public static final String ORGANIZATION_UUID = "9abaf0be-973d-11ed-a8fc-0242ac120002";
@@ -24,9 +26,6 @@ public class CsrAttributes {
     public static final String STATE_UUID = "9abaf33e-973d-11ed-a8fc-0242ac120002";
     public static final String COUNTRY_UUID = "9abaf488-973d-11ed-a8fc-0242ac120002";
 
-    /**
-     * Name of the CSR Attributes
-     */
     public static final String COMMON_NAME_ATTRIBUTE_NAME = "commonName";
     public static final String ORGANIZATION_UNIT_ATTRIBUTE_NAME = "organizationalUnit";
     public static final String ORGANIZATION_ATTRIBUTE_NAME = "organization";
@@ -34,10 +33,6 @@ public class CsrAttributes {
     public static final String STATE_ATTRIBUTE_NAME = "state";
     public static final String COUNTRY_ATTRIBUTE_NAME = "country";
 
-
-    /**
-     * Label of the CSR Attributes
-     */
     public static final String COMMON_NAME_ATTRIBUTE_LABEL = "Common Name";
     public static final String ORGANIZATION_UNIT_ATTRIBUTE_LABEL = "Organizational Unit";
     public static final String ORGANIZATION_ATTRIBUTE_LABEL = "Organization";
@@ -45,16 +40,8 @@ public class CsrAttributes {
     public static final String STATE_ATTRIBUTE_LABEL = "State";
     public static final String COUNTRY_ATTRIBUTE_LABEL = "Country";
 
-    /**
-     * Private constructor to prevent instantiation of utility class.
-     */
     private CsrAttributes() {}
 
-    /**
-     * Function to get the list of attributes for generating the CSR
-     *
-     * @return List of attributes for generating the CSR
-     */
     @CoreAttributeDefinitions
     public static List<BaseAttribute> csrAttributes() {
         return List.of(
@@ -67,148 +54,131 @@ public class CsrAttributes {
         );
     }
 
-    /**
-     * Common Name Attribute Generation
-     *
-     * @return Common Name Attribute Definition
-     */
-    public static DataAttributeV2 commonNameAttribute() {
+    public static List<DataAttributeV3> csrAttributesAsDataAttributesV3() {
+        return List.of(
+                commonNameAttribute(),
+                organizationalUnitAttribute(),
+                organizationAttribute(),
+                localityAttribute(),
+                stateAttribute(),
+                countryAttribute()
+        );
+    }
+
+    public static DataAttributeV3 commonNameAttribute() {
         List<BaseAttributeConstraint<?>> constraints = List.of(new RegexpAttributeConstraint(
                 "Common Name Validation",
                 "Common Name must not exceed 64 characters",
                 "^.{0,64}$"
         ));
-        return attributeCoder(
+        return build(
                 COMMON_NAME_UUID,
                 COMMON_NAME_ATTRIBUTE_NAME,
                 "Common Name for the certificate",
                 COMMON_NAME_ATTRIBUTE_LABEL,
                 true,
-                constraints
+                constraints,
+                rdnMapping(SystemOid.COMMON_NAME.getCode())
         );
     }
 
-
-    /**
-     * Organizational Unit Attribute Generation
-     *
-     * @return Organizational Unit Attribute Definition
-     */
-    public static DataAttributeV2 organizationalUnitAttribute() {
-        return attributeCoder(
+    public static DataAttributeV3 organizationalUnitAttribute() {
+        return build(
                 ORGANIZATION_UNIT_UUID,
                 ORGANIZATION_UNIT_ATTRIBUTE_NAME,
                 ORGANIZATION_UNIT_ATTRIBUTE_LABEL,
                 ORGANIZATION_UNIT_ATTRIBUTE_LABEL,
                 false,
-                null
+                null,
+                rdnMapping(SystemOid.ORGANIZATION_UNIT.getCode())
         );
     }
 
-    /**
-     * Organization Attribute Generation
-     *
-     * @return Organization Attribute Definition
-     */
-    public static DataAttributeV2 organizationAttribute() {
-        return attributeCoder(
+    public static DataAttributeV3 organizationAttribute() {
+        return build(
                 ORGANIZATION_UUID,
                 ORGANIZATION_ATTRIBUTE_NAME,
                 ORGANIZATION_ATTRIBUTE_LABEL,
                 ORGANIZATION_ATTRIBUTE_LABEL,
                 false,
-                null
+                null,
+                rdnMapping(SystemOid.ORGANIZATION.getCode())
         );
     }
 
-    /**
-     * Locality Attribute Generation
-     *
-     * @return Locality  Attribute Definition
-     */
-    public static DataAttributeV2 localityAttribute() {
-        return attributeCoder(
+    public static DataAttributeV3 localityAttribute() {
+        return build(
                 LOCALITY_UUID,
                 LOCALITY_ATTRIBUTE_NAME,
                 LOCALITY_ATTRIBUTE_LABEL,
                 LOCALITY_ATTRIBUTE_LABEL,
                 false,
-                null
+                null,
+                rdnMapping(SystemOid.LOCALITY.getCode())
         );
     }
 
-    /**
-     * State Attribute Generation
-     *
-     * @return State Attribute Definition
-     */
-    public static DataAttributeV2 stateAttribute() {
-        return attributeCoder(
+    public static DataAttributeV3 stateAttribute() {
+        return build(
                 STATE_UUID,
                 STATE_ATTRIBUTE_NAME,
                 STATE_ATTRIBUTE_LABEL,
                 STATE_ATTRIBUTE_LABEL,
                 false,
-                null
+                null,
+                rdnMapping(SystemOid.STATE.getCode())
         );
     }
 
-    /**
-     * Country Attribute Generation
-     *
-     * @return Country Attribute Definition
-     */
-    public static DataAttributeV2 countryAttribute() {
-
+    public static DataAttributeV3 countryAttribute() {
         List<BaseAttributeConstraint<?>> constraints = List.of(new RegexpAttributeConstraint(
                 "Country Validation",
                 "Country Can contain only 2 upper case letters",
                 "^[A-Z]{2}$"
         ));
-
-        return attributeCoder(
+        return build(
                 COUNTRY_UUID,
                 COUNTRY_ATTRIBUTE_NAME,
                 COUNTRY_ATTRIBUTE_LABEL,
                 COUNTRY_ATTRIBUTE_LABEL,
                 false,
-                constraints
+                constraints,
+                rdnMapping(SystemOid.COUNTRY.getCode())
         );
     }
 
+    private static FieldMapping rdnMapping(String rdnCode) {
+        RdnMappedField field = new RdnMappedField();
+        field.setFieldType(FieldType.RDN);
+        field.setRdn(rdnCode);
 
-    private static DataAttributeV2 attributeCoder(String uuid, String name,
-                                                  String description, String label,
-                                                  boolean required, List<BaseAttributeConstraint<?>> constraints) {
-        DataAttributeV2 attribute = new DataAttributeV2();
-        attribute.setUuid(uuid);
-        attribute.setName(name);
-        attribute.setDescription(description);
-        attribute.setType(AttributeType.DATA);
-        attribute.setContentType(AttributeContentType.STRING);
-        attribute.setConstraints(constraints);
-        attribute.setProperties(propertyCoder(
-                label,
-                required
-        ));
-        return attribute;
+        FieldMapping fm = new FieldMapping();
+        fm.setObjectType(ObjectType.X509_CERTIFICATE);
+        fm.setFields(List.of(field));
+        return fm;
     }
 
-    /**
-     * Function to get the data attribute properties
-     *
-     * @param label    Label for the attribute
-     * @param required If the attribute is required or not
-     * @return Data attribute properties
-     */
-    private static DataAttributeProperties propertyCoder(String label, boolean required) {
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setRequired(required);
-        properties.setReadOnly(false);
-        properties.setList(false);
-        properties.setVisible(true);
-        properties.setLabel(label);
-        properties.setMultiSelect(false);
-        return properties;
+    private static DataAttributeV3 build(String uuid, String name, String description, String label,
+                                         boolean required, List<BaseAttributeConstraint<?>> constraints,
+                                         FieldMapping fieldMapping) {
+        DataAttributeV3 attr = new DataAttributeV3();
+        attr.setUuid(uuid);
+        attr.setName(name);
+        attr.setDescription(description);
+        attr.setType(AttributeType.DATA);
+        attr.setContentType(AttributeContentType.STRING);
+        attr.setConstraints(constraints);
+        attr.setFieldMapping(fieldMapping);
+
+        DataAttributeProperties props = new DataAttributeProperties();
+        props.setLabel(label);
+        props.setRequired(required);
+        props.setReadOnly(false);
+        props.setList(false);
+        props.setVisible(true);
+        props.setMultiSelect(false);
+        attr.setProperties(props);
+
+        return attr;
     }
 }

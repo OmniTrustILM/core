@@ -36,7 +36,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
-import com.otilm.core.attribute.CsrRequestAttributes;
+import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
@@ -1386,13 +1386,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     /**
-     * Merges connector-supplied v3 definitions with the static {@link CsrRequestAttributes} default set.
+     * Merges connector-supplied v3 definitions with the static {@link CsrAttributes} default set.
      * Connector definitions take precedence: any default definition whose {@code fieldMapping} targets
      * overlap with a connector definition is dropped in favour of the connector one.
      * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
      */
     private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) {
-        List<DataAttributeV3> defaults = CsrRequestAttributes.csrAttributes();
+        List<DataAttributeV3> defaults = CsrAttributes.csrAttributesAsDataAttributesV3();
         if (raProfile == null) {
             return defaults;
         }

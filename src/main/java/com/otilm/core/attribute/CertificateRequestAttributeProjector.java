@@ -60,7 +60,7 @@ public class CertificateRequestAttributeProjector {
                     case RdnMappedField rdn ->
                             subject.add(new RdnEntry(rdn.getRdn(), value));
                     case SanMappedField san ->
-                            subjectAltNames.add(new GeneralNameEntry(san.getGeneralNameType(), value, san.getGeneralNameType() == GeneralNameType.OTHER_NAME ? san.getOtherNameOid() : null, san.getGeneralNameType().getEncoding()));
+                            subjectAltNames.add(new GeneralNameEntry(san.getGeneralNameType(), value, san.getGeneralNameType() == GeneralNameType.OTHER_NAME ? san.getOtherNameOid() : null, san.getOtherNameValueEncoding()));
                     case ExtensionMappedField ext ->
                             extensions.add(new RequestedExtension(ext.getExtensionOid(), false, null, value));
                     default ->

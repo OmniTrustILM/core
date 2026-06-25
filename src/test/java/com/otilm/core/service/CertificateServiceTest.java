@@ -1,10 +1,12 @@
 package com.otilm.core.service;
 
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.core.workflows.*;
+import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.certificate.*;
@@ -2081,14 +2083,14 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
     private void storeCommonNameCsrAttribute(UUID certificateRequestUuid) throws AttributeException, NotFoundException {
         // definitions are wiped by truncateTables() in BaseSpringBootTest, so register them explicitly
-        attributeEngine.updateDataAttributeDefinitions(null, null, CsrAttributes.csrAttributes());
+        attributeEngine.updateDataAttributeDefinitions(null, null, CsrAttributes.csrAttributesAsDataAttributesV3());
 
         // store a csr attribute in the no-operation slot
-        RequestAttributeV2 commonNameAttr = new RequestAttributeV2();
+        RequestAttributeV3 commonNameAttr = new RequestAttributeV3();
         commonNameAttr.setUuid(UUID.fromString(CsrAttributes.COMMON_NAME_UUID));
         commonNameAttr.setName(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
         commonNameAttr.setContentType(AttributeContentType.STRING);
-        commonNameAttr.setContent(List.of(new StringAttributeContentV2("domain.com", "domain.com")));
+        commonNameAttr.setContent(List.of(new StringAttributeContentV3("domain.com", "domain.com")));
         attributeEngine.updateObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.CERTIFICATE_REQUEST, certificateRequestUuid).build(),
                 List.of(commonNameAttr)
