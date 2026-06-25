@@ -109,19 +109,14 @@ UNIVERSAL_TAGS = {
 # --- Node tree ---
 
 class Node:
-    __slots__ = ("tag_class", "constructed", "tag_number", "value", "children",
-                 "data", "val_offset", "val_length")
+    __slots__ = ("tag_class", "constructed", "tag_number", "value", "children")
 
-    def __init__(self, tag_class, constructed, tag_number, value, children,
-                 data=None, val_offset=0, val_length=0):
+    def __init__(self, tag_class, constructed, tag_number, value, children):
         self.tag_class = tag_class
         self.constructed = constructed
         self.tag_number = tag_number
         self.value = value
         self.children = children
-        self.data = data
-        self.val_offset = val_offset
-        self.val_length = val_length
 
     @property
     def is_universal(self):
@@ -209,12 +204,12 @@ def parse_der(data, offset=0, end=None):
         value_bytes = data[vo:ve]
         if con:
             children = parse_der(data, vo, ve)
-            nodes.append(Node(tc, True, tn, None, children, data, vo, vl))
+            nodes.append(Node(tc, True, tn, None, children))
         elif tc != 0 and _looks_constructed(value_bytes):
             children = parse_der(data, vo, ve)
-            nodes.append(Node(tc, True, tn, None, children, data, vo, vl))
+            nodes.append(Node(tc, True, tn, None, children))
         else:
-            nodes.append(Node(tc, False, tn, value_bytes, [], data, vo, vl))
+            nodes.append(Node(tc, False, tn, value_bytes, []))
         offset = ve
     return nodes
 
