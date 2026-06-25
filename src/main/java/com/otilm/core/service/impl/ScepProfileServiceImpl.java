@@ -273,21 +273,6 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
     }
 
     /**
-     * Applies the write-only challenge password according to the tri-state {@code enableChallengePassword} toggle.
-     * The toggle MUST be treated as keep-when-null: an absent toggle (legacy clients, or clients that do not send
-     * the field) must never wipe a stored password. Do NOT collapse it with {@code Boolean.TRUE.equals(...)} the way
-     * {@code enableIntune} is handled — that would turn a missing toggle into {@code false} and silently clear the
-     * stored secret.
-     *
-     * <ul>
-     *   <li>toggle {@code null} — set when a value is supplied, otherwise leave the entity untouched
-     *       (keep on edit, no password on create).</li>
-     *   <li>toggle {@code false} — clear the challenge password.</li>
-     *   <li>toggle {@code true} + non-blank value — set the new password.</li>
-     *   <li>toggle {@code true} + blank value — keep the stored password, or reject when none is stored.</li>
-     * </ul>
-     */
-    /**
      * Persists the Intune sub-config, shared by create and edit. When Intune is enabled the tenant and
      * application id are set from the request and the application key is treated as a write-only secret —
      * kept as stored when the request omits it (blank on a fresh entity means no key). When Intune is
@@ -312,6 +297,21 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         return request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
     }
 
+    /**
+     * Applies the write-only challenge password according to the tri-state {@code enableChallengePassword} toggle.
+     * The toggle MUST be treated as keep-when-null: an absent toggle (legacy clients, or clients that do not send
+     * the field) must never wipe a stored password. Do NOT collapse it with {@code Boolean.TRUE.equals(...)} the way
+     * {@code enableIntune} is handled — that would turn a missing toggle into {@code false} and silently clear the
+     * stored secret.
+     *
+     * <ul>
+     *   <li>toggle {@code null} — set when a value is supplied, otherwise leave the entity untouched
+     *       (keep on edit, no password on create).</li>
+     *   <li>toggle {@code false} — clear the challenge password.</li>
+     *   <li>toggle {@code true} + non-blank value — set the new password.</li>
+     *   <li>toggle {@code true} + blank value — keep the stored password, or reject when none is stored.</li>
+     * </ul>
+     */
     private void applyChallengePassword(ScepProfile scepProfile, BaseScepProfileRequestDto request) {
         Boolean enable = request.getEnableChallengePassword();
         boolean valueProvided = request.getChallengePassword() != null && !request.getChallengePassword().isBlank();
