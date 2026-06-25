@@ -1131,17 +1131,8 @@ public class AttributeEngine {
             throw new AttributeException("fieldMapping field is missing fieldType",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         switch (field) {
-            case RdnMappedField rdn -> {
-                if (rdn.getRdn() == null || rdn.getRdn().isBlank())
-                    throw new AttributeException("fieldMapping RDN field is missing rdn",
-                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
-                // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
-                String rdnValue = rdn.getRdn();
-                boolean isOid = OID_REGEX_PATTERN.matcher(rdnValue).matches();
-                if (!isOid && !codeToOidMap.containsKey(rdnValue))
-                    throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
-                            attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
-            }
+            case RdnMappedField rdn ->
+                validateRdnMappedField(attribute, connectorUuidStr, codeToOidMap, rdn);
             case SanMappedField san -> {
                 if (san.getGeneralNameType() == null)
                     throw new AttributeException("fieldMapping SAN field is missing generalNameType",
@@ -1167,6 +1158,18 @@ public class AttributeEngine {
                     throw new AttributeException("Unexpected MappedField subtype: " + field.getClass().getSimpleName(),
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         }
+    }
+
+    private static void validateRdnMappedField(DataAttributeV3 attribute, String connectorUuidStr, Map<String, String> codeToOidMap, RdnMappedField rdn) throws AttributeException {
+        if (rdn.getRdn() == null || rdn.getRdn().isBlank())
+            throw new AttributeException("fieldMapping RDN field is missing rdn",
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
+        String rdnValue = rdn.getRdn();
+        boolean isOid = OID_REGEX_PATTERN.matcher(rdnValue).matches();
+        if (!isOid && !codeToOidMap.containsKey(rdnValue))
+            throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
+                    attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
     }
 
     public static void validateRequestDataAttributes(List<? extends BaseAttribute> definitions, List<? extends RequestAttribute> requestAttributes, boolean strict) throws ValidationException {

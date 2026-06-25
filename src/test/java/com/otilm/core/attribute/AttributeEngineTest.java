@@ -51,7 +51,6 @@ import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.testcontainers.shaded.org.checkerframework.checker.units.qual.A;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -170,13 +169,13 @@ class AttributeEngineTest extends BaseSpringBootTest {
         loadCustomAttributesData();
     }
 
-    private static void ensureOidCached(OidCategory category, String oid, OidRecord record) {
+    private static void ensureOidCached(OidCategory category, String oid, OidRecord oidRecord) {
         Map<String, OidRecord> cache = OidHandler.getOidCache(category);
         if (cache == null) {
             OidHandler.cacheOidCategory(category, new HashMap<>());
             cache = OidHandler.getOidCache(category);
         }
-        cache.put(oid, record);
+        cache.put(oid, oidRecord);
     }
 
     @Test
