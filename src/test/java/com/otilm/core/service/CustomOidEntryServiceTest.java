@@ -78,7 +78,7 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(request.getOid(), response.getOid());
         Assertions.assertEquals(request.getCategory(), response.getCategory());
         Assertions.assertEquals(request.getAdditionalProperties(), response.getAdditionalProperties());
-        Assertions.assertEquals(request.getDescription(), res   ponse.getDescription());
+        Assertions.assertEquals(request.getDescription(), response.getDescription());
         Assertions.assertEquals(request.getDisplayName(), response.getDisplayName());
         CustomOidEntry customOidEntry = customOidEntryRepository.findById(request.getOid()).orElse(null);
         Assertions.assertNotNull(customOidEntry);
