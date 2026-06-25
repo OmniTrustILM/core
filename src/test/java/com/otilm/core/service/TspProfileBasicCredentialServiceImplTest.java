@@ -207,6 +207,23 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
                     .isInstanceOf(AttributeException.class);
             assertThat(service.list(parent)).isEmpty();
         }
+
+        @Test
+        void throwsValidationAndCreatesNoSecret_whenMappedToSystemUser() throws Exception {
+            // given — the mapped user resolves to a system user
+            UserDetailDto systemUser = new UserDetailDto();
+            systemUser.setUuid(mappedUserUuid.toString());
+            systemUser.setUsername("acme");
+            systemUser.setSystemUser(true);
+            when(userManagementService.getUser(anyString())).thenReturn(systemUser);
+
+            // when / then
+            assertThatThrownBy(() -> service.create(SecuredParentUUID.fromUUID(profileWithVault.getUuid()), createRequest("svc", "secret")))
+                    .isInstanceOf(ValidationException.class);
+
+            // then — guard runs before any vault secret is provisioned
+            verify(secretService, never()).createSecret(any(), any(), any());
+        }
     }
 
     // ── Update ────────────────────────────────────────────────────────────────
@@ -344,6 +361,26 @@ class TspProfileBasicCredentialServiceImplTest extends BaseSpringBootTest {
             // then the collision is rejected BEFORE the vault is touched, so vault and DB stay aligned
             assertThatThrownBy(() -> service.update(parent, credentialBUuid, updateRequest("svc-a", "newsecret")))
                     .isInstanceOf(AlreadyExistException.class);
+            verify(secretService, never()).updateSecret(any(), any());
+        }
+
+        @Test
+        void throwsValidation_whenRemappedToSystemUser() throws Exception {
+            // given — an existing credential mapped to a regular user
+            SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
+            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
+            SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
+
+            // when the update remaps it to a system user
+            UserDetailDto systemUser = new UserDetailDto();
+            systemUser.setUuid(mappedUserUuid.toString());
+            systemUser.setUsername("acme");
+            systemUser.setSystemUser(true);
+            when(userManagementService.getUser(anyString())).thenReturn(systemUser);
+
+            // then — rejected, and no secret rotation is attempted
+            assertThatThrownBy(() -> service.update(parent, credentialUuid, updateRequest("svc", "newsecret")))
+                    .isInstanceOf(ValidationException.class);
             verify(secretService, never()).updateSecret(any(), any());
         }
     }
