@@ -5,6 +5,8 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.oid.*;
+import com.otilm.api.model.core.oid.properties.AdditionalOidPropertiesDto;
+import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
