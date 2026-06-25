@@ -59,6 +59,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -111,6 +112,12 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
     @MockitoBean
     private CryptographicOperationExternalService cryptographicOperationExternalService;
+
+    @Autowired
+    private LocationRepository locationRepository;
+
+    @Autowired
+    private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
 
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -973,6 +980,45 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
 
 
+    }
+
+    @Test
+    @Transactional
+    void testIssueCertificateRejectedAction_removesCertificateFromAssociatedLocations() throws NotFoundException {
+        // given: a rejected certificate that is associated with a location on a connected entity
+        EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
+        entityInstanceReference.setEntityInstanceUuid("e1e2e3e4-0000-0000-0000-000000000001");
+        entityInstanceReference.setConnector(connector);
+        entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
+
+        Location location = new Location();
+        location.setName("rejected-cert-location");
+        location.setEnabled(true);
+        location.setEntityInstanceReference(entityInstanceReference);
+        location.setEntityInstanceReferenceUuid(entityInstanceReference.getUuid());
+
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setCertificate(certificate);
+        certificateLocation.setLocation(location);
+        location.getCertificates().add(certificateLocation);
+        certificate.getLocations().add(certificateLocation);
+        locationRepository.saveAndFlush(location);
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                .willReturn(WireMock.okJson("{}")));
+
+        UUID certificateUuid = certificate.getUuid();
+
+        // when
+        clientOperationService.issueCertificateRejectedAction(certificateUuid);
+
+        // then: every location the certificate sat on is told to drop it via its entity-provider connector
+        mockServer.verify(WireMock.moreThanOrExactly(1),
+                WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 
     @Test
