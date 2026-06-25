@@ -28,7 +28,7 @@ import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.LocationService;
+import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +55,7 @@ class LocationsSearchTest extends BaseSpringBootTest {
     @Autowired
     private LocationRepository locationRepository;
     @Autowired
-    private LocationService locationService;
+    private LocationExternalService locationService;
 
     private EntityInstanceReference entityInstanceReference;
 

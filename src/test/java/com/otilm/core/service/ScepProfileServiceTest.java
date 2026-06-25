@@ -38,14 +38,19 @@ import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import java.util.*;
+import java.util.stream.Stream;
 
 class ScepProfileServiceTest extends BaseSpringBootTest {
     @Autowired
@@ -316,6 +321,357 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         dto = scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
         Assertions.assertNotNull(dto);
         Assertions.assertNotNull(dto.getCertificateAssociations());
+    }
+
+    @Test
+    void testEditScepProfile_keepsSecretsWhenOmitted() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        // challengePassword and intuneApplicationKey omitted (form does not prefill secrets)
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
+        Assertions.assertEquals("originalKey", updated.getIntuneApplicationKey());
+    }
+
+    static Stream<Arguments> challengePasswordEditCases() {
+        return Stream.of(
+                //         stored,         toggle, requestValue,   expectedStored
+                arguments("originalPass",  null,  "newPass",       "newPass"),       // null toggle + value -> set
+                arguments("originalPass",  null,  null,            "originalPass"),  // null toggle + omitted -> keep
+                arguments("originalPass",  null,  "",              "originalPass"),  // null toggle + blank -> keep
+                arguments("originalPass",  null,  "   ",           "originalPass"),  // null toggle + whitespace -> keep
+                arguments("originalPass",  false, "ignoredValue",  null),            // false -> clear, wins over value
+                arguments(null,            true,  "newPass",       "newPass"),       // true + value, nothing stored -> set
+                arguments("originalPass",  true,  null,            "originalPass"),  // true + blank + stored -> keep
+                arguments("originalPass",  true,  "   ",           "originalPass")   // true + whitespace + stored -> keep
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("challengePasswordEditCases")
+    void testEditScepProfile_challengePasswordMatrix(String stored, Boolean toggle, String requestValue, String expectedStored)
+            throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword(stored);
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(toggle);
+        request.setChallengePassword(requestValue);
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals(expectedStored, updated.getChallengePassword());
+    }
+
+    @Test
+    void testEditScepProfile_clearsChallengePasswordWhenToggleFalse() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(false);
+
+        ScepProfileDetailDto dto = scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertNull(updated.getChallengePassword());
+        Assertions.assertFalse(dto.isEnableChallengePassword());
+    }
+
+    @Test
+    void testEditScepProfile_setsChallengePasswordWhenToggleTrueWithValue() throws ConnectorException, AttributeException, NotFoundException {
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        request.setChallengePassword("newChallenge");
+
+        ScepProfileDetailDto dto = scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("newChallenge", updated.getChallengePassword());
+        Assertions.assertTrue(dto.isEnableChallengePassword());
+    }
+
+    @Test
+    void testEditScepProfile_rejectsToggleTrueWhenNothingStored() {
+        scepProfile.setChallengePassword(null);
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        // no value and nothing stored -> reject
+
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
+    }
+
+    @Test
+    void testEditScepProfile_nullToggleOnPasswordlessProfileKeepsNullWithoutError() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword(null);
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        // enableChallengePassword omitted (legacy client) -> no clear, no 400
+
+        ScepProfileDetailDto dto = scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertNull(updated.getChallengePassword());
+        Assertions.assertFalse(dto.isEnableChallengePassword());
+    }
+
+    @Test
+    void testEditScepProfile_disablingIntuneClearsStoredConfig() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(false);
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated.isIntuneEnabled());
+        Assertions.assertNull(updated.getIntuneTenant());
+        Assertions.assertNull(updated.getIntuneApplicationId());
+        Assertions.assertNull(updated.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testEditScepProfile_omittedEnableIntuneClearsStoredConfig() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        // enableIntune omitted entirely: PUT full-replace semantics collapse it to false -> clear sub-config
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated.isIntuneEnabled());
+        Assertions.assertNull(updated.getIntuneTenant());
+        Assertions.assertNull(updated.getIntuneApplicationId());
+        Assertions.assertNull(updated.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsToggleTrueWithoutPassword() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("ToggleNoPassword");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        // enabled but no password supplied -> reject
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_setsChallengePasswordWhenToggleTrue() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("ToggleWithPassword");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        request.setChallengePassword("createdPass");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertEquals("createdPass", created.getChallengePassword());
+        Assertions.assertTrue(dto.isEnableChallengePassword());
+    }
+
+    @Test
+    void testEditScepProfile_updatesIntuneKeyWhenProvided() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("newKey");
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals("newKey", updated.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testEditScepProfile_rejectsWhenIntuneEnabledAndNoKeyStored() {
+        scepProfile.setIntuneEnabled(false);
+        scepProfile.setIntuneApplicationKey(null);
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        // key omitted and none stored -> reject
+
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
+    void testEditScepProfile_rejectsBlankIntuneTenant() {
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("   "); // whitespace-only tenant -> reject
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("key");
+
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsWhitespaceChallengeWhenToggleTrue() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("WhitespaceChallenge");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        request.setChallengePassword("   "); // whitespace -> blank, nothing stored -> reject
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_doesNotPersistIntuneWhenDisabled() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneDisabledOnCreate");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(false);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("leakedKey");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertFalse(created.isIntuneEnabled());
+        Assertions.assertNull(created.getIntuneTenant());
+        Assertions.assertNull(created.getIntuneApplicationId());
+        Assertions.assertNull(created.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testCreateScepProfile_withIntuneEnabledStoresConfig() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneEnabledCreate");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("appKey");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertTrue(created.isIntuneEnabled());
+        Assertions.assertEquals("tenant", created.getIntuneTenant());
+        Assertions.assertEquals("appId", created.getIntuneApplicationId());
+        Assertions.assertEquals("appKey", created.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsIntuneEnabledWithoutKey() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneNoKey");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        // application key missing -> reject
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsIntuneEnabledBlankApplicationId() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneBlankAppId");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("   "); // blank application id -> reject
+        request.setIntuneApplicationKey("appKey");
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
+    void testEditScepProfile_intuneDisableThenReEnableWithFreshKey() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto disable = new ScepProfileEditRequestDto();
+        disable.setCaCertificateUuid(certificate.getUuid().toString());
+        disable.setEnableIntune(false);
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), disable);
+        ScepProfile cleared = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertNull(cleared.getIntuneApplicationKey());
+
+        ScepProfileEditRequestDto reEnable = new ScepProfileEditRequestDto();
+        reEnable.setCaCertificateUuid(certificate.getUuid().toString());
+        reEnable.setEnableIntune(true);
+        reEnable.setIntuneTenant("tenant2");
+        reEnable.setIntuneApplicationId("appId2");
+        reEnable.setIntuneApplicationKey("freshKey");
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), reEnable);
+
+        ScepProfile reEnabled = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertTrue(reEnabled.isIntuneEnabled());
+        Assertions.assertEquals("freshKey", reEnabled.getIntuneApplicationKey());
     }
 
     @Test
