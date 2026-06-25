@@ -233,6 +233,26 @@ class CustomOidEntryServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testRefreshCachePopulatesRecordsFromDb() {
+        // bulkDelete with empty list deletes nothing and calls refreshCache() — exercises getOidToRecordMap for all categories
+        customOidEntryService.bulkDeleteCustomOidEntry(List.of());
+
+        OidRecord rdnRecord = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE).get(rdnOidEntry.getOid());
+        Assertions.assertNotNull(rdnRecord);
+        Assertions.assertEquals(rdnOidEntry.getDisplayName(), rdnRecord.displayName());
+        Assertions.assertEquals(rdnOidEntry.getCode(), rdnRecord.code());
+        Assertions.assertEquals(rdnOidEntry.getAltCodes(), rdnRecord.altCodes());
+
+        OidRecord extensionRecord = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION).get(extensionOidEntry.getOid());
+        Assertions.assertNotNull(extensionRecord);
+        Assertions.assertEquals(extensionOidEntry.getDisplayName(), extensionRecord.displayName());
+        Assertions.assertEquals(extensionOidEntry.getDefaultCritical(), extensionRecord.defaultCritical());
+        Assertions.assertEquals(extensionOidEntry.getValueEncoding(), extensionRecord.valueEncoding());
+
+        Assertions.assertNotNull(OidHandler.getOidCache(OidCategory.GENERIC).get(genericCustomOidEntry.getOid()));
+    }
+
+    @Test
     void testUpdateCertificateExtensionOid() throws NotFoundException {
         String extensionOidEntryOid = extensionOidEntry.getOid();
         CertificateExtensionOidPropertiesDto extensionUpdateProps = new CertificateExtensionOidPropertiesDto();
