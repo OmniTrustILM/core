@@ -127,7 +127,9 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         }
 
         boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
-        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null || !intuneKeyProvided)) {
+        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneTenant().isBlank()
+                || request.getIntuneApplicationId() == null || request.getIntuneApplicationId().isBlank()
+                || !intuneKeyProvided)) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled"));
         }
 
@@ -199,7 +201,8 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         // The Intune application key is write-only: when Intune stays enabled and the request omits the key,
         // keep the stored one (the form does not prefill it). Requiring re-entry otherwise would 422 or wipe it.
         boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
-        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null
+        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneTenant().isBlank()
+                || request.getIntuneApplicationId() == null || request.getIntuneApplicationId().isBlank()
                 || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled (the application key may be omitted only if one is already stored)"));
         }

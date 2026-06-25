@@ -38,14 +38,19 @@ import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import java.util.*;
+import java.util.stream.Stream;
 
 class ScepProfileServiceTest extends BaseSpringBootTest {
     @Autowired
@@ -341,19 +346,36 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals("originalKey", updated.getIntuneApplicationKey());
     }
 
-    @Test
-    void testEditScepProfile_updatesSecretsWhenProvided() throws ConnectorException, AttributeException, NotFoundException {
-        scepProfile.setChallengePassword("originalChallenge");
+    static Stream<Arguments> challengePasswordEditCases() {
+        return Stream.of(
+                //         stored,         toggle, requestValue,   expectedStored
+                arguments("originalPass",  null,  "newPass",       "newPass"),       // null toggle + value -> set
+                arguments("originalPass",  null,  null,            "originalPass"),  // null toggle + omitted -> keep
+                arguments("originalPass",  null,  "",              "originalPass"),  // null toggle + blank -> keep
+                arguments("originalPass",  null,  "   ",           "originalPass"),  // null toggle + whitespace -> keep
+                arguments("originalPass",  false, "ignoredValue",  null),            // false -> clear, wins over value
+                arguments(null,            true,  "newPass",       "newPass"),       // true + value, nothing stored -> set
+                arguments("originalPass",  true,  null,            "originalPass"),  // true + blank + stored -> keep
+                arguments("originalPass",  true,  "   ",           "originalPass")   // true + whitespace + stored -> keep
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("challengePasswordEditCases")
+    void testEditScepProfile_challengePasswordMatrix(String stored, Boolean toggle, String requestValue, String expectedStored)
+            throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword(stored);
         scepProfileRepository.save(scepProfile);
 
         ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
         request.setCaCertificateUuid(certificate.getUuid().toString());
-        request.setChallengePassword("newChallenge");
+        request.setEnableChallengePassword(toggle);
+        request.setChallengePassword(requestValue);
 
         scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
 
         ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
-        Assertions.assertEquals("newChallenge", updated.getChallengePassword());
+        Assertions.assertEquals(expectedStored, updated.getChallengePassword());
     }
 
     @Test
@@ -384,22 +406,6 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
         Assertions.assertEquals("newChallenge", updated.getChallengePassword());
         Assertions.assertTrue(dto.isEnableChallengePassword());
-    }
-
-    @Test
-    void testEditScepProfile_keepsChallengePasswordWhenToggleTrueAndBlank() throws ConnectorException, AttributeException, NotFoundException {
-        scepProfile.setChallengePassword("originalChallenge");
-        scepProfileRepository.save(scepProfile);
-
-        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
-        request.setCaCertificateUuid(certificate.getUuid().toString());
-        request.setEnableChallengePassword(true);
-        // value omitted -> keep stored
-
-        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
-
-        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
-        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
     }
 
     @Test
@@ -488,36 +494,6 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
-    void testEditScepProfile_keepsChallengePasswordWhenBlankValueAndNullToggle() throws ConnectorException, AttributeException, NotFoundException {
-        scepProfile.setChallengePassword("originalChallenge");
-        scepProfileRepository.save(scepProfile);
-
-        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
-        request.setCaCertificateUuid(certificate.getUuid().toString());
-        request.setChallengePassword(""); // blank, not just omitted -> keep
-
-        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
-
-        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
-        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
-    }
-
-    @Test
-    void testEditScepProfile_treatsWhitespaceChallengeAsBlankAndKeeps() throws ConnectorException, AttributeException, NotFoundException {
-        scepProfile.setChallengePassword("originalChallenge");
-        scepProfileRepository.save(scepProfile);
-
-        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
-        request.setCaCertificateUuid(certificate.getUuid().toString());
-        request.setChallengePassword("   "); // whitespace-only -> blank -> keep, not stored verbatim
-
-        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
-
-        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
-        Assertions.assertEquals("originalChallenge", updated.getChallengePassword());
-    }
-
-    @Test
     void testEditScepProfile_rejectsWhenIntuneEnabledAndNoKeyStored() {
         scepProfile.setIntuneEnabled(false);
         scepProfile.setIntuneApplicationKey(null);
@@ -533,6 +509,32 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         SecuredUUID uuid = scepProfile.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.editScepProfile(uuid, request));
+    }
+
+    @Test
+    void testEditScepProfile_rejectsBlankIntuneTenant() {
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("   "); // whitespace-only tenant -> reject
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("key");
+
+        SecuredUUID uuid = scepProfile.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.editScepProfile(uuid, request));
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsWhitespaceChallengeWhenToggleTrue() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("WhitespaceChallenge");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        request.setChallengePassword("   "); // whitespace -> blank, nothing stored -> reject
+
+        Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
     }
 
     @Test
@@ -552,22 +554,6 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         Assertions.assertNull(created.getIntuneTenant());
         Assertions.assertNull(created.getIntuneApplicationId());
         Assertions.assertNull(created.getIntuneApplicationKey());
-    }
-
-    @Test
-    void testEditScepProfile_clearWinsOverValueWhenToggleFalse() throws ConnectorException, AttributeException, NotFoundException {
-        scepProfile.setChallengePassword("originalChallenge");
-        scepProfileRepository.save(scepProfile);
-
-        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
-        request.setCaCertificateUuid(certificate.getUuid().toString());
-        request.setEnableChallengePassword(false);
-        request.setChallengePassword("ignoredValue"); // clear wins over any value
-
-        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
-
-        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
-        Assertions.assertNull(updated.getChallengePassword());
     }
 
     @Test
