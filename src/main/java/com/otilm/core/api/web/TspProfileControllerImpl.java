@@ -19,7 +19,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileExternalService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,10 +31,10 @@ import java.util.UUID;
 @RestController
 public class TspProfileControllerImpl implements TspProfileController {
 
-    private final TspProfileService tspProfileService;
+    private final TspProfileExternalService tspProfileService;
 
     @Autowired
-    public TspProfileControllerImpl(TspProfileService tspProfileService) {
+    public TspProfileControllerImpl(TspProfileExternalService tspProfileService) {
         this.tspProfileService = tspProfileService;
     }
 

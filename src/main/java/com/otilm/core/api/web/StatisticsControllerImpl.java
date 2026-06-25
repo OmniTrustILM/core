@@ -9,7 +9,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningRecordService;
+import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.StatisticsExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class StatisticsControllerImpl implements StatisticsController {
 
 	private StatisticsExternalService statisticsService;
-	private SigningRecordService signingRecordService;
+	private SigningRecordExternalService signingRecordService;
 
 	@Autowired
 	public void setStatisticsService(StatisticsExternalService statisticsService) {
@@ -26,7 +26,7 @@ public class StatisticsControllerImpl implements StatisticsController {
 	}
 
 	@Autowired
-	public void setSigningRecordService(SigningRecordService signingRecordService) {
+	public void setSigningRecordService(SigningRecordExternalService signingRecordService) {
 		this.signingRecordService = signingRecordService;
 	}
 

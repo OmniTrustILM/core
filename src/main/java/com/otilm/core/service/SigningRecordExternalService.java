@@ -15,7 +15,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.UUID;
 
-public interface SigningRecordService {
+public interface SigningRecordExternalService {
 
     List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
@@ -41,8 +41,4 @@ public interface SigningRecordService {
     void deleteSigningRecord(SecuredUUID uuid) throws NotFoundException;
 
     List<BulkActionMessageDto> bulkDeleteSigningRecords(List<SecuredUUID> uuids);
-
-    boolean doesSigningRecordExistInternal(UUID uuid, int version);
-
-    boolean doesSigningRecordExistForProfileInternal(UUID signingProfileUuid);
 }

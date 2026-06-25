@@ -113,7 +113,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private SigningProfileService signingProfileService;
 
     @Autowired
-    private TspProfileService tspProfileService;
+    private TspProfileExternalService tspProfileService;
 
     @Autowired
     private ConnectorService connectorService;
@@ -128,7 +128,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private CryptographicKeyService cryptographicKeyService;
 
     @Autowired
-    private TimeQualityConfigurationService timeQualityConfigurationService;
+    private TimeQualityConfigurationExternalService timeQualityConfigurationService;
 
     @Autowired
     private ConnectorMockFactory connectorMockFactory;
