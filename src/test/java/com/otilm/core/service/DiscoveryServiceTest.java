@@ -176,7 +176,8 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
     @Disabled("Async method is not throwing exception")
     void testDiscoverCertificates_notFound() {
         // connector uui not set
-        Assertions.assertThrows(NotFoundException.class, () -> discoveryInternalService.runDiscovery(discovery.getUuid(), null));
+        UUID discoveryUuid = discovery.getUuid();
+        Assertions.assertThrows(NotFoundException.class, () -> discoveryInternalService.runDiscovery(discoveryUuid, null));
     }
 
     @Test
@@ -186,7 +187,8 @@ class DiscoveryServiceTest extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v1/discoveryProvider/[^/]+/attributes/validate"))
                 .willReturn(WireMock.okJson("false")));
 
-        Assertions.assertThrows(ValidationException.class, () -> discoveryInternalService.runDiscovery(discovery.getUuid(), null));
+        UUID discoveryUuid = discovery.getUuid();
+        Assertions.assertThrows(ValidationException.class, () -> discoveryInternalService.runDiscovery(discoveryUuid, null));
     }
 
     @Test
