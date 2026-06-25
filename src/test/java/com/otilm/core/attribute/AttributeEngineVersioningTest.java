@@ -50,7 +50,7 @@ class AttributeEngineVersioningTest extends BaseSpringBootTest {
 
     // ── Operation constants mimicking signing-profile usage ──────────────────
     private static final String OPERATION_SIGN = AttributeOperation.SIGN;
-    private static final String OPERATION_FORMAT = "connectorFormatter";
+    private static final String OPERATION_FORMAT = "connectorFormatting";
     private static final Resource VERSIONED_RESOURCE = Resource.CRYPTOGRAPHIC_KEY;
     private static final List<RequestAttribute> EMPTY_REQUEST_ATTRIBUTES = List.of();
 
@@ -384,8 +384,8 @@ class AttributeEngineVersioningTest extends BaseSpringBootTest {
         connectorB = connectorRepository.save(connectorB);
 
         // Register attribute definitions under each connector for the same operation
-        DataAttributeV3 defA = buildDataAttribute("formatter_attr_a");
-        DataAttributeV3 defB = buildDataAttribute("formatter_attr_b");
+        DataAttributeV3 defA = buildDataAttribute("formatting_attr_a");
+        DataAttributeV3 defB = buildDataAttribute("formatting_attr_b");
         attributeEngine.updateDataAttributeDefinitions(connectorA.getUuid(), OPERATION_FORMAT, List.of(defA));
         attributeEngine.updateDataAttributeDefinitions(connectorB.getUuid(), OPERATION_FORMAT, List.of(defB));
 

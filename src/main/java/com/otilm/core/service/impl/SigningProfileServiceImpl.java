@@ -236,8 +236,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     @Override
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ANY)
     @Transactional(readOnly = true)
-    public List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
-        return fetchFormatterAttributeDefinitions(connectorUuid);
+    public List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
+        return fetchFormattingAttributeDefinitions(connectorUuid);
     }
 
     @Override
@@ -288,15 +288,15 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
                         .operation(AttributeOperation.SIGN)
                         .version(currentVersion.getVersion()).build());
-        List<RequestAttribute> signatureFormatterConnectorAttributes = attributeEngine.getRequestObjectDataAttributesContent(
+        List<RequestAttribute> signatureFormattingConnectorAttributes = attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
-                        .connector(currentVersion.getSignatureFormatterConnectorUuid())
+                        .connector(currentVersion.getSignatureFormattingConnectorUuid())
                         .operation(AttributeOperation.WORKFLOW_FORMATTER)
                         .version(currentVersion.getVersion()).build());
 
         // Narrow scope: only managed-timestamping profiles are cacheable for now.
         return SigningProfileMapper.toManagedTimestampingModel(
-                profile, currentVersion, signingOperationAttributes, signatureFormatterConnectorAttributes);
+                profile, currentVersion, signingOperationAttributes, signatureFormattingConnectorAttributes);
     }
 
     @Override
@@ -362,14 +362,14 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         }
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
-        List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        SigningProfileDto created = self.persistCreate(request, formatterDefinitions);
+        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
+        SigningProfileDto created = self.persistCreate(request, formattingDefinitions);
         evictSigningProfileCache(created.getName());
         return created;
     }
 
     @Transactional
-    SigningProfileDto persistCreate(SigningProfileRequestDto request, List<BaseAttribute> formatterDefinitions)
+    SigningProfileDto persistCreate(SigningProfileRequestDto request, List<BaseAttribute> formattingDefinitions)
             throws AttributeException, NotFoundException {
         SigningProfile profile = new SigningProfile();
         profile.setName(request.getName());
@@ -387,8 +387,8 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.SIGNING_PROFILE, profile.getUuid(), request.getCustomAttributes());
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, v1, request.getSigningScheme());
-        List<ResponseAttribute> signatureFormatterConnectorAttributes = persistSignatureFormatterConnectorAttributes(profile, v1, request.getWorkflow(), formatterDefinitions);
-        return SigningProfileMapper.toDto(profile, v1, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
+        List<ResponseAttribute> signatureFormattingConnectorAttributes = persistSignatureFormattingConnectorAttributes(profile, v1, request.getWorkflow(), formattingDefinitions);
+        return SigningProfileMapper.toDto(profile, v1, customAttributes, signingOperationAttributes, signatureFormattingConnectorAttributes);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -402,12 +402,12 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
-        List<BaseAttribute> formatterDefinitions = fetchFormatterAttributeDefinitions(request.getWorkflow());
-        return self.persistUpdate(uuid, request, formatterDefinitions);
+        List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow());
+        return self.persistUpdate(uuid, request, formattingDefinitions);
     }
 
     @Transactional
-    SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request, List<BaseAttribute> formatterDefinitions)
+    SigningProfileDto persistUpdate(SecuredUUID uuid, SigningProfileRequestDto request, List<BaseAttribute> formattingDefinitions)
             throws AlreadyExistException, AttributeException, NotFoundException {
         // Serialize the bump decision per profile to prevent concurrent updates from racing.
         clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
@@ -450,11 +450,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         List<ResponseAttribute> customAttributes = attributeEngine.updateObjectCustomAttributesContent(Resource.SIGNING_PROFILE, profile.getUuid(), request.getCustomAttributes());
         List<ResponseAttribute> signingOperationAttributes = persistSigningOperationAttributes(profile, version, request.getSigningScheme());
-        List<ResponseAttribute> signatureFormatterConnectorAttributes = persistSignatureFormatterConnectorAttributes(profile, version, request.getWorkflow(), formatterDefinitions);
+        List<ResponseAttribute> signatureFormattingConnectorAttributes = persistSignatureFormattingConnectorAttributes(profile, version, request.getWorkflow(), formattingDefinitions);
         tspProfileService.evictAllCachedModels();
         evictSigningProfileCache(oldName);
         evictSigningProfileCache(profile.getName());
-        return SigningProfileMapper.toDto(profile, version, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
+        return SigningProfileMapper.toDto(profile, version, customAttributes, signingOperationAttributes, signatureFormattingConnectorAttributes);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -725,7 +725,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         p.setTimeQualityConfiguration(null);
         p.setWorkflowType(workflow.getType()); // cache column
         version.setWorkflowType(workflow.getType());
-        version.setSignatureFormatterConnector(null);
+        version.setSignatureFormattingConnector(null);
         version.setQualifiedTimestamp(null);
         version.setDefaultPolicyId(null);
         version.setAllowedPolicyIds(new ArrayList<>());
@@ -734,25 +734,25 @@ public class SigningProfileServiceImpl implements SigningProfileService {
 
         switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
-                if (w.getSignatureFormatterConnectorUuid() == null) {
-                    throw new ValidationException("Signature formatter connector is required for content signing workflow");
+                if (w.getSignatureFormattingConnectorUuid() == null) {
+                    throw new ValidationException("Signature formatting connector is required for content signing workflow");
                 }
                 Connector contentConnector =
-                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormatterConnectorUuid()));
-                validateFormatterConnectorFeature(contentConnector, FeatureFlag.CONTENT_SIGNING, SigningWorkflowType.CONTENT_SIGNING);
-                version.setSignatureFormatterConnector(contentConnector);
+                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
+                validateFormattingConnectorFeature(contentConnector, FeatureFlag.CONTENT_SIGNING, SigningWorkflowType.CONTENT_SIGNING);
+                version.setSignatureFormattingConnector(contentConnector);
             }
             case RawSigningWorkflowRequestDto ignored -> {
-                // RawSigningWorkflowRequestDto has no signatureFormatterConnectorUuid field — no formatter is allowed
+                // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed
             }
             case TimestampingWorkflowRequestDto w -> {
-                if (w.getSignatureFormatterConnectorUuid() == null) {
-                    throw new ValidationException("Signature formatter connector is required for timestamping workflow");
+                if (w.getSignatureFormattingConnectorUuid() == null) {
+                    throw new ValidationException("Signature formatting connector is required for timestamping workflow");
                 }
                 Connector tsaConnector =
-                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormatterConnectorUuid()));
-                validateFormatterConnectorFeature(tsaConnector, FeatureFlag.TIMESTAMPING, SigningWorkflowType.TIMESTAMPING);
-                version.setSignatureFormatterConnector(tsaConnector);
+                        connectorService.getConnectorEntity(SecuredUUID.fromUUID(w.getSignatureFormattingConnectorUuid()));
+                validateFormattingConnectorFeature(tsaConnector, FeatureFlag.TIMESTAMPING, SigningWorkflowType.TIMESTAMPING);
+                version.setSignatureFormattingConnector(tsaConnector);
                 version.setQualifiedTimestamp(w.getQualifiedTimestamp());
                 version.setDefaultPolicyId(w.getDefaultPolicyId());
                 version.setAllowedPolicyIds(w.getAllowedPolicyIds() != null ? w.getAllowedPolicyIds() : new ArrayList<>());
@@ -802,12 +802,12 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         return p.getPersistenceMode() != null ? p.getPersistenceMode() : SigningRecordPersistenceMode.DEFERRED_DURABLE;
     }
 
-    private void validateFormatterConnectorFeature(Connector connector, FeatureFlag requiredFeature, SigningWorkflowType workflowType) {
+    private void validateFormattingConnectorFeature(Connector connector, FeatureFlag requiredFeature, SigningWorkflowType workflowType) {
         boolean hasFeature = connector.getInterfaces().stream()
                 .filter(i -> ConnectorInterface.SIGNATURE_FORMATTING.equals(i.getInterfaceCode()))
                 .anyMatch(i -> i.getFeatures() != null && i.getFeatures().contains(requiredFeature));
         if (!hasFeature) {
-            throw new ValidationException("Formatter connector '%s' does not support the '%s' feature required for %s workflow"
+            throw new ValidationException("Signature Formatting Provider '%s' does not support the '%s' feature required for %s workflow"
                     .formatted(connector.getName(), requiredFeature.getLabel(), workflowType.getLabel()));
         }
     }
@@ -821,12 +821,12 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
                         .operation(AttributeOperation.SIGN)
                         .version(spv.getVersion()).build());
-        List<ResponseAttribute> signatureFormatterConnectorAttributes = attributeEngine.getObjectDataAttributesContent(
+        List<ResponseAttribute> signatureFormattingConnectorAttributes = attributeEngine.getObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
-                        .connector(spv.getSignatureFormatterConnectorUuid())
+                        .connector(spv.getSignatureFormattingConnectorUuid())
                         .operation(AttributeOperation.WORKFLOW_FORMATTER)
                         .version(spv.getVersion()).build());
-        return SigningProfileMapper.toDto(profile, spv, customAttributes, signingOperationAttributes, signatureFormatterConnectorAttributes);
+        return SigningProfileMapper.toDto(profile, spv, customAttributes, signingOperationAttributes, signatureFormattingConnectorAttributes);
     }
 
     private SigningProfileDto buildDtoFromProfile(SigningProfile profile) {
@@ -862,23 +862,23 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         return List.of();
     }
 
-    private List<ResponseAttribute> persistSignatureFormatterConnectorAttributes(SigningProfile p,
+    private List<ResponseAttribute> persistSignatureFormattingConnectorAttributes(SigningProfile p,
                                                                                  SigningProfileVersion version,
                                                                                  WorkflowRequestDto workflow,
-                                                                                 List<BaseAttribute> formatterDefinitions)
+                                                                                 List<BaseAttribute> formattingDefinitions)
             throws AttributeException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
-                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormatterConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formatterDefinitions, w.getSignatureFormatterConnectorAttributes());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
-                                .connector(w.getSignatureFormatterConnectorUuid())
+                                .connector(w.getSignatureFormattingConnectorUuid())
                                 .operation(AttributeOperation.WORKFLOW_FORMATTER)
                                 .version(version.getVersion()).build(),
-                        w.getSignatureFormatterConnectorAttributes());
+                        w.getSignatureFormattingConnectorAttributes());
             }
             case RawSigningWorkflowRequestDto ignored -> {
-                // Raw signing has no formatter; clean up any formatter attributes that may remain for this version.
+                // Raw signing has no formatting; clean up any formatting attributes that may remain for this version.
                 attributeEngine.deleteOperationObjectAttributesContent(AttributeType.DATA,
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
                                 .operation(AttributeOperation.WORKFLOW_FORMATTER)
@@ -886,36 +886,36 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
-                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormatterConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formatterDefinitions, w.getSignatureFormatterConnectorAttributes());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
-                                .connector(w.getSignatureFormatterConnectorUuid())
+                                .connector(w.getSignatureFormattingConnectorUuid())
                                 .operation(AttributeOperation.WORKFLOW_FORMATTER)
                                 .version(version.getVersion()).build(),
-                        w.getSignatureFormatterConnectorAttributes());
+                        w.getSignatureFormattingConnectorAttributes());
             }
             default -> throw new IllegalStateException("Unexpected type for Signing Workflow: " + workflow);
         };
     }
 
     /**
-     * Fetches formatter attribute definitions from the connector without persisting them.
-     * Definitions are persisted later inside the transaction by {@link #persistSignatureFormatterConnectorAttributes}
+     * Fetches formatting attribute definitions from the connector without persisting them.
+     * Definitions are persisted later inside the transaction by {@link #persistSignatureFormattingConnectorAttributes}
      * via {@link AttributeEngine#validateUpdateDataAttributes}, which keeps the definition upsert and content write atomic.
      */
-    private List<BaseAttribute> fetchFormatterAttributeDefinitions(WorkflowRequestDto workflow) throws ConnectorException, NotFoundException {
+    private List<BaseAttribute> fetchFormattingAttributeDefinitions(WorkflowRequestDto workflow) throws ConnectorException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w ->
-                    fetchFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                    fetchFormattingAttributeDefinitions(w.getSignatureFormattingConnectorUuid());
             case TimestampingWorkflowRequestDto w ->
-                    fetchFormatterAttributeDefinitions(w.getSignatureFormatterConnectorUuid());
+                    fetchFormattingAttributeDefinitions(w.getSignatureFormattingConnectorUuid());
             default -> List.of();
         };
     }
 
-    private List<BaseAttribute> fetchFormatterAttributeDefinitions(UUID connectorUuid) throws ConnectorException, NotFoundException {
+    private List<BaseAttribute> fetchFormattingAttributeDefinitions(UUID connectorUuid) throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo apiClientInfo = connectorService.getConnectorForApiClient(connectorUuid);
-        return connectorApiFactory.getSignatureFormatterApiClient(apiClientInfo).listFormatterAttributes(apiClientInfo);
+        return connectorApiFactory.getSignatureFormattingApiClient(apiClientInfo).listFormattingAttributes(apiClientInfo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

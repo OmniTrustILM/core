@@ -1,4 +1,4 @@
-package com.otilm.core.signing.tsa.formatter;
+package com.otilm.core.signing.tsa.formatting;
 
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -10,7 +10,7 @@ import java.math.BigInteger;
 import java.time.Instant;
 
 /**
- * Two-phase formatter for RFC 3161 TimeStampTokens.
+ * Two-phase formatting for RFC 3161 TimeStampTokens.
  *
  * <p>Phase 1 — {@link #formatDtbs}: produces the DER-encoded SignedAttributes
  * (Data To Be Signed). The caller signs these bytes externally.
@@ -19,7 +19,7 @@ import java.time.Instant;
  * assembles the final TimeStampToken. Both phases are stateless — the same
  * parameters must be passed to both calls so phase 1 can be replayed.
  */
-public interface SignatureFormatterClient {
+public interface SignatureFormattingClient {
 
     /**
      * Drives BouncyCastle's TimeStampTokenGenerator to capture the SignedAttributes

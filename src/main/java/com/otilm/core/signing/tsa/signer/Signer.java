@@ -12,7 +12,7 @@ public interface Signer {
 
     /**
      * The signature algorithm this signer uses, e.g. SHA256withRSA.
-     * Required so the formatter can configure the content signer and
+     * Required so the formatting can configure the content signer and
      * derive the content digest algorithm for the timestamp token generator.
      */
     SignatureAlgorithm getSignatureAlgorithm();

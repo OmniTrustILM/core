@@ -56,9 +56,9 @@ class ResolvedSigningProfileTest {
         assertEquals(List.of("1.2.3.4.5", "1.2.3.4.6"), profile.allowedPolicyIds());
         assertEquals(List.of(DigestAlgorithm.SHA_256), profile.allowedDigestAlgorithms());
         assertEquals(Boolean.FALSE, profile.validateTokenSignature());
-        assertNotNull(profile.signatureFormatterConnectorAttributes());
+        assertNotNull(profile.signatureFormattingConnectorAttributes());
         assertNull(profile.timeQualityConfiguration());
-        assertNull(profile.signatureFormatterConnector());
+        assertNull(profile.signatureFormattingConnector());
         assertSame(scheme, profile.resolvedScheme());
 
         assertEquals(SigningWorkflowType.TIMESTAMPING, profile.workflowType());

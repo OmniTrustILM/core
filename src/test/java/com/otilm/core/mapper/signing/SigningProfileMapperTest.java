@@ -29,7 +29,7 @@ class SigningProfileMapperTest {
 
     private static final UUID PROFILE_UUID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID TQC_UUID = UUID.fromString("22222222-2222-2222-2222-222222222222");
-    private static final UUID FORMATTER_UUID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID FORMATTING_UUID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID CERT_UUID = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID RA_UUID = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private static final UUID TOKEN_UUID = UUID.fromString("66666666-6666-6666-6666-666666666666");
@@ -123,7 +123,7 @@ class SigningProfileMapperTest {
 
             ManagedTimestampingWorkflow wf = model.workflow();
             assertThat(wf.timeQualityConfigurationUuid()).isEqualTo(TQC_UUID);
-            assertThat(wf.signatureFormatterConnectorUuid()).isEqualTo(FORMATTER_UUID);
+            assertThat(wf.signatureFormattingConnectorUuid()).isEqualTo(FORMATTING_UUID);
             assertThat(wf.defaultPolicyId()).isEqualTo("1.2.3.4.5");
             assertThat(wf.allowedDigestAlgorithms()).containsExactly(DigestAlgorithm.SHA_256);
             assertThat(wf.isQualifiedTimestamp()).isFalse();
@@ -342,7 +342,7 @@ class SigningProfileMapperTest {
             SigningProfileVersion v = new SigningProfileVersion();
             v.setVersion(1);
             v.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
-            v.setSignatureFormatterConnectorUuid(FORMATTER_UUID);
+            v.setSignatureFormattingConnectorUuid(FORMATTING_UUID);
             v.setQualifiedTimestamp(false);
             v.setDefaultPolicyId("1.2.3.4.5");
             v.setAllowedPolicyIds(List.of("1.2.3.4.5"));

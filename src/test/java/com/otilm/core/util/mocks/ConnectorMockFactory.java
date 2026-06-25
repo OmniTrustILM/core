@@ -22,12 +22,12 @@ public class ConnectorMockFactory {
         return new CryptographyProviderConnectorMock(functionGroupSeeder);
     }
 
-    public ContentSigningFormatterMock startContentSigningFormatter() {
-        return new ContentSigningFormatterMock();
+    public ContentSigningFormattingMock startContentSigningFormatting() {
+        return new ContentSigningFormattingMock();
     }
 
-    public TimestampingFormatterConnectorMock startTimestampingFormatter() {
-        return new TimestampingFormatterConnectorMock();
+    public TimestampingFormattingConnectorMock startTimestampingFormatting() {
+        return new TimestampingFormattingConnectorMock();
     }
 
     public SignerConnectorMock startSigner() {

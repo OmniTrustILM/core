@@ -41,12 +41,12 @@ public class SigningProfileMapper {
 
     /**
      * Transforms a {@link SigningProfile} and {@link SigningProfileVersion} entities to a full {@link SigningProfileDto},
-     * populating custom attributes, connector signing-operation attributes, and workflow formatter attributes.
+     * populating custom attributes, connector signing-operation attributes, and workflow formatting attributes.
      */
     public static SigningProfileDto toDto(SigningProfile header, SigningProfileVersion version,
                                           List<ResponseAttribute> customAttributes,
                                           List<ResponseAttribute> signingOperationAttributes,
-                                          List<ResponseAttribute> signatureFormatterConnectorAttributes) {
+                                          List<ResponseAttribute> signatureFormattingConnectorAttributes) {
         SigningProfileDto dto = new SigningProfileDto();
         dto.setUuid(header.getUuid().toString());
         dto.setName(header.getName());
@@ -95,9 +95,9 @@ public class SigningProfileMapper {
 
         // Build workflow DTO from version (timestamping also reads unversioned fields from header)
         dto.setWorkflow(switch (version.getWorkflowType()) {
-            case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormatterConnectorAttributes);
+            case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormattingConnectorAttributes);
             case RAW_SIGNING -> new RawSigningWorkflowDto();
-            case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormatterConnectorAttributes);
+            case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormattingConnectorAttributes);
         });
 
         dto.setEnabledProtocols(detectEnabledProtocols(header));
@@ -147,7 +147,7 @@ public class SigningProfileMapper {
             SigningProfile header,
             SigningProfileVersion version,
             List<RequestAttribute> signingOperationAttributes,
-            List<RequestAttribute> signatureFormatterConnectorAttributes) {
+            List<RequestAttribute> signatureFormattingConnectorAttributes) {
         if (version.getWorkflowType() != SigningWorkflowType.TIMESTAMPING) {
             throw new IllegalArgumentException("Signing Profile '%s' does not use a timestamping workflow".formatted(header.getName()));
         }
@@ -159,7 +159,7 @@ public class SigningProfileMapper {
                 header.getUuid(), header.getName(), header.getDescription(),
                 version.getVersion(), header.isEnabled(), detectEnabledProtocols(header),
                 header.getTspProfileUuid(),
-                buildManagedTimestampingWorkflowModel(header, version, signatureFormatterConnectorAttributes),
+                buildManagedTimestampingWorkflowModel(header, version, signatureFormattingConnectorAttributes),
                 buildManagedSchemeModel(version, signingOperationAttributes),
                 buildRecordPolicyModel(version));
     }
@@ -207,18 +207,18 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
 
     private static ContentSigningWorkflowDto buildContentSigningWorkflowDto(
-            SigningProfileVersion version, List<ResponseAttribute> signatureFormatterConnectorAttributes) {
+            SigningProfileVersion version, List<ResponseAttribute> signatureFormattingConnectorAttributes) {
         ContentSigningWorkflowDto wf = new ContentSigningWorkflowDto();
-        setFormatterRef(version, wf::setSignatureFormatterConnector);
-        wf.setSignatureFormatterConnectorAttributes(safeList(signatureFormatterConnectorAttributes));
+        setFormattingRef(version, wf::setSignatureFormattingConnector);
+        wf.setSignatureFormattingConnectorAttributes(safeList(signatureFormattingConnectorAttributes));
         return wf;
     }
 
     private static TimestampingWorkflowDto buildTimestampingWorkflowDto(
-            SigningProfile header, SigningProfileVersion version, List<ResponseAttribute> signatureFormatterConnectorAttributes) {
+            SigningProfile header, SigningProfileVersion version, List<ResponseAttribute> signatureFormattingConnectorAttributes) {
         TimestampingWorkflowDto wf = new TimestampingWorkflowDto();
-        setFormatterRef(version, wf::setSignatureFormatterConnector);
-        wf.setSignatureFormatterConnectorAttributes(safeList(signatureFormatterConnectorAttributes));
+        setFormattingRef(version, wf::setSignatureFormattingConnector);
+        wf.setSignatureFormattingConnectorAttributes(safeList(signatureFormattingConnectorAttributes));
         wf.setQualifiedTimestamp(version.getQualifiedTimestamp());
         wf.setDefaultPolicyId(version.getDefaultPolicyId());
         wf.setAllowedPolicyIds(safeList(version.getAllowedPolicyIds()));
@@ -241,10 +241,10 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
 
     private static ManagedTimestampingWorkflow buildManagedTimestampingWorkflowModel(
-            SigningProfile header, SigningProfileVersion version, List<RequestAttribute> signatureFormatterConnectorAttributes) {
+            SigningProfile header, SigningProfileVersion version, List<RequestAttribute> signatureFormattingConnectorAttributes) {
         return new ManagedTimestampingWorkflow(
-                version.getSignatureFormatterConnectorUuid(),
-                cacheSafeList(signatureFormatterConnectorAttributes),
+                version.getSignatureFormattingConnectorUuid(),
+                cacheSafeList(signatureFormattingConnectorAttributes),
                 version.getQualifiedTimestamp(),
                 header.getTimeQualityConfigurationUuid(),
                 version.getDefaultPolicyId(),
@@ -296,15 +296,15 @@ public class SigningProfileMapper {
     // Shared utilities
     // ──────────────────────────────────────────────────────────────────────────
 
-    private static void setFormatterRef(SigningProfileVersion profileVersion, Consumer<NameAndUuidDto> setter) {
-        if (profileVersion.getSignatureFormatterConnector() == null
-                || profileVersion.getSignatureFormatterConnectorUuid() == null) {
+    private static void setFormattingRef(SigningProfileVersion profileVersion, Consumer<NameAndUuidDto> setter) {
+        if (profileVersion.getSignatureFormattingConnector() == null
+                || profileVersion.getSignatureFormattingConnectorUuid() == null) {
             setter.accept(null);
             return;
         }
         NameAndUuidDto ref = new NameAndUuidDto();
-        ref.setName(profileVersion.getSignatureFormatterConnector().getName());
-        ref.setUuid(profileVersion.getSignatureFormatterConnectorUuid().toString());
+        ref.setName(profileVersion.getSignatureFormattingConnector().getName());
+        ref.setUuid(profileVersion.getSignatureFormattingConnectorUuid().toString());
         setter.accept(ref);
     }
 

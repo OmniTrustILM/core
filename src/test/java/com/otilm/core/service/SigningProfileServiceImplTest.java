@@ -68,10 +68,10 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
-import com.otilm.core.util.mocks.ContentSigningFormatterMock;
+import com.otilm.core.util.mocks.ContentSigningFormattingMock;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.SignerConnectorMock;
-import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
+import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -136,12 +136,12 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
 
-    private ContentSigningFormatterMock contentSigningFormatterMock;
-    private TimestampingFormatterConnectorMock timestampingFormatterMock;
+    private ContentSigningFormattingMock contentSigningFormattingMock;
+    private TimestampingFormattingConnectorMock timestampingFormattingMock;
     private CryptographyProviderConnectorMock cryptographyProviderServerMock;
     private SignerConnectorMock signerConnectorServerMock;
-    private ConnectorDetailDto contentSigningFormatterConnector;
-    private ConnectorDetailDto timestampingFormatterConnector;
+    private ConnectorDetailDto contentSigningFormattingConnector;
+    private ConnectorDetailDto timestampingFormattingConnector;
     private ConnectorDetailDto cryptographyProviderConnector;
     private ConnectorDetailDto signerConnector;
     private TokenInstanceDetailDto tokenInstance;
@@ -198,8 +198,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         // Set up mocks of connectors (the servers to call); the cryptography-provider mock also seeds
         // the function-group reference data normally provided by Flyway (wiped by per-test truncation)
         cryptographyProviderServerMock = connectorMockFactory.startCryptographyProvider();
-        contentSigningFormatterMock = connectorMockFactory.startContentSigningFormatter();
-        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter();
+        contentSigningFormattingMock = connectorMockFactory.startContentSigningFormatting();
+        timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
         signerConnectorServerMock = connectorMockFactory.startSigner();
 
         // Register the connectors to ILM
@@ -209,16 +209,16 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                         .withUrl(this.cryptographyProviderServerMock.getUrl())
                         .build()
         );
-        contentSigningFormatterConnector = connectorService.createConnector(
+        contentSigningFormattingConnector = connectorService.createConnector(
                 aV2ConnectorRequest()
-                        .withName("content-signing-formatter")
-                        .withUrl(this.contentSigningFormatterMock.getUrl())
+                        .withName("content-signing-formatting")
+                        .withUrl(this.contentSigningFormattingMock.getUrl())
                         .build()
         );
-        timestampingFormatterConnector = connectorService.createConnector(
+        timestampingFormattingConnector = connectorService.createConnector(
                 aV2ConnectorRequest()
-                        .withName("timestamping-formatter")
-                        .withUrl(this.timestampingFormatterMock.getUrl())
+                        .withName("timestamping-formatting")
+                        .withUrl(this.timestampingFormattingMock.getUrl())
                         .build()
         );
         signerConnector = connectorService.createConnector(
@@ -282,22 +282,22 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                         .build()
         );
 
-        contentSigningFormatterMock.stubFormatterAttributes();
+        contentSigningFormattingMock.stubFormattingAttributes();
         defaultContentSigningProfile = signingProfileService.createSigningProfile(
                 aSigningProfileRequest()
                         .withName("default-content-signing-profile")
                         .withDelegatedSigning(signerConnector.getUuid())
-                        .withContentSigning(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                        .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                         .build()
         );
 
-        timestampingFormatterMock.stubFormatterAttributes();
+        timestampingFormattingMock.stubFormattingAttributes();
         defaultTimestampingProfile = signingProfileService.createSigningProfile(
                 aSigningProfileRequest()
                         .withName("default-timestamping-profile")
                         .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                         .withTimestamping(aTimestampingWorkflow()
-                                .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                 .build()
                         )
                         .build()
@@ -322,8 +322,8 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
     @AfterEach
     void tearDown() {
-        contentSigningFormatterMock.stop();
-        timestampingFormatterMock.stop();
+        contentSigningFormattingMock.stop();
+        timestampingFormattingMock.stop();
         cryptographyProviderServerMock.stop();
         signerConnectorServerMock.stop();
     }
@@ -553,7 +553,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             signingProfileService.updateSigningProfile(
                     profileUuid,
                     aSigningProfileRequestFromExistingProfile(existingProfile)
-                            .withTimestamping(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                            .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
                             .build()
             );
 
@@ -589,7 +589,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     aSigningProfileRequest()
                             .withName("some protocols-linked")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                            .withTimestamping(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                            .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
                             .build()
             );
 
@@ -676,7 +676,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     aSigningProfileRequest()
                             .withName("ct-delegated-content")
                             .withDelegatedSigning(signerConnector.getUuid())
-                            .withContentSigning(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                            .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build()
             );
             SigningProfileDto getDto = signingProfileService.getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -694,7 +694,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertEquals(signerConnector.getUuid(), scheme.getConnector().getUuid());
 
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class, createdProfile.getWorkflow());
-            assertEquals(contentSigningFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(contentSigningFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
         }
 
         @Test
@@ -705,7 +705,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withName("ct-delegated-timestamping")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                     .withDefaultPolicyId("1.2.3.4.5")
                                     .withAllowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.6"))
                                     .withAllowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256, DigestAlgorithm.SHA_384))
@@ -729,7 +729,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertEquals(signerConnector.getUuid(), scheme.getConnector().getUuid());
 
             TimestampingWorkflowDto workflow = assertInstanceOf(TimestampingWorkflowDto.class, createdProfile.getWorkflow());
-            assertEquals(timestampingFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(timestampingFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
             assertEquals("1.2.3.4.5", workflow.getDefaultPolicyId());
             assertEquals(List.of("1.2.3.4.5", "1.2.3.4.6"), workflow.getAllowedPolicyIds());
             assertEquals(List.of(DigestAlgorithm.SHA_256, DigestAlgorithm.SHA_384), workflow.getAllowedDigestAlgorithms());
@@ -772,7 +772,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     aSigningProfileRequest()
                             .withName("ct-static-content")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                            .withContentSigning(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                            .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build()
             );
             SigningProfileDto getDto = signingProfileService.getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -791,7 +791,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(scheme.getSigningOperationAttributes().isEmpty());
 
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class, createdProfile.getWorkflow());
-            assertEquals(contentSigningFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(contentSigningFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
         }
 
         @Test
@@ -801,7 +801,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     aSigningProfileRequest()
                             .withName("ct-static-timestamping")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                            .withTimestamping(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                            .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
                             .build()
             );
             SigningProfileDto getDto = signingProfileService.getSigningProfile(SecuredUUID.fromString(createdProfile.getUuid()), null);
@@ -820,7 +820,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertFalse(scheme.getSigningOperationAttributes().isEmpty());
 
             TimestampingWorkflowDto workflow = assertInstanceOf(TimestampingWorkflowDto.class, createdProfile.getWorkflow());
-            assertEquals(timestampingFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(timestampingFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
         }
 
         @Test
@@ -888,13 +888,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto updated = signingProfileService.updateSigningProfile(
                     profileUuid,
                     aSigningProfileRequestFromExistingProfile(profile)
-                            .withContentSigning(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                            .withContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build()
             );
 
             // then
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class, updated.getWorkflow());
-            assertEquals(contentSigningFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(contentSigningFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
         }
 
         @Test
@@ -914,13 +914,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SigningProfileDto updated = signingProfileService.updateSigningProfile(
                     profileUuid,
                     aSigningProfileRequestFromExistingProfile(profile)
-                            .withTimestamping(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                            .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
                             .build()
             );
 
             // then
             TimestampingWorkflowDto workflow = assertInstanceOf(TimestampingWorkflowDto.class, updated.getWorkflow());
-            assertEquals(timestampingFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(timestampingFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
         }
 
         @Test
@@ -938,7 +938,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withDescription("Updated description for timestamping profile")
                             .withStaticKeyManagedSigning(qualifiedCert.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                     .withDefaultPolicyId("1.2.3.4.5")
                                     .withAllowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.6"))
                                     .withAllowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256, DigestAlgorithm.SHA_384))
@@ -954,7 +954,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             assertEquals("Updated description for timestamping profile", updated.getDescription());
 
             TimestampingWorkflowDto workflow = assertInstanceOf(TimestampingWorkflowDto.class, updated.getWorkflow());
-            assertEquals(timestampingFormatterConnector.getUuid(), workflow.getSignatureFormatterConnector().getUuid());
+            assertEquals(timestampingFormattingConnector.getUuid(), workflow.getSignatureFormattingConnector().getUuid());
             assertEquals("1.2.3.4.5", workflow.getDefaultPolicyId());
             assertEquals(List.of("1.2.3.4.5", "1.2.3.4.6"), workflow.getAllowedPolicyIds());
             assertEquals(List.of(DigestAlgorithm.SHA_256, DigestAlgorithm.SHA_384), workflow.getAllowedDigestAlgorithms());
@@ -1040,21 +1040,21 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void versionBump_workflowFormatterAttributesDifferBetweenVersions()
+        void versionBump_workflowFormattingAttributesDifferBetweenVersions()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // given: stub the formatter connector to expose a single configurable attribute
-            UUID formatterAttrUuid = UUID.fromString("11111111-2222-3333-4444-555555555555");
-            String formatterAttrName = "data_testPolicy";
-            timestampingFormatterMock.stubFormatterAttributeDefinition(formatterAttrUuid, formatterAttrName, true);
+            // given: stub the formatting connector to expose a single configurable attribute
+            UUID formattingAttrUuid = UUID.fromString("11111111-2222-3333-4444-555555555555");
+            String formattingAttrName = "data_testPolicy";
+            timestampingFormattingMock.stubFormattingAttributeDefinition(formattingAttrUuid, formattingAttrName, true);
 
             SigningProfileDto v1Profile = signingProfileService.createSigningProfile(
                     aSigningProfileRequest()
-                            .withName("formatter-attrs-versioned")
+                            .withName("formatting-attrs-versioned")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
-                                    .withSignatureFormatterConnectorAttributes(List.of(
-                                            aStringAttribute(formatterAttrUuid, formatterAttrName, "policy-v1")))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .withSignatureFormattingConnectorAttributes(List.of(
+                                            aStringAttribute(formattingAttrUuid, formattingAttrName, "policy-v1")))
                                     .build())
                             .build()
             );
@@ -1066,23 +1066,23 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                     profileUuid,
                     aSigningProfileRequestFromExistingProfile(v1Profile)
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
-                                    .withSignatureFormatterConnectorAttributes(List.of(
-                                            aStringAttribute(formatterAttrUuid, formatterAttrName, "policy-v2")))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .withSignatureFormattingConnectorAttributes(List.of(
+                                            aStringAttribute(formattingAttrUuid, formattingAttrName, "policy-v2")))
                                     .build())
                             .build()
             );
 
-            // then: each version exposes its own formatter attribute value
+            // then: each version exposes its own formatting attribute value
             TimestampingWorkflowDto v1Workflow = assertInstanceOf(TimestampingWorkflowDto.class,
                     signingProfileService.getSigningProfile(profileUuid, 1).getWorkflow());
             TimestampingWorkflowDto v2Workflow = assertInstanceOf(TimestampingWorkflowDto.class,
                     signingProfileService.getSigningProfile(profileUuid, 2).getWorkflow());
 
             assertEquals("policy-v1",
-                    extractStringAttrValue(v1Workflow.getSignatureFormatterConnectorAttributes(), formatterAttrName));
+                    extractStringAttrValue(v1Workflow.getSignatureFormattingConnectorAttributes(), formattingAttrName));
             assertEquals("policy-v2",
-                    extractStringAttrValue(v2Workflow.getSignatureFormatterConnectorAttributes(), formatterAttrName));
+                    extractStringAttrValue(v2Workflow.getSignatureFormattingConnectorAttributes(), formattingAttrName));
         }
     }
 
@@ -1698,114 +1698,114 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     }
 
     @Nested
-    class FormatterAttributes {
+    class FormattingAttributes {
 
         @Test
         void create_contentSigning_attributesPersistedAndReturned()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // given: stub the content signing formatter to expose a single configurable attribute
+            // given: stub the content signing formatting to expose a single configurable attribute
             UUID attrUuid = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-            String attrName = "data_testFormatterAttr";
-            contentSigningFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName);
+            String attrName = "data_testFormattingAttr";
+            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
 
             // when
             SigningProfileDto dto = signingProfileService.createSigningProfile(
                     aSigningProfileRequest()
-                            .withName("doc-profile-with-formatter-attrs")
+                            .withName("doc-profile-with-formatting-attrs")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
-                                    .withSignatureFormatterConnectorAttributes(List.of(
+                                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withSignatureFormattingConnectorAttributes(List.of(
                                             aStringAttribute(attrUuid, attrName, "testValue")))
                                     .build())
                             .build());
 
             // then: the attribute is returned in the DTO and its value matches what was sent
             ContentSigningWorkflowDto wfDto = assertInstanceOf(ContentSigningWorkflowDto.class, dto.getWorkflow());
-            List<ResponseAttribute> attrs = wfDto.getSignatureFormatterConnectorAttributes();
-            assertFalse(attrs.isEmpty(), "Formatter connector attributes should be populated after create");
+            List<ResponseAttribute> attrs = wfDto.getSignatureFormattingConnectorAttributes();
+            assertFalse(attrs.isEmpty(), "Signature Formatting Provider attributes should be populated after create");
             assertEquals("testValue", extractStringAttrValue(attrs, attrName));
         }
 
         @Test
-        void update_contentSigningConnectorChanged_oldFormatterAttributesCleared()
+        void update_contentSigningConnectorChanged_oldFormattingAttributesCleared()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // given: stub the existing content signing formatter connector with a specific attribute definition
+            // given: stub the existing content signing formatting connector with a specific attribute definition
             UUID attrUuid = UUID.fromString("11111111-2222-3333-4444-555555555556");
-            String attrName = "data_formatterSwitchTest";
-            contentSigningFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName);
+            String attrName = "data_formattingSwitchTest";
+            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
 
-            // and: a second content signing formatter connector (formatterB)
-            ContentSigningFormatterMock formatterBMock = connectorMockFactory.startContentSigningFormatter();
-            formatterBMock.stubFormatterAttributeDefinition(attrUuid, attrName);
-            ConnectorDetailDto formatterBConnector = connectorService.createConnector(
+            // and: a second content signing formatting connector (formattingB)
+            ContentSigningFormattingMock formattingBMock = connectorMockFactory.startContentSigningFormatting();
+            formattingBMock.stubFormattingAttributeDefinition(attrUuid, attrName);
+            ConnectorDetailDto formattingBConnector = connectorService.createConnector(
                     aV2ConnectorRequest()
-                            .withName("content-signing-formatter-b")
-                            .withUrl(formatterBMock.getUrl())
+                            .withName("content-signing-formatting-b")
+                            .withUrl(formattingBMock.getUrl())
                             .build()
             );
 
             try {
-                // and: a profile using formatterA (contentSigningFormatterConnector) with attribute "valueA"
+                // and: a profile using formattingA (contentSigningFormattingConnector) with attribute "valueA"
                 SigningProfileDto created = signingProfileService.createSigningProfile(
                         aSigningProfileRequest()
-                                .withName("formatter-switch-test")
+                                .withName("formatting-switch-test")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withContentSigning(aContentSigningWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
-                                        .withSignatureFormatterConnectorAttributes(List.of(
+                                        .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                        .withSignatureFormattingConnectorAttributes(List.of(
                                                 aStringAttribute(attrUuid, attrName, "valueA")))
                                         .build())
                                 .build());
                 SecuredUUID profileUuid = SecuredUUID.fromString(created.getUuid());
                 UUID profileUuidRaw = UUID.fromString(created.getUuid());
 
-                // when: update to formatterB with attribute "valueB"
+                // when: update to formattingB with attribute "valueB"
                 signingProfileService.updateSigningProfile(profileUuid,
                         aSigningProfileRequestFromExistingProfile(created)
                                 .withContentSigning(aContentSigningWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(formatterBConnector.getUuid()))
-                                        .withSignatureFormatterConnectorAttributes(List.of(
+                                        .withSignatureFormattingConnector(UUID.fromString(formattingBConnector.getUuid()))
+                                        .withSignatureFormattingConnectorAttributes(List.of(
                                                 aStringAttribute(attrUuid, attrName, "valueB")))
                                         .build())
                                 .build());
 
-                // then: formatterA's engine rows are gone (no stale attributes for the old connector)
+                // then: formattingA's engine rows are gone (no stale attributes for the old connector)
                 List<ResponseAttribute> oldAttrs = attributeEngine.getObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
-                                .connector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                                .connector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                 .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
                 assertTrue(oldAttrs.isEmpty(),
-                        "Attributes for the replaced formatter connector should be cleared from the engine");
+                        "Attributes for the replaced formatting connector should be cleared from the engine");
 
-                // then: formatterB's attributes are stored with the correct value
+                // then: formattingB's attributes are stored with the correct value
                 List<ResponseAttribute> newAttrs = attributeEngine.getObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
-                                .connector(UUID.fromString(formatterBConnector.getUuid()))
+                                .connector(UUID.fromString(formattingBConnector.getUuid()))
                                 .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
                 assertFalse(newAttrs.isEmpty(),
-                        "Attributes for the new formatter connector should be persisted after the update");
+                        "Attributes for the new formatting connector should be persisted after the update");
                 assertEquals("valueB", extractStringAttrValue(newAttrs, attrName));
             } finally {
-                formatterBMock.stop();
+                formattingBMock.stop();
             }
         }
 
         @Test
-        void delete_removesFormatterAttributesFromEngine()
+        void delete_removesFormattingAttributesFromEngine()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // given: a content signing profile with a formatter attribute
+            // given: a content signing profile with a formatting attribute
             UUID attrUuid = UUID.fromString("cccccccc-dddd-eeee-ffff-000000000001");
-            String attrName = "data_deleteFormatterAttr";
-            contentSigningFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName);
+            String attrName = "data_deleteFormattingAttr";
+            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName);
 
             SigningProfileDto created = signingProfileService.createSigningProfile(
                     aSigningProfileRequest()
-                            .withName("delete-clears-formatter-attrs")
+                            .withName("delete-clears-formatting-attrs")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
-                                    .withSignatureFormatterConnectorAttributes(List.of(
+                                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withSignatureFormattingConnectorAttributes(List.of(
                                             aStringAttribute(attrUuid, attrName, "toDelete")))
                                     .build())
                             .build());
@@ -1817,23 +1817,23 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             // then: no stale engine rows remain for the deleted profile
             List<ResponseAttribute> remaining = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
-                            .connector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                            .connector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
             assertTrue(remaining.isEmpty(),
-                    "Formatter attributes should be cleared from the engine when the profile is deleted");
+                    "Formatting attributes should be cleared from the engine when the profile is deleted");
         }
 
     }
 
     @Nested
-    class FormatterAttributeValidation {
+    class FormattingAttributeValidation {
 
         @Test
         void create_contentSigning_requiredAttributeMissing_throwsValidationException() {
-            // given: the formatter connector advertises a required attribute
+            // given: the formatting connector advertises a required attribute
             UUID attrUuid = UUID.fromString("00000000-dead-beef-0002-000000000001");
             String attrName = "req_content_attr";
-            contentSigningFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName, true);
+            contentSigningFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName, true);
 
             // when: create a profile omitting the required attribute
             Executable create = () -> signingProfileService.createSigningProfile(
@@ -1841,21 +1841,21 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withName("content-missing-required-attr")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .build())
                             .build());
 
             // then
             assertThrows(ValidationException.class, create,
-                    "createSigningProfile must reject a missing required formatter attribute");
+                    "createSigningProfile must reject a missing required formatting attribute");
         }
 
         @Test
         void create_timestamping_requiredAttributeMissing_throwsValidationException() {
-            // given: the formatter connector advertises a required attribute
+            // given: the formatting connector advertises a required attribute
             UUID attrUuid = UUID.fromString("00000000-dead-beef-0002-000000000001");
             String attrName = "req_content_attr";
-            timestampingFormatterMock.stubFormatterAttributeDefinition(attrUuid, attrName, true);
+            timestampingFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName, true);
 
             // when: create a profile omitting the required attribute
             Executable create = () -> signingProfileService.createSigningProfile(
@@ -1863,13 +1863,13 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withName("timestamping-missing-required-attr")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(contentSigningFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                                     .build())
                             .build());
 
             // then
             assertThrows(ValidationException.class, create,
-                    "createSigningProfile must reject a missing required formatter attribute");
+                    "createSigningProfile must reject a missing required formatting attribute");
         }
     }
 
@@ -2063,7 +2063,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withName("ts-managed-model")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                     .build())
                             .build());
 
@@ -2087,7 +2087,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withName("ts-managed-validation-props")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                     .withDefaultPolicyId("1.2.3.4.5")
                                     .withAllowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.6"))
                                     .withAllowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256))
@@ -2118,7 +2118,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                             .withDescription("expected ts description")
                             .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
                             .withTimestamping(aTimestampingWorkflow()
-                                    .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                    .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                     .build())
                             .build());
 
@@ -2153,7 +2153,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("ts-with-tqc")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(UUID.fromString(tqc.getUuid()))
                                         .build())
                                 .build());
@@ -2184,7 +2184,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("ts-bad-tqc")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(nonExistentTqcUuid)
                                         .build())
                                 .build());
@@ -2208,7 +2208,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("ts-to-raw-profile")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(UUID.fromString(tqc.getUuid()))
                                         .build())
                                 .build());
@@ -2246,7 +2246,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("list-ts-profile-one")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(tqcUuid)
                                         .build())
                                 .build());
@@ -2255,7 +2255,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("list-ts-profile-two")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(tqcUuid)
                                         .build())
                                 .build());
@@ -2288,7 +2288,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("profile-linked-to-tqc-A")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(UUID.fromString(tqcA.getUuid()))
                                         .build())
                                 .build());
@@ -2297,7 +2297,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                                 .withName("profile-linked-to-tqc-B")
                                 .withDelegatedSigning(signerConnector.getUuid())
                                 .withTimestamping(aTimestampingWorkflow()
-                                        .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                        .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                         .withTimeQualityConfiguration(UUID.fromString(tqcB.getUuid()))
                                         .build())
                                 .build());
