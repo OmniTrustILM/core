@@ -291,7 +291,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         List<RequestAttribute> signatureFormattingConnectorAttributes = attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
                         .connector(currentVersion.getSignatureFormattingConnectorUuid())
-                        .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                        .operation(AttributeOperation.WORKFLOW_FORMATTING)
                         .version(currentVersion.getVersion()).build());
 
         // Narrow scope: only managed-timestamping profiles are cacheable for now.
@@ -824,7 +824,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
         List<ResponseAttribute> signatureFormattingConnectorAttributes = attributeEngine.getObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profile.getUuid())
                         .connector(spv.getSignatureFormattingConnectorUuid())
-                        .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                        .operation(AttributeOperation.WORKFLOW_FORMATTING)
                         .version(spv.getVersion()).build());
         return SigningProfileMapper.toDto(profile, spv, customAttributes, signingOperationAttributes, signatureFormattingConnectorAttributes);
     }
@@ -869,11 +869,11 @@ public class SigningProfileServiceImpl implements SigningProfileService {
             throws AttributeException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
-                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
                                 .connector(w.getSignatureFormattingConnectorUuid())
-                                .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                                .operation(AttributeOperation.WORKFLOW_FORMATTING)
                                 .version(version.getVersion()).build(),
                         w.getSignatureFormattingConnectorAttributes());
             }
@@ -881,16 +881,16 @@ public class SigningProfileServiceImpl implements SigningProfileService {
                 // Raw signing has no formatting; clean up any formatting attributes that may remain for this version.
                 attributeEngine.deleteOperationObjectAttributesContent(AttributeType.DATA,
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
-                                .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                                .operation(AttributeOperation.WORKFLOW_FORMATTING)
                                 .version(version.getVersion()).build());
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
-                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTER, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
+                attributeEngine.validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(), AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions, w.getSignatureFormattingConnectorAttributes());
                 yield attributeEngine.replaceObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, p.getUuid())
                                 .connector(w.getSignatureFormattingConnectorUuid())
-                                .operation(AttributeOperation.WORKFLOW_FORMATTER)
+                                .operation(AttributeOperation.WORKFLOW_FORMATTING)
                                 .version(version.getVersion()).build(),
                         w.getSignatureFormattingConnectorAttributes());
             }

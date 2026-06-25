@@ -39,7 +39,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     @Autowired
     private AuthenticationCache authenticationCache;
 
-    // @formatting:off
+    // @formatter:off
     String RAW_DATA = "{" +
             "\"authenticated\": true," +
             "\"data\": {" +
@@ -94,7 +94,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
 
         // then
         assertEquals("FrantisekJednicka", info.getUsername());
-        // @formatting:off
+        // @formatter:off
         assertEquals("{" +
                         "\"user\":{" +
                         "\"uuid\":\"a1b2c3d4-0000-0000-0000-000000000001\"," +
@@ -109,7 +109,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
                 info.getRawData()
 
         );
-        // @formatting:on
+        // @formatter:on
         assertEquals(
                 List.of("ROLE_ADMINISTRATOR", "ROLE_USER"),
                 info.getAuthorities().stream()
@@ -395,7 +395,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     RecordedRequest getLastRequest() throws InterruptedException {
         return authServiceMock.takeRequest(500, TimeUnit.MILLISECONDS);
     }
-    // @formatting:on
+    // @formatter:on
 
     void setUpSuccessfulAuthenticationResponse() {
         authServiceMock.enqueue(

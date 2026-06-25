@@ -1774,7 +1774,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                 List<ResponseAttribute> oldAttrs = attributeEngine.getObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
                                 .connector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                                .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
+                                .operation(AttributeOperation.WORKFLOW_FORMATTING).version(1).build());
                 assertTrue(oldAttrs.isEmpty(),
                         "Attributes for the replaced formatting connector should be cleared from the engine");
 
@@ -1782,7 +1782,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                 List<ResponseAttribute> newAttrs = attributeEngine.getObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuidRaw)
                                 .connector(UUID.fromString(formattingBConnector.getUuid()))
-                                .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
+                                .operation(AttributeOperation.WORKFLOW_FORMATTING).version(1).build());
                 assertFalse(newAttrs.isEmpty(),
                         "Attributes for the new formatting connector should be persisted after the update");
                 assertEquals("valueB", extractStringAttrValue(newAttrs, attrName));
@@ -1818,7 +1818,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             List<ResponseAttribute> remaining = attributeEngine.getObjectDataAttributesContent(
                     ObjectAttributeContentInfo.builder(Resource.SIGNING_PROFILE, profileUuid)
                             .connector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                            .operation(AttributeOperation.WORKFLOW_FORMATTER).version(1).build());
+                            .operation(AttributeOperation.WORKFLOW_FORMATTING).version(1).build());
             assertTrue(remaining.isEmpty(),
                     "Formatting attributes should be cleared from the engine when the profile is deleted");
         }

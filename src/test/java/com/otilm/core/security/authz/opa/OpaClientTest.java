@@ -99,7 +99,7 @@ class OpaClientTest {
         RecordedRequest request = getLastRequest();
         assertEquals(MediaType.APPLICATION_JSON.toString(), request.getHeader(HttpHeaders.CONTENT_TYPE));
         assertEquals(MediaType.APPLICATION_JSON.toString(), request.getHeader(HttpHeaders.ACCEPT));
-        //@formatting:off
+        //@formatter:off
         assertEquals("{" +
                     "\"input\":{" +
                         "\"requestedResource\":{" +
@@ -120,7 +120,7 @@ class OpaClientTest {
                         "}" +
                     "}" +
                 "}", request.getBody().readUtf8());
-        //@formatting:on
+        //@formatter:on
     }
 
     @Test
@@ -160,7 +160,7 @@ class OpaClientTest {
     }
 
     String getPrincipal() {
-        //@formatting:off
+        //@formatter:off
         return "{" +
                     "\"user\":{" +
                         "\"username\":\"FrantisekJednicka\"," +
@@ -171,7 +171,7 @@ class OpaClientTest {
                         "\"ROLE_AUTH_MANAGER\"" +
                     "]" +
                 "}";
-        //@formatting:on
+        //@formatter:on
     }
 
     RecordedRequest getLastRequest() throws InterruptedException {
@@ -183,14 +183,14 @@ class OpaClientTest {
                 new MockResponse()
                         .setResponseCode(200)
                         .setHeader("content-type", "application/json")
-                        //@formatting:off
+                        //@formatter:off
                         .setBody("{" +
                                     "\"result\": {" +
                                         "\"allow\": [\"SomeOpaRule\"]," +
                                         "\"authorized\": true" +
                                     "}" +
                                 "}")
-                        //@formatting:on
+                        //@formatter:on
         );
     }
 
@@ -199,7 +199,7 @@ class OpaClientTest {
                 new MockResponse()
                         .setResponseCode(200)
                         .setHeader("content-type", "application/json")
-                        //@formatting:off
+                        //@formatter:off
                         .setBody("{" +
                                     "\"result\": {" +
                                         "\"forbiddenObjects\": [\"f258cb3c-17b5-11ed-861d-0242ac120002\"]," +
@@ -207,7 +207,7 @@ class OpaClientTest {
                                         "\"actionAllowedForGroupOfObjects\": true" +
                                     "}" +
                                 "}")
-                        //@formatting:on
+                        //@formatter:on
         );
     }
 
