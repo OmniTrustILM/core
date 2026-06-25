@@ -59,7 +59,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -983,7 +982,6 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     }
 
     @Test
-    @Transactional
     void testIssueCertificateRejectedAction_removesCertificateFromAssociatedLocations() throws NotFoundException {
         // given: a rejected certificate that is associated with a location on a connected entity
         EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
@@ -992,6 +990,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
 
         Location location = new Location();
+        location.setUuid(UUID.randomUUID());
         location.setName("rejected-cert-location");
         location.setEnabled(true);
         location.setEntityInstanceReference(entityInstanceReference);
@@ -1001,8 +1000,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificateLocation.setCertificate(certificate);
         certificateLocation.setLocation(location);
         location.getCertificates().add(certificateLocation);
-        certificate.getLocations().add(certificateLocation);
-        locationRepository.saveAndFlush(location);
+        locationRepository.save(location);
 
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
