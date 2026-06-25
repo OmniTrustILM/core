@@ -598,6 +598,55 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testCreateScepProfile_withIntuneEnabledStoresConfig() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneEnabledCreate");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("appKey");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertTrue(created.isIntuneEnabled());
+        Assertions.assertEquals("tenant", created.getIntuneTenant());
+        Assertions.assertEquals("appId", created.getIntuneApplicationId());
+        Assertions.assertEquals("appKey", created.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsIntuneEnabledWithoutKey() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneNoKey");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        // application key missing -> reject
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_rejectsIntuneEnabledBlankApplicationId() {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneBlankAppId");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(true);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("   "); // blank application id -> reject
+        request.setIntuneApplicationKey("appKey");
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
+    }
+
+    @Test
     void testEditScepProfile_intuneDisableThenReEnableWithFreshKey() throws ConnectorException, AttributeException, NotFoundException {
         scepProfile.setIntuneEnabled(true);
         scepProfile.setIntuneTenant("tenant");
