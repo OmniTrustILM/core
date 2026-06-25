@@ -71,6 +71,7 @@ public class ScepProfile extends UniquelyIdentifiedAndAudited implements Seriali
     private boolean includeCaCertificateChain = false;
 
     @Column(name = "challenge_password")
+    @ToString.Exclude
     private String challengePassword;
 
     @Column(name = "intune_enabled")
@@ -83,6 +84,7 @@ public class ScepProfile extends UniquelyIdentifiedAndAudited implements Seriali
     private String intuneApplicationId;
 
     @Column(name = "intune_application_key")
+    @ToString.Exclude
     private String intuneApplicationKey;
 
     @Column(name = "certificate_associations_uuid")

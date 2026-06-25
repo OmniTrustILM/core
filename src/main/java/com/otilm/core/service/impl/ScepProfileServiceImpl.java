@@ -126,8 +126,9 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
-        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null || request.getIntuneApplicationKey() == null)) {
-            throw new ValidationException(ValidationError.create("Invalid Intune configuration. Missing Intune tenant and/or intune app identification"));
+        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
+        if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null || !intuneKeyProvided)) {
+            throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled"));
         }
 
         RaProfile raProfile = null;
@@ -197,7 +198,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isEmpty();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneApplicationId() == null
                 || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
-            throw new ValidationException(ValidationError.create("Invalid Intune configuration. Missing Intune tenant and/or intune app identification"));
+            throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled (the application key may be omitted only if one is already stored)"));
         }
 
         attributeEngine.validateCustomAttributesContent(Resource.SCEP_PROFILE, request.getCustomAttributes());
