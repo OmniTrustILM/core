@@ -37,6 +37,7 @@ import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
 import com.otilm.core.attribute.CsrRequestAttributes;
+import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -1407,21 +1408,27 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             return defaults;
         }
 
+        Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
+
         Set<String> claimedRdns = connectorDefs.stream()
                 .flatMap(d -> d.getFieldMapping().getFields().stream())
                 .filter(f -> f.getFieldType() == FieldType.RDN)
-                .map(f -> ((RdnMappedField) f).getRdn())
+                .map(f -> normalizeRdn(((RdnMappedField) f).getRdn(), codeToOid))
                 .collect(java.util.stream.Collectors.toSet());
 
         List<DataAttributeV3> filteredDefaults = defaults.stream()
                 .filter(d -> d.getFieldMapping().getFields().stream()
-                        .map(f -> ((RdnMappedField) f).getRdn())
+                        .map(f -> normalizeRdn(((RdnMappedField) f).getRdn(), codeToOid))
                         .noneMatch(claimedRdns::contains))
                 .toList();
 
         List<DataAttributeV3> merged = new ArrayList<>(connectorDefs);
         merged.addAll(filteredDefaults);
         return merged;
+    }
+
+    private static String normalizeRdn(String rdn, Map<String, String> codeToOid) {
+        return codeToOid.getOrDefault(rdn, rdn);
     }
 
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
