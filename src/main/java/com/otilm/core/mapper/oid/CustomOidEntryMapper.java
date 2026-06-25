@@ -27,7 +27,7 @@ public class CustomOidEntryMapper {
         return dto;
     }
 
-    public static AdditionalOidPropertiesDto toAdditionalProperties(CustomOidEntry entry) {
+    private static AdditionalOidPropertiesDto toAdditionalProperties(CustomOidEntry entry) {
         if (entry instanceof RdnAttributeTypeCustomOidEntry rdn) {
             RdnAttributeTypeOidPropertiesDto dto = new RdnAttributeTypeOidPropertiesDto();
             dto.setCode(rdn.getCode());

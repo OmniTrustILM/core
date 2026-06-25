@@ -119,7 +119,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(defaultCritical);
                 ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(valueEncoding);
             }
-            default -> throw new UnsupportedOperationException("Unsupported OID category: " + request.getCategory());
+            default -> throw new ValidationException("Unsupported OID category: " + request.getCategory());
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
@@ -129,7 +129,13 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
 
         customOidEntryRepository.save(customOidEntry);
 
-        OidHandler.cacheOid(request.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes, defaultCritical, valueEncoding));
+        OidHandler.cacheOid(request.getCategory(), oid, OidRecord.builder()
+                .displayName(customOidEntry.getDisplayName())
+                .code(code)
+                .altCodes(altCodes)
+                .defaultCritical(defaultCritical)
+                .valueEncoding(valueEncoding)
+                .build());
         return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
@@ -184,7 +190,13 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
         customOidEntryRepository.save(customOidEntry);
 
         if (SystemOid.fromOID(oid) == null) {
-            OidHandler.cacheOid(customOidEntry.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes, defaultCritical, valueEncoding));
+            OidHandler.cacheOid(customOidEntry.getCategory(), oid, OidRecord.builder()
+                    .displayName(customOidEntry.getDisplayName())
+                    .code(code)
+                    .altCodes(altCodes)
+                    .defaultCritical(defaultCritical)
+                    .valueEncoding(valueEncoding)
+                    .build());
         }
         return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
@@ -257,12 +269,13 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                 .stream().collect(Collectors.toMap(CustomOidEntry::getOid, oid -> {
                     boolean isRdn = oidCategory == OidCategory.RDN_ATTRIBUTE_TYPE;
                     boolean isExt = oidCategory == OidCategory.CERTIFICATE_EXTENSION;
-                    return new OidRecord(
-                            oid.getDisplayName(),
-                            isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getCode() : null,
-                            isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getAltCodes() : null,
-                            isExt ? ((CertificateExtensionCustomOidEntry) oid).getDefaultCritical() : null,
-                            isExt ? ((CertificateExtensionCustomOidEntry) oid).getValueEncoding() : null);
+                    return OidRecord.builder()
+                            .displayName(oid.getDisplayName())
+                            .code(isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getCode() : null)
+                            .altCodes(isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getAltCodes() : null)
+                            .defaultCritical(isExt ? ((CertificateExtensionCustomOidEntry) oid).getDefaultCritical() : null)
+                            .valueEncoding(isExt ? ((CertificateExtensionCustomOidEntry) oid).getValueEncoding() : null)
+                            .build();
                 })));
         // Cache System OIDs
         oidToDisplayNameMap.putAll(Arrays.stream(SystemOid.values()).filter(oid -> oid.getCategory() == oidCategory)
