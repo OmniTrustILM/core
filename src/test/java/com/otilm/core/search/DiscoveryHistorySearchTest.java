@@ -34,7 +34,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.DiscoveryService;
+import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
 import org.junit.jupiter.api.Assertions;
@@ -66,7 +66,7 @@ class DiscoveryHistorySearchTest extends BaseSpringBootTest {
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
-    private DiscoveryService discoveryService;
+    private DiscoveryExternalService discoveryService;
     private AttributeEngine attributeEngine;
 
     @Autowired

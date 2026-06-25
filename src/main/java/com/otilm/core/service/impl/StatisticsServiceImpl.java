@@ -4,7 +4,7 @@ import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.DiscoveryService;
+import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.GroupInternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.SecretInternalService;
@@ -26,7 +26,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     private static final Logger logger = LoggerFactory.getLogger(StatisticsServiceImpl.class);
 
     private CertificateService certificateService;
-    private DiscoveryService discoveryService;
+    private DiscoveryInternalService discoveryService;
     private GroupInternalService groupService;
     private RaProfileService raProfileService;
     private SecretInternalService secretService;
@@ -85,7 +85,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     }
 
     @Autowired
-    public void setDiscoveryService(DiscoveryService discoveryService) {
+    public void setDiscoveryService(DiscoveryInternalService discoveryService) {
         this.discoveryService = discoveryService;
     }
 

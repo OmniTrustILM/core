@@ -48,6 +48,7 @@ import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryContext;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
@@ -79,7 +80,7 @@ import java.util.concurrent.*;
 
 @Service(Resource.Codes.DISCOVERY)
 @Transactional
-public class DiscoveryServiceImpl implements DiscoveryService {
+public class DiscoveryServiceImpl implements DiscoveryExternalService, DiscoveryInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryServiceImpl.class);
 
@@ -740,6 +741,7 @@ public class DiscoveryServiceImpl implements DiscoveryService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.DISCOVERY, false);
 
