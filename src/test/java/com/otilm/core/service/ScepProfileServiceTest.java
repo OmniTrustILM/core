@@ -419,8 +419,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         // no value and nothing stored -> reject
 
         SecuredUUID uuid = scepProfile.getSecuredUuid();
-        Assertions.assertThrows(ValidationException.class,
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
     }
 
     @Test
@@ -461,6 +462,27 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testEditScepProfile_omittedEnableIntuneClearsStoredConfig() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setIntuneEnabled(true);
+        scepProfile.setIntuneTenant("tenant");
+        scepProfile.setIntuneApplicationId("appId");
+        scepProfile.setIntuneApplicationKey("originalKey");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        // enableIntune omitted entirely: PUT full-replace semantics collapse it to false -> clear sub-config
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertFalse(updated.isIntuneEnabled());
+        Assertions.assertNull(updated.getIntuneTenant());
+        Assertions.assertNull(updated.getIntuneApplicationId());
+        Assertions.assertNull(updated.getIntuneApplicationKey());
+    }
+
+    @Test
     void testCreateScepProfile_rejectsToggleTrueWithoutPassword() {
         ScepProfileRequestDto request = new ScepProfileRequestDto();
         request.setName("ToggleNoPassword");
@@ -468,8 +490,24 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         request.setEnableChallengePassword(true);
         // enabled but no password supplied -> reject
 
-        Assertions.assertThrows(ValidationException.class,
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
+    }
+
+    @Test
+    void testCreateScepProfile_setsChallengePasswordWhenToggleTrue() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("ToggleWithPassword");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(true);
+        request.setChallengePassword("createdPass");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertEquals("createdPass", created.getChallengePassword());
+        Assertions.assertTrue(dto.isEnableChallengePassword());
     }
 
     @Test
@@ -507,8 +545,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         // key omitted and none stored -> reject
 
         SecuredUUID uuid = scepProfile.getSecuredUuid();
-        Assertions.assertThrows(ValidationException.class,
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
     }
 
     @Test
@@ -521,8 +560,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         request.setIntuneApplicationKey("key");
 
         SecuredUUID uuid = scepProfile.getSecuredUuid();
-        Assertions.assertThrows(ValidationException.class,
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.editScepProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Invalid Intune configuration"), ex.getMessage());
     }
 
     @Test
@@ -533,8 +573,9 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
         request.setEnableChallengePassword(true);
         request.setChallengePassword("   "); // whitespace -> blank, nothing stored -> reject
 
-        Assertions.assertThrows(ValidationException.class,
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
                 () -> scepProfileService.createScepProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Challenge password is required"), ex.getMessage());
     }
 
     @Test

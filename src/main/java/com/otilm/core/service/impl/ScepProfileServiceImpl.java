@@ -126,10 +126,9 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
             throw new ValidationException(ValidationError.create("CA Certificate is not acceptable as SCEP CA certificate for this profile"));
         }
 
-        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneTenant().isBlank()
                 || request.getIntuneApplicationId() == null || request.getIntuneApplicationId().isBlank()
-                || !intuneKeyProvided)) {
+                || !isIntuneKeyProvided(request))) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled"));
         }
 
@@ -154,13 +153,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         applyChallengePassword(scepProfile, request);
         scepProfile.setRequireManualApproval(false);
         scepProfile.setCaCertificateUuid(UUID.fromString(request.getCaCertificateUuid()));
-        scepProfile.setIntuneEnabled(intuneEnabled);
-        // Unset fields stay null on a fresh profile, so a disabled profile stores no stale Intune secret.
-        if (intuneEnabled) {
-            scepProfile.setIntuneTenant(request.getIntuneTenant());
-            scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
-            scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
-        }
+        applyIntuneConfig(scepProfile, request, intuneEnabled);
         scepProfile.setRaProfile(raProfile);
 
         if (request.getCertificateAssociations() != null && !request.getCertificateAssociations().isEmpty()) {
@@ -200,10 +193,9 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
 
         // The Intune application key is write-only: when Intune stays enabled and the request omits the key,
         // keep the stored one (the form does not prefill it). Requiring re-entry otherwise would 422 or wipe it.
-        boolean intuneKeyProvided = request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
         if (intuneEnabled && (request.getIntuneTenant() == null || request.getIntuneTenant().isBlank()
                 || request.getIntuneApplicationId() == null || request.getIntuneApplicationId().isBlank()
-                || (!intuneKeyProvided && scepProfile.getIntuneApplicationKey() == null))) {
+                || (!isIntuneKeyProvided(request) && scepProfile.getIntuneApplicationKey() == null))) {
             throw new ValidationException(ValidationError.create("Invalid Intune configuration. Intune tenant, application ID and application key are required when Intune is enabled (the application key may be omitted only if one is already stored)"));
         }
 
@@ -230,20 +222,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setRaProfile(raProfile);
         scepProfile.setDescription(request.getDescription());
         scepProfile.setCaCertificateUuid(UUID.fromString(request.getCaCertificateUuid()));
-        scepProfile.setIntuneEnabled(intuneEnabled);
-        if (intuneEnabled) {
-            scepProfile.setIntuneTenant(request.getIntuneTenant());
-            scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
-            // Keep the stored key when the request omits it (write-only secret, not prefilled by the form).
-            if (intuneKeyProvided) {
-                scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
-            }
-        } else {
-            // Intune disabled: clear the whole sub-config so no stale secret lingers or gets silently reused.
-            scepProfile.setIntuneTenant(null);
-            scepProfile.setIntuneApplicationId(null);
-            scepProfile.setIntuneApplicationKey(null);
-        }
+        applyIntuneConfig(scepProfile, request, intuneEnabled);
 
         UUID certificateAssociationUuid = null;
         ProtocolCertificateAssociations certificateAssociation = null;
@@ -308,6 +287,31 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
      *   <li>toggle {@code true} + blank value — keep the stored password, or reject when none is stored.</li>
      * </ul>
      */
+    /**
+     * Persists the Intune sub-config, shared by create and edit. When Intune is enabled the tenant and
+     * application id are set from the request and the application key is treated as a write-only secret —
+     * kept as stored when the request omits it (blank on a fresh entity means no key). When Intune is
+     * disabled the whole sub-config is cleared so no stale secret lingers or is silently reused on re-enable.
+     */
+    private void applyIntuneConfig(ScepProfile scepProfile, BaseScepProfileRequestDto request, boolean intuneEnabled) {
+        scepProfile.setIntuneEnabled(intuneEnabled);
+        if (intuneEnabled) {
+            scepProfile.setIntuneTenant(request.getIntuneTenant());
+            scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
+            if (isIntuneKeyProvided(request)) {
+                scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+            }
+        } else {
+            scepProfile.setIntuneTenant(null);
+            scepProfile.setIntuneApplicationId(null);
+            scepProfile.setIntuneApplicationKey(null);
+        }
+    }
+
+    private static boolean isIntuneKeyProvided(BaseScepProfileRequestDto request) {
+        return request.getIntuneApplicationKey() != null && !request.getIntuneApplicationKey().isBlank();
+    }
+
     private void applyChallengePassword(ScepProfile scepProfile, BaseScepProfileRequestDto request) {
         Boolean enable = request.getEnableChallengePassword();
         boolean valueProvided = request.getChallengePassword() != null && !request.getChallengePassword().isBlank();
