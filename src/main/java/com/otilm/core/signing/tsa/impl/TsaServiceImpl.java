@@ -14,7 +14,7 @@ import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TspProfileService;
+import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
 import com.otilm.core.signing.tsa.TsaService;
 import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
@@ -29,13 +29,13 @@ import org.springframework.stereotype.Service;
 public class TsaServiceImpl implements TsaService {
 
     private final TspRequestValidator tspRequestValidator;
-    private final TspProfileService tspProfileService;
+    private final TspProfileInternalService tspProfileService;
     private final SigningProfileService signingProfileService;
     private final SigningProfileResolverFactory signingProfileResolverFactory;
     private final ManagedTimestampEngine managedTimestampEngine;
     private final PermissionEvaluator permissionEvaluator;
 
-    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileService tspProfileService, ManagedTimestampEngine managedTimestampEngine, PermissionEvaluator permissionEvaluator) {
+    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileInternalService tspProfileService, ManagedTimestampEngine managedTimestampEngine, PermissionEvaluator permissionEvaluator) {
         this.tspRequestValidator = tspRequestValidator;
         this.signingProfileService = signingProfileService;
         this.signingProfileResolverFactory = signingProfileResolverFactory;

@@ -15,7 +15,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.TspProfileBasicCredentialService;
+import com.otilm.core.service.TspProfileBasicCredentialExternalService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,10 +26,10 @@ import java.util.UUID;
 @RestController
 public class TspProfileBasicCredentialControllerImpl implements TspProfileBasicCredentialController {
 
-    private TspProfileBasicCredentialService service;
+    private TspProfileBasicCredentialExternalService service;
 
     @Autowired
-    public void setService(TspProfileBasicCredentialService service) {
+    public void setService(TspProfileBasicCredentialExternalService service) {
         this.service = service;
     }
 

@@ -18,7 +18,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.DiscoveryService;
+import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.SchedulerExternalService;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
 import org.slf4j.Logger;
@@ -39,7 +39,7 @@ public class DiscoveryControllerImpl implements DiscoveryController {
 
     private final Logger logger = LoggerFactory.getLogger(DiscoveryControllerImpl.class);
 
-    private DiscoveryService discoveryService;
+    private DiscoveryExternalService discoveryService;
 
     private SchedulerExternalService schedulerService;
 
@@ -49,7 +49,7 @@ public class DiscoveryControllerImpl implements DiscoveryController {
     }
 
     @Autowired
-    public void setDiscoveryService(DiscoveryService discoveryService) {
+    public void setDiscoveryService(DiscoveryExternalService discoveryService) {
         this.discoveryService = discoveryService;
     }
 

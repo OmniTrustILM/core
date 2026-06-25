@@ -58,7 +58,9 @@ class LocationServiceTest extends BaseSpringBootTest {
     private static final String LOCATION_NAME_NOKEYMANAGEMENT = "testLocation-noKeyManagement";
 
     @Autowired
-    private LocationService locationService;
+    private LocationExternalService locationService;
+    @Autowired
+    private LocationInternalService locationInternalService;
     @Autowired
     private LocationRepository locationRepository;
     @Autowired
@@ -578,7 +580,7 @@ class LocationServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = locationService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = locationInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(3, dtos.size());
     }
 
@@ -681,7 +683,7 @@ class LocationServiceTest extends BaseSpringBootTest {
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")).willReturn(WireMock.okJson("{}")));
 
-        locationService.removeCertificatesFromLocationsOnDelete(List.of(certificateUuid));
+        locationInternalService.removeCertificatesFromLocationsOnDelete(List.of(certificateUuid));
 
         mockServer.verify(WireMock.moreThanOrExactly(1), WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
 
@@ -691,11 +693,11 @@ class LocationServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = locationService.getResourceObjectInternal(location.getUuid());
+        NameAndUuidDto nameAndUuidDto = locationInternalService.getResourceObjectInternal(location.getUuid());
         Assertions.assertEquals(location.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(location.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = locationService.getResourceObjectExternal(location.getSecuredUuid());
+        nameAndUuidDto = locationInternalService.getResourceObjectExternal(location.getSecuredUuid());
         Assertions.assertEquals(location.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(location.getName(), nameAndUuidDto.getName());
     }

@@ -39,7 +39,7 @@ class TimeQualityConfigurationServiceJmsTest extends BaseMessagingIntTest {
     private static final long RECEIVE_TIMEOUT_MS = 5_000;
 
     @Autowired ApplicationEvents applicationEvents;
-    @Autowired TimeQualityConfigurationService service;
+    @Autowired TimeQualityConfigurationExternalService service;
     @Autowired TimeQualityConfigurationRepository repository;
     @Autowired JmsTemplate jmsTemplate;
     @Autowired MessagingProperties messagingProperties;

@@ -63,7 +63,7 @@ import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.SigningProfileService;
-import com.otilm.core.service.TimeQualityConfigurationService;
+import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.MetaDefinitions;
@@ -93,7 +93,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected AttributeEngine attributeEngine;
 
     @Autowired
-    protected TimeQualityConfigurationService timeQualityConfigurationService;
+    protected TimeQualityConfigurationExternalService timeQualityConfigurationService;
 
     @Autowired
     protected ConnectorRepository connectorRepository;

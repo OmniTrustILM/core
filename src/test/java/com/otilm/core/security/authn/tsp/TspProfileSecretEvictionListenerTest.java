@@ -1,7 +1,7 @@
 package com.otilm.core.security.authn.tsp;
 
 import com.otilm.core.events.SecretContentUpdatedEvent;
-import com.otilm.core.service.TspProfileBasicCredentialService;
+import com.otilm.core.service.TspProfileBasicCredentialInternalService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -16,7 +16,7 @@ import static org.mockito.Mockito.verify;
 class TspProfileSecretEvictionListenerTest {
 
     @Mock
-    private TspProfileBasicCredentialService credentialService;
+    private TspProfileBasicCredentialInternalService credentialService;
 
     @InjectMocks
     private TspProfileSecretEvictionListener listener;

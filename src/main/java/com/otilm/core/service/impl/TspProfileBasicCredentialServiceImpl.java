@@ -28,7 +28,8 @@ import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.TspProfileBasicCredentialService;
+import com.otilm.core.service.TspProfileBasicCredentialExternalService;
+import com.otilm.core.service.TspProfileBasicCredentialInternalService;
 import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.UserManagementExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
@@ -47,7 +48,7 @@ import java.util.UUID;
 
 @Service(Resource.Codes.TSP_PROFILE_BASIC_CREDENTIAL)
 @Slf4j
-public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCredentialService {
+public class TspProfileBasicCredentialServiceImpl implements TspProfileBasicCredentialExternalService, TspProfileBasicCredentialInternalService {
 
     private TspProfileRepository tspProfileRepository;
     private TspProfileBasicCredentialRepository credentialRepository;
