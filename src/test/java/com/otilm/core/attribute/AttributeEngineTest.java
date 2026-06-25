@@ -51,6 +51,7 @@ import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.testcontainers.shaded.org.checkerframework.checker.units.qual.A;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -1155,6 +1156,13 @@ class AttributeEngineTest extends BaseSpringBootTest {
             }
         }
 
+        @AfterAll
+        static void clearOidCache() {
+            for (OidCategory category : OidCategory.values()) {
+                OidHandler.cacheOidCategory(category, new HashMap<>());
+            }
+        }
+
         @BeforeEach
         void setUp() {
             // Re-seed OID entries that field-mapping tests depend on. The OID cache is loaded from DB
@@ -1253,6 +1261,20 @@ class AttributeEngineTest extends BaseSpringBootTest {
             san.setFieldType(FieldType.SAN);
             san.setGeneralNameType(GeneralNameType.OTHER_NAME);
             san.setOtherNameOid(null);
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_sanField_otherNameNotOid_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_othername_not_oid");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(GeneralNameType.OTHER_NAME);
+            san.setOtherNameOid("not an oid");
             attr.setFieldMapping(fieldMappingWith(san));
 
             UUID connectorUuid = connectorAuthority.getUuid();

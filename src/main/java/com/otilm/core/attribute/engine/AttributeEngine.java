@@ -78,6 +78,7 @@ public class AttributeEngine {
             .findAndAddModules()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
+    public static final Pattern OID_REGEX_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -480,9 +481,10 @@ public class AttributeEngine {
         if (attributes == null) {
             return;
         }
+        Map<String, String> codeToOidMap = OidHandler.getCodeToOidMap();
         for (BaseAttribute attribute : attributes) {
             if (attribute.getType() == AttributeType.DATA) {
-                updateDataAttributeDefinition(connectorUuid, operation, (DataAttribute) attribute);
+                updateDataAttributeDefinition(connectorUuid, operation, (DataAttribute) attribute, codeToOidMap);
             }
             if (attribute.getType() == AttributeType.GROUP) {
                 updateGroupAttributeDefinition(connectorUuid, attribute);
@@ -491,12 +493,13 @@ public class AttributeEngine {
     }
 
     public void updateAttributeDefinitionsWithCallback(UUID connectorUuid, List<? extends BaseAttribute> attributes) throws AttributeException {
+        Map<String, String> codeToOidMap = OidHandler.getCodeToOidMap();
         for (BaseAttribute attribute : attributes) {
             if (attribute.getType() == AttributeType.GROUP) {
                 updateGroupAttributeDefinition(connectorUuid, attribute);
             }
             if (attribute.getType() == AttributeType.DATA && ((DataAttribute) attribute).getAttributeCallback() != null) {
-                updateDataAttributeDefinition(connectorUuid, null, (DataAttribute) attribute);
+                updateDataAttributeDefinition(connectorUuid, null, (DataAttribute) attribute, codeToOidMap);
             }
         }
     }
@@ -517,11 +520,11 @@ public class AttributeEngine {
         attributeDefinitionRepository.save(attributeDefinition);
     }
 
-    private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute) throws AttributeException {
+    private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute, Map<String, String> codeToOidMap) throws AttributeException {
         validateAttributeDefinition(dataAttribute, connectorUuid);
         if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
             if (isRequestOperation(operation)) {
-                validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null);
+                validateFieldMapping(v3, connectorUuid != null ? connectorUuid.toString() : null, codeToOidMap);
             } else {
                 logger.warn("DataAttribute '{}' has fieldMapping but is registered outside a request operation context (operation={}); fieldMapping validation skipped",
                         dataAttribute.getName(), operation);
@@ -1108,7 +1111,7 @@ public class AttributeEngine {
                 || AttributeOperation.SIGN.equals(operation);
     }
 
-    private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr) throws AttributeException {
+    private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr, Map<String, String> codeToOidMap) throws AttributeException {
         if (attribute.getContentType() != AttributeContentType.STRING && attribute.getContentType() != AttributeContentType.TEXT)
             throw new AttributeException("fieldMapping is only valid for attributes with STRING or TEXT content type",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1120,10 +1123,10 @@ public class AttributeEngine {
             throw new AttributeException("fieldMapping.fields must not be empty",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         for (MappedField field : fieldMapping.getFields())
-            validateMappedField(attribute, field, connectorUuidStr);
+            validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
     }
 
-    private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr) throws AttributeException {
+    private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr, Map<String, String> codeToOidMap) throws AttributeException {
         if (field.getFieldType() == null)
             throw new AttributeException("fieldMapping field is missing fieldType",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1134,8 +1137,8 @@ public class AttributeEngine {
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
                 // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
                 String rdnValue = rdn.getRdn();
-                boolean isOid = rdnValue.matches("\\d+(\\.\\d+)+");
-                if (!isOid && !OidHandler.getCodeToOidMap().containsKey(rdnValue))
+                boolean isOid = OID_REGEX_PATTERN.matcher(rdnValue).matches();
+                if (!isOid && !codeToOidMap.containsKey(rdnValue))
                     throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
@@ -1144,8 +1147,8 @@ public class AttributeEngine {
                     throw new AttributeException("fieldMapping SAN field is missing generalNameType",
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
                 if (san.getGeneralNameType() == GeneralNameType.OTHER_NAME
-                        && (san.getOtherNameOid() == null || san.getOtherNameOid().isBlank()))
-                    throw new AttributeException("fieldMapping SAN field of type OTHER_NAME is missing otherNameOid",
+                        && (san.getOtherNameOid() == null || !OID_REGEX_PATTERN.matcher(san.getOtherNameOid()).matches()))
+                    throw new AttributeException("fieldMapping SAN field of type OTHER_NAME is missing otherNameOid or it is not a valid OID",
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
             case ExtensionMappedField ext -> {
