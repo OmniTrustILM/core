@@ -153,9 +153,12 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
         scepProfile.setRequireManualApproval(false);
         scepProfile.setCaCertificateUuid(UUID.fromString(request.getCaCertificateUuid()));
         scepProfile.setIntuneEnabled(intuneEnabled);
-        scepProfile.setIntuneTenant(request.getIntuneTenant());
-        scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
-        scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+        // Unset fields stay null on a fresh profile, so a disabled profile stores no stale Intune secret.
+        if (intuneEnabled) {
+            scepProfile.setIntuneTenant(request.getIntuneTenant());
+            scepProfile.setIntuneApplicationId(request.getIntuneApplicationId());
+            scepProfile.setIntuneApplicationKey(request.getIntuneApplicationKey());
+        }
         scepProfile.setRaProfile(raProfile);
 
         if (request.getCertificateAssociations() != null && !request.getCertificateAssociations().isEmpty()) {

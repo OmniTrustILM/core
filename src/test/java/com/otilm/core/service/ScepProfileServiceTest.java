@@ -519,6 +519,41 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testCreateScepProfile_doesNotPersistIntuneWhenDisabled() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        ScepProfileRequestDto request = new ScepProfileRequestDto();
+        request.setName("IntuneDisabledOnCreate");
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableIntune(false);
+        request.setIntuneTenant("tenant");
+        request.setIntuneApplicationId("appId");
+        request.setIntuneApplicationKey("leakedKey");
+
+        ScepProfileDetailDto dto = scepProfileService.createScepProfile(request);
+
+        ScepProfile created = scepProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).orElseThrow();
+        Assertions.assertFalse(created.isIntuneEnabled());
+        Assertions.assertNull(created.getIntuneTenant());
+        Assertions.assertNull(created.getIntuneApplicationId());
+        Assertions.assertNull(created.getIntuneApplicationKey());
+    }
+
+    @Test
+    void testEditScepProfile_clearWinsOverValueWhenToggleFalse() throws ConnectorException, AttributeException, NotFoundException {
+        scepProfile.setChallengePassword("originalChallenge");
+        scepProfileRepository.save(scepProfile);
+
+        ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
+        request.setCaCertificateUuid(certificate.getUuid().toString());
+        request.setEnableChallengePassword(false);
+        request.setChallengePassword("ignoredValue"); // clear wins over any value
+
+        scepProfileService.editScepProfile(scepProfile.getSecuredUuid(), request);
+
+        ScepProfile updated = scepProfileRepository.findByUuid(scepProfile.getUuid()).orElseThrow();
+        Assertions.assertNull(updated.getChallengePassword());
+    }
+
+    @Test
     void testEditScepProfile_intuneDisableThenReEnableWithFreshKey() throws ConnectorException, AttributeException, NotFoundException {
         scepProfile.setIntuneEnabled(true);
         scepProfile.setIntuneTenant("tenant");
