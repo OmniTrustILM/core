@@ -11,7 +11,7 @@ import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
 import com.otilm.api.model.common.attribute.v3.mapping.ObjectType;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
-import com.otilm.core.oid.SystemOid;
+import com.otilm.api.model.core.oid.SystemOid;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
