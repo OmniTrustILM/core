@@ -1367,6 +1367,44 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         }
     }
 
+     * Connector definitions take precedence: any default definition whose {@code fieldMapping} targets
+     * overlap with a connector definition is dropped in favour of the connector one.
+     * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
+     */
+    private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) {
+        List<DataAttributeV3> defaults = CsrRequestAttributes.csrAttributes();
+        if (raProfile == null) {
+            return defaults;
+        }
+        List<DataAttributeV3> connectorDefs;
+        try {
+            connectorDefs = extendedAttributeService.listIssueCertificateAttributes(raProfile).stream()
+                    .filter(d -> d instanceof DataAttributeV3 v && v.getFieldMapping() != null)
+                    .map(d -> (DataAttributeV3) d)
+                    .toList();
+        } catch (Exception e) {
+            logger.debug("Could not fetch connector issue attributes for RA profile {}; using default CSR attribute set: {}",
+                    raProfile.getName(), e.getMessage());
+            return defaults;
+        }
+
+        Set<String> claimedRdns = connectorDefs.stream()
+                .flatMap(d -> d.getFieldMapping().getFields().stream())
+                .filter(f -> f.getFieldType() == FieldType.RDN)
+                .map(f -> ((RdnMappedField) f).getRdn())
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<DataAttributeV3> filteredDefaults = defaults.stream()
+                .filter(d -> d.getFieldMapping().getFields().stream()
+                        .map(f -> ((RdnMappedField) f).getRdn())
+                        .noneMatch(claimedRdns::contains))
+                .toList();
+
+        List<DataAttributeV3> merged = new ArrayList<>(connectorDefs);
+        merged.addAll(filteredDefaults);
+        return merged;
+    }
+
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
                                             UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes) throws NotFoundException, CertificateException, AttributeException, CertificateRequestException {
         String requestB64;
