@@ -8,6 +8,10 @@ import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
@@ -31,7 +35,9 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.v2.*;
-import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.attribute.CertificateRequestAttributeProjector;
+import com.otilm.core.attribute.CsrRequestAttributes;
+import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -59,6 +65,7 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -228,7 +235,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException("Cannot submit certificate request without specifying key or uploaded request content");
         }
 
-        String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(), request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(), request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(), request.getAltSignatureAttributes());
+        RaProfile raProfile = request.getRaProfileUuid() != null
+                ? raProfileRepository.findByUuid(request.getRaProfileUuid()).orElse(null)
+                : null;
+        if (raProfile == null) {
+            throw new ValidationException("Cannot submit certificate request without specifying RA profile");
+        }
+
+        String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(), request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(), request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(), request.getAltSignatureAttributes(), raProfile);
         CertificateDetailDto certificate = certificateService.submitCertificateRequest(certificateRequest, request.getFormat(), request.getSignatureAttributes(), request.getAltSignatureAttributes(), request.getCsrAttributes(), request.getIssueAttributes(), request.getKeyUuid(), request.getAltKeyUuid(), request.getRaProfileUuid(), request.getSourceCertificateUuid(),
                 protocolInfo);
 
@@ -795,6 +809,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 keyUuid,
                 getTokenProfileUuid(request.getTokenProfileUuid(), oldCertificate),
                 principal,
+                null,
                 signatureAttributes,
                 request.getAltKeyUuid(),
                 altTokenProfileUuid,
@@ -1259,11 +1274,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * @param keyUuid             UUID of the key
      * @param tokenProfileUuid    Token profile UUID
      * @param principal           X500 Principal
+     * @param extensions          Extensions
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException When the key or tokenProfile UUID is not found
      */
-    private String generateBase64EncodedCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
+    private String generateBase64EncodedCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, Extensions extensions, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
                                             UUID altTokenProfileUuid,
                                             List<RequestAttribute> altSignatureAttributes) throws NotFoundException {
         try {
@@ -1272,6 +1288,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     keyUuid,
                     tokenProfileUuid,
                     principal,
+                    extensions,
                     signatureAttributes,
                     altKeyUUid,
                     altTokenProfileUuid,
@@ -1367,6 +1384,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         }
     }
 
+    /**
+     * Merges connector-supplied v3 definitions with the static {@link CsrRequestAttributes} default set.
      * Connector definitions take precedence: any default definition whose {@code fieldMapping} targets
      * overlap with a connector definition is dropped in favour of the connector one.
      * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
@@ -1406,7 +1425,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
-                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes) throws NotFoundException, CertificateException, AttributeException, CertificateRequestException {
+                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes, RaProfile raProfile) throws NotFoundException, CertificateException, AttributeException {
         String requestB64;
         String csr;
         if (uploadedRequest != null && !uploadedRequest.isEmpty()) {
@@ -1416,16 +1435,32 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             if (requestFormat == CertificateRequestFormat.CRMF) {
                 throw new CertificateException("CRMF format is not supported for CSR generation");
             }
-            // get definitions
-            List<BaseAttribute> definitions = CsrAttributes.csrAttributes();
+            // prefer connector-supplied v3 definitions (carry fieldMapping); fall back to a static CSR default set
+            List<DataAttributeV3> definitions = resolveIssuanceDefinitions(raProfile);
 
-            // validate and update definitions of certificate request attributes with attribute engine
+            // validate and update definitions of certificate request attributes with the attribute engine
             attributeEngine.validateUpdateDataAttributes(null, null, definitions, csrAttributes);
-            // TODO: return CertificateRequest object instead of Base64 encoded CSR
+
+            X509RequestContent requestContent = CertificateRequestAttributeProjector.project(definitions, csrAttributes);
+            Extensions extensions;
+            try {
+                extensions = X509RequestContentRenderer.toExtensions(requestContent);
+            } catch (IOException e) {
+                throw new CertificateException("Failed to build CSR extensions: " + e.getMessage());
+            }
+
+            X500Principal principal;
+            try {
+                 principal = X509RequestContentRenderer.toX500Principal(requestContent);
+            } catch (IOException e) {
+                throw new CertificateException("Failed to build CSR subject: " + e.getMessage());
+            }
+
             csr = generateBase64EncodedCsr(
                     keyUUid,
                     tokenProfileUuid,
-                    CertificateRequestUtils.buildSubject(csrAttributes),
+                    principal,
+                    extensions,
                     signatureAttributes,
                     altKeyUUid,
                     altTokenProfileUuid,
