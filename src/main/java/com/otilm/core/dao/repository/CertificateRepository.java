@@ -52,6 +52,20 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     Optional<Certificate> findWithAssociationsByUuid(UUID uuid);
 
     /**
+     * Polling-listener finder. The listener runs outside any transaction (deliberate — no tx
+     * held across the HTTP call to the connector), so every association the listener touches
+     * must be eagerly loaded here to avoid {@link org.hibernate.LazyInitializationException}.
+     */
+    @EntityGraph(attributePaths = {
+            "certificateContent",
+            "raProfile",
+            "raProfile.authorityInstanceReference",
+            "raProfile.authorityInstanceReference.connectorInterface",
+            "raProfile.authorityInstanceReference.connector"
+    })
+    Optional<Certificate> findForPollingByUuid(UUID uuid);
+
+    /**
      * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven
      * pending-state endpoints (manuallyIssueCertificate, manuallyConfirmRevoke,
      * cancelPendingCertificateOperation). Issues {@code SELECT ... FOR UPDATE} on the
@@ -60,7 +74,8 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
      * released immediately on query completion.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
+    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items",
+            "raProfile", "raProfile.authorityInstanceReference"})
     Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
 
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})

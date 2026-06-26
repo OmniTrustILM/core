@@ -28,7 +28,7 @@ import static org.slf4j.LoggerFactory.getLogger;
 
 @EnableJms
 @Configuration
-@EnableConfigurationProperties({MessagingProperties.class, MessagingConcurrencyProperties.class})
+@EnableConfigurationProperties({MessagingProperties.class, MessagingConcurrencyProperties.class, StatusPollProperties.class})
 public class JmsConfig {
     private static final Logger logger = getLogger(JmsConfig.class);
 
