@@ -10,10 +10,12 @@ import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.ASN1String;
 import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
@@ -154,7 +156,7 @@ class X509RequestContentRendererTest {
             // then
             GeneralName[] names = sanNamesOf(ext);
             assertThat(names[0].getTagNo()).isEqualTo(GeneralName.dNSName);
-            assertThat(names[0].getName().toString()).isEqualTo("host.example.com");
+            assertThat(names[0].getName()).hasToString("host.example.com");
         }
 
         @Test
@@ -168,7 +170,7 @@ class X509RequestContentRendererTest {
             // then
             GeneralName[] names = sanNamesOf(ext);
             assertThat(names[0].getTagNo()).isEqualTo(GeneralName.rfc822Name);
-            assertThat(names[0].getName().toString()).isEqualTo("user@example.com");
+            assertThat(names[0].getName()).hasToString("user@example.com");
         }
 
         @Test
@@ -255,9 +257,25 @@ class X509RequestContentRendererTest {
         }
 
         @Test
-        void encodesAsOctetString_whenEncodingIsDerAndValueDecodesToBytes() throws Exception {
-            // given — DER encoding carries a base64-encoded DER blob
+        void parsesDerValuePreservingType_whenEncodingIsDer() throws Exception {
+            // given — DER encoding carries a base64-encoded DER object (a UTF8String here)
             var derBlob = new DERUTF8String("blob").getEncoded();
+            var base64Der = java.util.Base64.getEncoder().encodeToString(derBlob);
+            var x509 = sansOf(otherName(base64Der, ExtensionValueEncoding.DER));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then — the original ASN.1 type is preserved, not re-wrapped in an OCTET STRING
+            assertThat(value).isInstanceOf(DERUTF8String.class);
+            assertThat(((ASN1String) value).getString()).isEqualTo("blob");
+        }
+
+        @Test
+        void preservesOctetStringType_whenEncodingIsDerAndValueIsDerOctetString() throws Exception {
+            // given — DER encoding carrying a base64-encoded DER OCTET STRING
+            var octets = "payload".getBytes(StandardCharsets.UTF_8);
+            var derBlob = new DEROctetString(octets).getEncoded();
             var base64Der = java.util.Base64.getEncoder().encodeToString(derBlob);
             var x509 = sansOf(otherName(base64Der, ExtensionValueEncoding.DER));
 
@@ -266,12 +284,12 @@ class X509RequestContentRendererTest {
 
             // then
             assertThat(value).isInstanceOf(ASN1OctetString.class);
-            assertThat(((ASN1OctetString) value).getOctets()).isEqualTo(derBlob);
+            assertThat(((ASN1OctetString) value).getOctets()).isEqualTo(octets);
         }
 
         @Test
         void fallsBackToUtf8String_whenEncodingIsDerAndValueIsEmpty() throws Exception {
-            // given — DER encoding but an empty value decodes to zero bytes
+            // given — DER encoding but an empty value does not parse as a DER object
             var x509 = sansOf(otherName("", ExtensionValueEncoding.DER));
 
             // when
@@ -280,6 +298,19 @@ class X509RequestContentRendererTest {
             // then
             assertThat(value).isInstanceOf(DERUTF8String.class);
             assertThat(((ASN1String) value).getString()).isEmpty();
+        }
+
+        @Test
+        void fallsBackToUtf8String_whenEncodingIsDerAndValueIsInvalidBase64() throws Exception {
+            // given — DER encoding but a value that is not valid base64
+            var x509 = sansOf(otherName("not base64!!!", ExtensionValueEncoding.DER));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(DERUTF8String.class);
+            assertThat(((ASN1String) value).getString()).isEqualTo("not base64!!!");
         }
 
         @Test
@@ -373,6 +404,69 @@ class X509RequestContentRendererTest {
             X509RequestContent x509 = new X509RequestContent();
             x509.setExtensions(List.of(extensions));
             return x509;
+        }
+    }
+
+    // ── ExtensionValueEncoding ──────────────────────────────────────────────
+
+    @Nested
+    class ExtensionValueEncodingTest {
+
+        // ExtendedKeyUsage — not in the forced-critical set, so criticality does not interfere
+        private static final String EXT_OID = "2.5.29.37";
+
+        @Test
+        void treatsValueAsBase64Der_whenEncodingIsDer() throws Exception {
+            // given — value is a base64-encoded DER blob
+            var derBlob = new DERUTF8String("hello").getEncoded(ASN1Encoding.DER);
+            var base64Der = java.util.Base64.getEncoder().encodeToString(derBlob);
+
+            // when
+            byte[] extnValue = extnValueOf(extension(EXT_OID, ExtensionValueEncoding.DER, base64Der));
+
+            // then — the decoded DER bytes are used verbatim as the extension value
+            assertThat(extnValue).isEqualTo(derBlob);
+        }
+
+        @Test
+        void encodesValueAsIa5String_whenEncodingIsIa5() throws Exception {
+            // given
+            var rawValue = "plain-ia5";
+
+            // when
+            byte[] extnValue = extnValueOf(extension(EXT_OID, ExtensionValueEncoding.IA5_STRING, rawValue));
+
+            // then — the value is wrapped in a DER IA5String rather than base64-decoded
+            assertThat(extnValue).isEqualTo(new DERIA5String(rawValue).getEncoded(ASN1Encoding.DER));
+        }
+
+        @Test
+        void encodesValueAsOctetString_whenEncodingIsOctetString() throws Exception {
+            // given
+            var rawValue = "raw-octets";
+
+            // when
+            byte[] extnValue = extnValueOf(extension(EXT_OID, ExtensionValueEncoding.OCTET_STRING, rawValue));
+
+            // then
+            assertThat(extnValue).isEqualTo(
+                    new DEROctetString(rawValue.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER));
+        }
+
+        private static byte[] extnValueOf(RequestedExtension ext) throws IOException {
+            X509RequestContent x509 = new X509RequestContent();
+            x509.setExtensions(List.of(ext));
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+            return extensions.getExtension(new ASN1ObjectIdentifier(ext.getOid())).getExtnValue().getOctets();
+        }
+
+        private static RequestedExtension extension(String oid, ExtensionValueEncoding encoding, String value) {
+            RequestedExtension e = new RequestedExtension();
+            e.setOid(oid);
+            e.setCritical(false);
+            e.setEncoding(encoding);
+            e.setValue(value);
+            return e;
         }
     }
 

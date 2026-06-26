@@ -173,8 +173,8 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
 
     @Test
     void projectsConnectorSanAndExtensionIntoStoredCsr_whenSubmittingRequest() throws Exception {
-        // given — connector returns one SAN-mapped and one extension-mapped DataAttributeV3;
-        // the default RDN set (CN, OU, O, L, ST, C) is merged in by resolveIssuanceDefinitions
+        // given a connector that returns one SAN-mapped and one extension-mapped attribute, with the
+        // default relative-distinguished-name set merged in by the issuance-definition resolver
         String connectorAttrsJson = """
                 [
                   {

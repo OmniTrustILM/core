@@ -6,7 +6,6 @@ import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.core.workflows.*;
-import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.certificate.*;

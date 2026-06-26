@@ -1440,8 +1440,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         List<DataAttributeV3> connectorDefs;
         try {
             connectorDefs = extendedAttributeService.listIssueCertificateAttributes(raProfile).stream()
-                    .filter(d -> d instanceof DataAttributeV3 v && v.getFieldMapping() != null)
-                    .map(d -> (DataAttributeV3) d)
+                    .filter(DataAttributeV3.class::isInstance)
+                    .map(DataAttributeV3.class::cast)
                     .toList();
         } catch (Exception e) {
             logger.debug("Could not fetch connector issue attributes for RA profile {}; using default CSR attribute set: {}",
@@ -1449,9 +1449,20 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             return defaults;
         }
 
-        Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
+        return mergeIssuanceDefinitions(defaults, connectorDefs, OidHandler.getCodeToOidMap());
+    }
 
+    /**
+     * Merges connector-supplied v3 definitions with the static default set. Connector definitions take
+     * precedence: any default whose RDN field mapping is also claimed by a connector definition is dropped.
+     * Connector definitions without a {@code fieldMapping} (connector-specific fields) carry no RDN claim
+     * and are always retained.
+     */
+    static List<DataAttributeV3> mergeIssuanceDefinitions(List<DataAttributeV3> defaults,
+                                                          List<DataAttributeV3> connectorDefs,
+                                                          Map<String, String> codeToOid) {
         Set<String> claimedRdns = connectorDefs.stream()
+                .filter(d -> d.getFieldMapping() != null)
                 .flatMap(d -> d.getFieldMapping().getFields().stream())
                 .filter(f -> f.getFieldType() == FieldType.RDN)
                 .map(f -> normalizeRdn(((RdnMappedField) f).getRdn(), codeToOid))
