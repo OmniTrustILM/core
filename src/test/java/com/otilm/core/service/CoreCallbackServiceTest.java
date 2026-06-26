@@ -36,20 +36,12 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Covers the secured {@code coreGetResources} listing path (#1623).
+ * Covers the secured {@code coreGetResources} listing path.
  * <p>
- * SECRET double-aspect coverage is a deliberate follow-up before SECRET dropdowns ship. When listed via
- * the guarded external path, two aspects populate the same {@link com.otilm.core.security.authz.SecurityFilter}:
- * the outer {@code @ExternalAuthorizationDynamic(LIST)} on {@code ResourceServiceImpl.getResourceObjects},
- * then the inner {@code @ExternalAuthorization(SECRET, LIST, parentResource=VAULT_PROFILE, parentAction=MEMBERS)}
- * on {@code SecretServiceImpl.listResourceObjects}. Code-trace of
- * {@link com.otilm.core.security.authz.ObjectFilterAspect#populateSecurityFilter} confirms the population is
- * replace-not-append — {@code setResourceFilter}/{@code setParentResourceFilter} are last-write-wins setters,
- * so the inner SECRET-scoped filter cleanly supersedes the outer one and additionally installs the
- * VAULT_PROFILE/MEMBERS parent filter; no append, merge, or state corruption occurs. A runtime SECRET test is
- * not added here because seeding a listable SECRET requires a Connector + VaultInstance + VaultProfile +
- * SecretVersion graph (all NOT NULL FKs), which would make this focused security test fragile and is owned by
- * the SECRET-dropdown work.
+ * A runtime SECRET test is intentionally deferred to the SECRET-dropdown work: seeding a listable SECRET
+ * needs a Connector + VaultInstance + VaultProfile + SecretVersion graph (all NOT NULL FKs), which would make
+ * this focused security test fragile. Deferring adds no exposure — SECRET listing is strictly more guarded
+ * than the kind under test (its own per-kind LIST guard is parent-scoped to VAULT_PROFILE/MEMBERS).
  */
 @SpringBootTest
 @Transactional
