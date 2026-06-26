@@ -31,7 +31,7 @@ import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
-import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
+import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -62,9 +62,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * End-to-end test of the TSP timestamp flow over a real Spring context and Postgres: request validation,
  * signing-profile resolution, the {@link ManagedTimestampEngine}, token assembly, and signing-record
  * persistence all run for real. The only mocks are the external connectors — the cryptography provider (signs
- * the DTBS) and the timestamping signature formatter (assembles the RFC 3161 token) — served by WireMock.
+ * the DTBS) and the timestamping signature formatting (assembles the RFC 3161 token) — served by WireMock.
  *
- * <p>The formatter returns a pre-built, structurally valid timestamp token; the profiles disable
+ * <p>The formatting returns a pre-built, structurally valid timestamp token; the profiles disable
  * token-signature validation, so the token need not cryptographically verify against the signing certificate.
  */
 class TsaServiceImplTest extends BaseSpringBootTest {
@@ -100,20 +100,20 @@ class TsaServiceImplTest extends BaseSpringBootTest {
     private TestCertificateAuthority testCertificateAuthority;
 
     private CryptographyProviderConnectorMock cryptographyProviderMock;
-    private TimestampingFormatterConnectorMock timestampingFormatterMock;
-    private ConnectorDetailDto timestampingFormatterConnector;
+    private TimestampingFormattingConnectorMock timestampingFormattingMock;
+    private ConnectorDetailDto timestampingFormattingConnector;
     private Certificate signingCertificate;
     private byte[] timestampTokenBytes;
 
     @BeforeEach
     void setUp() throws Exception {
         cryptographyProviderMock = connectorMockFactory.startCryptographyProvider();
-        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter();
+        timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
 
         ConnectorDetailDto cryptographyProviderConnector = connectorService.createConnector(
                 aV1ConnectorRequest().withName("soft-cryptography-provider").withUrl(cryptographyProviderMock.getUrl()).build());
-        timestampingFormatterConnector = connectorService.createConnector(
-                aV2ConnectorRequest().withName("timestamping-formatter").withUrl(timestampingFormatterMock.getUrl()).build());
+        timestampingFormattingConnector = connectorService.createConnector(
+                aV2ConnectorRequest().withName("timestamping-formatting").withUrl(timestampingFormattingMock.getUrl()).build());
 
         cryptographyProviderMock.stubTokenInstanceCreation(UUID.randomUUID());
         TokenInstanceDetailDto tokenInstance = tokenInstanceService.createTokenInstance(
@@ -140,7 +140,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         // The connector signs the DTBS and assembles the token; the assembled token is a real RFC 3161 token.
         timestampTokenBytes = TimestampTokenTestUtil.createTimestampToken().getEncoded();
         cryptographyProviderMock.stubSignData("connector-signature".getBytes(StandardCharsets.UTF_8));
-        timestampingFormatterMock.stubFormatterAttributes().stubTokenAssembly(timestampTokenBytes);
+        timestampingFormattingMock.stubFormattingAttributes().stubTokenAssembly(timestampTokenBytes);
     }
 
     @AfterEach
@@ -148,8 +148,8 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         if (cryptographyProviderMock != null) {
             cryptographyProviderMock.stop();
         }
-        if (timestampingFormatterMock != null) {
-            timestampingFormatterMock.stop();
+        if (timestampingFormattingMock != null) {
+            timestampingFormattingMock.stop();
         }
     }
 
@@ -171,7 +171,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
                         .withName(name)
                         .withStaticKeyManagedSigning(signingCertificate.getUuid())
                         .withTimestamping(aTimestampingWorkflow()
-                                .withSignatureFormatterConnector(UUID.fromString(timestampingFormatterConnector.getUuid()))
+                                .withSignatureFormattingConnector(UUID.fromString(timestampingFormattingConnector.getUuid()))
                                 .withValidateTokenSignature(false)
                                 .withQualifiedTimestamp(false)
                                 .withAllowedDigestAlgorithms(allowedDigestAlgorithms)
@@ -324,10 +324,10 @@ class TsaServiceImplTest extends BaseSpringBootTest {
         }
 
         @Test
-        void rejectsWithSystemFailure_whenFormatterConnectorFails() throws Exception {
-            // given — the signature formatter is unavailable during token assembly
-            SigningProfileDto profile = createTimestampingSigningProfile("sp-formatter-down");
-            timestampingFormatterMock.stubTokenAssemblyFailure();
+        void rejectsWithSystemFailure_whenFormattingConnectorFails() throws Exception {
+            // given — the signature formatting is unavailable during token assembly
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-formatting-down");
+            timestampingFormattingMock.stubTokenAssemblyFailure();
 
             // when
             TspResponse response = tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());

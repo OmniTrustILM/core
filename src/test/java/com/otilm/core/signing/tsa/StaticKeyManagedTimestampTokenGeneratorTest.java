@@ -8,7 +8,7 @@ import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
-import com.otilm.core.signing.tsa.formatter.SignatureFormatterClient;
+import com.otilm.core.signing.tsa.formatting.SignatureFormattingClient;
 import com.otilm.core.signing.tsa.signer.Signer;
 import com.otilm.core.signing.tsa.signer.SignerFactory;
 import org.bouncycastle.tsp.TimeStampToken;
@@ -39,7 +39,7 @@ import static org.mockito.Mockito.when;
 class StaticKeyManagedTimestampTokenGeneratorTest {
 
     @Mock SignerFactory signerFactory;
-    @Mock SignatureFormatterClient formatter;
+    @Mock SignatureFormattingClient formatting;
     @Mock Signer signer;
 
     @InjectMocks
@@ -94,10 +94,10 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
         byte[] dtbs = {1, 2, 3};
         byte[] signature = {4, 5, 6};
 
-        when(formatter.formatDtbs(request, profile, serialNumber, genTime, chain, SignatureAlgorithm.SHA256_WITH_RSA))
+        when(formatting.formatDtbs(request, profile, serialNumber, genTime, chain, SignatureAlgorithm.SHA256_WITH_RSA))
                 .thenReturn(dtbs);
         when(signer.sign(dtbs)).thenReturn(signature);
-        when(formatter.formatSigningResponse(request, profile, serialNumber, genTime, chain, dtbs, signature, SignatureAlgorithm.SHA256_WITH_RSA))
+        when(formatting.formatSigningResponse(request, profile, serialNumber, genTime, chain, dtbs, signature, SignatureAlgorithm.SHA256_WITH_RSA))
                 .thenReturn(validTokenBytes);
 
         // when
@@ -112,9 +112,9 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     void usesSigningSchemeFromProfile_toCreateSigner() throws Exception {
         // given — the factory must receive the scheme from the profile, not a default
         var profile = aTimestampingProfile();
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenReturn(new byte[1]);
-        when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(formatting.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(validTokenBytes);
 
         // when
@@ -125,12 +125,12 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void passesAlgorithmFromSigner_toBothFormatterPhases() throws Exception {
-        // given — the formatter must receive the signer's reported algorithm in both the DTBS and signing-response phases
+    void passesAlgorithmFromSigner_toBothFormattingPhases() throws Exception {
+        // given — the formatting must receive the signer's reported algorithm in both the DTBS and signing-response phases
         when(signer.getSignatureAlgorithm()).thenReturn(SignatureAlgorithm.SHA384_WITH_ECDSA);
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenReturn(new byte[1]);
-        when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(formatting.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(validTokenBytes);
 
         // when
@@ -138,19 +138,19 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
                 mock(CertificateChain.class), BigInteger.ONE, Instant.now());
 
         // then
-        verify(formatter).formatDtbs(any(), any(), any(), any(), any(), eq(SignatureAlgorithm.SHA384_WITH_ECDSA));
-        verify(formatter).formatSigningResponse(any(), any(), any(), any(), any(), any(), any(),
+        verify(formatting).formatDtbs(any(), any(), any(), any(), any(), eq(SignatureAlgorithm.SHA384_WITH_ECDSA));
+        verify(formatting).formatSigningResponse(any(), any(), any(), any(), any(), any(), any(),
                 eq(SignatureAlgorithm.SHA384_WITH_ECDSA));
     }
 
     @Test
-    void passesDtbsBytesToSigner_andSignatureToFormatterSigningResponse() throws Exception {
+    void passesDtbsBytesToSigner_andSignatureToFormattingSigningResponse() throws Exception {
         // given — the DTBS from phase 1 must be fed to the signer, and the resulting signature must reach phase 2
         byte[] dtbs = {10, 20, 30};
         byte[] signature = {40, 50, 60};
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(dtbs);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(dtbs);
         when(signer.sign(dtbs)).thenReturn(signature);
-        when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), eq(dtbs), eq(signature), any()))
+        when(formatting.formatSigningResponse(any(), any(), any(), any(), any(), eq(dtbs), eq(signature), any()))
                 .thenReturn(validTokenBytes);
 
         // when
@@ -159,15 +159,15 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
 
         // then
         verify(signer).sign(dtbs);
-        verify(formatter).formatSigningResponse(any(), any(), any(), any(), any(), eq(dtbs), eq(signature), any());
+        verify(formatting).formatSigningResponse(any(), any(), any(), any(), any(), eq(dtbs), eq(signature), any());
     }
 
     @Test
     void throwsSystemFailure_whenTokenBytesAreNotParseable() throws Exception {
-        // given — the formatter.formatSigningResponse returns garbage bytes; BouncyCastle fails to parse them as a CMS SignedData
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
+        // given — the formatting.formatSigningResponse returns garbage bytes; BouncyCastle fails to parse them as a CMS SignedData
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenReturn(new byte[1]);
-        when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(formatting.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new byte[]{0x00, 0x01, 0x02, 0x03});
 
         // when / then
@@ -193,10 +193,10 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void propagatesTspException_fromFormatterDtbs() throws Exception {
-        // given — the formatter fails to build the DTBS (e.g. malformed certificate)
+    void propagatesTspException_fromFormattingDtbs() throws Exception {
+        // given — the formatting fails to build the DTBS (e.g. malformed certificate)
         var cause = new TspException(TspFailureInfo.BAD_REQUEST, "cannot build DTBS", "bad request");
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenThrow(cause);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenThrow(cause);
 
         // when / then
         assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),
@@ -208,7 +208,7 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     void propagatesTspException_fromSigner() throws Exception {
         // given — the signing connector is unavailable
         var cause = new TspException(TspFailureInfo.SYSTEM_FAILURE, "signing failed", "signing connector error");
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenThrow(cause);
 
         // when / then
@@ -218,12 +218,12 @@ class StaticKeyManagedTimestampTokenGeneratorTest {
     }
 
     @Test
-    void propagatesTspException_fromFormatterSigningResponse() throws Exception {
-        // given — the formatter fails to assemble the final token from the signature
+    void propagatesTspException_fromFormattingSigningResponse() throws Exception {
+        // given — the formatting fails to assemble the final token from the signature
         var cause = new TspException(TspFailureInfo.SYSTEM_FAILURE, "cannot assemble token", "internal error");
-        when(formatter.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
+        when(formatting.formatDtbs(any(), any(), any(), any(), any(), any())).thenReturn(new byte[1]);
         when(signer.sign(any())).thenReturn(new byte[1]);
-        when(formatter.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any())).thenThrow(cause);
+        when(formatting.formatSigningResponse(any(), any(), any(), any(), any(), any(), any(), any())).thenThrow(cause);
 
         // when / then
         assertThatThrownBy(() -> generator.generate(aTspRequest().build(), aTimestampingProfile(),

@@ -8,8 +8,8 @@ import java.util.UUID;
 
 public final class ManagedTimestampingWorkflowBuilder {
 
-    private UUID signatureFormatterConnectorUuid = UUID.fromString("00000000-0000-0000-0000-000000000001");
-    private List<RequestAttribute> signatureFormatterConnectorAttributes = List.of();
+    private UUID signatureFormattingConnectorUuid = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private List<RequestAttribute> signatureFormattingConnectorAttributes = List.of();
     private Boolean isQualifiedTimestamp = false;
     private UUID timeQualityConfigurationUuid = null;
     private String defaultPolicyId = "1.2.3.4.5";
@@ -25,13 +25,13 @@ public final class ManagedTimestampingWorkflowBuilder {
         return aManagedTimestampingWorkflow().build();
     }
 
-    public ManagedTimestampingWorkflowBuilder signatureFormatterConnectorUuid(UUID v) {
-        this.signatureFormatterConnectorUuid = v;
+    public ManagedTimestampingWorkflowBuilder signatureFormattingConnectorUuid(UUID v) {
+        this.signatureFormattingConnectorUuid = v;
         return this;
     }
 
-    public ManagedTimestampingWorkflowBuilder signatureFormatterConnectorAttributes(List<RequestAttribute> v) {
-        this.signatureFormatterConnectorAttributes = v;
+    public ManagedTimestampingWorkflowBuilder signatureFormattingConnectorAttributes(List<RequestAttribute> v) {
+        this.signatureFormattingConnectorAttributes = v;
         return this;
     }
 
@@ -67,8 +67,8 @@ public final class ManagedTimestampingWorkflowBuilder {
 
     public ManagedTimestampingWorkflow build() {
         return new ManagedTimestampingWorkflow(
-                signatureFormatterConnectorUuid,
-                signatureFormatterConnectorAttributes,
+                signatureFormattingConnectorUuid,
+                signatureFormattingConnectorAttributes,
                 isQualifiedTimestamp,
                 timeQualityConfigurationUuid,
                 defaultPolicyId,

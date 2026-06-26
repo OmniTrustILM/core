@@ -1,16 +1,16 @@
-package com.otilm.core.signing.tsa.formatter;
+package com.otilm.core.signing.tsa.formatting;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
-import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.clients.signing.SignatureFormattingApiClient;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.connector.signatures.formatter.FormatDtbsResponseDto;
-import com.otilm.api.model.connector.signatures.formatter.FormattedResponseDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.FormatDtbsResponseDto;
+import com.otilm.api.model.connector.signatures.formatting.FormattedResponseDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatDtbsRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatResponseRequestDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.util.CertificateTestUtil;
@@ -43,12 +43,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class TimestampingSignatureFormatterClientTest {
+class TimestampingSignatureFormattingClientTest {
 
     @Mock
-    private SignatureFormatterApiClient apiClient;
+    private SignatureFormattingApiClient apiClient;
 
-    private TimestampingConnectorSignatureFormatterClient client;
+    private TimestampingConnectorSignatureFormattingClient client;
     private ResolvedManagedTimestampingProfile profile;
     private CertificateChain chain;
 
@@ -59,7 +59,7 @@ class TimestampingSignatureFormatterClientTest {
 
     @BeforeEach
     void wireClientAndFixtures() {
-        client = new TimestampingConnectorSignatureFormatterClient();
+        client = new TimestampingConnectorSignatureFormattingClient();
         client.setApiClient(apiClient);
 
         profile = new ResolvedManagedTimestampingProfile(
@@ -94,7 +94,7 @@ class TimestampingSignatureFormatterClientTest {
 
         @Test
         void throwsSystemFailure_whenApiCallFails() throws Exception {
-            // given — the remote formatter call fails
+            // given — the remote formatting call fails
             when(apiClient.formatDtbs(any(), any()))
                     .thenThrow(new ConnectorException("connection refused"));
 

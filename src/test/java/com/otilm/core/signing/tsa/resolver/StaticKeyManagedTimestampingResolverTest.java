@@ -150,7 +150,7 @@ class StaticKeyManagedTimestampingResolverTest {
             assertThat(result.allowedDigestAlgorithms()).containsExactly(DigestAlgorithm.SHA_256);
             assertThat(result.validateTokenSignature()).isTrue();
             assertThat(result.timeQualityConfiguration()).isSameAs(tqc);
-            assertThat(result.signatureFormatterConnector()).isSameAs(connector);
+            assertThat(result.signatureFormattingConnector()).isSameAs(connector);
             assertThat(result.resolvedScheme()).isInstanceOf(ResolvedStaticKeyManagedSigning.class);
             ResolvedStaticKeyManagedSigning resolvedScheme = (ResolvedStaticKeyManagedSigning) result.resolvedScheme();
             assertThat(resolvedScheme.certificate()).isSameAs(certificate);
@@ -265,7 +265,7 @@ class StaticKeyManagedTimestampingResolverTest {
         }
 
         @Test
-        void throwsSystemFailure_whenSignatureFormatterConnectorNotFound() throws Exception {
+        void throwsSystemFailure_whenSignatureFormattingConnectorNotFound() throws Exception {
             // given
             when(timeQualityConfigurationService.getTimeQualityConfigurationModel(TQC_UUID))
                     .thenReturn(LocalClockTimeQualityConfiguration.INSTANCE);

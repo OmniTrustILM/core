@@ -101,9 +101,9 @@ public class SigningProfileRequestDtoBuilder {
         return withWorkflow(new RawSigningWorkflowRequestDto());
     }
 
-    public SigningProfileRequestDtoBuilder withContentSigning(UUID signatureFormatterConnectorUuid) {
+    public SigningProfileRequestDtoBuilder withContentSigning(UUID signatureFormattingConnectorUuid) {
         ContentSigningWorkflowRequestDto contentSigningWorkflow = new ContentSigningWorkflowRequestDto();
-        contentSigningWorkflow.setSignatureFormatterConnectorUuid(signatureFormatterConnectorUuid);
+        contentSigningWorkflow.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
         return withWorkflow(contentSigningWorkflow);
     }
 
@@ -111,8 +111,8 @@ public class SigningProfileRequestDtoBuilder {
         return withWorkflow(workflow);
     }
 
-    public SigningProfileRequestDtoBuilder withTimestamping(UUID signatureFormatterConnectorUuid) {
-        return withTimestamping(TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow().withSignatureFormatterConnector(signatureFormatterConnectorUuid).build());
+    public SigningProfileRequestDtoBuilder withTimestamping(UUID signatureFormattingConnectorUuid) {
+        return withTimestamping(TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow().withSignatureFormattingConnector(signatureFormattingConnectorUuid).build());
     }
 
     public SigningProfileRequestDtoBuilder withTimestamping(TimestampingWorkflowRequestDto workflow) {
@@ -160,18 +160,18 @@ public class SigningProfileRequestDtoBuilder {
             case RawSigningWorkflowDto ignored -> new RawSigningWorkflowRequestDto();
             case ContentSigningWorkflowDto c -> {
                 ContentSigningWorkflowRequestDto req = new ContentSigningWorkflowRequestDto();
-                if (c.getSignatureFormatterConnector() != null) {
-                    req.setSignatureFormatterConnectorUuid(UUID.fromString(c.getSignatureFormatterConnector().getUuid()));
+                if (c.getSignatureFormattingConnector() != null) {
+                    req.setSignatureFormattingConnectorUuid(UUID.fromString(c.getSignatureFormattingConnector().getUuid()));
                 }
-                req.setSignatureFormatterConnectorAttributes(requestAttributesFromResponse(c.getSignatureFormatterConnectorAttributes()));
+                req.setSignatureFormattingConnectorAttributes(requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
                 yield req;
             }
             case TimestampingWorkflowDto t -> {
                 TimestampingWorkflowRequestDto req = new TimestampingWorkflowRequestDto();
-                if (t.getSignatureFormatterConnector() != null) {
-                    req.setSignatureFormatterConnectorUuid(UUID.fromString(t.getSignatureFormatterConnector().getUuid()));
+                if (t.getSignatureFormattingConnector() != null) {
+                    req.setSignatureFormattingConnectorUuid(UUID.fromString(t.getSignatureFormattingConnector().getUuid()));
                 }
-                req.setSignatureFormatterConnectorAttributes(requestAttributesFromResponse(t.getSignatureFormatterConnectorAttributes()));
+                req.setSignatureFormattingConnectorAttributes(requestAttributesFromResponse(t.getSignatureFormattingConnectorAttributes()));
                 req.setQualifiedTimestamp(t.getQualifiedTimestamp());
                 if (t.getTimeQualityConfiguration() != null) {
                     req.setTimeQualityConfigurationUuid(UUID.fromString(t.getTimeQualityConfiguration().getUuid()));
