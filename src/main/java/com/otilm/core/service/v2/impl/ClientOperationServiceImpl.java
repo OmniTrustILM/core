@@ -346,6 +346,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         if (Boolean.FALSE.equals(raProfile.getEnabled())) {
             throw new ValidationException("Cannot register certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
         }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
 
         // Gate before creating anything: registration is v3-only, so a request against a non-registering
         // authority is rejected without leaving a placeholder behind.
@@ -425,6 +426,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     public AvailableOperationsDto listAvailableOperations(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
 
         // Capability-derived support flags: issue/renew/revoke are offered by every authority, register is
@@ -459,7 +461,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         if (certificate.isArchived())
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate that has been archived. Certificate: %s", certificate.toStringShort())));
         if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL && certificate.getState() != CertificateState.REGISTERED) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
         }
         if (certificate.getRaProfile() == null) {
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no RA Profile associated. Certificate: %s", certificate)));
@@ -580,6 +582,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 certificate.getUuid(), originatingAction.getCode());
     }
 
+    /** Rejects a request whose RA profile does not belong to the authority named in the path. The RA profile's
+     *  authorityInstanceReferenceUuid is an eager column, so this is safe to call with no transaction held. */
+    private static void assertRaProfileUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
+        if (!authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+            throw new ValidationException(String.format(
+                    "RA profile %s does not belong to the requested authority.", raProfile.getName()));
+        }
+    }
+
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
                                                             SecuredParentUUID authorityUuid,
                                                             SecuredUUID raProfileUuid,
@@ -672,6 +683,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         if (Boolean.FALSE.equals(raProfile.getEnabled())) {
             throw new ValidationException("Cannot issue certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
         }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
         if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
             throw new ValidationException("Cannot issue a certificate that belongs to a different RA profile. Certificate: %s".formatted(certificate.toStringShort()));
@@ -1673,7 +1685,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 async.cancel(certificate, CertificateOperation.ISSUE);
             }
         } catch (Exception e) {
-            logger.warn("Best-effort cancel of in-flight async issue after manual issue failed (cert {}): {}", certificateUuid, e.getMessage());
+            logger.warn("Best-effort cancel of in-flight async issue after manual issue failed (cert {}): {}", certificateUuid, e.getMessage(), e);
         }
     }
 

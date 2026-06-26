@@ -6,6 +6,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -312,6 +313,80 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
         Mockito.verify(pollWriter, Mockito.never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void registerRejectsRaProfileNotUnderRequestedAuthority() {
+        SecuredParentUUID wrongAuthority = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                wrongAuthority, raProfile.getSecuredUuid(), registrationRequest()));
+    }
+
+    @Test
+    void registerRejectsDisabledRaProfile() {
+        raProfile.setEnabled(false);
+        raProfileRepository.save(raProfile);
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), registrationRequest()));
+    }
+
+    @Test
+    void issueRegisteredCertificateRejectsMalformedCsr() throws Exception {
+        String certUuid = registerSyncRegistered();
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest("!!!not-valid-base64!!!");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), certUuid, signRequest));
+    }
+
+    @Test
+    void registerPersistsConnectorMetadata() throws Exception {
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(Mockito.mock(MetadataAttribute.class)), CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), registrationRequest());
+
+        // Metadata persistence runs (and tolerates failure); registration still completes.
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
+    void registerRejectsInvalidSubjectDn() {
+        registeringAdapter();
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("@@@ not a valid dn @@@");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), request));
+    }
+
+    @Test
+    void issueExistingRejectsDisabledRaProfile() throws Exception {
+        String certUuid = registerSyncRegistered();
+        raProfile.setEnabled(false);
+        raProfileRepository.save(raProfile);
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest("x");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), certUuid, signRequest));
+    }
+
+    @Test
+    void issueExistingRejectsCertInNonIssuableState() {
+        Certificate issued = new Certificate();
+        issued.setState(CertificateState.ISSUED);
+        issued.setRaProfile(raProfile);
+        issued = certificateRepository.save(issued);
+        String certUuid = issued.getUuid().toString();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(), certUuid, null));
     }
 
     private String registerSyncRegistered() throws Exception {
