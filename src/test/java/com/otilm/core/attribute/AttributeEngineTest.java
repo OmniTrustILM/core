@@ -60,6 +60,7 @@ import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1147,7 +1148,7 @@ class AttributeEngineTest extends BaseSpringBootTest {
     class ValidateMappedField {
 
         // Snapshot of the process-wide OidHandler cache taken before this class mutates it.
-        private static final Map<OidCategory, Map<String, OidRecord>> savedOidCache = new HashMap<>();
+        private static final Map<OidCategory, Map<String, OidRecord>> savedOidCache = new EnumMap<>(OidCategory.class);
 
         @BeforeAll
         static void initOidCache() {
