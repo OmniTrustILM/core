@@ -104,7 +104,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
-    private LocationService locationService;
+    private LocationExternalService locationService;
+    private LocationInternalService locationInternalService;
     private CertificateService certificateService;
     private ComplianceInternalService complianceService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -151,8 +152,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     @Lazy
     @Autowired
-    public void setLocationService(LocationService locationService) {
+    public void setLocationService(LocationExternalService locationService) {
         this.locationService = locationService;
+    }
+
+    @Lazy
+    @Autowired
+    public void setLocationInternalService(LocationInternalService locationInternalService) {
+        this.locationInternalService = locationInternalService;
     }
 
     @Autowired
@@ -361,7 +368,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         // push certificate to locations
         for (CertificateLocation cl : certificate.getLocations()) {
             try {
-                locationService.pushRequestedCertificateToLocationAction(cl.getId(), false);
+                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), false);
             } catch (Exception e) {
                 logger.error("Failed to push issued certificate to location: {}", e.getMessage());
             }
@@ -488,7 +495,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void handleFailedOrRejectedEvent(Certificate certificate, UUID oldCertificateUuid, CertificateState state, CertificateEvent event, Map<String, Object> additionalInformation, String message) {
         for (CertificateLocation location : certificate.getLocations()) {
             try {
-                locationService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
+                locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
             } catch (ConnectorException | NotFoundException ex) {
                 logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), message);
             }
@@ -688,7 +695,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             // push certificate to locations
             for (CertificateLocation cl : certificate.getLocations()) {
                 try {
-                    locationService.pushRequestedCertificateToLocationAction(cl.getId(), true);
+                    locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), true);
                 } catch (Exception e) {
                     logger.error("Failed to push renewed certificate to location: {}", e.getMessage());
                 }
@@ -1510,7 +1517,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void pushFinalizedCertificateToAllLocations(Certificate certificate) {
         for (CertificateLocation cl : certificate.getLocations()) {
             try {
-                locationService.pushRequestedCertificateToLocationAction(cl.getId(), false);
+                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), false);
             } catch (Exception e) {
                 logger.error("Failed to push manually-finalized certificate {} to location {}: {}",
                         certificate.getUuid(), cl.getId().getLocationUuid(), e.getMessage(), e);
