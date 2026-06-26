@@ -86,7 +86,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     private ActionProducer actionProducer;
 
     private RaProfile raProfile;
-    // Pre-computed secured UUIDs so assertThrows lambdas contain only the call under test (Sonar java:S5778).
+    // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
     private SecuredParentUUID authorityParent;
     private SecuredUUID securedRaProfile;
 

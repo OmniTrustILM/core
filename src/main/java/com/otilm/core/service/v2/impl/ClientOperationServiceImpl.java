@@ -431,7 +431,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         // Capability-derived support flags: issue/renew/revoke are offered by every authority, register is
         // v3-only, and asynchronous completion + cancellation come together with AsyncOperationCapability.
-        // Finer per-connector advertisement (FeatureFlag-driven) is layered on in the capability-service slice.
+        // Finer per-connector advertisement (FeatureFlag-driven) is layered on later.
         boolean register = adapter instanceof RegisterCapability;
         boolean async = adapter instanceof AsyncOperationCapability;
         List<OperationSupport> operations = List.of(
@@ -693,23 +693,22 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         // State-keyed, body-optional contract: a REQUESTED cert already carries its (protocol-attached) CSR
         // and must not be given another; a REGISTERED placeholder has no CSR yet and requires the operator's.
-        switch (state) {
-            case REGISTERED -> {
-                if (!hasCsr) {
-                    throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
-                }
-                try {
-                    certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
-                } catch (CertificateRequestException | NoSuchAlgorithmException e) {
-                    throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
-                }
+        if (state != CertificateState.REGISTERED && state != CertificateState.REQUESTED) {
+            throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
+        }
+        boolean registered = state == CertificateState.REGISTERED;
+        if (registered && !hasCsr) {
+            throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (!registered && hasCsr) {
+            throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (registered) {
+            try {
+                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+            } catch (CertificateRequestException | NoSuchAlgorithmException e) {
+                throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
             }
-            case REQUESTED -> {
-                if (hasCsr) {
-                    throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
-                }
-            }
-            default -> throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
         }
 
         final ActionMessage actionMessage = new ActionMessage();
