@@ -15,6 +15,8 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,6 +34,25 @@ class X509RequestContentRendererTest {
     class ToX500Principal {
 
         public static final String MYCODE = "MYCODE";
+
+        // The OidHandler cache is process-wide static state shared across the whole test JVM.
+        // Snapshot RDN_ATTRIBUTE_TYPE before this class replaces it, and restore it afterwards,
+        // so tests that run later in the same JVM (e.g. PlatformX500NameStyleTest) still see the
+        // system OIDs seeded by the Spring context.
+        private static Map<String, OidRecord> savedRdnCache;
+
+        @BeforeAll
+        static void saveOidCache() {
+            Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
+            savedRdnCache = existing == null ? null : new HashMap<>(existing);
+        }
+
+        @AfterAll
+        static void restoreOidCache() {
+            if (savedRdnCache != null) {
+                OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, savedRdnCache);
+            }
+        }
 
         @BeforeEach
         void seedCache() {
