@@ -64,6 +64,31 @@ discovery:
     sleep-time-ms: ${DISCOVERY_PROVIDER_SLEEP_TIME_MS:5000}
     max-wait-time-seconds: ${DISCOVERY_PROVIDER_MAX_WAIT_TIME_SECONDS:21600}
 
+# Authority-provider async (HTTP 202) operation status polling
+provider:
+  status-poll:
+    # How often each node scans the certificate_status_poll due-time table (one node sweeps at a time).
+    sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
+    sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
+    sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
+    defaults:
+      delays:
+        - PT1S
+        - PT3S
+        - PT10S
+        - PT30S
+        - PT1M30S
+        - PT5M
+      max-attempts: 100
+    by-kind:
+      REGISTER:
+        delays:
+          - PT5S
+          - PT30S
+          - PT2M
+          - PT5M
+        max-attempts: 50
+
 hibernate:
   types:
     print:
@@ -229,6 +254,7 @@ spring:
       time-quality-config: ${BROKER_QUEUE_TIME_QUALITY_CONFIG:time-quality.config}
       time-quality-config-request: ${BROKER_QUEUE_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
       time-quality-results: ${BROKER_QUEUE_TIME_QUALITY_RESULTS:time-quality.results}
+      provider-status-poll: ${BROKER_QUEUE_PROVIDER_STATUS_POLL:provider.status-poll}
     routing-key:
       actions: ${BROKER_ROUTINGKEY_ACTIONS:action}
       audit-logs: ${BROKER_ROUTINGKEY_AUDIT_LOGS:audit-logs}
@@ -239,6 +265,7 @@ spring:
       time-quality-config: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG:time-quality.config}
       time-quality-config-request: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
       time-quality-results: ${BROKER_ROUTINGKEY_TIME_QUALITY_RESULTS:time-quality.results}
+      provider-status-poll: ${BROKER_ROUTINGKEY_PROVIDER_STATUS_POLL:provider.status-poll}
   threads:
     virtual:
       enabled: true
@@ -258,6 +285,7 @@ messaging:
     audit-logs: 5
     time-quality-config-request: 5
     time-quality-results: 5
+    provider-status-poll: 1-5
 
 # Proxy configuration for connector communication via message queue
 proxy:
