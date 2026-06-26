@@ -4,6 +4,7 @@ import com.otilm.core.messaging.jms.listeners.actions.ActionsJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.auditlogs.AuditLogsJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.event.EventJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.notification.NotificationJmsEndpointConfig;
+import com.otilm.core.messaging.jms.listeners.poll.PollJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.scheduler.SchedulerJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.timequality.TimeQualityConfigurationJmsEndpointConfig;
 import com.otilm.core.messaging.jms.listeners.timequality.TimeQualityResultsJmsEndpointConfig;
@@ -31,6 +32,7 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
     private final ValidationJmsEndpointConfig validationJmsEndpointConfig;
     private final Optional<TimeQualityConfigurationJmsEndpointConfig> timeQualityConfigurationJmsEndpointConfig;
     private final Optional<TimeQualityResultsJmsEndpointConfig> timeQualityResultsJmsEndpointConfig;
+    private final PollJmsEndpointConfig pollJmsEndpointConfig;
     private final Optional<InstanceProxyMessageJmsEndpointConfig> instanceProxyMessageJmsEndpointConfig;
     private final Optional<SharedProxyMessageJmsEndpointConfig> sharedProxyMessageJmsEndpointConfig;
 
@@ -44,6 +46,7 @@ public class JmsListenersConfigurerImpl implements JmsListenerConfigurer {
         registrar.registerEndpoint(validationJmsEndpointConfig.listenerEndpoint());
         timeQualityConfigurationJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
         timeQualityResultsJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
+        registrar.registerEndpoint(pollJmsEndpointConfig.listenerEndpoint());
         instanceProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
         sharedProxyMessageJmsEndpointConfig.ifPresent(c -> registrar.registerEndpoint(c.listenerEndpoint()));
     }
