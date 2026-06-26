@@ -150,6 +150,7 @@ spring:
       time-quality-config-request: time-quality.config-request
       time-quality-config: time-quality.config
       time-quality-results: time-quality.results
+      provider-status-poll: provider.status-poll
     listener:
       initial-interval: 1000
       multiplier: 1.5
@@ -165,6 +166,7 @@ spring:
       time-quality-config-request: time-quality.config-request
       time-quality-config: time-quality.config
       time-quality-results: time-quality.results
+      provider-status-poll: provider.status-poll
     producer:
       retry:
         enabled: true
@@ -184,6 +186,7 @@ messaging:
     audit-logs: 5
     time-quality-config-request: 1
     time-quality-results: 1
+    provider-status-poll: 1-5
 
 otel:
   instrumentation:

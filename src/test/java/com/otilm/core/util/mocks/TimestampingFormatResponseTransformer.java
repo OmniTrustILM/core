@@ -1,17 +1,17 @@
 package com.otilm.core.util.mocks;
 
-import com.otilm.api.model.connector.signatures.formatter.FormattedResponseDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.FormattedResponseDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatResponseRequestDto;
 import com.otilm.core.signing.tsa.TimestampTokenTestUtil;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 
 /**
- * Phase 2 of the RFC 3161 formatter contract ({@code formatResponse}), backing
- * {@link TimestampingFormatterConnectorMock#stubFormatResponse()}: assembles a real
+ * Phase 2 of the RFC 3161 formatting contract ({@code formatResponse}), backing
+ * {@link TimestampingFormattingConnectorMock#stubFormatResponse()}: assembles a real
  * {@code TimeStampToken} embedding the externally produced signature carried by the request.
  */
-class TimestampingFormatResponseTransformer extends TimestampingFormatterTransformer {
+class TimestampingFormatResponseTransformer extends TimestampingFormattingTransformer {
 
     static final String NAME = "tsp-format-response";
 
@@ -24,7 +24,7 @@ class TimestampingFormatResponseTransformer extends TimestampingFormatterTransfo
             response.setResponse(timestampTokenFor(request));
             return jsonResponse(serveEvent, response);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to assemble timestamp token in WireMock formatter transformer", e);
+            throw new IllegalStateException("Failed to assemble timestamp token in WireMock formatting transformer", e);
         }
     }
 

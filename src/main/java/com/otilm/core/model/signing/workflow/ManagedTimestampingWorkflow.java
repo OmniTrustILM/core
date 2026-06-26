@@ -9,10 +9,10 @@ import java.util.UUID;
 /**
  * Timestamping workflow for ILM-managed signing.
  *
- * @param signatureFormatterConnectorUuid       UUID of the Signature Formatter Connector that
+ * @param signatureFormattingConnectorUuid       UUID of the Signature Formatting Provider that
  *                                              constructs the DTBS for Timestamping.
- * @param signatureFormatterConnectorAttributes Attributes controlling DTBS construction on the
- *                                              Signature Formatter Connector.
+ * @param signatureFormattingConnectorAttributes Attributes controlling DTBS construction on the
+ *                                              Signature Formatting Provider.
  * @param isQualifiedTimestamp                  ETSI qualified electronic timestamp flag.
  * @param timeQualityConfigurationUuid          UUID of the Time Quality Configuration validating
  *                                              clock accuracy at signing time; required when
@@ -24,8 +24,8 @@ import java.util.UUID;
  * @param validateTokenSignature                Whether to validate the token signature after issuance.
  */
 public record ManagedTimestampingWorkflow(
-        UUID signatureFormatterConnectorUuid,
-        List<RequestAttribute> signatureFormatterConnectorAttributes,
+        UUID signatureFormattingConnectorUuid,
+        List<RequestAttribute> signatureFormattingConnectorAttributes,
         Boolean isQualifiedTimestamp,
         UUID timeQualityConfigurationUuid,
         String defaultPolicyId,

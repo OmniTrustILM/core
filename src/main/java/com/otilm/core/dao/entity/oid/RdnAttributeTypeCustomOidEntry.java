@@ -1,6 +1,5 @@
 package com.otilm.core.dao.entity.oid;
 
-import com.otilm.api.model.core.oid.RdnAttributeTypeOidPropertiesDto;
 import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorValue;
 import jakarta.persistence.Entity;
@@ -26,10 +25,4 @@ public class RdnAttributeTypeCustomOidEntry extends CustomOidEntry {
     private List<String> altCodes = new ArrayList<>();
 
 
-    public RdnAttributeTypeOidPropertiesDto mapToPropertiesDto() {
-        RdnAttributeTypeOidPropertiesDto propertiesDto = new RdnAttributeTypeOidPropertiesDto();
-        propertiesDto.setCode(code);
-        propertiesDto.setAltCodes(altCodes);
-        return propertiesDto;
-    }
 }

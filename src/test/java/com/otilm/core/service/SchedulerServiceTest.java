@@ -100,7 +100,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
 
     @Autowired
-    private DiscoveryService discoveryService;
+    private DiscoveryExternalService discoveryService;
     @Autowired
     private DiscoveryRepository discoveryRepository;
     @Autowired

@@ -21,7 +21,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.LocationService;
+import com.otilm.core.service.LocationExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,10 +33,10 @@ import java.util.List;
 @RestController
 public class LocationManagementControllerImpl implements LocationManagementController {
 
-    private LocationService locationService;
+    private LocationExternalService locationService;
 
     @Autowired
-    public void setLocationService(LocationService locationService) {
+    public void setLocationService(LocationExternalService locationService) {
         this.locationService = locationService;
     }
 

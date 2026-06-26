@@ -96,7 +96,7 @@ public interface SigningProfileService extends ResourceExtensionService {
 
     List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException;
 
-    List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException;
+    List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid, SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException;
 
     PaginationResponseDto<SigningRecordListDto> listSigningRecordsForSigningProfile(SecuredUUID uuid, SearchRequestDto request, SecurityFilter filter) throws NotFoundException;
 

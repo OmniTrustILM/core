@@ -20,7 +20,7 @@ import static com.otilm.core.util.builders.ConnectorInfoBuilder.aConnectorInfo;
  * <p>
  * Owns the WireMock server lifecycle and the generic discovery stubs shared by every connector flavour:
  * {@code GET /v1} (V1 function-group discovery) and {@code GET /v2/info} (V2 interface discovery).
- * Concrete subclasses (e.g. {@link TimestampingFormatterConnectorMock}, {@link CryptographyProviderConnectorMock})
+ * Concrete subclasses (e.g. {@link TimestampingFormattingConnectorMock}, {@link CryptographyProviderConnectorMock})
  * add the function-specific stubs in their constructor.
  * Instances are created exclusively through {@link ConnectorMockFactory}, which injects any Spring beans
  * a mock needs at start. Call {@link #stop()} in {@code @AfterEach}.

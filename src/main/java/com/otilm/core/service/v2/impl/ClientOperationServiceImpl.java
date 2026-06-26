@@ -45,6 +45,8 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
@@ -79,6 +81,8 @@ import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service("clientOperationServiceImplV2")
@@ -104,7 +108,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
-    private LocationService locationService;
+    private LocationExternalService locationService;
+    private LocationInternalService locationInternalService;
     private CertificateService certificateService;
     private ComplianceInternalService complianceService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -118,6 +123,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
+    private CertificateStatusPollWriter pollWriter;
+
+    @Autowired
+    public void setPollWriter(CertificateStatusPollWriter pollWriter) {
+        this.pollWriter = pollWriter;
+    }
 
     @Autowired
     public void setCertificateRelationRepository(CertificateRelationRepository certificateRelationRepository) {
@@ -151,8 +162,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
     @Lazy
     @Autowired
-    public void setLocationService(LocationService locationService) {
+    public void setLocationService(LocationExternalService locationService) {
         this.locationService = locationService;
+    }
+
+    @Lazy
+    @Autowired
+    public void setLocationInternalService(LocationInternalService locationInternalService) {
+        this.locationInternalService = locationInternalService;
     }
 
     @Autowired
@@ -361,7 +378,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         // push certificate to locations
         for (CertificateLocation cl : certificate.getLocations()) {
             try {
-                locationService.pushRequestedCertificateToLocationAction(cl.getId(), false);
+                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), false);
             } catch (Exception e) {
                 logger.error("Failed to push issued certificate to location: {}", e.getMessage());
             }
@@ -412,6 +429,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         certificate.setState(CertificateState.PENDING_ISSUE);
         certificateRepository.save(certificate);
+
+        scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
 
         certificateEventHistoryService.addEventHistory(
                 certificate.getUuid(),
@@ -488,7 +507,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void handleFailedOrRejectedEvent(Certificate certificate, UUID oldCertificateUuid, CertificateState state, CertificateEvent event, Map<String, Object> additionalInformation, String message) {
         for (CertificateLocation location : certificate.getLocations()) {
             try {
-                locationService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
+                locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
             } catch (ConnectorException | NotFoundException ex) {
                 logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), message);
             }
@@ -688,7 +707,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             // push certificate to locations
             for (CertificateLocation cl : certificate.getLocations()) {
                 try {
-                    locationService.pushRequestedCertificateToLocationAction(cl.getId(), true);
+                    locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), true);
                 } catch (Exception e) {
                     logger.error("Failed to push renewed certificate to location: {}", e.getMessage());
                 }
@@ -1029,6 +1048,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         certificate.setState(CertificateState.PENDING_REVOKE);
         certificateRepository.save(certificate);
 
+        scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
+
         certificateEventHistoryService.addEventHistory(
                 certificate.getUuid(),
                 CertificateEvent.REVOKE,
@@ -1048,6 +1069,26 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_REVOKE");
 
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
+    }
+
+    /**
+     * Best-effort enqueue of an async status-poll row (due now) after a connector accepts an operation
+     * with HTTP 202. The calling {@code *Action} methods run with {@code Propagation.NOT_SUPPORTED}, so the
+     * {@code PENDING_*} transition has already committed in its own transaction by the time this runs — per the
+     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The write is
+     * idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
+     */
+    private void scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+        try {
+            pollWriter.schedule(certificate.getUuid(), operation, OffsetDateTime.now(ZoneOffset.UTC));
+        } catch (Exception e) {
+            logger.warn("Failed to schedule async status poll for certificate {} (operation {}): {}",
+                    certificate.getUuid(), operation, e.getMessage(), e);
+        }
+    }
+
+    private static CertificateOperation pollOperationFor(ResourceAction originatingAction) {
+        return originatingAction == ResourceAction.ISSUE ? CertificateOperation.ISSUE : CertificateOperation.RENEW;
     }
 
     private Certificate validateOldCertificateForOperation(String certificateUuid, String raProfileUuid, ResourceAction action) throws NotFoundException {
@@ -1510,7 +1551,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void pushFinalizedCertificateToAllLocations(Certificate certificate) {
         for (CertificateLocation cl : certificate.getLocations()) {
             try {
-                locationService.pushRequestedCertificateToLocationAction(cl.getId(), false);
+                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), false);
             } catch (Exception e) {
                 logger.error("Failed to push manually-finalized certificate {} to location {}: {}",
                         certificate.getUuid(), cl.getId().getLocationUuid(), e.getMessage(), e);
