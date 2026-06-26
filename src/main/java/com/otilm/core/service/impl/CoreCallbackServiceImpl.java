@@ -13,10 +13,11 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CoreCallbackService;
 import com.otilm.core.service.CredentialInternalService;
-import com.otilm.core.service.ResourceInternalService;
+import com.otilm.core.service.ResourceExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,10 +33,10 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
 
     private CredentialInternalService credentialService;
 
-    private ResourceInternalService resourceService;
+    private ResourceExternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceInternalService resourceService) {
+    public void setResourceService(ResourceExternalService resourceService) {
         this.resourceService = resourceService;
     }
 
@@ -63,6 +64,18 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
         return jsonContent;
     }
 
+    /**
+     * Lists candidate resource objects for an attribute-callback dropdown.
+     * <p>
+     * Routes through {@link ResourceExternalService#getResourceObjects} rather than the internal
+     * {@code getResourceObjectsInternal} so the {@code @ExternalAuthorizationDynamic(LIST)} guard on
+     * {@code getResourceObjects} applies the caller's per-object ACL. This closes the CERTIFICATE
+     * listing gap (whose own {@code listResourceObjects} carries no {@code @ExternalAuthorization}) and
+     * installs uniform defense-in-depth so any future unannotated per-kind listing stays scoped.
+     * <p>
+     * Same-connector narrowing of the dropdown is deliberately not applied here (cross-connector
+     * references are legitimate); it is deferred to core #1643.
+     */
     @Override
     public List<ResourceObjectContent> coreGetResources(RequestAttributeCallback callback, AttributeResource resource) throws NotFoundException {
         // Filters are in form: property_name.operator
@@ -81,7 +94,11 @@ public class CoreCallbackServiceImpl implements CoreCallbackService {
                 filters.add(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, filterFieldString, operator, callback.getFilter().get(filterDefinition)));
             }
         }
-        return resourceService.getResourceObjectsInternal(Resource.findByCode(resource.getCode()), filters, callback.getPagination())
+        return resourceService.getResourceObjects(
+                        SecuredResource.fromResource(Resource.findByCode(resource.getCode())),
+                        SecurityFilter.create(),
+                        filters,
+                        callback.getPagination())
                 .stream()
                 .map(id -> {
                     ResourceObjectContentData data = new ResourceObjectContentData(resource);
