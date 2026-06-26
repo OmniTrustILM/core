@@ -13,17 +13,27 @@ import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCall
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
+import com.otilm.api.model.client.connector.v2.attribute.ScopedAttributes;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.EntityInstanceReference;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
+import com.otilm.core.service.callback.NgCallbackDispatcher;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -52,10 +62,29 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private CredentialInternalService credentialService;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
+    private RaProfileRepository raProfileRepository;
     private CryptographicKeyService cryptographicKeyService;
     private TokenProfileInternalService tokenProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
+    private AttributeCallbackScopeResolver scopeResolver;
+    private NgCallbackDispatcher ngCallbackDispatcher;
+    private AttributeReferenceExpander attributeReferenceExpander;
+
+    @Autowired
+    public void setScopeResolver(AttributeCallbackScopeResolver scopeResolver) {
+        this.scopeResolver = scopeResolver;
+    }
+
+    @Autowired
+    public void setNgCallbackDispatcher(NgCallbackDispatcher ngCallbackDispatcher) {
+        this.ngCallbackDispatcher = ngCallbackDispatcher;
+    }
+
+    @Autowired
+    public void setAttributeReferenceExpander(AttributeReferenceExpander attributeReferenceExpander) {
+        this.attributeReferenceExpander = attributeReferenceExpander;
+    }
 
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
@@ -93,6 +122,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
+    public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
+        this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
     public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
@@ -123,12 +157,31 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     private Object getCallbackObject(RequestAttributeCallback callback, List<BaseAttribute> definitions, ConnectorDetailDto connector) throws NotFoundException, ConnectorException, AttributeException {
+        // Connector-level entrypoints carry no form/resource context, so no scope coordinates and no
+        // connectorInterface to stamp. The form-context NG paths (resourceCallback) stamp connectorInterface per
+        // resource. NG callbacks are a form-driven flow (resourceCallback), not the bare connector-level path.
+        return getCallbackObject(callback, definitions, connector, null, null, null, null);
+    }
+
+    private Object getCallbackObject(RequestAttributeCallback callback, List<BaseAttribute> definitions, ConnectorDetailDto connector,
+                                     Resource scopeResource, UUID scopeResourceUuid, ConnectorInterface connectorInterface,
+                                     String interfaceVersion) throws NotFoundException, ConnectorException, AttributeException {
         UUID connectorUuid = UUID.fromString(connector.getUuid());
         BaseAttribute attribute = getBaseAttribute(callback, definitions, connectorUuid);
 
         AttributeCallback attributeCallback = getAttributeCallback(attribute);
 
         AttributeResource attributeResource = getAttributeResource(attribute);
+
+        // NG (dependsOn) dispatch: routed only when the definition declares a dependsOn callback and carries no
+        // legacy callbackContext. It is checked BEFORE the legacy callback validation because the NG shape has no
+        // callbackContext/callbackMethod (which AttributeDefinitionUtils.validateCallback requires); the NG
+        // declaration is validated at ingest instead (#1622 Task 4b). Both-set is rejected at ingest, so the
+        // callbackContext == null conjunct here is defensive. Legacy callbacks fall through unchanged.
+        if (isNgCallback(attributeCallback)) {
+            return dispatchNg(connector, attribute, callback, scopeResource, scopeResourceUuid, connectorInterface, interfaceVersion);
+        }
+
         AttributeDefinitionUtils.validateCallback(attributeCallback, callback, attributeResource != null);
 
         if (Objects.equals(attributeCallback.getCallbackContext(), "core/getCredentials")) {
@@ -185,19 +238,76 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     private BaseAttribute getBaseAttributeFromExistingDefinition(RequestAttributeCallback callback, UUID connectorUuid) throws NotFoundException {
-        BaseAttribute attribute;
-        attribute = attributeEngine.getDataAttributeDefinition(connectorUuid, callback.getName());
-        if (attribute == null) {
-            attribute = attributeEngine.getGroupAttributeDefinition(connectorUuid, callback.getName());
+        // Prefer the referenced attributeUuid when it actually identifies a stored (attributeUuid, name) row: a
+        // non-unique (type, connector, name) must not silently pick the wrong row on the initial dispatch (C6).
+        // Fall back to deterministic name-only resolution when no uuid is given OR the uuid does not match a row
+        // (RequestAttributeCallback.uuid is overloaded — some legacy callers put the connector uuid there).
+        String name = callback.getName();
+        UUID attributeUuid = parseUuidOrNull(callback.getUuid());
+        BaseAttribute attribute = null;
+        if (attributeUuid != null) {
+            attribute = attributeEngine.getDataAttributeDefinitionStrict(connectorUuid, attributeUuid, name);
             if (attribute == null) {
-                throw new NotFoundException(BaseAttribute.class, callback.getName());
+                attribute = attributeEngine.getGroupAttributeDefinitionStrict(connectorUuid, attributeUuid, name);
             }
+        }
+        if (attribute == null) {
+            attribute = attributeEngine.getDataAttributeDefinition(connectorUuid, name);
+            if (attribute == null) {
+                attribute = attributeEngine.getGroupAttributeDefinition(connectorUuid, name);
+            }
+        }
+        if (attribute == null) {
+            throw new NotFoundException(BaseAttribute.class, name);
         }
         return attribute;
     }
 
+    private static UUID parseUuidOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     private AttributeResource getAttributeResource(BaseAttribute attribute) {
         return attribute instanceof DataAttribute dataAttribute ? dataAttribute.getProperties().getResource() : null;
+    }
+
+    private static boolean isNgCallback(AttributeCallback attributeCallback) {
+        return attributeCallback.getDependsOn() != null && !attributeCallback.getDependsOn().isEmpty()
+                && attributeCallback.getCallbackContext() == null;
+    }
+
+    /**
+     * Assemble the NG dispatch context and hand off to the {@link NgCallbackDispatcher} collaborator bean,
+     * which performs the connector POST outside any transaction. {@code currentAttributes} are the values
+     * supplied with the callback (the dependsOn-named attributes), expanded per the calling user via the same
+     * {@link AttributeReferenceExpander} used for the scope chain.
+     */
+    private Object dispatchNg(ConnectorDetailDto connector, BaseAttribute attribute,
+                              RequestAttributeCallback callback, Resource scopeResource, UUID scopeResourceUuid,
+                              ConnectorInterface connectorInterface, String interfaceVersion)
+            throws NotFoundException, ConnectorException, AttributeException {
+        // The scope chain is resolved HERE (not in resourceCallback) so legacy callbacks never pay its per-object
+        // DETAIL authorization. One accumulator spans the scope chain + currentAttributes expansion so the
+        // dispatcher can reject a connector echoing any server-expanded secret back toward the FE (#1624 containment).
+        Set<String> expandedSecrets = new HashSet<>();
+        List<ScopedAttributes> contextAttributes = scopeResource == null
+                ? List.of()
+                : scopeResolver.resolveScopeChain(scopeResource, scopeResourceUuid, expandedSecrets);
+        List<RequestAttribute> currentAttributes = callback.getAttributes();
+        if (currentAttributes != null && !currentAttributes.isEmpty()) {
+            attributeReferenceExpander.expandForCaller(currentAttributes, expandedSecrets);
+        }
+        NgCallbackDispatcher.NgDispatchContext context = new NgCallbackDispatcher.NgDispatchContext(
+                attribute, connectorInterface, interfaceVersion, contextAttributes, currentAttributes);
+        AttributeCallbackResponseDto response = ngCallbackDispatcher.dispatchNgCallback(connector, context, callback, expandedSecrets);
+        return response.getContent() != null ? response.getContent() : response.getAttributes();
     }
 
     @Override
@@ -205,6 +315,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
     public Object resourceCallback(Resource resource, String resourceUuid, RequestAttributeCallback callback) throws ConnectorException, ValidationException, NotFoundException, AttributeException {
         List<BaseAttribute> definitions = null;
         Connector connector = null;
+        ConnectorInterface connectorInterface = null;
+        String interfaceVersion = null;
         switch (resource) {
             case RA_PROFILE:
                 AuthorityInstanceReference authorityInstance = authorityInstanceReferenceRepository.findByUuid(
@@ -216,11 +328,42 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                 )
                         );
                 connector = authorityInstance.getConnector();
-                ApiClientConnectorInfo raProfileConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-                definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
-                        raProfileConnectorDto,
-                        authorityInstance.getAuthorityInstanceUuid()
-                );
+                connectorInterface = interfaceCodeOf(authorityInstance);
+                interfaceVersion = interfaceVersionOf(authorityInstance);
+                // v3 authorities have a null authorityInstanceUuid (never set on the v3 create path), so the v1
+                // listRAProfileAttributes call would pass null and break. Route them through the NG scope
+                // resolver + dispatcher instead; legacy (v1/v2) authorities keep the exact v1 call below.
+                if (!isV3Authority(authorityInstance)) {
+                    ApiClientConnectorInfo raProfileConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
+                    definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
+                            raProfileConnectorDto,
+                            authorityInstance.getAuthorityInstanceUuid()
+                    );
+                }
+                break;
+
+            case CERTIFICATE:
+                // Issuance scope (NG-only): the FE issuance form sends (CERTIFICATE, raProfile). Resolve the
+                // connector via the raProfile -> authority chain, consistent with the scope walker
+                // (walkCertificateIssuance). Inert until FE #1764; the scope chain is resolved by the NG path below.
+                RaProfile issuanceRaProfile = raProfileRepository.findByUuid(UUID.fromString(resourceUuid))
+                        .orElseThrow(() -> new NotFoundException(RaProfile.class, resourceUuid));
+                AuthorityInstanceReference issuanceAuthority = issuanceRaProfile.getAuthorityInstanceReference();
+                if (issuanceAuthority == null) {
+                    throw new NotFoundException(AuthorityInstanceReference.class, resourceUuid);
+                }
+                connector = issuanceAuthority.getConnector();
+                connectorInterface = interfaceCodeOf(issuanceAuthority);
+                interfaceVersion = interfaceVersionOf(issuanceAuthority);
+                break;
+
+            case TOKEN_PROFILE:
+                // TOKEN_PROFILE is sent by the FE today but had no switch arm (it threw "not supported"). Route
+                // it via the token-profile -> token-instance FK like CRYPTOGRAPHIC_KEY; the NG scope chain (when
+                // the definition declares dependsOn) is resolved below.
+                connector = tokenProfileService.getTokenProfileEntity(SecuredUUID.fromString(resourceUuid))
+                        .getTokenInstanceReference().getConnector();
+                connectorInterface = ConnectorInterface.CRYPTOGRAPHY;
                 break;
 
             case CRYPTOGRAPHIC_KEY:
@@ -230,6 +373,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                         resourceUuid
                                 )
                         ).getTokenInstanceReference().getConnector();
+                connectorInterface = ConnectorInterface.CRYPTOGRAPHY;
                 definitions = cryptographicKeyService.listCreateKeyAttributes(
                         null,
                         SecuredParentUUID.fromString(
@@ -248,6 +392,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                 )
                         );
                 connector = entityInstance.getConnector();
+                connectorInterface = ConnectorInterface.ENTITY;
                 ApiClientConnectorInfo locationConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
@@ -261,7 +406,34 @@ public class CallbackServiceImpl implements CallbackExternalService {
         }
 
         LoggingHelper.putLogResourceInfo(Resource.CONNECTOR, true, connector.getUuid().toString(), connector.getName());
-        return getCallbackObject(callback, definitions, connector.mapToDetailDto());
+        // The scope chain is resolved lazily inside the NG branch (dispatchNg) so legacy callbacks never pay its
+        // per-object DETAIL authorization; pass the scope coordinates rather than a pre-resolved chain.
+        return getCallbackObject(callback, definitions, connector.mapToDetailDto(), resource, UUID.fromString(resourceUuid), connectorInterface, interfaceVersion);
+    }
+
+    /**
+     * Local v3-authority predicate. Mirrors {@code AuthorityInstanceServiceImpl.isV3} byte-for-byte but lives
+     * here so #1621 does not have to edit the authority-v3 team's file (avoids a merge conflict on in-flight
+     * work). Reads the connector-interface version directly off the reference entity.
+     */
+    private static boolean isV3Authority(AuthorityInstanceReference ref) {
+        ConnectorInterfaceEntity iface = ref.getConnectorInterface();
+        return iface != null && "v3".equals(iface.getVersion());
+    }
+
+    private static String interfaceVersionOf(AuthorityInstanceReference ref) {
+        ConnectorInterfaceEntity iface = ref.getConnectorInterface();
+        return iface == null ? null : iface.getVersion();
+    }
+
+    /**
+     * The connector-interface code the authority's attributes belong to (Core-stamped envelope context, not
+     * routing). The envelope DTO marks {@code connectorInterface} required; sourcing it from the authority's
+     * own {@link ConnectorInterfaceEntity} keeps it accurate for the authority-backed NG paths.
+     */
+    private static ConnectorInterface interfaceCodeOf(AuthorityInstanceReference ref) {
+        ConnectorInterfaceEntity iface = ref.getConnectorInterface();
+        return iface == null ? null : iface.getInterfaceCode();
     }
 
     private AttributeCallback getAttributeCallback(BaseAttribute attribute) {
