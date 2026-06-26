@@ -14,6 +14,7 @@ import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
+import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.impl.ScepServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
@@ -28,7 +29,7 @@ import java.util.Set;
 class ScepServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private ScepService scepService;
+    private ScepExternalService scepService;
 
     @Autowired
     private ScepProfileRepository scepProfileRepository;

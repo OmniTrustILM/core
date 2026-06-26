@@ -7,7 +7,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.service.scep.ScepService;
+import com.otilm.core.service.scep.ScepExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,10 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ScepControllerImpl implements ScepController {
 
-    private ScepService scepService;
+    private ScepExternalService scepService;
 
     @Autowired
-    public void setScepService(ScepService scepService) {
+    public void setScepService(ScepExternalService scepService) {
         this.scepService = scepService;
     }
 
