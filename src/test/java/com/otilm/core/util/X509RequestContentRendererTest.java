@@ -1,205 +1,366 @@
 package com.otilm.core.util;
 
 import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
-import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.RdnEntry;
+import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import javax.security.auth.x500.X500Principal;
+import org.bouncycastle.asn1.ASN1OctetString;
+import org.bouncycastle.asn1.ASN1String;
+import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.OtherName;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class X509RequestContentRendererTest {
+
+    // ── ToX500Principal ─────────────────────────────────────────────────────
 
     @Nested
     class ToX500Principal {
 
-        public static final String MYCODE = "MYCODE";
+        private static final String CUSTOM_CODE = "MYCODE";
 
-        // The OidHandler cache is process-wide static state shared across the whole test JVM.
-        // Snapshot RDN_ATTRIBUTE_TYPE before this class replaces it, and restore it afterwards,
-        // so tests that run later in the same JVM (e.g. PlatformX500NameStyleTest) still see the
-        // system OIDs seeded by the Spring context.
+        // The OidHandler cache is a process-wide static state shared across the whole test JVM.
+        // Snapshot RDN_ATTRIBUTE_TYPE before this class replaces it. Restore it afterwards.
         private static Map<String, OidRecord> savedRdnCache;
 
         @BeforeAll
-        static void saveOidCache() {
+        static void snapshotRdnCache() {
             Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
             savedRdnCache = existing == null ? null : new HashMap<>(existing);
         }
 
         @AfterAll
-        static void restoreOidCache() {
+        static void restoreRdnCache() {
             if (savedRdnCache != null) {
                 OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, savedRdnCache);
             }
         }
 
         @BeforeEach
-        void seedCache() {
+        void seedRdnCacheWithCnAndCustomCode() {
             OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
             OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3",
                     OidRecord.builder().displayName("Common Name").code("CN").build());
             OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "1.2.3.4.5.6",
-                    OidRecord.builder().displayName("Custom").code(MYCODE).build());
+                    OidRecord.builder().displayName("Custom").code(CUSTOM_CODE).build());
         }
 
         @Test
-        void buildsDnWithStandardAndCustomRdn() throws IOException {
-            RdnEntry cn = new RdnEntry();
-            cn.setType("CN");
-            cn.setValue("host.example.com");
-            RdnEntry custom = new RdnEntry();
-            custom.setType("1.3.6.1.4.1.99999.5");
-            custom.setValue("X1");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubject(List.of(cn, custom));
+        void buildsDn_fromStandardCodeAndDottedOidRdns() throws IOException {
+            // given — a CN code RDN and a dotted-decimal OID RDN
+            var x509 = subjectOf(rdn("CN", "host.example.com"), rdn("1.3.6.1.4.1.99999.5", "X1"));
 
+            // when
             X500Principal name = X509RequestContentRenderer.toX500Principal(x509);
 
-            String s = name.toString();
-            assertTrue(s.contains("CN=host.example.com"));
-            assertTrue(s.contains("1.3.6.1.4.1.99999.5=X1"));
+            // then
+            assertThat(name.toString()).contains("CN=host.example.com");
+            assertThat(name.toString()).contains("1.3.6.1.4.1.99999.5=X1");
         }
 
         @Test
-        void resolvesCustomCodeViaOidCache() throws IOException {
-            RdnEntry entry = new RdnEntry();
-            entry.setType(MYCODE);
-            entry.setValue("val");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubject(List.of(entry));
+        void resolvesRdnType_viaCustomCodeInOidCache() throws IOException {
+            // given — an RDN whose type is a custom code registered in the OID cache
+            var x509 = subjectOf(rdn(CUSTOM_CODE, "val"));
 
+            // when
             X500Principal name = X509RequestContentRenderer.toX500Principal(x509);
 
-            assertTrue(name.toString().contains("1.2.3.4.5.6=val"));
+            // then
+            assertThat(name.toString()).contains("1.2.3.4.5.6=val");
         }
 
         @Test
-        void emptySubject_returnsEmptyDn() throws IOException {
+        void returnsEmptyDn_whenSubjectIsEmpty() throws IOException {
+            // given
+            var x509 = subjectOf();
+
+            // when / then
+            assertThat(X509RequestContentRenderer.toX500Principal(x509).toString()).isEmpty();
+        }
+
+        @Test
+        void returnsEmptyDn_whenSubjectIsNull() throws IOException {
+            // given — a request with no subject set at all
+            var x509 = new X509RequestContent();
+
+            // when / then
+            assertThat(X509RequestContentRenderer.toX500Principal(x509).toString()).isEmpty();
+        }
+
+        @Test
+        void throwsIllegalArgument_whenRdnCodeIsUnknown() {
+            // given — an RDN type that is neither a dotted OID nor a known code
+            var x509 = subjectOf(rdn("UNKNOWNCODE", "val"));
+
+            // when / then
+            assertThatThrownBy(() -> X509RequestContentRenderer.toX500Principal(x509))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        private static RdnEntry rdn(String type, String value) {
+            RdnEntry e = new RdnEntry();
+            e.setType(type);
+            e.setValue(value);
+            return e;
+        }
+
+        private static X509RequestContent subjectOf(RdnEntry... rdns) {
             X509RequestContent x509 = new X509RequestContent();
-            x509.setSubject(List.of());
-
-            assertEquals("", X509RequestContentRenderer.toX500Principal(x509).toString());
-        }
-
-        @Test
-        void nullSubject_returnsEmptyDn() throws IOException {
-            assertEquals("", X509RequestContentRenderer.toX500Principal(new X509RequestContent()).toString());
-        }
-
-        @Test
-        void unknownCode_throws() {
-            RdnEntry entry = new RdnEntry();
-            entry.setType("UNKNOWNCODE");
-            entry.setValue("val");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubject(List.of(entry));
-
-            assertThrows(IllegalArgumentException.class, () -> X509RequestContentRenderer.toX500Principal(x509));
+            x509.setSubject(List.of(rdns));
+            return x509;
         }
     }
+
+    // ── ToExtensions ────────────────────────────────────────────────────────
 
     @Nested
     class ToExtensions {
 
         @Test
-        void buildsSubjectAltNameExtensionFromDnsSan() throws Exception {
-            GeneralNameEntry dns = new GeneralNameEntry();
-            dns.setType(GeneralNameType.DNS);
-            dns.setValue("host.example.com");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubjectAltNames(List.of(dns));
+        void buildsSubjectAltName_fromDnsSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.DNS, "host.example.com"));
 
+            // when
             Extensions ext = X509RequestContentRenderer.toExtensions(x509);
 
-            assertNotNull(ext.getExtension(Extension.subjectAlternativeName));
-            GeneralNames gns = GeneralNames.getInstance(
-                    ext.getExtension(Extension.subjectAlternativeName).getParsedValue());
-            assertEquals(GeneralName.dNSName, gns.getNames()[0].getTagNo());
-            assertEquals("host.example.com", gns.getNames()[0].getName().toString());
+            // then
+            GeneralName[] names = sanNamesOf(ext);
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.dNSName);
+            assertThat(names[0].getName().toString()).isEqualTo("host.example.com");
         }
 
         @Test
-        void buildsSubjectAltNameFromEmailSan() throws Exception {
-            GeneralNameEntry email = new GeneralNameEntry();
-            email.setType(GeneralNameType.EMAIL);
-            email.setValue("user@example.com");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubjectAltNames(List.of(email));
+        void buildsSubjectAltName_fromEmailSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.EMAIL, "user@example.com"));
 
+            // when
             Extensions ext = X509RequestContentRenderer.toExtensions(x509);
 
-            GeneralNames gns = GeneralNames.getInstance(
-                    ext.getExtension(Extension.subjectAlternativeName).getParsedValue());
-            assertEquals(GeneralName.rfc822Name, gns.getNames()[0].getTagNo());
-            assertEquals("user@example.com", gns.getNames()[0].getName().toString());
+            // then
+            GeneralName[] names = sanNamesOf(ext);
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.rfc822Name);
+            assertThat(names[0].getName().toString()).isEqualTo("user@example.com");
         }
 
         @Test
-        void buildsSubjectAltNameFromUriSan() throws Exception {
-            GeneralNameEntry uri = new GeneralNameEntry();
-            uri.setType(GeneralNameType.URI);
-            uri.setValue("https://example.com");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubjectAltNames(List.of(uri));
+        void buildsSubjectAltName_fromUriSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.URI, "https://example.com"));
 
+            // when
             Extensions ext = X509RequestContentRenderer.toExtensions(x509);
 
-            GeneralNames gns = GeneralNames.getInstance(
-                    ext.getExtension(Extension.subjectAlternativeName).getParsedValue());
-            assertEquals(GeneralName.uniformResourceIdentifier, gns.getNames()[0].getTagNo());
+            // then
+            assertThat(sanNamesOf(ext)[0].getTagNo()).isEqualTo(GeneralName.uniformResourceIdentifier);
         }
 
         @Test
-        void multipleSanEntriesAllPresent() throws Exception {
-            GeneralNameEntry dns = new GeneralNameEntry();
-            dns.setType(GeneralNameType.DNS);
-            dns.setValue("a.example.com");
-            GeneralNameEntry email = new GeneralNameEntry();
-            email.setType(GeneralNameType.EMAIL);
-            email.setValue("a@example.com");
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setSubjectAltNames(List.of(dns, email));
+        void includesAllEntries_whenMultipleSansPresent() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.DNS, "a.example.com"),
+                    san(GeneralNameType.EMAIL, "a@example.com"));
 
+            // when
             Extensions ext = X509RequestContentRenderer.toExtensions(x509);
 
-            GeneralNames gns = GeneralNames.getInstance(
-                    ext.getExtension(Extension.subjectAlternativeName).getParsedValue());
-            assertEquals(2, gns.getNames().length);
+            // then
+            assertThat(sanNamesOf(ext)).hasSize(2);
         }
 
         @Test
-        void noSansAndNoExtensions_returnsEmptyExtensions() throws Exception {
-            Extensions ext = X509RequestContentRenderer.toExtensions(new X509RequestContent());
+        void returnsNull_whenNoSansAndNoExtensions() throws Exception {
+            // given — an empty request
+            var x509 = new X509RequestContent();
 
-            assertNull(ext);
+            // when / then
+            assertThat(X509RequestContentRenderer.toExtensions(x509)).isNull();
         }
     }
+
+    // ── OtherNameEncoding ───────────────────────────────────────────────────
+
+    @Nested
+    class OtherNameEncoding {
+
+        private static final String OTHER_NAME_OID = "1.3.6.1.4.1.311.20.2.3";
+
+        @Test
+        void encodesAsUtf8String_whenEncodingIsNull() throws Exception {
+            // given — OTHER_NAME with no explicit encoding
+            var x509 = sansOf(otherName("upn@example.com", null));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(DERUTF8String.class);
+            assertThat(((ASN1String) value).getString()).isEqualTo("upn@example.com");
+        }
+
+        @Test
+        void encodesAsIa5String_whenEncodingIsIa5() throws Exception {
+            // given
+            var x509 = sansOf(otherName("upn@example.com", ExtensionValueEncoding.IA5_STRING));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(DERIA5String.class);
+            assertThat(((ASN1String) value).getString()).isEqualTo("upn@example.com");
+        }
+
+        @Test
+        void encodesAsOctetString_whenEncodingIsOctetString() throws Exception {
+            // given
+            var rawValue = "raw-bytes";
+            var x509 = sansOf(otherName(rawValue, ExtensionValueEncoding.OCTET_STRING));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(ASN1OctetString.class);
+            assertThat(((ASN1OctetString) value).getOctets())
+                    .isEqualTo(rawValue.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Test
+        void encodesAsOctetString_whenEncodingIsDerAndValueDecodesToBytes() throws Exception {
+            // given — DER encoding carries a base64-encoded DER blob
+            var derBlob = new DERUTF8String("blob").getEncoded();
+            var base64Der = java.util.Base64.getEncoder().encodeToString(derBlob);
+            var x509 = sansOf(otherName(base64Der, ExtensionValueEncoding.DER));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(ASN1OctetString.class);
+            assertThat(((ASN1OctetString) value).getOctets()).isEqualTo(derBlob);
+        }
+
+        @Test
+        void fallsBackToUtf8String_whenEncodingIsDerAndValueIsEmpty() throws Exception {
+            // given — DER encoding but an empty value decodes to zero bytes
+            var x509 = sansOf(otherName("", ExtensionValueEncoding.DER));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(DERUTF8String.class);
+            assertThat(((ASN1String) value).getString()).isEmpty();
+        }
+
+        @Test
+        void encodesAsUtf8String_whenEncodingHasNoDedicatedBranch() throws Exception {
+            // given — PRINTABLE_STRING falls through to the default UTF8String branch
+            var x509 = sansOf(otherName("printable", ExtensionValueEncoding.PRINTABLE_STRING));
+
+            // when
+            ASN1Encodable value = otherNameValueOf(x509);
+
+            // then
+            assertThat(value).isInstanceOf(DERUTF8String.class);
+            assertThat(((ASN1String) value).getString()).isEqualTo("printable");
+        }
+
+        private static GeneralNameEntry otherName(String value, ExtensionValueEncoding encoding) {
+            GeneralNameEntry e = new GeneralNameEntry();
+            e.setType(GeneralNameType.OTHER_NAME);
+            e.setOtherNameOid(OTHER_NAME_OID);
+            e.setValue(value);
+            e.setValueEncoding(encoding);
+            return e;
+        }
+
+        private static ASN1Encodable otherNameValueOf(X509RequestContent x509) throws IOException {
+            GeneralName[] names = sanNamesOf(X509RequestContentRenderer.toExtensions(x509));
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.otherName);
+            return OtherName.getInstance(names[0].getName()).getValue();
+        }
+    }
+
+    // ── Criticality ─────────────────────────────────────────────────────────
 
     @Nested
     class Criticality {
 
-        private static RequestedExtension ext(String oid) {
+        @Test
+        void forcesCritical_forBasicConstraints_evenWhenRequestedNonCritical() throws Exception {
+            // given — BasicConstraints requested as non-critical
+            var x509 = extensionsOf(nonCriticalExtension("2.5.29.19"));
+
+            // when
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+
+            // then
+            assertThat(extensions.getExtension(Extension.basicConstraints).isCritical()).isTrue();
+        }
+
+        @Test
+        void forcesCritical_forKeyUsage_evenWhenRequestedNonCritical() throws Exception {
+            // given — KeyUsage requested as non-critical
+            var x509 = extensionsOf(nonCriticalExtension("2.5.29.15"));
+
+            // when
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+
+            // then
+            assertThat(extensions.getExtension(Extension.keyUsage).isCritical()).isTrue();
+        }
+
+        @Test
+        void respectsRequestedCriticality_forNonForcedExtension() throws Exception {
+            // given — ExtendedKeyUsage (not in the forced set) requested as non-critical
+            var nonForcedOid = "2.5.29.37";
+            var x509 = extensionsOf(nonCriticalExtension(nonForcedOid));
+
+            // when
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+
+            // then
+            assertThat(extensions.getExtension(new ASN1ObjectIdentifier(nonForcedOid)).isCritical()).isFalse();
+        }
+
+        @Test
+        void forcedOidsConstant_containsBasicConstraintsAndKeyUsage() {
+            // given / when / then
+            assertThat(X509RequestContentRenderer.CRITICALITY_FORCED_OIDS)
+                    .contains(Extension.basicConstraints.getId(), Extension.keyUsage.getId());
+        }
+
+        private static RequestedExtension nonCriticalExtension(String oid) {
             RequestedExtension e = new RequestedExtension();
             e.setOid(oid);
             e.setCritical(false);
@@ -208,40 +369,31 @@ class X509RequestContentRendererTest {
             return e;
         }
 
-        @Test
-        void basicConstraintsForcedCriticalEvenWhenRequestedNonCritical() throws Exception {
+        private static X509RequestContent extensionsOf(RequestedExtension... extensions) {
             X509RequestContent x509 = new X509RequestContent();
-            x509.setExtensions(List.of(ext("2.5.29.19")));
-
-            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
-
-            assertTrue(extensions.getExtension(Extension.basicConstraints).isCritical());
+            x509.setExtensions(List.of(extensions));
+            return x509;
         }
+    }
 
-        @Test
-        void keyUsageForcedCriticalEvenWhenRequestedNonCritical() throws Exception {
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setExtensions(List.of(ext("2.5.29.15")));
+    // ── Helpers ─────────────────────────────────────────────────────────────
 
-            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+    private static GeneralNameEntry san(GeneralNameType type, String value) {
+        GeneralNameEntry e = new GeneralNameEntry();
+        e.setType(type);
+        e.setValue(value);
+        return e;
+    }
 
-            assertTrue(extensions.getExtension(Extension.keyUsage).isCritical());
-        }
+    private static X509RequestContent sansOf(GeneralNameEntry... sans) {
+        X509RequestContent x509 = new X509RequestContent();
+        x509.setSubjectAltNames(List.of(sans));
+        return x509;
+    }
 
-        @Test
-        void nonBlocklistedExtension_respectsRequestedCriticality() throws Exception {
-            X509RequestContent x509 = new X509RequestContent();
-            x509.setExtensions(List.of(ext("2.5.29.37")));
-
-            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
-
-            assertFalse(extensions.getExtension(new ASN1ObjectIdentifier("2.5.29.37")).isCritical());
-        }
-
-        @Test
-        void blockedOidsConstantContainsBothMandatoryOids() {
-            assertTrue(X509RequestContentRenderer.CRITICALITY_FORCED_OIDS.contains(Extension.basicConstraints.getId()));
-            assertTrue(X509RequestContentRenderer.CRITICALITY_FORCED_OIDS.contains(Extension.keyUsage.getId()));
-        }
+    private static GeneralName[] sanNamesOf(Extensions ext) {
+        assertThat(ext.getExtension(Extension.subjectAlternativeName)).isNotNull();
+        return GeneralNames.getInstance(
+                ext.getExtension(Extension.subjectAlternativeName).getParsedValue()).getNames();
     }
 }

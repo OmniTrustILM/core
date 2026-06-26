@@ -1,17 +1,14 @@
 package com.otilm.core.service;
 
-import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.*;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
-import com.otilm.api.model.core.cryptography.key.KeyState;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
@@ -23,26 +20,40 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.seeders.CryptographicKeySeeder;
+import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERUTF8String;
+import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import org.bouncycastle.asn1.DERUTF8String;
-
 import java.security.*;
 import java.util.*;
 
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
+import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
+import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
+import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 @SpringBootTest
 class CertificateRequestIntegrationTest extends BaseSpringBootTest {
+
+    // Custom OID used for the extension-mapped attribute in the projection test below.
+    private static final String CUSTOM_EXT_OID = "1.2.3.4.5";
+    private static final String SAN_ATTR_UUID = "aaaaaaaa-0000-0000-0000-000000000001";
+    private static final String EXT_ATTR_UUID = "bbbbbbbb-0000-0000-0000-000000000002";
 
     @Autowired
     private ClientOperationService clientOperationService;
@@ -54,7 +65,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
 
     @Autowired
-    private FunctionGroupRepository functionGroupRepository;
+    private FunctionGroupSeeder functionGroupSeeder;
 
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
@@ -75,10 +86,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
     private TokenProfileRepository tokenProfileRepository;
 
     @Autowired
-    private CryptographicKeyRepository cryptographicKeyRepository;
-
-    @Autowired
-    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    private CryptographicKeySeeder cryptographicKeySeeder;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -87,7 +95,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
     private KeyPair keyPair;
 
     @BeforeEach
-    void setUp() throws NoSuchAlgorithmException, com.otilm.api.exception.AttributeException {
+    void wireConnectorRaProfileAndCryptographicKey() throws NoSuchAlgorithmException, AttributeException {
         mockServer = new WireMockServer(0);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
@@ -119,10 +127,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         raProfile.setEnabled(true);
         raProfile = raProfileRepository.save(raProfile);
 
-        FunctionGroup functionGroup = new FunctionGroup();
-        functionGroup.setCode(FunctionGroupCode.CRYPTOGRAPHY_PROVIDER);
-        functionGroup.setName(FunctionGroupCode.CRYPTOGRAPHY_PROVIDER.getCode());
-        functionGroupRepository.save(functionGroup);
+        FunctionGroup functionGroup = functionGroupSeeder.seed(FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, List.of());
 
         Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
         c2fg.setConnector(connector);
@@ -155,68 +160,25 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
                 RsaSignatureAttributes.getRsaSignatureAttributes());
 
         keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        cryptographicKey = new CryptographicKey();
-        cryptographicKey.setName("modeATestKey");
-        cryptographicKey.setTokenProfile(tokenProfile);
-        cryptographicKey.setTokenInstanceReference(tokenInstanceReference);
-        cryptographicKeyRepository.save(cryptographicKey);
-
-        CryptographicKeyItem privateKeyItem = new CryptographicKeyItem();
-        privateKeyItem.setLength(2048);
-        privateKeyItem.setKey(cryptographicKey);
-        privateKeyItem.setKeyUuid(cryptographicKey.getUuid());
-        privateKeyItem.setType(KeyType.PRIVATE_KEY);
-        privateKeyItem.setKeyData("placeholder");
-        privateKeyItem.setFormat(KeyFormat.PRKI);
-        privateKeyItem.setState(KeyState.ACTIVE);
-        privateKeyItem.setEnabled(true);
-        privateKeyItem.setKeyAlgorithm(KeyAlgorithm.RSA);
-        privateKeyItem.setKeyReferenceUuid(UUID.randomUUID());
-        privateKeyItem.setUsage(List.of(KeyUsage.SIGN));
-        cryptographicKeyItemRepository.save(privateKeyItem);
-        privateKeyItem.setKeyReferenceUuid(privateKeyItem.getUuid());
-        cryptographicKeyItemRepository.save(privateKeyItem);
-
-        CryptographicKeyItem publicKeyItem = new CryptographicKeyItem();
-        publicKeyItem.setLength(2048);
-        publicKeyItem.setKey(cryptographicKey);
-        publicKeyItem.setKeyUuid(cryptographicKey.getUuid());
-        publicKeyItem.setType(KeyType.PUBLIC_KEY);
-        publicKeyItem.setKeyData(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
-        publicKeyItem.setFormat(KeyFormat.SPKI);
-        publicKeyItem.setState(KeyState.ACTIVE);
-        publicKeyItem.setEnabled(true);
-        publicKeyItem.setKeyAlgorithm(KeyAlgorithm.RSA);
-        publicKeyItem.setKeyReferenceUuid(UUID.randomUUID());
-        publicKeyItem.setUsage(List.of(KeyUsage.VERIFY));
-        cryptographicKeyItemRepository.save(publicKeyItem);
-        publicKeyItem.setKeyReferenceUuid(publicKeyItem.getUuid());
-        cryptographicKeyItemRepository.save(publicKeyItem);
-
-        Set<CryptographicKeyItem> items = new HashSet<>();
-        items.add(privateKeyItem);
-        items.add(publicKeyItem);
-        cryptographicKey.setItems(items);
-        cryptographicKeyRepository.save(cryptographicKey);
+        var publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
+        cryptographicKey = cryptographicKeySeeder.seedKey("modeATestKey", tokenProfile, tokenInstanceReference,
+                signingPrivateKey(KeyAlgorithm.RSA).withMaterial(KeyFormat.PRKI, "placeholder"),
+                verifyingPublicKey(KeyAlgorithm.RSA).withMaterial(KeyFormat.SPKI, publicKeyData));
     }
 
     @AfterEach
-    void tearDown() {
+    void stopMockServer() {
         mockServer.stop();
     }
 
-    // Custom OID used for the extension-mapped attribute in the test below.
-    private static final String CUSTOM_EXT_OID = "1.2.3.4.5";
-
     @Test
-    void submitCertificateRequest_rdnAndSanProjectedFromConnectorAndDefaultAttributes() throws Exception {
-        // Connector returns two DataAttributeV3: one with a SAN DNS field mapping and one with
-        // an extension field mapping (custom OID). The default RDN set (CN, OU, O, L, ST, C) is
-        // merged in by resolveIssuanceDefinitions.
+    void projectsConnectorSanAndExtensionIntoStoredCsr_whenSubmittingRequest() throws Exception {
+        // given — connector returns one SAN-mapped and one extension-mapped DataAttributeV3;
+        // the default RDN set (CN, OU, O, L, ST, C) is merged in by resolveIssuanceDefinitions
         String connectorAttrsJson = """
                 [
                   {
-                    "uuid": "aaaaaaaa-0000-0000-0000-000000000001",
+                    "uuid": "%s",
                     "name": "sanDns",
                     "description": "DNS SAN",
                     "type": "data",
@@ -230,7 +192,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
                     }
                   },
                   {
-                    "uuid": "bbbbbbbb-0000-0000-0000-000000000002",
+                    "uuid": "%s",
                     "name": "customExt",
                     "description": "Custom extension",
                     "type": "data",
@@ -244,7 +206,88 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
                     }
                   }
                 ]
-                """.formatted(CUSTOM_EXT_OID);
+                """.formatted(SAN_ATTR_UUID, EXT_ATTR_UUID, CUSTOM_EXT_OID);
+        stubIssueAttributes(connectorAttrsJson);
+        stubSigning();
+
+        // Extension value: DER-encoded UTF8String "modeAExtValue", then base64 for transport.
+        var extValueBase64 = Base64.getEncoder().encodeToString(new DERUTF8String("modeAExtValue").getEncoded());
+        var request = baseRequest();
+        request.setCsrAttributes(List.of(
+                commonNameAttribute("ModeATest"),
+                aCustomAttribute().withUuid(SAN_ATTR_UUID).withName("sanDns")
+                        .withStringContent("connector.example.com").build(),
+                aCustomAttribute().withUuid(EXT_ATTR_UUID).withName("customExt")
+                        .withStringContent(extValueBase64).build()));
+
+        // when
+        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.getSubjectDn()).contains("CN=ModeATest");
+        assertThat(result.getCertificateRequest()).isNotNull();
+
+        Extensions storedExts = extensionsOfStoredCsr(result);
+        assertThat(storedExts.getExtension(Extension.subjectAlternativeName))
+                .as("stored CSR should carry the connector-supplied SAN")
+                .isNotNull();
+        assertThat(storedExts.getExtension(new ASN1ObjectIdentifier(CUSTOM_EXT_OID)))
+                .as("stored CSR should carry the connector-supplied extension-mapped attribute")
+                .isNotNull();
+    }
+
+    @Test
+    void fallsBackToDefaultCsrAttributes_whenConnectorAttributeFetchFails() throws Exception {
+        // given — the v3 connector issue-attributes endpoint errors, so resolveIssuanceDefinitions
+        // catches the failure and falls back to the static default CSR attribute set (which carries
+        // the CN mapping). The downstream v2 issue-attribute listing/validation still succeeds.
+        stubIssueAttributes("[]");
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v3/authorityProvider/certificates/issue/attributes"))
+                .willReturn(WireMock.serverError()));
+        stubSigning();
+
+        var request = baseRequest();
+        request.setCsrAttributes(List.of(commonNameAttribute("FallbackCn")));
+
+        // when
+        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        assertThat(result).isNotNull();
+        assertThat(result.getSubjectDn()).contains("CN=FallbackCn");
+    }
+
+    @Test
+    void throwsValidation_whenRaProfileNotSpecified() {
+        // given — a key-backed request with no RA profile UUID
+        var request = baseRequest();
+        request.setRaProfileUuid(null);
+        request.setCsrAttributes(List.of(commonNameAttribute("NoRaProfile")));
+
+        // when / then
+        assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("RA profile");
+    }
+
+    @Test
+    void throwsValidation_whenRaProfileUuidIsUnknown() {
+        // given — a request pointing at an RA profile that does not exist
+        var request = baseRequest();
+        request.setRaProfileUuid(UUID.randomUUID());
+        request.setCsrAttributes(List.of(commonNameAttribute("UnknownRaProfile")));
+
+        // when / then
+        assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("RA profile");
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private void stubIssueAttributes(String connectorAttrsJson) {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v3/authorityProvider/certificates/issue/attributes"))
                 .willReturn(WireMock.okJson(connectorAttrsJson)));
@@ -254,17 +297,18 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
                 .willReturn(WireMock.okJson("true")));
+    }
 
-        // The crypto service calls the token connector to sign the CSR data; the token
-        // connector is also WireMock-backed. The signature is produced with the real private key
-        // so it verifies correctly against the stored public key.
+    /**
+     * Stubs the crypto provider's sign/verify endpoints. The signature is produced with the real
+     * private key so it verifies against the stored public key; the token connector passes the
+     * value through without independent verification here.
+     */
+    private void stubSigning() throws Exception {
         Signature sig = Signature.getInstance("SHA256withRSA");
         sig.initSign(keyPair.getPrivate());
-        // The actual data to sign is determined by the CSR builder internally; we return a
-        // signature over the public key bytes as a stand-in — the token connector is mocked
-        // and the signature value is passed through without independent verification here.
         sig.update(keyPair.getPublic().getEncoded());
-        String signature = Base64.getEncoder().encodeToString(sig.sign());
+        var signature = Base64.getEncoder().encodeToString(sig.sign());
 
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign"))
@@ -276,57 +320,31 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
                 .willReturn(WireMock.okJson("""
                         {"verifications": [{"result": true}]}
                         """)));
+    }
 
-        List<RequestAttribute> signatureAttributes = List.of(
-                RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
-
-        RequestAttributeV3 cnAttr = new RequestAttributeV3(
-                UUID.fromString(CsrAttributes.COMMON_NAME_UUID),
-                CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME,
-                AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3("ModeATest")));
-
-        RequestAttributeV3 sanAttr = new RequestAttributeV3(
-                UUID.fromString("aaaaaaaa-0000-0000-0000-000000000001"),
-                "sanDns",
-                AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3("connector.example.com")));
-
-        // Extension value: DER-encoded UTF8String "modeAExtValue", then base64 for transport.
-        String extValueBase64 = Base64.getEncoder().encodeToString(
-                new DERUTF8String("modeAExtValue").getEncoded());
-        RequestAttributeV3 extAttr = new RequestAttributeV3(
-                UUID.fromString("bbbbbbbb-0000-0000-0000-000000000002"),
-                "customExt",
-                AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3(extValueBase64)));
-
+    private ClientCertificateRequestDto baseRequest() {
         ClientCertificateRequestDto request = new ClientCertificateRequestDto();
         request.setRaProfileUuid(raProfile.getUuid());
         request.setFormat(CertificateRequestFormat.PKCS10);
         request.setKeyUuid(cryptographicKey.getUuid());
         request.setTokenProfileUuid(tokenProfile.getUuid());
-        request.setCsrAttributes(List.of(cnAttr, sanAttr, extAttr));
-        request.setSignatureAttributes(signatureAttributes);
+        request.setSignatureAttributes(rsaSignatureAttributes().build());
+        return request;
+    }
 
-        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+    private static RequestAttributeV3 commonNameAttribute(String value) {
+        return aCustomAttribute()
+                .withUuid(CsrAttributes.COMMON_NAME_UUID)
+                .withName(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME)
+                .withStringContent(value)
+                .build();
+    }
 
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getSubjectDn().contains("CN=ModeATest"),
-                "Subject DN should contain CN from csrAttributes, got: " + result.getSubjectDn());
-
-        Assertions.assertNotNull(result.getCertificateRequest());
+    private static Extensions extensionsOfStoredCsr(CertificateDetailDto result) throws Exception {
         byte[] storedDer = Base64.getDecoder().decode(result.getCertificateRequest().getContent());
         PKCS10CertificationRequest storedCsr = new PKCS10CertificationRequest(storedDer);
-        org.bouncycastle.asn1.pkcs.Attribute[] extAttrs =
-                storedCsr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
-        Assertions.assertNotNull(extAttrs, "Stored CSR should carry an extension request attribute");
-        Extensions storedExts = Extensions.getInstance(extAttrs[0].getAttrValues().getObjectAt(0));
-        Assertions.assertNotNull(storedExts.getExtension(Extension.subjectAlternativeName),
-                "Stored CSR should contain subjectAlternativeName from connector-supplied SAN attribute");
-        Assertions.assertNotNull(
-                storedExts.getExtension(new org.bouncycastle.asn1.ASN1ObjectIdentifier(CUSTOM_EXT_OID)),
-                "Stored CSR should contain custom extension from connector-supplied extension-mapped attribute");
+        Attribute[] extAttrs = storedCsr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+        assertThat(extAttrs).as("stored CSR should carry an extension request attribute").isNotEmpty();
+        return Extensions.getInstance(extAttrs[0].getAttrValues().getObjectAt(0));
     }
 }
