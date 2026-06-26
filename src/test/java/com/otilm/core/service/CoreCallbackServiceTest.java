@@ -7,6 +7,7 @@ import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCall
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -17,10 +18,13 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.impl.CoreCallbackServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
@@ -28,7 +32,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+/**
+ * Covers the secured {@code coreGetResources} listing path.
+ * <p>
+ * A runtime SECRET test is intentionally deferred to the SECRET-dropdown work: seeding a listable SECRET
+ * needs a Connector + VaultInstance + VaultProfile + SecretVersion graph (all NOT NULL FKs), which would make
+ * this focused security test fragile. Deferring adds no exposure — SECRET listing is strictly more guarded
+ * than the kind under test (its own per-kind LIST guard is parent-scoped to VAULT_PROFILE/MEMBERS).
+ */
 @SpringBootTest
 @Transactional
 @Rollback
@@ -141,5 +155,128 @@ class CoreCallbackServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(2, result.size());
     }
 
+    /**
+     * Differential security test pinned to CERTIFICATE — the only kind whose own {@code listResourceObjects}
+     * carries no {@code @ExternalAuthorization} annotation, so it is the only kind that exercises the fix.
+     * Under a principal whose OPA object-access result allows only a subset of certificates, the listing
+     * must return that subset only. Fails on the bypassing internal path (returns all rows), passes once
+     * the call is routed through the {@code @ExternalAuthorizationDynamic(LIST)}-guarded external path.
+     */
+    @Test
+    void coreGetResources_certificate_restrictedPrincipal_seesOnlyAuthorizedSubset() throws NotFoundException {
+        Certificate certificate1 = new Certificate();
+        certificate1.setState(CertificateState.ISSUED);
+        certificate1.setCommonName("cn1");
+        certificate1.setArchived(false);
+        certificate1 = certificateRepository.save(certificate1);
+        Certificate certificate2 = new Certificate();
+        certificate2.setState(CertificateState.ISSUED);
+        certificate2.setCommonName("cn2");
+        certificate2.setArchived(false);
+        certificateRepository.save(certificate2);
+
+        restrictObjectAccess(Resource.CERTIFICATE, List.of(certificate1.getUuid().toString()));
+
+        List<ResourceObjectContent> result = coreCallbackService.coreGetResources(new RequestAttributeCallback(), AttributeResource.CERTIFICATE);
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(certificate1.getUuid().toString(), result.getFirst().getData().getUuid());
+    }
+
+    /**
+     * Fail-closed: a principal with no allowed certificates gets an empty list, not all rows and not an error.
+     */
+    @Test
+    void coreGetResources_certificate_noGrants_returnsEmpty() throws NotFoundException {
+        Certificate certificate = new Certificate();
+        certificate.setState(CertificateState.ISSUED);
+        certificate.setCommonName("cn");
+        certificate.setArchived(false);
+        certificateRepository.save(certificate);
+
+        restrictObjectAccess(Resource.CERTIFICATE, List.of());
+
+        List<ResourceObjectContent> result = coreCallbackService.coreGetResources(new RequestAttributeCallback(), AttributeResource.CERTIFICATE);
+
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    /**
+     * Characterization of an already-guarded kind. CREDENTIAL's own {@code listResourceObjects} is
+     * {@code @ExternalAuthorization(CREDENTIAL, LIST)}, so it is scoped on both {@code main} and after the fix.
+     * Guards against a future removal of that inner annotation and documents that CREDENTIAL was never the bypass.
+     */
+    @Test
+    void coreGetResources_credential_alreadyScopedOnMainAndAfter() throws NotFoundException {
+        Credential credential1 = new Credential();
+        credential1.setName("c1");
+        credential1.setEnabled(true);
+        credential1 = credentialRepository.save(credential1);
+        Credential credential2 = new Credential();
+        credential2.setName("c2");
+        credential2.setEnabled(true);
+        credentialRepository.save(credential2);
+
+        restrictObjectAccess(Resource.CREDENTIAL, List.of(credential1.getUuid().toString()));
+
+        List<ResourceObjectContent> result = coreCallbackService.coreGetResources(new RequestAttributeCallback(), AttributeResource.CREDENTIAL);
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(credential1.getUuid().toString(), result.getFirst().getData().getUuid());
+    }
+
+    /**
+     * AC3 positive multi-grant: with three ISSUED certificates and an OPA allow-list of two of them
+     * (areOnlySpecificObjectsAllowed = true), the listing returns exactly those two — proving the
+     * multi-UUID allow-list path returns the full authorized set, not just the first match, and that
+     * authorized dropdowns still populate after routing through the guarded external path.
+     */
+    @Test
+    void coreGetResources_certificate_multiGrant_returnsAllAuthorized() throws NotFoundException {
+        Certificate certificate1 = new Certificate();
+        certificate1.setState(CertificateState.ISSUED);
+        certificate1.setCommonName("cn1");
+        certificate1.setArchived(false);
+        certificate1 = certificateRepository.save(certificate1);
+        Certificate certificate2 = new Certificate();
+        certificate2.setState(CertificateState.ISSUED);
+        certificate2.setCommonName("cn2");
+        certificate2.setArchived(false);
+        certificate2 = certificateRepository.save(certificate2);
+        Certificate certificate3 = new Certificate();
+        certificate3.setState(CertificateState.ISSUED);
+        certificate3.setCommonName("cn3");
+        certificate3.setArchived(false);
+        certificate3 = certificateRepository.save(certificate3);
+
+        restrictObjectAccess(Resource.CERTIFICATE, List.of(certificate1.getUuid().toString(), certificate2.getUuid().toString()));
+
+        List<ResourceObjectContent> result = coreCallbackService.coreGetResources(new RequestAttributeCallback(), AttributeResource.CERTIFICATE);
+
+        Assertions.assertEquals(2, result.size());
+        Set<String> returnedUuids = result.stream().map(content -> content.getData().getUuid()).collect(Collectors.toSet());
+        Assertions.assertEquals(Set.of(certificate1.getUuid().toString(), certificate2.getUuid().toString()), returnedUuids);
+        Assertions.assertFalse(returnedUuids.contains(certificate3.getUuid().toString()));
+    }
+
+    /**
+     * Overrides the base allow-all object-access mock for a single resource so OPA reports that only the
+     * given object UUIDs are accessible (areOnlySpecificObjectsAllowed = true). Mirrors the production OPA
+     * response shape consumed by {@link com.otilm.core.security.authz.ObjectFilterAspect}.
+     */
+    private void restrictObjectAccess(Resource resource, List<String> allowedUuids) {
+        OpaObjectAccessResult restricted = new OpaObjectAccessResult();
+        restricted.setActionAllowedForGroupOfObjects(false);
+        restricted.setAllowedObjects(allowedUuids);
+        restricted.setForbiddenObjects(List.of());
+        Mockito.when(opaClient.checkObjectAccess(
+                Mockito.any(),
+                Mockito.argThat(req -> req != null
+                        && req.getProperties() != null
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
+                Mockito.any(), Mockito.any())
+        ).thenReturn(restricted);
+    }
 
 }

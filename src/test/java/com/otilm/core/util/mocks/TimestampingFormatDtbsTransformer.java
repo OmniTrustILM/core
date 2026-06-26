@@ -1,17 +1,17 @@
 package com.otilm.core.util.mocks;
 
-import com.otilm.api.model.connector.signatures.formatter.FormatDtbsResponseDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.FormatDtbsResponseDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatDtbsRequestDto;
 import com.otilm.core.signing.tsa.TimestampTokenTestUtil;
 import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 
 /**
- * Phase 1 of the RFC 3161 formatter contract ({@code formatDtbs}), backing
- * {@link TimestampingFormatterConnectorMock#stubFormatDtbs()}: returns the real CMS data-to-be-signed —
+ * Phase 1 of the RFC 3161 formatting contract ({@code formatDtbs}), backing
+ * {@link TimestampingFormattingConnectorMock#stubFormatDtbs()}: returns the real CMS data-to-be-signed —
  * the DER {@code SignedAttributes} over a TSTInfo built from the request fields.
  */
-class TimestampingFormatDtbsTransformer extends TimestampingFormatterTransformer {
+class TimestampingFormatDtbsTransformer extends TimestampingFormattingTransformer {
 
     static final String NAME = "tsp-format-dtbs";
 
@@ -24,7 +24,7 @@ class TimestampingFormatDtbsTransformer extends TimestampingFormatterTransformer
             response.setDtbs(signedAttributesDtbsFor(request));
             return jsonResponse(serveEvent, response);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to format DTBS in WireMock formatter transformer", e);
+            throw new IllegalStateException("Failed to format DTBS in WireMock formatting transformer", e);
         }
     }
 

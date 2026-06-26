@@ -142,8 +142,8 @@ public class SigningProfileControllerImpl implements SigningProfileController {
 
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST_ATTRIBUTES)
-    public List<BaseAttribute> listSignatureFormatterConnectorAttributes(UUID connectorUuid, UUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
-        return signingProfileService.listSignatureFormatterConnectorAttributes(connectorUuid, SecuredUUID.fromUUID(signingProfileUuid));
+    public List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid, UUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
+        return signingProfileService.listSignatureFormattingConnectorAttributes(connectorUuid, SecuredUUID.fromUUID(signingProfileUuid));
     }
 
     @Override

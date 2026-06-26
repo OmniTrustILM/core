@@ -1,13 +1,13 @@
-package com.otilm.core.signing.tsa.formatter;
+package com.otilm.core.signing.tsa.formatting;
 
-import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.clients.signing.SignatureFormattingApiClient;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
-import com.otilm.api.model.connector.signatures.formatter.ExtensionDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatDtbsRequestDto;
-import com.otilm.api.model.connector.signatures.formatter.TimestampingFormatResponseRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.ExtensionDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatDtbsRequestDto;
+import com.otilm.api.model.connector.signatures.formatting.TimestampingFormatResponseRequestDto;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.signing.tsa.CertificateChain;
@@ -28,12 +28,12 @@ import java.util.Collections;
 import java.util.List;
 
 @Component
-public class TimestampingConnectorSignatureFormatterClient implements SignatureFormatterClient {
+public class TimestampingConnectorSignatureFormattingClient implements SignatureFormattingClient {
 
-    private SignatureFormatterApiClient apiClient;
+    private SignatureFormattingApiClient apiClient;
 
     @Autowired
-    public void setApiClient(SignatureFormatterApiClient apiClient) {
+    public void setApiClient(SignatureFormattingApiClient apiClient) {
         this.apiClient = apiClient;
     }
 
@@ -45,7 +45,7 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
                              CertificateChain certificateChain,
                              SignatureAlgorithm signatureAlgorithm) throws TspException {
 
-        ApiClientConnectorInfo connector = timestampingProfile.signatureFormatterConnector();
+        ApiClientConnectorInfo connector = timestampingProfile.signatureFormattingConnector();
 
         TimestampingFormatDtbsRequestDto requestDto = new TimestampingFormatDtbsRequestDto();
         requestDto.setData(request.hashedMessage());
@@ -60,12 +60,12 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
         requestDto.setAccuracy(timestampingProfile.timeQualityConfiguration().getAccuracy().orElse(null));
         requestDto.setSignatureAlgorithm(signatureAlgorithm);
         requestDto.setCertificateChain(encodeDerChain(certificateChain));
-        requestDto.setFormatAttributes(timestampingProfile.signatureFormatterConnectorAttributes());
+        requestDto.setFormatAttributes(timestampingProfile.signatureFormattingConnectorAttributes());
 
         try {
             return apiClient.formatDtbs(connector, requestDto).getDtbs();
         } catch (ConnectorException e) {
-            throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Signature formatter connector communication failed during DTBS phase: " + e.getMessage(), e, "Internal error during DTBS formatting");
+            throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Signature formatting connector communication failed during DTBS phase: " + e.getMessage(), e, "Internal error during DTBS formatting");
         }
     }
 
@@ -79,13 +79,13 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
                                         byte[] signature,
                                         SignatureAlgorithm signatureAlgorithm) throws TspException {
 
-        ApiClientConnectorInfo connector = timestampingProfile.signatureFormatterConnector();
+        ApiClientConnectorInfo connector = timestampingProfile.signatureFormattingConnector();
 
         TimestampingFormatResponseRequestDto requestDto = new TimestampingFormatResponseRequestDto();
         requestDto.setDtbs(dtbs);
         requestDto.setSignature(signature);
         requestDto.setCertificateChain(encodeDerChain(certificateChain));
-        requestDto.setFormatAttributes(timestampingProfile.signatureFormatterConnectorAttributes());
+        requestDto.setFormatAttributes(timestampingProfile.signatureFormattingConnectorAttributes());
         requestDto.setData(request.hashedMessage());
         requestDto.setHashAlgorithm(request.hashAlgorithm());
         requestDto.setPolicy(request.policy().orElse(timestampingProfile.defaultPolicyId()));
@@ -101,7 +101,7 @@ public class TimestampingConnectorSignatureFormatterClient implements SignatureF
         try {
             return apiClient.formatSigningResponse(connector, requestDto).getResponse();
         } catch (ConnectorException e) {
-            throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Signature formatter connector communication failed during response assembly: " + e.getMessage(), e, "Internal error assembling timestamp token");
+            throw new TspException(TspFailureInfo.SYSTEM_FAILURE, "Signature formatting connector communication failed during response assembly: " + e.getMessage(), e, "Internal error assembling timestamp token");
         }
     }
 

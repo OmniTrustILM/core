@@ -113,6 +113,12 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     private CryptographicOperationExternalService cryptographicOperationExternalService;
 
     @Autowired
+    private LocationRepository locationRepository;
+
+    @Autowired
+    private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
+
+    @Autowired
     private RaProfileRepository raProfileRepository;
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
@@ -973,6 +979,44 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
 
 
+    }
+
+    @Test
+    void testIssueCertificateRejectedAction_removesCertificateFromAssociatedLocations() throws NotFoundException {
+        // given: a rejected certificate that is associated with a location on a connected entity
+        EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
+        entityInstanceReference.setEntityInstanceUuid("e1e2e3e4-0000-0000-0000-000000000001");
+        entityInstanceReference.setConnector(connector);
+        entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
+
+        Location location = new Location();
+        location.setUuid(UUID.randomUUID());
+        location.setName("rejected-cert-location");
+        location.setEnabled(true);
+        location.setEntityInstanceReference(entityInstanceReference);
+        location.setEntityInstanceReferenceUuid(entityInstanceReference.getUuid());
+
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setCertificate(certificate);
+        certificateLocation.setLocation(location);
+        location.getCertificates().add(certificateLocation);
+        locationRepository.save(location);
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                .willReturn(WireMock.okJson("{}")));
+
+        UUID certificateUuid = certificate.getUuid();
+
+        // when
+        clientOperationService.issueCertificateRejectedAction(certificateUuid);
+
+        // then: every location the certificate sat on is told to drop it via its entity-provider connector
+        mockServer.verify(WireMock.moreThanOrExactly(1),
+                WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
+
+        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 
     @Test
@@ -1913,6 +1957,60 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 "after manual finalize cert must be in ISSUED");
         Assertions.assertNotNull(afterFinalize.getFingerprint(),
                 "fingerprint must be populated after finalize");
+    }
+
+    @Test
+    void manuallyIssueCertificate_pushesToAssociatedLocations() throws Exception {
+        KeyPair kp = setupRequestedCertWithRealCsr();
+
+        // connector accepts asynchronously, so the certificate parks in PENDING_ISSUE
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.aResponse().withStatus(202)));
+        clientOperationService.issueCertificateAction(certificate.getUuid(), true);
+
+        // associate the pending certificate with a location on a connected entity
+        EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
+        entityInstanceReference.setEntityInstanceUuid("e1e2e3e4-0000-0000-0000-000000000002");
+        entityInstanceReference.setConnector(connector);
+        entityInstanceReference = entityInstanceReferenceRepository.save(entityInstanceReference);
+
+        Location location = new Location();
+        location.setUuid(UUID.randomUUID());
+        location.setName("finalized-cert-location");
+        location.setEnabled(true);
+        location.setEntityInstanceReference(entityInstanceReference);
+        location.setEntityInstanceReferenceUuid(entityInstanceReference.getUuid());
+
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setCertificate(certificate);
+        certificateLocation.setLocation(location);
+        location.getCertificates().add(certificateLocation);
+        locationRepository.save(location);
+
+        // finalize: operator uploads the issued certificate, which is then pushed to its locations
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.okJson("{\"meta\":[]}")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
+                .willReturn(WireMock.okJson("{\"withKey\": false}")));
+
+        UploadCertificateRequestDto finalizeReq = new UploadCertificateRequestDto();
+        finalizeReq.setCertificate(buildSelfSignedCertBase64(kp, "finalized-loc-push"));
+        finalizeReq.setCustomAttributes(List.of());
+
+        clientOperationService.manuallyIssueCertificate(
+                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                raProfile.getSecuredUuid(),
+                certificate.getUuid().toString(),
+                finalizeReq);
+
+        // the finalized certificate is pushed to every location it is associated with
+        mockServer.verify(WireMock.moreThanOrExactly(1),
+                WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
+        Assertions.assertEquals(CertificateState.ISSUED,
+                certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState());
     }
 
     @Test

@@ -182,9 +182,9 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected Certificate tsaCertificate;
 
     /**
-     * A Connector used as the signature formatter connector in CONTENT_SIGNING and TIMESTAMPING workflow tests.
+     * A Connector used as the signature formatting connector in CONTENT_SIGNING and TIMESTAMPING workflow tests.
      */
-    protected Connector formatterConnector;
+    protected Connector formattingConnector;
 
     /**
      * A Connector used as the delegated signer connector in DELEGATED scheme tests.
@@ -192,7 +192,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected Connector delegatedConnector;
 
     /**
-     * WireMock server that backs every formatter connector URL created via {@link #createFormatterConnector}.
+     * WireMock server that backs every formatting connector URL created via {@link #createFormattingConnector}.
      */
     protected WireMockServer mockServer;
 
@@ -295,7 +295,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         tsaCertificate = certificateRepository.saveAndFlush(tsaCertificate);
         attachSelfSignedContent(tsaCertificate);
 
-        formatterConnector = createFormatterConnector("default-formatter-connector");
+        formattingConnector = createFormattingConnector("default-formatting-connector");
 
         Connector dc = new Connector();
         dc.setName("delegated-signer-connector");
@@ -407,7 +407,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         request.setDescription("Test description for " + name);
         request.setSigningScheme(buildDelegatedScheme());
         ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
+        workflow.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
         request.setWorkflow(workflow);
         return request;
     }
@@ -421,16 +421,16 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         request.setDescription("Test description for " + name);
         request.setSigningScheme(buildDelegatedScheme());
         TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
+        workflow.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
         request.setWorkflow(workflow);
         return request;
     }
 
     /**
      * Builds a request using a MANAGED/STATIC_KEY scheme and CONTENT_SIGNING workflow,
-     * optionally setting a Signature Formatter Connector UUID on the workflow.
+     * optionally setting a Signature Formatting Provider UUID on the workflow.
      */
-    protected SigningProfileRequestDto buildManagedStaticKeyContentRequest(String name, UUID formatterConnectorUuid) {
+    protected SigningProfileRequestDto buildManagedStaticKeyContentRequest(String name, UUID formattingConnectorUuid) {
         SigningProfileRequestDto request = new SigningProfileRequestDto();
         request.setName(name);
         request.setDescription("Test description for " + name);
@@ -438,7 +438,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         scheme.setCertificateUuid(certificate.getUuid());
         request.setSigningScheme(scheme);
         ContentSigningWorkflowRequestDto workflow = new ContentSigningWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(formatterConnectorUuid);
+        workflow.setSignatureFormattingConnectorUuid(formattingConnectorUuid);
         request.setWorkflow(workflow);
         return request;
     }
@@ -458,7 +458,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 buildDigestAttribute(DigestAlgorithm.SHA_256)));
         request.setSigningScheme(scheme);
         TimestampingWorkflowRequestDto workflow = new TimestampingWorkflowRequestDto();
-        workflow.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
+        workflow.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
         request.setWorkflow(workflow);
         return request;
     }
@@ -478,7 +478,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 buildDigestAttribute(DigestAlgorithm.SHA_256)));
         request.setSigningScheme(scheme);
         TimestampingWorkflowRequestDto wf = new TimestampingWorkflowRequestDto();
-        wf.setSignatureFormatterConnectorUuid(formatterConnector.getUuid());
+        wf.setSignatureFormattingConnectorUuid(formattingConnector.getUuid());
         wf.setDefaultPolicyId("1.2.3.4.5");
         wf.setAllowedPolicyIds(List.of("1.2.3.4.5", "1.2.3.4.6"));
         wf.setAllowedDigestAlgorithms(List.of(DigestAlgorithm.SHA_256));
@@ -514,10 +514,10 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     }
 
     /**
-     * Creates and persists a minimal {@link Connector} entity for use as a signature formatter connector,
+     * Creates and persists a minimal {@link Connector} entity for use as a signature formatting connector,
      * also pre-registering a simple data attribute definition so that AttributeEngine can accept content.
      */
-    protected Connector createFormatterConnector(String name) {
+    protected Connector createFormattingConnector(String name) {
         Connector connector = new Connector();
         connector.setName(name);
         connector.setUrl("http://localhost:" + mockServer.port() + "/" + name);
@@ -536,11 +536,11 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     }
 
     /**
-     * Builds a {@link RequestAttributeV2} to use as a formatter connector attribute in tests.
+     * Builds a {@link RequestAttributeV2} to use as a formatting connector attribute in tests.
      * The UUID and name must be pre-registered via
      * {@link AttributeEngine#updateDataAttributeDefinitions} before being stored.
      */
-    protected RequestAttributeV2 buildFormatterAttribute(UUID attrUuid, String attrName, String value) {
+    protected RequestAttributeV2 buildFormattingAttribute(UUID attrUuid, String attrName, String value) {
         RequestAttributeV2 attr = new RequestAttributeV2();
         attr.setUuid(attrUuid);
         attr.setName(attrName);

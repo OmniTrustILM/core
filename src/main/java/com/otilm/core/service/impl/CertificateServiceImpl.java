@@ -159,7 +159,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private ComplianceInternalService complianceService;
     private ComplianceExternalService complianceExternalService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
-    private LocationService locationService;
+    private LocationExternalService locationService;
+    private LocationInternalService locationInternalService;
     private CryptographicKeyService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
     private EventProducer eventProducer;
@@ -238,8 +239,14 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Lazy
     @Autowired
-    public void setLocationService(LocationService locationService) {
+    public void setLocationService(LocationExternalService locationService) {
         this.locationService = locationService;
+    }
+
+    @Lazy
+    @Autowired
+    public void setLocationInternalService(LocationInternalService locationInternalService) {
+        this.locationInternalService = locationInternalService;
     }
 
     @Autowired
@@ -538,7 +545,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new ValidationException("Could not delete certificate %s with UUID %s: Certificate is used by some user.".formatted(certificate.getCommonName(), certificate.getUuid().toString()));
         }
 
-        locationService.removeCertificatesFromLocationsOnDelete(List.of(uuid));
+        locationInternalService.removeCertificatesFromLocationsOnDelete(List.of(uuid));
 
         // If there is some CRL for this certificate, clear its CA certificate UUID.
         crlService.clearCrlsForCaCertificate(List.of(uuid.getValue()));
@@ -747,7 +754,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         List<Certificate> certificates = certificateRepository.findAllWithAssociationsByUuidIn(permittedUuids);
 
         // 3. Do the work.
-        locationService.removeCertificatesFromLocationsOnDelete(permittedSecuredUuids);
+        locationInternalService.removeCertificatesFromLocationsOnDelete(permittedSecuredUuids);
 
         scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
         cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
