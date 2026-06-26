@@ -39,12 +39,14 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.LocationService;
+import com.otilm.core.service.LocationExternalService;
+import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.service.v2.ConnectorService;
@@ -74,7 +76,7 @@ import java.util.*;
 
 @Service(Resource.Codes.LOCATION)
 @Transactional
-public class LocationServiceImpl implements LocationService {
+public class LocationServiceImpl implements LocationExternalService, LocationInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(LocationServiceImpl.class);
 
@@ -1133,6 +1135,7 @@ public class LocationServiceImpl implements LocationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.LOCATION, false);
 

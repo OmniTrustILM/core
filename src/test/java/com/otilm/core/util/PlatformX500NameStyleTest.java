@@ -50,8 +50,8 @@ class PlatformX500NameStyleTest extends BaseSpringBootTest {
         List<String> altCodes = List.of( "XX", "XXX");
         String oid2 = "1.2.3.4.5.6";
         String code2 = "UID";
-        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid, new OidRecord("d", code, altCodes));
-        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid2, new OidRecord("d", code2, List.of()));
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid, OidRecord.builder().displayName("d").code(code).altCodes(altCodes).build());
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid2, OidRecord.builder().displayName("d").code(code2).altCodes(List.of()).build());
 
         Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
         String originalX500 = "CN=Certificate Authority, X=Location, XX=State, UID=US, O=Organization, IP=1.2.3";
@@ -72,8 +72,8 @@ class PlatformX500NameStyleTest extends BaseSpringBootTest {
         String code2 = "UID";
 
         // register OIDs with codes in the handler
-        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid, new OidRecord("d", code, altCodes));
-        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid2, new OidRecord("d", code2, List.of()));
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid, OidRecord.builder().displayName("d").code(code).altCodes(altCodes).build());
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, oid2, OidRecord.builder().displayName("d").code(code2).altCodes(List.of()).build());
 
         // build DN using numeric OIDs (use OID.<dot-notation> syntax)
         String originalX500 = "CN=Certificate Authority, OID." + oid + "=Location, OID." + oid2 + "=US, O=Organization";
