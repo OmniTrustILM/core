@@ -35,11 +35,12 @@ public interface ClientOperationService {
             ClientCertificateRequestDto request, CertificateProtocolInfo protocolInfo
     ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException;
 
-    ClientCertificateDataResponseDto issueRequestedCertificate(
+    ClientCertificateDataResponseDto issueExistingCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
-            String certificateUuid
-    ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException;
+            String certificateUuid,
+            ClientCertificateSignRequestDto request
+    ) throws NotFoundException;
 
     ClientCertificateDataResponseDto issueCertificate(
             SecuredParentUUID authorityUuid,
@@ -126,5 +127,16 @@ public interface ClientOperationService {
             SecuredUUID raProfileUuid,
             String certificateUuid,
             CancelPendingCertificateRequestDto request
+    ) throws NotFoundException;
+
+    ClientCertificateDataResponseDto registerCertificate(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            ClientCertificateRegistrationDto request
+    ) throws NotFoundException, ConnectorException;
+
+    AvailableOperationsDto listAvailableOperations(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid
     ) throws NotFoundException;
 }

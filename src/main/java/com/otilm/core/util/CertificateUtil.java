@@ -578,6 +578,23 @@ public class CertificateUtil {
         }
     }
 
+    /**
+     * Records the subject identity of a no-CSR registration placeholder from the operator-supplied
+     * subject DN. Sets the subject DN and common name only; key, SAN and fingerprint fields stay
+     * empty until issuance fills them. A blank DN is a no-op (subject carried entirely in the SAN,
+     * permitted by RFC 5280 §4.1.2.6).
+     */
+    public static void applyRegistrationSubject(Certificate modal, String subjectDn) {
+        if (subjectDn == null || subjectDn.isBlank()) {
+            return;
+        }
+        try {
+            setSubjectDNParams(modal, new X500Name(new PlatformX500NameStyle(false), subjectDn));
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException(ValidationError.create("Invalid subject DN '%s': %s".formatted(subjectDn, e.getMessage())));
+        }
+    }
+
     private static void setSubjectDNParams(Certificate modal, X500Name subjectDN) {
         modal.setSubjectDn(subjectDN.toString());
 
