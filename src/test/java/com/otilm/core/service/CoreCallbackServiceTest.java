@@ -18,6 +18,7 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.impl.CoreCallbackServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -280,7 +281,8 @@ class CoreCallbackServiceTest extends BaseSpringBootTest {
                 Mockito.any(),
                 Mockito.argThat(req -> req != null
                         && req.getProperties() != null
-                        && resource.getCode().equals(req.getProperties().get("name"))),
+                        && resource.getCode().equals(req.getProperties().get("name"))
+                        && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
                 Mockito.any(), Mockito.any())
         ).thenReturn(restricted);
     }
