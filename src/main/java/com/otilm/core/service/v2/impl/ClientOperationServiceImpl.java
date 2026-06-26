@@ -693,21 +693,23 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         // State-keyed, body-optional contract: a REQUESTED cert already carries its (protocol-attached) CSR
         // and must not be given another; a REGISTERED placeholder has no CSR yet and requires the operator's.
-        if (state == CertificateState.REGISTERED) {
-            if (!hasCsr) {
-                throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
+        switch (state) {
+            case REGISTERED -> {
+                if (!hasCsr) {
+                    throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
+                }
+                try {
+                    certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+                } catch (CertificateRequestException | NoSuchAlgorithmException e) {
+                    throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
+                }
             }
-            try {
-                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
-            } catch (CertificateRequestException | NoSuchAlgorithmException e) {
-                throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
+            case REQUESTED -> {
+                if (hasCsr) {
+                    throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
+                }
             }
-        } else if (state == CertificateState.REQUESTED) {
-            if (hasCsr) {
-                throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
-            }
-        } else {
-            throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
+            default -> throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
         }
 
         final ActionMessage actionMessage = new ActionMessage();

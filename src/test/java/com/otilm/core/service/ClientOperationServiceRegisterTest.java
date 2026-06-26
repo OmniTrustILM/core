@@ -25,6 +25,7 @@ import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -85,6 +86,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     private ActionProducer actionProducer;
 
     private RaProfile raProfile;
+    // Pre-computed secured UUIDs so assertThrows lambdas contain only the call under test (Sonar java:S5778).
+    private SecuredParentUUID authorityParent;
+    private SecuredUUID securedRaProfile;
 
     @BeforeEach
     void setUpRegistrationFixtures() {
@@ -105,6 +109,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReferenceUuid(authority.getUuid());
         raProfile.setEnabled(true);
         raProfile = raProfileRepository.save(raProfile);
+        authorityParent = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        securedRaProfile = raProfile.getSecuredUuid();
     }
 
     private ClientCertificateRegistrationDto registrationRequest() {
@@ -124,8 +130,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     private ClientCertificateDataResponseDto register() throws Exception {
         return clientOperationService.registerCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(),
+                authorityParent,
+                securedRaProfile,
                 registrationRequest());
     }
 
@@ -203,8 +209,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     private AvailableOperationsDto listOperations() throws Exception {
         return clientOperationService.listAvailableOperations(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid());
+                authorityParent,
+                securedRaProfile);
     }
 
     private OperationSupport operation(AvailableOperationsDto dto, CertificateOperationKind kind) {
@@ -217,8 +223,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         ClientCertificateSignRequestDto noCsr = new ClientCertificateSignRequestDto(); // request == null
 
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, noCsr));
+                authorityParent,
+                securedRaProfile, certUuid, noCsr));
     }
 
     @Test
@@ -233,8 +239,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         withCsr.setRequest("a-csr-body"); // validation rejects before any parsing
 
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, withCsr));
+                authorityParent,
+                securedRaProfile, certUuid, withCsr));
     }
 
     @Test
@@ -244,8 +250,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         signRequest.setRequest(generateCsrBase64());
 
         clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, signRequest);
+                authorityParent,
+                securedRaProfile, certUuid, signRequest);
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions.assertNotNull(cert.getCertificateRequest(), "operator CSR should be attached to the registered placeholder");
@@ -274,8 +280,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         request.setSubjectAltName("DNS:device-1.example.com"); // subject carried entirely in the SAN, no subjectDn
 
         ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), request);
+                authorityParent,
+                securedRaProfile, request);
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
@@ -293,10 +299,10 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
         signRequest.setRequest("ignored-rejected-before-parse");
-        RaProfile other = otherRaProfile;
+        SecuredParentUUID otherAuthority = SecuredParentUUID.fromUUID(otherRaProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID otherRa = otherRaProfile.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(other.getAuthorityInstanceReferenceUuid()),
-                other.getSecuredUuid(), certUuid, signRequest));
+                otherAuthority, otherRa, certUuid, signRequest));
     }
 
     @Test
@@ -318,17 +324,18 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void registerRejectsRaProfileNotUnderRequestedAuthority() {
         SecuredParentUUID wrongAuthority = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        ClientCertificateRegistrationDto request = registrationRequest();
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
-                wrongAuthority, raProfile.getSecuredUuid(), registrationRequest()));
+                wrongAuthority, securedRaProfile, request));
     }
 
     @Test
     void registerRejectsDisabledRaProfile() {
         raProfile.setEnabled(false);
         raProfileRepository.save(raProfile);
+        ClientCertificateRegistrationDto request = registrationRequest();
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), registrationRequest()));
+                authorityParent, securedRaProfile, request));
     }
 
     @Test
@@ -337,8 +344,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
         signRequest.setRequest("!!!not-valid-base64!!!");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, signRequest));
+                authorityParent,
+                securedRaProfile, certUuid, signRequest));
     }
 
     @Test
@@ -347,8 +354,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(Mockito.mock(MetadataAttribute.class)), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), registrationRequest());
+                authorityParent,
+                securedRaProfile, registrationRequest());
 
         // Metadata persistence runs (and tolerates failure); registration still completes.
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
@@ -361,8 +368,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
         request.setSubjectDn("@@@ not a valid dn @@@");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), request));
+                authorityParent,
+                securedRaProfile, request));
     }
 
     @Test
@@ -373,8 +380,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
         signRequest.setRequest("x");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, signRequest));
+                authorityParent,
+                securedRaProfile, certUuid, signRequest));
     }
 
     @Test
@@ -385,8 +392,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         issued = certificateRepository.save(issued);
         String certUuid = issued.getUuid().toString();
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                raProfile.getSecuredUuid(), certUuid, null));
+                authorityParent,
+                securedRaProfile, certUuid, null));
     }
 
     private String registerSyncRegistered() throws Exception {
