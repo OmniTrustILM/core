@@ -8,11 +8,11 @@ import java.util.UUID;
 /**
  * Content-signing workflow for ILM-managed signing.
  *
- * @param signatureFormatterConnectorUuid       UUID of the Signature Formatter Connector.
- * @param signatureFormatterConnectorAttributes Attributes controlling DTBS construction.
+ * @param signatureFormattingConnectorUuid       UUID of the Signature Formatting Provider.
+ * @param signatureFormattingConnectorAttributes Attributes controlling DTBS construction.
  */
 public record ManagedContentSigningWorkflow(
-        UUID signatureFormatterConnectorUuid,
-        List<RequestAttribute> signatureFormatterConnectorAttributes
+        UUID signatureFormattingConnectorUuid,
+        List<RequestAttribute> signatureFormattingConnectorAttributes
 ) implements ContentSigningWorkflow {
 }

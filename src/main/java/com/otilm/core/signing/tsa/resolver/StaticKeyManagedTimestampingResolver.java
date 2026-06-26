@@ -34,7 +34,7 @@ import java.util.UUID;
  * consumed by the timestamping pipeline.
  *
  * <p>The cached model deliberately holds only UUIDs for objects owned by other caches or
- * repositories (Time Quality Configuration, Signature Formatter Connector, signing certificate).
+ * repositories (Time Quality Configuration, Signature Formatting Provider, signing certificate).
  * This resolver dereferences those UUIDs at request time. The resolved form is never cached.</p>
  */
 @Component
@@ -65,7 +65,7 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
         ManagedTimestampingWorkflow workflow = (ManagedTimestampingWorkflow) model.workflow();
         ResolvedManagedScheme resolvedScheme = resolveScheme(model.name(), model.signingScheme());
         TimeQualityConfigurationModel timeQualityConfiguration = resolveTimeQualityConfiguration(workflow.timeQualityConfigurationUuid());
-        ApiClientConnectorInfo signatureFormatterConnector = resolveSignatureFormatterConnector(workflow.signatureFormatterConnectorUuid());
+        ApiClientConnectorInfo signatureFormattingConnector = resolveSignatureFormattingConnector(workflow.signatureFormattingConnectorUuid());
 
         return new ResolvedManagedTimestampingProfile(
                 model.uuid(),
@@ -79,9 +79,9 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
                 workflow.allowedPolicyIds(),
                 workflow.allowedDigestAlgorithms(),
                 workflow.validateTokenSignature(),
-                workflow.signatureFormatterConnectorAttributes(),
+                workflow.signatureFormattingConnectorAttributes(),
                 timeQualityConfiguration,
-                signatureFormatterConnector,
+                signatureFormattingConnector,
                 resolvedScheme);
     }
 
@@ -156,12 +156,12 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
         }
     }
 
-    private ApiClientConnectorInfo resolveSignatureFormatterConnector(UUID signatureFormatterConnectorUuid) throws TspException {
+    private ApiClientConnectorInfo resolveSignatureFormattingConnector(UUID signatureFormattingConnectorUuid) throws TspException {
         try {
-            return connectorService.getConnectorForApiClient(signatureFormatterConnectorUuid);
+            return connectorService.getConnectorForApiClient(signatureFormattingConnectorUuid);
         } catch (NotFoundException e) {
             throw new TspException(TspFailureInfo.SYSTEM_FAILURE,
-                    "Signature formatter connector not found: " + signatureFormatterConnectorUuid, e,
+                    "Signature formatting connector not found: " + signatureFormattingConnectorUuid, e,
                     "Internal error: signing configuration is invalid");
         }
     }

@@ -1167,8 +1167,8 @@ class AttributeEngineTest extends BaseSpringBootTest {
             // Re-seed OID entries that field-mapping tests depend on. The OID cache is loaded from DB
             // on Spring context startup; entries added here are not in the DB, so they must be
             // explicitly placed in the cache each time setUp() runs (before each test).
-            ensureOidCached(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3", new OidRecord("Common Name", "CN", List.of()));
-            ensureOidCached(OidCategory.CERTIFICATE_EXTENSION, REGISTERED_EXTENSION_OID, new OidRecord("Test Extension", null, null));
+            ensureOidCached(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3", OidRecord.builder().displayName("Common Name").code("CN").altCodes(List.of()).build());
+            ensureOidCached(OidCategory.CERTIFICATE_EXTENSION, REGISTERED_EXTENSION_OID, OidRecord.builder().displayName("Test Extension").build());
         }
 
 

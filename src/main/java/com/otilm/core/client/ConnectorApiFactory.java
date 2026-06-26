@@ -16,9 +16,9 @@ import com.otilm.api.clients.NotificationInstanceApiClient;
 import com.otilm.api.clients.cryptography.CryptographicOperationsApiClient;
 import com.otilm.api.clients.cryptography.KeyManagementApiClient;
 import com.otilm.api.clients.cryptography.TokenInstanceApiClient;
-import com.otilm.api.clients.signing.SignatureFormatterApiClient;
+import com.otilm.api.clients.signing.SignatureFormattingApiClient;
 import com.otilm.api.interfaces.client.v1.AttributeSyncApiClient;
-import com.otilm.api.interfaces.client.v1.signing.SignatureFormatterSyncApiClient;
+import com.otilm.api.interfaces.client.v1.signing.SignatureFormattingSyncApiClient;
 import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.interfaces.client.v2.ComplianceSyncApiClient;
@@ -119,8 +119,8 @@ public class ConnectorApiFactory {
     private final Optional<com.otilm.api.clients.mq.v3.AuthorityApiClient> mqAuthorityApiClientV3;
 
     // Signing clients
-    private final SignatureFormatterApiClient restSignatureFormatterApiClient;
-    private final Optional<com.otilm.api.clients.mq.signing.SignatureFormatterApiClient> mqSignatureFormatterApiClient;
+    private final SignatureFormattingApiClient restSignatureFormattingApiClient;
+    private final Optional<com.otilm.api.clients.mq.signing.SignatureFormattingApiClient> mqSignatureFormattingApiClient;
 
     // Vault/Secret clients
     private final com.otilm.api.clients.secret.VaultApiClient restVaultApiClient;
@@ -136,8 +136,8 @@ public class ConnectorApiFactory {
 
     @PostConstruct
     void logInitialization() {
-        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatter={}, vault={}, secret(REST-only)={}",
-                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormatterApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
+        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatting={}, vault={}, secret(REST-only)={}",
+                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormattingApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
     }
 
     /**
@@ -243,8 +243,8 @@ public class ConnectorApiFactory {
         return getClient(connector, restNotificationInstanceApiClient, mqNotificationInstanceApiClient);
     }
 
-    public SignatureFormatterSyncApiClient getSignatureFormatterApiClient(ApiClientConnectorInfo connector) {
-        return getClient(connector, restSignatureFormatterApiClient, mqSignatureFormatterApiClient);
+    public SignatureFormattingSyncApiClient getSignatureFormattingApiClient(ApiClientConnectorInfo connector) {
+        return getClient(connector, restSignatureFormattingApiClient, mqSignatureFormattingApiClient);
     }
 
     public com.otilm.api.interfaces.client.v1.secret.VaultSyncApiClient getVaultApiClient(ApiClientConnectorInfo connector) {

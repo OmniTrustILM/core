@@ -6,6 +6,7 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.oid.*;
 import com.otilm.api.model.core.oid.properties.AdditionalOidPropertiesDto;
+import com.otilm.api.model.core.oid.properties.CertificateExtensionOidPropertiesDto;
 import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -17,6 +18,7 @@ import com.otilm.core.dao.entity.oid.ExtendedKeyUsageCustomOidEntry;
 import com.otilm.core.dao.entity.oid.GenericCustomOidEntry;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
+import com.otilm.core.mapper.oid.CustomOidEntryMapper;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
@@ -82,9 +84,11 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
         if (customOidEntryRepository.existsById(oid))
             throw new ValidationException("OID Entry with OID %s already exists.".formatted(oid));
         CustomOidEntry customOidEntry;
-        AdditionalOidPropertiesDto responseAdditionalProperties = null;
+
         String code = null;
         List<String> altCodes = null;
+        Boolean defaultCritical = null;
+        ExtensionValueEncoding valueEncoding = null;
 
         switch (request.getCategory()) {
             case GENERIC -> customOidEntry = new GenericCustomOidEntry();
@@ -95,7 +99,8 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                     throw new ValidationException("Incorrect type of properties for OID category RDN Attribute type.");
                 code = additionalProperties.getCode();
                 Set<String> allCodes = getAllCodesInLowerCase();
-                if (allCodes.contains(code.toLowerCase())) throw new ValidationException("Code %s is already used".formatted(code));
+                if (allCodes.contains(code.toLowerCase()))
+                    throw new ValidationException("Code %s is already used".formatted(code));
                 ((RdnAttributeTypeCustomOidEntry) customOidEntry).setCode(code);
                 certificateService.updateCertificateDNs(oid, code, oid);
                 altCodes = additionalProperties.getAltCodes();
@@ -104,9 +109,17 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                         throw new ValidationException("Alt Code %s is already used".formatted(altCode));
                 }
                 ((RdnAttributeTypeCustomOidEntry) customOidEntry).setAltCodes(altCodes);
-                responseAdditionalProperties = ((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto();
             }
-            default -> customOidEntry = new CustomOidEntry();
+            case CERTIFICATE_EXTENSION -> {
+                customOidEntry = new CertificateExtensionCustomOidEntry();
+                if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
+                    throw new ValidationException("Incorrect type of properties for OID category Certificate Extension.");
+                defaultCritical = additionalProperties.getDefaultCritical();
+                valueEncoding = additionalProperties.getValueEncoding();
+                ((CertificateExtensionCustomOidEntry) customOidEntry).setDefaultCritical(defaultCritical);
+                ((CertificateExtensionCustomOidEntry) customOidEntry).setValueEncoding(valueEncoding);
+            }
+            default -> throw new ValidationException("Unsupported OID category: " + request.getCategory());
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
@@ -116,29 +129,31 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
 
         customOidEntryRepository.save(customOidEntry);
 
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        response.setAdditionalProperties(responseAdditionalProperties);
-        OidHandler.cacheOid(request.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes));
-        return response;
+        OidHandler.cacheOid(request.getCategory(), oid, OidRecord.builder()
+                .displayName(customOidEntry.getDisplayName())
+                .code(code)
+                .altCodes(altCodes)
+                .defaultCritical(defaultCritical)
+                .valueEncoding(valueEncoding)
+                .build());
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.DETAIL)
     public CustomOidEntryDetailResponseDto getCustomOidEntry(String oid) throws NotFoundException {
         CustomOidEntry customOidEntry = customOidEntryRepository.findById(oid).orElseThrow(() -> new NotFoundException(OID_ENTRY, oid));
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        if (customOidEntry.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE)
-            response.setAdditionalProperties(((RdnAttributeTypeCustomOidEntry) customOidEntry).mapToPropertiesDto());
-        return response;
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     @Override
     @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.UPDATE)
     public CustomOidEntryDetailResponseDto editCustomOidEntry(String oid, CustomOidEntryUpdateRequestDto request) throws NotFoundException {
         CustomOidEntry customOidEntry = customOidEntryRepository.findById(oid).orElseThrow(() -> new NotFoundException(OID_ENTRY, oid));
-        AdditionalOidPropertiesDto responseAdditionalProperties = null;
         String code = null;
         List<String> altCodes = null;
+        Boolean defaultCritical = null;
+        ExtensionValueEncoding valueEncoding = null;
 
         if (customOidEntry instanceof RdnAttributeTypeCustomOidEntry rdnAttributeTypeOidEntry) {
             if (!(request.getAdditionalProperties() instanceof RdnAttributeTypeOidPropertiesDto additionalProperties))
@@ -147,9 +162,10 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
             String oldCode = rdnAttributeTypeOidEntry.getCode();
             Set<String> allCodes = getAllCodesInLowerCase();
             if (!oldCode.equals(code)) {
-            if (allCodes.contains(code.toLowerCase())) throw new ValidationException("Code %s is already used".formatted(code));
-            rdnAttributeTypeOidEntry.setCode(code);
-            certificateService.updateCertificateDNs(oid, code, oldCode);
+                if (allCodes.contains(code.toLowerCase()))
+                    throw new ValidationException("Code %s is already used".formatted(code));
+                rdnAttributeTypeOidEntry.setCode(code);
+                certificateService.updateCertificateDNs(oid, code, oldCode);
             }
 
             altCodes = additionalProperties.getAltCodes();
@@ -159,18 +175,30 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
                     throw new ValidationException("Alt Code %s is already used".formatted(altCode));
             }
             rdnAttributeTypeOidEntry.setAltCodes(additionalProperties.getAltCodes());
-            responseAdditionalProperties = rdnAttributeTypeOidEntry.mapToPropertiesDto();
+        }
+        else if (customOidEntry instanceof CertificateExtensionCustomOidEntry extensionEntry) {
+            if (!(request.getAdditionalProperties() instanceof CertificateExtensionOidPropertiesDto additionalProperties))
+                throw new ValidationException("Incorrect properties for OID category Certificate Extension.");
+            defaultCritical = additionalProperties.getDefaultCritical();
+            valueEncoding = additionalProperties.getValueEncoding();
+            extensionEntry.setDefaultCritical(defaultCritical);
+            extensionEntry.setValueEncoding(valueEncoding);
         }
 
         customOidEntry.setDisplayName(request.getDisplayName());
         customOidEntry.setDescription(request.getDescription());
         customOidEntryRepository.save(customOidEntry);
 
-        CustomOidEntryDetailResponseDto response = customOidEntry.mapToDetailDto();
-        response.setAdditionalProperties(responseAdditionalProperties);
-        if (SystemOid.fromOID(oid) == null)
-            OidHandler.cacheOid(customOidEntry.getCategory(), oid, new OidRecord(customOidEntry.getDisplayName(), code, altCodes));
-        return response;
+        if (SystemOid.fromOID(oid) == null) {
+            OidHandler.cacheOid(customOidEntry.getCategory(), oid, OidRecord.builder()
+                    .displayName(customOidEntry.getDisplayName())
+                    .code(code)
+                    .altCodes(altCodes)
+                    .defaultCritical(defaultCritical)
+                    .valueEncoding(valueEncoding)
+                    .build());
+        }
+        return CustomOidEntryMapper.toDetailDto(customOidEntry);
     }
 
     private static Set<String> getAllCodesInLowerCase() {
@@ -207,7 +235,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
         final TriFunction<Root<CustomOidEntry>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb, cr) -> FilterPredicatesBuilder.getFiltersPredicate(cb, cr, root, request.getFilters());
         final List<CustomOidEntryResponseDto> oidEntries = customOidEntryRepository.findUsingSecurityFilter(SecurityFilter.create(), List.of(), additionalWhereClause, p, (root, cb) -> cb.desc(root.get(CustomOidEntry_.oid)))
                 .stream()
-                .map(CustomOidEntry::mapToDto).toList();
+                .map(CustomOidEntryMapper::toDto).toList();
         final Long totalItems = customOidEntryRepository.countUsingSecurityFilter(SecurityFilter.create(), additionalWhereClause);
         CustomOidEntryListResponseDto response = new CustomOidEntryListResponseDto();
         response.setOidEntries(oidEntries);
@@ -236,14 +264,27 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
     }
 
     private Map<String, OidRecord> getOidToRecordMap(OidCategory oidCategory) {
+        // Cache DB OIDs
         Map<String, OidRecord> oidToDisplayNameMap = new HashMap<>(customOidEntryRepository.findAllByCategory(oidCategory)
-                .stream().collect(Collectors.toMap(CustomOidEntry::getOid, oid ->
-                        new OidRecord(oid.getDisplayName(), oidCategory == OidCategory.RDN_ATTRIBUTE_TYPE ? ((RdnAttributeTypeCustomOidEntry) oid).getCode() : null,
-                                oidCategory == OidCategory.RDN_ATTRIBUTE_TYPE ? ((RdnAttributeTypeCustomOidEntry) oid).getAltCodes() : null)
-                )));
+                .stream().collect(Collectors.toMap(CustomOidEntry::getOid, oid -> {
+                    boolean isRdn = oidCategory == OidCategory.RDN_ATTRIBUTE_TYPE;
+                    boolean isExt = oidCategory == OidCategory.CERTIFICATE_EXTENSION;
+                    return OidRecord.builder()
+                            .displayName(oid.getDisplayName())
+                            .code(isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getCode() : null)
+                            .altCodes(isRdn ? ((RdnAttributeTypeCustomOidEntry) oid).getAltCodes() : null)
+                            .defaultCritical(isExt ? ((CertificateExtensionCustomOidEntry) oid).getDefaultCritical() : null)
+                            .valueEncoding(isExt ? ((CertificateExtensionCustomOidEntry) oid).getValueEncoding() : null)
+                            .build();
+                })));
+        // Cache System OIDs
         oidToDisplayNameMap.putAll(Arrays.stream(SystemOid.values()).filter(oid -> oid.getCategory() == oidCategory)
                 .collect(Collectors.toMap(SystemOid::getOid, oid ->
-                        new OidRecord(oid.getDisplayName(), oid.getCode(), oid.getAltCodes()))));
+                        OidRecord.builder()
+                                .displayName(oid.getDisplayName())
+                                .code(oid.getCode())
+                                .altCodes(oid.getAltCodes())
+                                .build())));
         return oidToDisplayNameMap;
     }
 }

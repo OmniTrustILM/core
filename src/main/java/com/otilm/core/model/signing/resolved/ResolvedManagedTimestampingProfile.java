@@ -26,9 +26,9 @@ import java.util.UUID;
  * @param allowedPolicyIds                       Accepted TSA Policy IDs.
  * @param allowedDigestAlgorithms                Accepted digest algorithms.
  * @param validateTokenSignature                 Whether to validate the token signature after issuance.
- * @param signatureFormatterConnectorAttributes  Attributes controlling DTBS construction.
+ * @param signatureFormattingConnectorAttributes  Attributes controlling DTBS construction.
  * @param timeQualityConfiguration               Resolved Time Quality Configuration (from TQC cache).
- * @param signatureFormatterConnector            Resolved Signature Formatter Connector routing info
+ * @param signatureFormattingConnector            Resolved Signature Formatting Provider routing info
  *                                               (from {@code CONNECTOR_API_CLIENT_CACHE}).
  * @param resolvedScheme                         Resolved scheme (e.g. resolved certificate).
  */
@@ -44,9 +44,9 @@ public record ResolvedManagedTimestampingProfile(
         List<String> allowedPolicyIds,
         List<DigestAlgorithm> allowedDigestAlgorithms,
         Boolean validateTokenSignature,
-        List<RequestAttribute> signatureFormatterConnectorAttributes,
+        List<RequestAttribute> signatureFormattingConnectorAttributes,
         TimeQualityConfigurationModel timeQualityConfiguration,
-        ApiClientConnectorInfo signatureFormatterConnector,
+        ApiClientConnectorInfo signatureFormattingConnector,
         ResolvedManagedScheme resolvedScheme
 ) implements ResolvedSigningProfile {
 

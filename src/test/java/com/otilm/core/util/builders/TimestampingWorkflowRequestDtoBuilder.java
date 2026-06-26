@@ -10,8 +10,8 @@ import java.util.UUID;
 
 public class TimestampingWorkflowRequestDtoBuilder {
 
-    private UUID signatureFormatterConnectorUuid = null;
-    private List<RequestAttribute> signatureFormatterConnectorAttributes = new ArrayList<>();
+    private UUID signatureFormattingConnectorUuid = null;
+    private List<RequestAttribute> signatureFormattingConnectorAttributes = new ArrayList<>();
     private Boolean qualifiedTimestamp = null;
     private UUID timeQualityConfigurationUuid = null;
     private String defaultPolicyId = null;
@@ -23,13 +23,13 @@ public class TimestampingWorkflowRequestDtoBuilder {
         return new TimestampingWorkflowRequestDtoBuilder();
     }
 
-    public TimestampingWorkflowRequestDtoBuilder withSignatureFormatterConnector(UUID uuid) {
-        this.signatureFormatterConnectorUuid = uuid;
+    public TimestampingWorkflowRequestDtoBuilder withSignatureFormattingConnector(UUID uuid) {
+        this.signatureFormattingConnectorUuid = uuid;
         return this;
     }
 
-    public TimestampingWorkflowRequestDtoBuilder withSignatureFormatterConnectorAttributes(List<RequestAttribute> attrs) {
-        this.signatureFormatterConnectorAttributes = attrs;
+    public TimestampingWorkflowRequestDtoBuilder withSignatureFormattingConnectorAttributes(List<RequestAttribute> attrs) {
+        this.signatureFormattingConnectorAttributes = attrs;
         return this;
     }
 
@@ -65,8 +65,8 @@ public class TimestampingWorkflowRequestDtoBuilder {
 
     public TimestampingWorkflowRequestDto build() {
         TimestampingWorkflowRequestDto dto = new TimestampingWorkflowRequestDto();
-        dto.setSignatureFormatterConnectorUuid(signatureFormatterConnectorUuid);
-        dto.setSignatureFormatterConnectorAttributes(signatureFormatterConnectorAttributes);
+        dto.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
+        dto.setSignatureFormattingConnectorAttributes(signatureFormattingConnectorAttributes);
         dto.setQualifiedTimestamp(qualifiedTimestamp);
         dto.setTimeQualityConfigurationUuid(timeQualityConfigurationUuid);
         dto.setDefaultPolicyId(defaultPolicyId);
