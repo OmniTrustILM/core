@@ -377,8 +377,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         persistRegistrationMeta(certificate, result.meta());
         if (result.isAsync()) {
-            scheduleStatusPoll(certificate, CertificateOperation.REGISTER);
-            logger.info("Certificate {} registration accepted by authority; awaiting asynchronous completion", certificate.getUuid());
+            if (adapter instanceof AsyncOperationCapability) {
+                scheduleStatusPoll(certificate, CertificateOperation.REGISTER);
+                logger.info("Certificate {} registration accepted by authority; awaiting asynchronous completion", certificate.getUuid());
+            } else {
+                // Accepted asynchronously but the adapter cannot poll status — do not enqueue a poll the listener
+                // would immediately abandon; leave PENDING_REGISTRATION for operator reconciliation.
+                logger.warn("Certificate {} registration accepted asynchronously but the authority adapter does not support status polling; left in PENDING_REGISTRATION", certificate.getUuid());
+            }
         } else {
             stateMachine.transition(certificate, CertificateState.REGISTERED);
             logger.info("Certificate {} registered by authority", certificate.getUuid());
@@ -430,7 +436,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 new OperationSupport(CertificateOperationKind.ISSUE, true, async, async),
                 new OperationSupport(CertificateOperationKind.RENEW, true, async, async),
                 new OperationSupport(CertificateOperationKind.REVOKE, true, async, async),
-                new OperationSupport(CertificateOperationKind.REGISTER, register, async, async)
+                new OperationSupport(CertificateOperationKind.REGISTER, register, register && async, register && async)
         );
         return new AvailableOperationsDto(operations);
     }
@@ -667,6 +673,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException("Cannot issue certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
         }
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
+        if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
+            throw new ValidationException("Cannot issue a certificate that belongs to a different RA profile. Certificate: %s".formatted(certificate.toStringShort()));
+        }
         CertificateState state = certificate.getState();
         boolean hasCsr = request != null && request.getRequest() != null;
 

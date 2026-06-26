@@ -114,8 +114,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     /** Mocks an adapter that supports registration and makes the factory return it. */
     private RegisterCapability registeringAdapter() {
+        // Both capabilities, like the real v3 adapter — so an async-accepted registration actually schedules a poll.
         AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
-                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
         Mockito.when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
         return (RegisterCapability) adapter;
     }
@@ -277,6 +278,40 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
+    void issueExistingCertificateRejectsCertFromDifferentRaProfile() throws Exception {
+        String certUuid = registerSyncRegistered(); // REGISTERED under raProfile
+
+        RaProfile otherRaProfile = new RaProfile();
+        otherRaProfile.setName("otherRaProfile");
+        otherRaProfile.setAuthorityInstanceReferenceUuid(raProfile.getAuthorityInstanceReferenceUuid());
+        otherRaProfile.setEnabled(true);
+        otherRaProfile = raProfileRepository.save(otherRaProfile);
+
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest("ignored-rejected-before-parse");
+        RaProfile other = otherRaProfile;
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(other.getAuthorityInstanceReferenceUuid()),
+                other.getSecuredUuid(), certUuid, signRequest));
+    }
+
+    @Test
+    void asyncRegistrationWithoutAsyncCapabilityDoesNotSchedulePoll() throws Exception {
+        // Register-capable but NOT async-capable adapter that nonetheless returns async-accepted.
+        AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        Mockito.when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        Mockito.when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(null));
+
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
+        Mockito.verify(pollWriter, Mockito.never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     private String registerSyncRegistered() throws Exception {

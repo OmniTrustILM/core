@@ -1116,6 +1116,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Transactional
     public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateSignRequestDto signRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
+        if (signRequest == null || signRequest.getRequest() == null || signRequest.getRequest().isBlank()) {
+            throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");
+        }
         Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
 
         byte[] decodedCsr;
