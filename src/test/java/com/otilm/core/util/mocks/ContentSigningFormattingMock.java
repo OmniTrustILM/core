@@ -12,13 +12,13 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Mock of a V2 content-signing formatter connector — stubs {@code GET /v2/info} advertising
+ * Mock of a V2 content-signing formatting connector — stubs {@code GET /v2/info} advertising
  * {@link ConnectorInterface#SIGNATURE_FORMATTING} with {@link FeatureFlag#CONTENT_SIGNING}.
  * Used to back {@code CONTENT_SIGNING} workflow profiles.
  */
-public class ContentSigningFormatterMock extends BaseConnectorMock {
+public class ContentSigningFormattingMock extends BaseConnectorMock {
 
-    ContentSigningFormatterMock() {
+    ContentSigningFormattingMock() {
         stubV2InfoDetails(List.of(
                 interfaceInfo(ConnectorInterface.INFO, List.of()),
                 interfaceInfo(ConnectorInterface.HEALTH, List.of()),
@@ -28,26 +28,26 @@ public class ContentSigningFormatterMock extends BaseConnectorMock {
         ));
     }
 
-    public ContentSigningFormatterMock stubFormatterAttributes() {
+    public ContentSigningFormattingMock stubFormattingAttributes() {
         server.stubFor(WireMock.get(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/attributes"))
                 .willReturn(WireMock.okJson("[]")));
         return this;
     }
 
     /**
-     * Stubs the signature-formatter attributes endpoint to advertise a single optional STRING attribute definition.
-     * Takes precedence over {@link #stubFormatterAttributes()} when called after it.
+     * Stubs the signature-formatting attributes endpoint to advertise a single optional STRING attribute definition.
+     * Takes precedence over {@link #stubFormattingAttributes()} when called after it.
      */
-    public ContentSigningFormatterMock stubFormatterAttributeDefinition(UUID attrUuid, String attrName) {
-        return stubFormatterAttributeDefinition(attrUuid, attrName, false);
+    public ContentSigningFormattingMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName) {
+        return stubFormattingAttributeDefinition(attrUuid, attrName, false);
     }
 
     /**
-     * Stubs the signature-formatter attributes endpoint to advertise a single STRING attribute definition.
+     * Stubs the signature-formatting attributes endpoint to advertise a single STRING attribute definition.
      * When {@code required=true}, the service must reject requests that omit this attribute.
-     * Takes precedence over {@link #stubFormatterAttributes()} when called after it.
+     * Takes precedence over {@link #stubFormattingAttributes()} when called after it.
      */
-    public ContentSigningFormatterMock stubFormatterAttributeDefinition(UUID attrUuid, String attrName, boolean required) {
+    public ContentSigningFormattingMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName, boolean required) {
         DataAttributeV2 def = new DataAttributeV2();
         def.setUuid(attrUuid.toString());
         def.setName(attrName);

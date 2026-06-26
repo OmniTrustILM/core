@@ -39,8 +39,8 @@ class SigningWorkflowModelsTest {
         ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs);
 
         assertEquals(SigningWorkflowType.CONTENT_SIGNING, wf.getWorkflowType());
-        assertEquals(connectorUuid, wf.signatureFormatterConnectorUuid());
-        assertNotNull(wf.signatureFormatterConnectorAttributes());
+        assertEquals(connectorUuid, wf.signatureFormattingConnectorUuid());
+        assertNotNull(wf.signatureFormattingConnectorAttributes());
         assertInstanceOf(ContentSigningWorkflow.class, wf);
         assertInstanceOf(SigningWorkflow.class, wf);
     }

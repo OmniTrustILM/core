@@ -9,27 +9,27 @@ import java.util.UUID;
 
 public class ContentSigningWorkflowRequestDtoBuilder {
 
-    private UUID signatureFormatterConnectorUuid = null;
-    private List<RequestAttribute> signatureFormatterConnectorAttributes = new ArrayList<>();
+    private UUID signatureFormattingConnectorUuid = null;
+    private List<RequestAttribute> signatureFormattingConnectorAttributes = new ArrayList<>();
 
     public static ContentSigningWorkflowRequestDtoBuilder aContentSigningWorkflow() {
         return new ContentSigningWorkflowRequestDtoBuilder();
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withSignatureFormatterConnector(UUID uuid) {
-        this.signatureFormatterConnectorUuid = uuid;
+    public ContentSigningWorkflowRequestDtoBuilder withSignatureFormattingConnector(UUID uuid) {
+        this.signatureFormattingConnectorUuid = uuid;
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withSignatureFormatterConnectorAttributes(List<RequestAttribute> attrs) {
-        this.signatureFormatterConnectorAttributes = attrs;
+    public ContentSigningWorkflowRequestDtoBuilder withSignatureFormattingConnectorAttributes(List<RequestAttribute> attrs) {
+        this.signatureFormattingConnectorAttributes = attrs;
         return this;
     }
 
     public ContentSigningWorkflowRequestDto build() {
         ContentSigningWorkflowRequestDto dto = new ContentSigningWorkflowRequestDto();
-        dto.setSignatureFormatterConnectorUuid(signatureFormatterConnectorUuid);
-        dto.setSignatureFormatterConnectorAttributes(signatureFormatterConnectorAttributes);
+        dto.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
+        dto.setSignatureFormattingConnectorAttributes(signatureFormattingConnectorAttributes);
         return dto;
     }
 }

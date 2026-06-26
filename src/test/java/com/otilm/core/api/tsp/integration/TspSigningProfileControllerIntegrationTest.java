@@ -17,7 +17,7 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
-import com.otilm.core.util.mocks.TimestampingFormatterConnectorMock;
+import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
@@ -75,7 +75,7 @@ import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfi
  *
  * <p>Infrastructure setup (connectors, token instance/profile, keys, TSA certificates, signing profiles) is
  * built through the real service layer; the cryptography-provider mock signs each request's DTBS with a real
- * per-algorithm private key, and the timestamping-formatter mock assembles a genuine {@code TimeStampToken}
+ * per-algorithm private key, and the timestamping-formatting mock assembles a genuine {@code TimeStampToken}
  * from that live signature — so the {@code withSignatureValidation} variant performs a real verify.
  */
 public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTest {
@@ -134,8 +134,8 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
     );
 
     private CryptographyProviderConnectorMock cryptographyProviderMock;
-    private TimestampingFormatterConnectorMock timestampingFormatterMock;
-    private ConnectorDetailDto formatterConnector;
+    private TimestampingFormattingConnectorMock timestampingFormattingMock;
+    private ConnectorDetailDto formattingConnector;
 
     /**
      * Uploaded TSA certificate entities indexed by algorithm — populated in {@link #setUp()}.
@@ -158,9 +158,9 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
                 .stubTokenInstanceCreation(UUID.randomUUID())
                 .stubTokenProfileCreation()
                 .stubRealSigning();
-        timestampingFormatterMock = connectorMockFactory.startTimestampingFormatter();
-        timestampingFormatterMock
-                .stubFormatterAttributes()
+        timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
+        timestampingFormattingMock
+                .stubFormattingAttributes()
                 .stubFormatDtbs()
                 .stubFormatResponse();
 
@@ -169,10 +169,10 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
                         .withName("tsp-sp-cryptography-provider")
                         .withUrl(cryptographyProviderMock.getUrl())
                         .build());
-        formatterConnector = connectorService.createConnector(
+        formattingConnector = connectorService.createConnector(
                 aV2ConnectorRequest()
-                        .withName("tsp-sp-timestamping-formatter")
-                        .withUrl(timestampingFormatterMock.getUrl())
+                        .withName("tsp-sp-timestamping-formatting")
+                        .withUrl(timestampingFormattingMock.getUrl())
                         .build());
 
         TokenInstanceDetailDto tokenInstance = tokenInstanceService.createTokenInstance(
@@ -220,8 +220,8 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
         if (cryptographyProviderMock != null) {
             cryptographyProviderMock.stop();
         }
-        if (timestampingFormatterMock != null) {
-            timestampingFormatterMock.stop();
+        if (timestampingFormattingMock != null) {
+            timestampingFormattingMock.stop();
         }
     }
 
@@ -250,7 +250,7 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
     /**
      * Parameterized happy path with token signature validation enabled: the engine cryptographically verifies
      * the assembled token's signature against the TSA certificate before granting — a real verify, since the
-     * formatter mock embeds the live signature.
+     * formatting mock embeds the live signature.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("allSigningAlgorithmParameters")
@@ -397,7 +397,7 @@ public class TspSigningProfileControllerIntegrationTest extends BaseSpringBootTe
                         .withName(signingProfileName)
                         .withStaticKeyManagedSigning(tsaCertificates.get(keyAlgorithm).getUuid(), signingAttributesFor(keyAlgorithm))
                         .withTimestamping(aTimestampingWorkflow()
-                                .withSignatureFormatterConnector(UUID.fromString(formatterConnector.getUuid()))
+                                .withSignatureFormattingConnector(UUID.fromString(formattingConnector.getUuid()))
                                 .withDefaultPolicyId(DEFAULT_POLICY_ID)
                                 .withQualifiedTimestamp(false)
                                 .withValidateTokenSignature(validateTokenSignature)

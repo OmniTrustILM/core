@@ -88,7 +88,7 @@ public final class TimestampTokenTestUtil {
 
     // ── External-signature token assembly ─────────────────────────────────────
     //
-    // The three helpers below implement the signature-formatter connector's side of the two-round-trip
+    // The three helpers below implement the signature-formatting connector's side of the two-round-trip
     // RFC 3161 contract: phase 1 produces the exact CMS data-to-be-signed (the DER SignedAttributes over
     // a TSTInfo), an external signer signs those bytes, and phase 2 embeds the external signature into a
     // CMS SignedData without ever holding the private key. Phase consistency relies on buildTstInfo being
