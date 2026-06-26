@@ -12,6 +12,9 @@ import com.otilm.api.model.client.location.EditLocationRequestDto;
 import com.otilm.api.model.client.location.IssueToLocationRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
@@ -745,6 +748,22 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
         permissionEvaluator.authorityInstance(location.getEntityInstanceReference().getSecuredUuid());
         return new NameAndUuidDto(String.valueOf(objectUuid), location.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL, parentResource = Resource.ENTITY, parentAction = ResourceAction.DETAIL)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
+        // LOCATION:DETAIL is object-scoped to objectUuid (the per-object gate, the primary control). NOTE: unlike
+        // the sibling guards (getLocation/editLocation), this loader takes no SecuredParentUUID, so the parent
+        // ENTITY:DETAIL check is resource-level here, not bound to this location's owning entity. Tightening it to
+        // per-entity scope needs the parent uuid threaded through the loader contract — deferred to the op-path PR.
+        Location location = locationRepository.findByUuid(objectUuid)
+                .orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
+        ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.LOCATION);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.LOCATION, location.getUuid()));
+        data.setUuid(location.getUuid().toString());
+        data.setName(location.getName());
+        return data;
     }
 
     @Override
