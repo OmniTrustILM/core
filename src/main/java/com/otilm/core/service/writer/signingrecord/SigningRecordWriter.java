@@ -5,6 +5,8 @@ import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -29,6 +31,9 @@ public class SigningRecordWriter {
      * so the attempt increment commits and poison escalation proceed.
      */
     private static final int MAX_ERROR_LENGTH = 1000;
+
+    @PersistenceContext
+    private EntityManager em;
 
     private final SigningRecordRepository recordRepository;
     private final SigningRecordOutboxRepository outboxRepository;
@@ -63,12 +68,15 @@ public class SigningRecordWriter {
     }
 
     /**
-     * Persists a batch of signing records in one transaction. Used by the best-effort flush, which runs on a
-     * background thread with no ambient transaction, so {@code REQUIRED} opens one for the batch.
+     * Persists a batch of signing records in one transaction. Uses {@code EntityManager.persist()} directly
+     * to bypass Spring Data's merge path (which issues a SELECT per entity for application-assigned UUIDs),
+     * allowing Hibernate to batch the inserts using the configured {@code hibernate.jdbc.batch_size}.
+     * Used by the best-effort flush, which runs on a background thread with no ambient transaction, so
+     * {@code REQUIRED} opens one for the batch.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insertBatch(List<SigningRecord> records) {
-        recordRepository.saveAll(records);
+        records.forEach(em::persist);
     }
 
     // --- Outbox drain (REQUIRES_NEW) -------------------------------------------------------------------
