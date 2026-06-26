@@ -19,7 +19,6 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
 import com.otilm.core.service.cmp.message.builder.PkiMessageBuilder;
-import com.otilm.core.service.cmp.message.handler.*;
 import com.otilm.core.service.cmp.message.handler.CertConfirmMessageHandler;
 import com.otilm.core.service.cmp.message.handler.CrmfMessageHandler;
 import com.otilm.core.service.cmp.message.handler.PollReqMessageHandler;
