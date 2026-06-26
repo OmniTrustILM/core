@@ -204,7 +204,7 @@ public class AttributeEngine {
     }
 
     public DataAttribute getDataAttributeDefinition(UUID connectorUuid, String name) {
-        AttributeDefinition definition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndName(AttributeType.DATA, connectorUuid, name).orElse(null);
+        AttributeDefinition definition = selectByNameDeterministic(AttributeType.DATA, connectorUuid, name, null);
         if (definition != null) {
             return (DataAttribute) definition.getDefinition();
         }
@@ -212,11 +212,81 @@ public class AttributeEngine {
     }
 
     public BaseAttribute getGroupAttributeDefinition(UUID connectorUuid, String name) {
-        AttributeDefinition definition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndName(AttributeType.GROUP, connectorUuid, name).orElse(null);
+        AttributeDefinition definition = selectByNameDeterministic(AttributeType.GROUP, connectorUuid, name, null);
         if (definition != null) {
             return definition.getDefinition();
         }
         return null;
+    }
+
+    /**
+     * NG-callback resolution (#1622): resolve the definition the caller actually referenced by its
+     * {@code attributeUuid}, not just by name. Two rows can share {@code (type, connector, name)} with both
+     * {@code operation == null} but different {@code attributeUuid}/{@code contentType} (the registry-fetch,
+     * GROUP-child and callback-ingest paths all write {@code operation == null}), and the legacy Optional
+     * name finder would throw {@code IncorrectResultSizeDataAccessException} (500) on them. The UUID-keyed
+     * List finder already exists ({@code findByTypeAndConnectorUuidAndAttributeUuidInAndNameIn}) and is the
+     * insert/guard key, so an exact {@code (attributeUuid, name)} match is unique by construction.
+     */
+    public DataAttribute getDataAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
+        AttributeDefinition definition = findStrictByUuid(AttributeType.DATA, connectorUuid, attributeUuid, name);
+        return definition == null ? null : (DataAttribute) definition.getDefinition();
+    }
+
+    public BaseAttribute getGroupAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
+        AttributeDefinition definition = findStrictByUuid(AttributeType.GROUP, connectorUuid, attributeUuid, name);
+        return definition == null ? null : definition.getDefinition();
+    }
+
+    /**
+     * METADATA strict read for NG resolution. The META connector read is UUID-keyed via the Optional finder
+     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName} (unique by construction — no C6/500 exposure).
+     */
+    public BaseAttribute getMetadataAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
+        AttributeDefinition definition = attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid, attributeUuid, name)
+                .orElse(null);
+        return definition == null ? null : definition.getDefinition();
+    }
+
+    private AttributeDefinition findStrictByUuid(AttributeType type, UUID connectorUuid, UUID attributeUuid, String name) {
+        if (attributeUuid == null) {
+            // No UUID discriminator in scope (a definition resolved without a stored uuid). Degrade to the
+            // deterministic name-only selection rather than NPE on List.of(null) (which would surface as a 500).
+            return selectByNameDeterministic(type, connectorUuid, name, null);
+        }
+        if (name == null) {
+            // A uuid with no name cannot match the (attributeUuid, name) key; List.of(null) would NPE -> 500.
+            return null;
+        }
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidInAndNameIn(type, connectorUuid, List.of(attributeUuid), List.of(name))
+                .stream()
+                .filter(d -> attributeUuid.equals(d.getAttributeUuid()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Name-only resolution for legacy callers that have no referenced UUID in scope. Uses a List finder plus a
+     * deterministic tiebreak so it can never throw {@code IncorrectResultSizeDataAccessException}: prefer the row
+     * whose {@code operation} matches the active operation context, else the {@code operation == null}
+     * (connector/registry) row, else the lexicographically smallest {@code attributeUuid} (a stable tiebreak,
+     * not {@code updatedAt} which same-batch ingests share).
+     */
+    private AttributeDefinition selectByNameDeterministic(AttributeType type, UUID connectorUuid, String name, String operation) {
+        List<AttributeDefinition> rows = attributeDefinitionRepository.findAllByTypeAndConnectorUuidAndName(type, connectorUuid, name);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        if (rows.size() == 1) {
+            return rows.getFirst();
+        }
+        return rows.stream()
+                .min(Comparator
+                        .comparingInt((AttributeDefinition d) -> Objects.equals(d.getOperation(), operation) ? 0 : (d.getOperation() == null ? 1 : 2))
+                        .thenComparing(d -> d.getAttributeUuid() == null ? "" : d.getAttributeUuid().toString()))
+                .orElse(null);
     }
 
     public List<MetadataAttribute> getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo contentInfo) {
@@ -1006,8 +1076,31 @@ public class AttributeEngine {
             if (callback == null) {
                 throw new AttributeException("Group attribute does not have callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
+            validateCallbackDeclaration(attribute, callback, connectorUuidStr);
         } else if (attribute.getType() == AttributeType.CUSTOM || attribute.getType() == AttributeType.DATA) {
             validateAttributeProperties(attribute, connectorUuidStr);
+            if (attribute instanceof DataAttribute dataAttribute) {
+                validateCallbackDeclaration(dataAttribute, dataAttribute.getAttributeCallback(), connectorUuidStr);
+            }
+        }
+    }
+
+    /**
+     * #1622 Task 4b — declaration validity for the NG ({@code dependsOn}) callback shape at the ingest
+     * choke point. {@code dependsOn} (NG, scope-resolved) and {@code callbackContext} (legacy, body-mapped)
+     * are mutually exclusive: a definition declaring both is ambiguous to dispatch, so #1621's NG branch can
+     * safely gate on {@code dependsOn != null}. {@code dependsOn} on a RESOURCE-content attribute is also
+     * rejected — RESOURCE content is resolved through the core resource path, not an NG callback.
+     */
+    private static void validateCallbackDeclaration(BaseAttribute attribute, AttributeCallback callback, String connectorUuidStr) throws AttributeException {
+        if (callback == null || callback.getDependsOn() == null || callback.getDependsOn().isEmpty()) {
+            return;
+        }
+        if (callback.getCallbackContext() != null) {
+            throw new AttributeException("Attribute callback cannot declare both dependsOn and callbackContext", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        }
+        if (attribute instanceof DataAttribute dataAttribute && dataAttribute.getContentType() == AttributeContentType.RESOURCE) {
+            throw new AttributeException("Attribute with Resource Content Type cannot declare a dependsOn callback", attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         }
     }
 
