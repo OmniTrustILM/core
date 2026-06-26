@@ -78,7 +78,7 @@ public class AttributeEngine {
             .findAndAddModules()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
-    public static final Pattern OID_REGEX_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
+    private static final Pattern OID_REGEX_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
 
     @PersistenceContext
     private EntityManager entityManager;
