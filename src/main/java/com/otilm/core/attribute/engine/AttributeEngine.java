@@ -62,6 +62,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -481,7 +482,7 @@ public class AttributeEngine {
         if (attributes == null) {
             return;
         }
-        Map<String, String> codeToOidMap = OidHandler.getCodeToOidMap();
+        Supplier<Map<String, String>> codeToOidMap = lazyCodeToOidMap();
         for (BaseAttribute attribute : attributes) {
             if (attribute.getType() == AttributeType.DATA) {
                 updateDataAttributeDefinition(connectorUuid, operation, (DataAttribute) attribute, codeToOidMap);
@@ -493,7 +494,7 @@ public class AttributeEngine {
     }
 
     public void updateAttributeDefinitionsWithCallback(UUID connectorUuid, List<? extends BaseAttribute> attributes) throws AttributeException {
-        Map<String, String> codeToOidMap = OidHandler.getCodeToOidMap();
+        Supplier<Map<String, String>> codeToOidMap = lazyCodeToOidMap();
         for (BaseAttribute attribute : attributes) {
             if (attribute.getType() == AttributeType.GROUP) {
                 updateGroupAttributeDefinition(connectorUuid, attribute);
@@ -520,7 +521,7 @@ public class AttributeEngine {
         attributeDefinitionRepository.save(attributeDefinition);
     }
 
-    private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute, Map<String, String> codeToOidMap) throws AttributeException {
+    private void updateDataAttributeDefinition(UUID connectorUuid, String operation, DataAttribute dataAttribute, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
         validateAttributeDefinition(dataAttribute, connectorUuid);
         if (dataAttribute instanceof DataAttributeV3 v3 && v3.getFieldMapping() != null) {
             if (isRequestOperation(operation)) {
@@ -1111,7 +1112,21 @@ public class AttributeEngine {
                 || AttributeOperation.SIGN.equals(operation);
     }
 
-    private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr, Map<String, String> codeToOidMap) throws AttributeException {
+    private static Supplier<Map<String, String>> lazyCodeToOidMap() {
+        return new Supplier<>() {
+            private Map<String, String> cached;
+
+            @Override
+            public Map<String, String> get() {
+                if (cached == null) {
+                    cached = OidHandler.getCodeToOidMap();
+                }
+                return cached;
+            }
+        };
+    }
+
+    private static void validateFieldMapping(DataAttributeV3 attribute, String connectorUuidStr, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
         if (attribute.getContentType() != AttributeContentType.STRING && attribute.getContentType() != AttributeContentType.TEXT)
             throw new AttributeException("fieldMapping is only valid for attributes with STRING or TEXT content type",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1126,7 +1141,7 @@ public class AttributeEngine {
             validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
     }
 
-    private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr, Map<String, String> codeToOidMap) throws AttributeException {
+    private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
         if (field.getFieldType() == null)
             throw new AttributeException("fieldMapping field is missing fieldType",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
@@ -1160,14 +1175,14 @@ public class AttributeEngine {
         }
     }
 
-    private static void validateRdnMappedField(DataAttributeV3 attribute, String connectorUuidStr, Map<String, String> codeToOidMap, RdnMappedField rdn) throws AttributeException {
+    private static void validateRdnMappedField(DataAttributeV3 attribute, String connectorUuidStr, Supplier<Map<String, String>> codeToOidMap, RdnMappedField rdn) throws AttributeException {
         if (rdn.getRdn() == null || rdn.getRdn().isBlank())
             throw new AttributeException("fieldMapping RDN field is missing rdn",
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
         String rdnValue = rdn.getRdn();
         boolean isOid = OID_REGEX_PATTERN.matcher(rdnValue).matches();
-        if (!isOid && !codeToOidMap.containsKey(rdnValue))
+        if (!isOid && !codeToOidMap.get().containsKey(rdnValue))
             throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
     }

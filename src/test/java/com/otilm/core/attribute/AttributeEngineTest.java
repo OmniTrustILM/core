@@ -1146,19 +1146,27 @@ class AttributeEngineTest extends BaseSpringBootTest {
     @Nested
     class ValidateMappedField {
 
+        // Snapshot of the process-wide OidHandler cache taken before this class mutates it.
+        private static final Map<OidCategory, Map<String, OidRecord>> savedOidCache = new HashMap<>();
+
         @BeforeAll
         static void initOidCache() {
             for (OidCategory category : OidCategory.values()) {
-                if (OidHandler.getOidCache(category) == null) {
+                Map<String, OidRecord> existing = OidHandler.getOidCache(category);
+                savedOidCache.put(category, existing == null ? null : new HashMap<>(existing));
+                if (existing == null) {
                     OidHandler.cacheOidCategory(category, new HashMap<>());
                 }
             }
         }
 
         @AfterAll
-        static void clearOidCache() {
+        static void restoreOidCache() {
             for (OidCategory category : OidCategory.values()) {
-                OidHandler.cacheOidCategory(category, new HashMap<>());
+                Map<String, OidRecord> saved = savedOidCache.get(category);
+                if (saved != null) {
+                    OidHandler.cacheOidCategory(category, saved);
+                }
             }
         }
 
@@ -1183,8 +1191,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fm);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
         }
 
         @Test
@@ -1196,8 +1205,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fm);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.fields must not be empty"), ex::getMessage);
         }
 
         @Test
@@ -1206,8 +1216,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(rdnField(null)));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping RDN field is missing rdn"), ex::getMessage);
         }
 
         @Test
@@ -1216,8 +1227,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(rdnField("UNKNOWNCODE")));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is not a known RDN code"), ex::getMessage);
         }
 
         @Test
@@ -1249,8 +1261,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(san));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping SAN field is missing generalNameType"), ex::getMessage);
         }
 
         @Test
@@ -1263,8 +1276,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(san));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is missing otherNameOid or it is not a valid OID"), ex::getMessage);
         }
 
         @Test
@@ -1277,8 +1291,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(san));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is missing otherNameOid or it is not a valid OID"), ex::getMessage);
         }
 
         @Test
@@ -1317,8 +1332,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(ext));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping EXTENSION field is missing extensionOid"), ex::getMessage);
         }
 
         @Test
@@ -1330,8 +1346,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(ext));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is not registered in the OID registry"), ex::getMessage);
         }
 
         @Test
@@ -1356,8 +1373,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping is only valid for attributes with STRING or TEXT content type"), ex::getMessage);
         }
 
         // ── isRequestOperation gating ─────────────────────────────────────────────
@@ -1386,8 +1404,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setFieldMapping(fm);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.SIGN, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
         }
 
         // ── validateResourceAttributeProperties relaxation ───────────────────────
@@ -1430,8 +1449,9 @@ class AttributeEngineTest extends BaseSpringBootTest {
             attr.setValueSource(valueSource);
 
             UUID connectorUuid = connectorAuthority.getUuid();
-            Assertions.assertThrows(AttributeException.class,
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
                     () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("missing callback"), ex::getMessage);
         }
 
         // ── helpers ───────────────────────────────────────────────────────────────
