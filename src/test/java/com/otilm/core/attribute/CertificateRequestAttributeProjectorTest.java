@@ -12,7 +12,6 @@ import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
 import com.otilm.api.model.common.attribute.v3.mapping.MappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
-import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.ExtensionValueEncoding;

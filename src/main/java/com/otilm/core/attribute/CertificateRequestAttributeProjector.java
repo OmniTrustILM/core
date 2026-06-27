@@ -91,10 +91,10 @@ public class CertificateRequestAttributeProjector {
         boolean critical = false;
         ExtensionValueEncoding encoding = null;
         Map<String, OidRecord> registry = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION);
-        OidRecord record = registry == null ? null : registry.get(extensionOid);
-        if (record != null) {
-            critical = Boolean.TRUE.equals(record.defaultCritical());
-            encoding = record.valueEncoding();
+        OidRecord oidRecord = registry == null ? null : registry.get(extensionOid);
+        if (oidRecord != null) {
+            critical = Boolean.TRUE.equals(oidRecord.defaultCritical());
+            encoding = oidRecord.valueEncoding();
         }
         return new RequestedExtension(extensionOid, critical, encoding, value);
     }
