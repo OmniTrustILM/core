@@ -22,6 +22,8 @@ import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.LocationDto;
@@ -1092,6 +1094,54 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         modal.setCertificateContentId(certificateContent.getId());
 
         return modal;
+    }
+
+    @Override
+    @Transactional
+    public Certificate createRegistrationPlaceholder(RaProfile raProfile, ClientCertificateRegistrationDto request) {
+        // Identity-only placeholder: no key/CSR/content yet. The authoritative subject, SAN and key
+        // material are recorded when the follow-up CSR issuance completes against this record, so only
+        // the subject DN identity from the registration request is captured here.
+        Certificate certificate = new Certificate();
+        CertificateUtil.applyRegistrationSubject(certificate, request.getSubjectDn());
+        certificate.setState(CertificateState.REQUESTED);
+        certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
+        certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
+        certificate.setCertificateType(CertificateType.X509);
+        certificate.setRaProfile(raProfile);
+        return certificateRepository.save(certificate);
+    }
+
+    @Override
+    @Transactional
+    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateSignRequestDto signRequest)
+            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
+        if (signRequest == null || signRequest.getRequest() == null || signRequest.getRequest().isBlank()) {
+            throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");
+        }
+        Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+
+        byte[] decodedCsr;
+        try {
+            decodedCsr = Base64.getDecoder().decode(signRequest.getRequest());
+        } catch (IllegalArgumentException e) {
+            throw new CertificateRequestException("Certificate signing request is not valid Base64");
+        }
+        CertificateRequest request = CertificateRequestUtils.createCertificateRequest(decodedCsr, signRequest.getFormat());
+
+        // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
+        // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
+        // written from the CA response at issuance.
+        CertificateRequestEntity certificateRequestEntity = certificate.prepareCertificateRequest(signRequest.getFormat());
+        certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(decodedCsr));
+        certificateRequestEntity.setContent(signRequest.getRequest());
+        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
+        certificateRequestRepository.save(certificateRequestEntity);
+
+        certificate.setCertificateRequest(certificateRequestEntity);
+        certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());
+        certificate.setKeyUuid(getCertificateRequestKey(certificateRequestEntity, request.getPublicKey()));
+        certificateRepository.save(certificate);
     }
 
     @Override

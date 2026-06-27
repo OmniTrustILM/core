@@ -2,6 +2,7 @@ package com.otilm.core.service.v2.impl;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
@@ -45,7 +46,13 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.handler.authority.AdapterOperationResult;
+import com.otilm.core.service.handler.authority.AsyncOperationCapability;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.handler.authority.RegisterCapability;
+import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
@@ -124,10 +131,22 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
+    private AuthorityProviderAdapterFactory adapterFactory;
+    private CertificateStateMachine stateMachine;
 
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
+    }
+
+    @Autowired
+    public void setStateMachine(CertificateStateMachine stateMachine) {
+        this.stateMachine = stateMachine;
     }
 
     @Autowired
@@ -316,6 +335,115 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException {
+        // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
+        // every association the adapter dereferences must be initialized before the session closes.
+        RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        if (Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException("Cannot register certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
+        }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
+
+        // Gate before creating anything: registration is v3-only, so a request against a non-registering
+        // authority is rejected without leaving a placeholder behind.
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+        if (!(adapter instanceof RegisterCapability registerCapability)) {
+            throw new ValidationException("Certificate registration is not supported by the authority of RA profile %s.".formatted(raProfile.getName()));
+        }
+
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, request);
+        // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
+        // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
+        // is not yet known to any concurrent actor, so the read-modify-write below cannot race.
+        Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
+                .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
+        stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
+
+        AdapterOperationResult result;
+        try {
+            result = registerCapability.register(certificate, request);
+        } catch (ConnectorAcceptedButLocalFailureException e) {
+            // Connector already accepted the registration (2xx/202); per the state-divergence rule local state
+            // must NOT roll back — leave the cert PENDING_REGISTRATION so the poll or operator reconciles it.
+            throw e;
+        } catch (ConnectorException e) {
+            // Rejected before acceptance — no upstream work in flight, so the placeholder safely fails.
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            throw e;
+        }
+
+        persistRegistrationMeta(certificate, result.meta());
+        if (result.isAsync()) {
+            if (adapter instanceof AsyncOperationCapability) {
+                scheduleStatusPoll(certificate, CertificateOperation.REGISTER);
+                logger.info("Certificate {} registration accepted by authority; awaiting asynchronous completion", certificate.getUuid());
+            } else {
+                // Accepted asynchronously but the adapter cannot poll status — do not enqueue a poll the listener
+                // would immediately abandon; leave PENDING_REGISTRATION for operator reconciliation.
+                logger.warn("Certificate {} registration accepted asynchronously but the authority adapter does not support status polling; left in PENDING_REGISTRATION", certificate.getUuid());
+            }
+        } else {
+            stateMachine.transition(certificate, CertificateState.REGISTERED);
+            logger.info("Certificate {} registered by authority", certificate.getUuid());
+        }
+
+        ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
+        response.setUuid(certificate.getUuid().toString());
+        response.setCertificateData(result.certificateData() != null ? result.certificateData() : "");
+        return response;
+    }
+
+    /**
+     * Persists connector-returned tracking metadata against the certificate so a later status poll or
+     * cancel can replay it. Registration has already been accepted upstream by the time this runs, so a
+     * persistence failure must not roll local state back (state-divergence rule): it is recorded to
+     * cert-event history and the flow proceeds, with later tracking falling back to queryable metadata.
+     */
+    private void persistRegistrationMeta(Certificate certificate, List<MetadataAttribute> meta) {
+        if (meta == null || meta.isEmpty()) {
+            return;
+        }
+        try {
+            attributeEngine.updateMetadataAttributes(meta,
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                            .connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid())
+                            .build());
+        } catch (Exception metaEx) {
+            logger.warn("Failed to persist registration metadata for cert {}: {}", certificate.getUuid(), metaEx.getMessage(), metaEx);
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
+                    CertificateEventStatus.FAILED,
+                    "Failed to persist connector registration metadata; later status tracking may be limited. Cause: " + metaEx.getMessage(), "");
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public AvailableOperationsDto listAvailableOperations(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws NotFoundException {
+        RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+
+        // Capability-derived support flags: issue/renew/revoke are offered by every authority, register is
+        // v3-only, and asynchronous completion + cancellation come together with AsyncOperationCapability.
+        // Finer per-connector advertisement (FeatureFlag-driven) is layered on later.
+        boolean register = adapter instanceof RegisterCapability;
+        boolean async = adapter instanceof AsyncOperationCapability;
+        List<OperationSupport> operations = List.of(
+                new OperationSupport(CertificateOperationKind.ISSUE, true, async, async),
+                new OperationSupport(CertificateOperationKind.RENEW, true, async, async),
+                new OperationSupport(CertificateOperationKind.REVOKE, true, async, async),
+                new OperationSupport(CertificateOperationKind.REGISTER, register, register && async, register && async)
+        );
+        return new AvailableOperationsDto(operations);
+    }
+
+    @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         certificate.setState(CertificateState.PENDING_APPROVAL);
@@ -332,8 +460,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         final Certificate certificate = certificateRepository.findWithAssociationsByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         if (certificate.isArchived())
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate that has been archived. Certificate: %s", certificate.toStringShort())));
-        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL && certificate.getState() != CertificateState.REGISTERED) {
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
         }
         if (certificate.getRaProfile() == null) {
             throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no RA Profile associated. Certificate: %s", certificate)));
@@ -454,6 +582,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 certificate.getUuid(), originatingAction.getCode());
     }
 
+    /** Rejects a request whose RA profile does not belong to the authority named in the path. The RA profile's
+     *  authorityInstanceReferenceUuid is an eager column, so this is safe to call with no transaction held. */
+    private static void assertRaProfileUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
+        if (!authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+            throw new ValidationException(String.format(
+                    "RA profile %s does not belong to the requested authority.", raProfile.getName()));
+        }
+    }
+
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
                                                             SecuredParentUUID authorityUuid,
                                                             SecuredUUID raProfileUuid,
@@ -536,11 +673,42 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueRequestedCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid) throws ConnectorException, NotFoundException {
+    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateSignRequestDto request) throws NotFoundException {
+        // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
+        // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
+        RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        if (Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException("Cannot issue certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
+        }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
-        if (certificate.getState() != CertificateState.REQUESTED) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with status %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+        if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
+            throw new ValidationException("Cannot issue a certificate that belongs to a different RA profile. Certificate: %s".formatted(certificate.toStringShort()));
+        }
+        CertificateState state = certificate.getState();
+        boolean hasCsr = request != null && request.getRequest() != null;
+
+        // State-keyed, body-optional contract: a REQUESTED cert already carries its (protocol-attached) CSR
+        // and must not be given another; a REGISTERED placeholder has no CSR yet and requires the operator's.
+        if (state != CertificateState.REGISTERED && state != CertificateState.REQUESTED) {
+            throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
+        }
+        boolean registered = state == CertificateState.REGISTERED;
+        if (registered && !hasCsr) {
+            throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (!registered && hasCsr) {
+            throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (registered) {
+            try {
+                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+            } catch (CertificateRequestException | NoSuchAlgorithmException e) {
+                throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
+            }
         }
 
         final ActionMessage actionMessage = new ActionMessage();
@@ -549,7 +717,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         actionMessage.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
-        actionMessage.setResourceUuid(UUID.fromString(certificateUuid));
+        actionMessage.setResourceUuid(certificate.getUuid());
         actionProducer.produceMessage(actionMessage);
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -1494,9 +1662,32 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
 
+        cancelInFlightAsyncIssueBestEffort(certificate.getUuid());
+
         Certificate refreshed = certificateRepository.findByUuid(certificate.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
         return refreshed.mapToDto();
+    }
+
+    /**
+     * Operator finalized issuance out-of-band; if a v3 connector still has an in-flight asynchronous issue
+     * for this certificate, best-effort tell it to cancel so the upstream operation is not left orphaned.
+     * Reloads with the full adapter graph (the manual-issue finder omits the authority interface) and runs
+     * with no transaction held. Failures are swallowed — the certificate is already issued locally.
+     */
+    private void cancelInFlightAsyncIssueBestEffort(UUID certificateUuid) {
+        try {
+            Certificate certificate = certificateRepository.findForPollingByUuid(certificateUuid).orElse(null);
+            if (certificate == null) {
+                return;
+            }
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(certificate.getRaProfile().getAuthorityInstanceReference());
+            if (adapter instanceof AsyncOperationCapability async) {
+                async.cancel(certificate, CertificateOperation.ISSUE);
+            }
+        } catch (Exception e) {
+            logger.warn("Best-effort cancel of in-flight async issue after manual issue failed (cert {}): {}", certificateUuid, e.getMessage(), e);
+        }
     }
 
     private static void assertCertificateInPendingIssueWithCsr(Certificate certificate) {

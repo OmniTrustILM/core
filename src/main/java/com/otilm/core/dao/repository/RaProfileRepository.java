@@ -1,6 +1,7 @@
 package com.otilm.core.dao.repository;
 
 import com.otilm.core.dao.entity.RaProfile;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -11,6 +12,18 @@ import java.util.UUID;
 public interface RaProfileRepository extends SecurityFilterRepository<RaProfile, Long> {
 
     Optional<RaProfile> findByUuid(UUID uuid);
+
+    /**
+     * Loads an RA profile with its authority, connector and connector interface eagerly. The v3 register
+     * flow resolves the authority adapter and calls the connector with no transaction held, so every
+     * association touched there must be initialized up front to avoid lazy-initialization failures.
+     */
+    @EntityGraph(attributePaths = {
+            "authorityInstanceReference",
+            "authorityInstanceReference.connectorInterface",
+            "authorityInstanceReference.connector"
+    })
+    Optional<RaProfile> findWithAuthorityByUuid(UUID uuid);
 
     Optional<RaProfile> findByName(String name);
 
