@@ -20,7 +20,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.acme.AcmeConstants;
-import com.otilm.core.service.acme.AcmeService;
+import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
@@ -107,7 +107,7 @@ class AcmeServiceTest extends BaseSpringBootTest {
     private CertificateProtocolAssociationRepository certificateProtocolAssociationRepository;
 
     @Autowired
-    private AcmeService acmeService;
+    private AcmeExternalService acmeService;
 
     private AcmeNonce acmeValidNonce;
     private JWSSigner rsa2048Signer;
