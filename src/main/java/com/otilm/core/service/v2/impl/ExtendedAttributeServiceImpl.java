@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,13 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         this.connectorService = connectorService;
     }
 
+    private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;
+
+    @Autowired
+    public void setAuthorityProviderAdapterFactory(AuthorityProviderAdapterFactory authorityProviderAdapterFactory) {
+        this.authorityProviderAdapterFactory = authorityProviderAdapterFactory;
+    }
+
     private AttributeEngine attributeEngine;
 
     @Autowired
@@ -53,16 +61,10 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Override
     public List<BaseAttribute> listIssueCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
-        var connector = authorityRef.getConnector();
-        if (connector == null) {
+        if (authorityRef.getConnector() == null) {
             throw new NotFoundException("Connector of the Authority is not available / deleted");
         }
-        validateLegacyConnector(connector);
-
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
-        return connectorApiFactory.getCertificateApiClientV2(connectorDto).listIssueCertificateAttributes(
-                connectorDto,
-                authorityRef.getAuthorityInstanceUuid());
+        return authorityProviderAdapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef, raProfile);
     }
 
     @Override
