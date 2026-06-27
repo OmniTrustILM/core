@@ -99,17 +99,31 @@ public final class X509RequestContentRenderer {
      * (backward-compatible default), other encodings wrap the string in the matching ASN.1 type.
      */
     private static byte[] encodeExtensionValue(String value, ExtensionValueEncoding encoding) throws IOException {
-        if (encoding == null) {
-            return Base64.decode(value);
+        if (value == null) {
+            throw new IOException("Extension value is required");
         }
-        return switch (encoding) {
-            case DER -> Base64.decode(value);
+        ExtensionValueEncoding effective = encoding == null ? ExtensionValueEncoding.DER : encoding;
+        return switch (effective) {
+            case DER -> decodeBase64Der(value);
             case UTF8_STRING -> new DERUTF8String(value).getEncoded(ASN1Encoding.DER);
             case IA5_STRING -> new DERIA5String(value).getEncoded(ASN1Encoding.DER);
             case PRINTABLE_STRING -> new DERPrintableString(value).getEncoded(ASN1Encoding.DER);
             case OCTET_STRING -> new DEROctetString(value.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER);
             case BIT_STRING -> new DERBitString(value.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER);
         };
+    }
+
+    /**
+     * Decodes a base64-encoded DER blob, translating BouncyCastle's runtime decode failure into a
+     * controlled {@link IOException} so malformed values surface through {@code toExtensions}' declared
+     * checked boundary instead of escaping as an unhandled runtime error.
+     */
+    private static byte[] decodeBase64Der(String value) throws IOException {
+        try {
+            return Base64.decode(value);
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid base64-encoded DER extension value", e);
+        }
     }
 
     private static boolean effectiveCritical(String oid, boolean requestedCritical) {

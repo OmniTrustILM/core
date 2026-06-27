@@ -27,7 +27,11 @@ public class OidHandler {
 
     public static Map<String, String> getCodeToOidMap() {
         Map<String, String> reverseMap = new HashMap<>();
-        for (Map.Entry<String, OidRecord> entry : oidCache.get(OidCategory.RDN_ATTRIBUTE_TYPE).entrySet()) {
+        Map<String, OidRecord> rdnCache = oidCache.get(OidCategory.RDN_ATTRIBUTE_TYPE);
+        if (rdnCache == null) {
+            return reverseMap;
+        }
+        for (Map.Entry<String, OidRecord> entry : rdnCache.entrySet()) {
             String oidKey = entry.getKey();
             OidRecord oidRecord = entry.getValue();
 

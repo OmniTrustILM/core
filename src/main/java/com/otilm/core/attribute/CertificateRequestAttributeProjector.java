@@ -14,6 +14,10 @@ import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import org.jspecify.annotations.Nullable;
 
 import java.util.*;
@@ -62,7 +66,7 @@ public class CertificateRequestAttributeProjector {
                     case SanMappedField san ->
                             subjectAltNames.add(new GeneralNameEntry(san.getGeneralNameType(), value, san.getGeneralNameType() == GeneralNameType.OTHER_NAME ? san.getOtherNameOid() : null, san.getOtherNameValueEncoding()));
                     case ExtensionMappedField ext ->
-                            extensions.add(new RequestedExtension(ext.getExtensionOid(), false, null, value));
+                            extensions.add(toRequestedExtension(ext.getExtensionOid(), value));
                     default ->
                             throw new IllegalStateException("Unexpected MappedField subtype: " + field.getClass().getSimpleName());
                 }
@@ -75,6 +79,24 @@ public class CertificateRequestAttributeProjector {
         content.setSubjectAltNames(subjectAltNames.isEmpty() ? null : subjectAltNames);
         content.setExtensions(extensions.isEmpty() ? null : extensions);
         return content;
+    }
+
+    /**
+     * Builds a {@link RequestedExtension} for a mapped extension value, honouring the
+     * {@code CERTIFICATE_EXTENSION} OID registry's {@code defaultCritical} and {@code valueEncoding}
+     * metadata when the OID is registered. Unregistered OIDs fall back to non-critical with no declared
+     * encoding (the value is then treated as base64-encoded DER by the renderer).
+     */
+    private static RequestedExtension toRequestedExtension(String extensionOid, String value) {
+        boolean critical = false;
+        ExtensionValueEncoding encoding = null;
+        Map<String, OidRecord> registry = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION);
+        OidRecord record = registry == null ? null : registry.get(extensionOid);
+        if (record != null) {
+            critical = Boolean.TRUE.equals(record.defaultCritical());
+            encoding = record.valueEncoding();
+        }
+        return new RequestedExtension(extensionOid, critical, encoding, value);
     }
 
     private static @Nullable String getValueFromMapping(DataAttributeV3 def, FieldMapping fm, Map<UUID, String> valueByUuid) {

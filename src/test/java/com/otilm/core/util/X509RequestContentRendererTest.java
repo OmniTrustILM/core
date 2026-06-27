@@ -59,9 +59,8 @@ class X509RequestContentRendererTest {
 
         @AfterAll
         static void restoreRdnCache() {
-            if (savedRdnCache != null) {
-                OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, savedRdnCache);
-            }
+            OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
+                    savedRdnCache != null ? savedRdnCache : new HashMap<>());
         }
 
         @BeforeEach
@@ -451,6 +450,31 @@ class X509RequestContentRendererTest {
             // then
             assertThat(extnValue).isEqualTo(
                     new DEROctetString(rawValue.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER));
+        }
+
+        @Test
+        void throwsIoException_whenEncodingIsDerAndValueIsInvalidBase64() {
+            // given — a DER-encoded extension whose value is not valid base64
+            var notBase64 = "not base64!!!";
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(extension(EXT_OID, ExtensionValueEncoding.DER, notBase64)));
+
+            // when / then — the runtime decode failure is surfaced as a controlled IOException
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Invalid base64-encoded DER extension value");
+        }
+
+        @Test
+        void throwsIoException_whenExtensionValueIsNull() {
+            // given — an extension with no value
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(extension(EXT_OID, ExtensionValueEncoding.DER, null)));
+
+            // when / then
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Extension value is required");
         }
 
         private static byte[] extnValueOf(RequestedExtension ext) throws IOException {

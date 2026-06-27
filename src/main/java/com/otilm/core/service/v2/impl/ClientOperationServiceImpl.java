@@ -9,6 +9,7 @@ import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
@@ -1462,15 +1463,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                                                           List<DataAttributeV3> connectorDefs,
                                                           Map<String, String> codeToOid) {
         Set<String> claimedRdns = connectorDefs.stream()
-                .filter(d -> d.getFieldMapping() != null)
-                .flatMap(d -> d.getFieldMapping().getFields().stream())
-                .filter(f -> f.getFieldType() == FieldType.RDN)
-                .map(f -> normalizeRdn(((RdnMappedField) f).getRdn(), codeToOid))
+                .flatMap(d -> rdnFields(d).map(f -> normalizeRdn(f.getRdn(), codeToOid)))
                 .collect(java.util.stream.Collectors.toSet());
 
         List<DataAttributeV3> filteredDefaults = defaults.stream()
-                .filter(d -> d.getFieldMapping().getFields().stream()
-                        .map(f -> normalizeRdn(((RdnMappedField) f).getRdn(), codeToOid))
+                .filter(d -> rdnFields(d)
+                        .map(f -> normalizeRdn(f.getRdn(), codeToOid))
                         .noneMatch(claimedRdns::contains))
                 .toList();
 
@@ -1479,8 +1477,22 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         return merged;
     }
 
+    /**
+     * Streams the RDN-typed mapped fields of a definition, tolerating connector payloads that carry a
+     * null {@code fieldMapping} or a mapping with null {@code fields}.
+     */
+    private static java.util.stream.Stream<RdnMappedField> rdnFields(DataAttributeV3 def) {
+        FieldMapping fm = def.getFieldMapping();
+        if (fm == null || fm.getFields() == null) {
+            return java.util.stream.Stream.empty();
+        }
+        return fm.getFields().stream()
+                .filter(f -> f.getFieldType() == FieldType.RDN)
+                .map(RdnMappedField.class::cast);
+    }
+
     private static String normalizeRdn(String rdn, Map<String, String> codeToOid) {
-        return codeToOid.getOrDefault(rdn, rdn);
+        return codeToOid == null ? rdn : codeToOid.getOrDefault(rdn, rdn);
     }
 
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
