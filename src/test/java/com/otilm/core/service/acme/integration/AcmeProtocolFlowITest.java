@@ -42,7 +42,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AuthorityInstanceExternalService;
 import com.otilm.core.service.RaProfileService;
-import com.otilm.core.service.acme.AcmeService;
+import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -110,7 +110,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private AcmeProfileExternalService acmeProfileService;
     @Autowired
-    private AcmeService acmeService;
+    private AcmeExternalService acmeService;
     @Autowired
     private ClientOperationService clientOperationService;
 
@@ -514,7 +514,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     /**
-     * Polls via {@link AcmeService#getOrder} (which recomputes order status from the
+     * Polls via {@link AcmeExternalService#getOrder} (which recomputes order status from the
      * certificate state on each call) until the expected status is reached or a
      * terminal failure state is detected, failing the test if the timeout (10 s)
      * is exceeded.

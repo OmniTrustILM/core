@@ -14,7 +14,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.service.acme.AcmeService;
+import com.otilm.core.service.acme.AcmeExternalService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
@@ -32,10 +32,10 @@ import java.util.List;
 @RestController
 public class AcmeRaProfileControllerImpl implements AcmeRaProfileController {
 
-    private AcmeService acmeService;
+    private AcmeExternalService acmeService;
 
     @Autowired
-    public void setAcmeService(AcmeService acmeService) {
+    public void setAcmeService(AcmeExternalService acmeService) {
         this.acmeService = acmeService;
     }
 
