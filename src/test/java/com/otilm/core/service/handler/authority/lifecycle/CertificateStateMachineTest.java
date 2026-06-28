@@ -94,6 +94,29 @@ class CertificateStateMachineTest {
             any(), anyString(), anyString());
     }
 
+    @Test
+    void approvedRevokeCompletingSynchronouslyIsAuditedRevokeSuccess() {
+        // PENDING_APPROVAL -> REVOKED: an approved revoke the connector completes synchronously (200).
+        Certificate cert = certWithState(CertificateState.PENDING_APPROVAL);
+        sm.transition(cert, CertificateState.REVOKED, CertificateEvent.REVOKE, "Certificate revoked");
+
+        assertEquals(CertificateState.REVOKED, cert.getState());
+        verify(certificateRepository).save(cert);
+        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), eq(CertificateEvent.REVOKE),
+            eq(CertificateEventStatus.SUCCESS), anyString(), eq(""));
+    }
+
+    @Test
+    void registeredCertificateIssueFailureIsAuditedIssueFailed() {
+        // REGISTERED -> FAILED: issuing a registered placeholder failed at the connector.
+        Certificate cert = certWithState(CertificateState.REGISTERED);
+        sm.transition(cert, CertificateState.FAILED, null, "Connector rejected the request");
+
+        assertEquals(CertificateState.FAILED, cert.getState());
+        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), eq(CertificateEvent.ISSUE),
+            eq(CertificateEventStatus.FAILED), anyString(), eq(""));
+    }
+
     private Certificate certWithState(CertificateState state) {
         Certificate cert = new Certificate();
         cert.setUuid(UUID.randomUUID());

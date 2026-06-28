@@ -1653,6 +1653,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, after.getState());
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "cancelling a pending issue must record ISSUE/FAILED, not SUCCESS");
     }
 
     @Test
@@ -1678,6 +1685,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         Assertions.assertEquals(CertificateState.ISSUED, after.getState());
         Assertions.assertNull(after.getPendingRevokeDestroyKey());
         Assertions.assertNull(after.getPendingRevokeAttributes());
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.REVOKE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "cancelling a pending revoke must record REVOKE/FAILED for the restored cert");
     }
 
     @Test

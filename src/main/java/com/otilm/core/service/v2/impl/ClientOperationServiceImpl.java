@@ -446,8 +446,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificateRepository.save(certificate);
+        // Invoked from both the issue (REQUESTED) and revoke (ISSUED) approval-request paths;
+        // the SM resolves the correct (from, PENDING_APPROVAL) row from the cert's current state.
+        stateMachine.transition(certificate, CertificateState.PENDING_APPROVAL);
     }
 
     @Override
@@ -555,17 +556,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         }
 
-        certificate.setState(CertificateState.PENDING_ISSUE);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
+                "Issuance accepted; awaiting asynchronous completion.");
 
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.ISSUE,
-                CertificateEventStatus.SUCCESS,
-                "Issuance accepted; awaiting asynchronous completion.",
-                "");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -650,25 +644,27 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         }
         CertificateState oldState = certificate.getState();
-        certificate.setState(state);
-        certificateRepository.save(certificate);
+
+        // The SM writes the state-change audit; its status comes from the transition row (FAILED
+        // for both the failed-issue and the rejected rows). Preserve the original event/message:
+        // a rejection with no caller message keeps the UPDATE_STATE "state changed" wording, every
+        // other case records an ISSUE event carrying the failure message.
+        CertificateEvent auditEvent = (state == CertificateState.REJECTED && message == null)
+                ? CertificateEvent.UPDATE_STATE : CertificateEvent.ISSUE;
+        String auditMessage = (state == CertificateState.REJECTED && message == null)
+                ? "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel())
+                : message;
+        stateMachine.transition(certificate, state, auditEvent, auditMessage);
 
         certificateRelationRepository.deleteAll(certificate.getPredecessorRelations());
 
+        // A failed renew/rekey also records the failure against the predecessor certificate so its
+        // history reflects the abandoned operation (the SM call above only audits the new cert).
         if (state == CertificateState.FAILED) {
-            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
             if (event == CertificateEvent.RENEW)
                 certificateEventHistoryService.addEventHistory(oldCertificateUuid, CertificateEvent.RENEW, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
             if (event == CertificateEvent.REKEY)
                 certificateEventHistoryService.addEventHistory(oldCertificateUuid, CertificateEvent.REKEY, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
-        }
-
-        if (state == CertificateState.REJECTED) {
-            if (message == null) {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE, CertificateEventStatus.SUCCESS, "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel()), "");
-            } else {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
-            }
         }
     }
 
@@ -1149,11 +1145,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 return;
             }
 
-            certificate.setState(CertificateState.REVOKED);
-            certificateRepository.save(certificate);
+            // Connector revoked synchronously (200). Drive state to REVOKED before the fallible
+            // attribute write below, so a local failure afterwards cannot leave the cert out of
+            // sync with an authority that has already revoked it (state-divergence rule).
+            stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE,
+                    "Certificate revoked. Reason: " + caRequest.getReason().getLabel());
 
             attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
-            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + caRequest.getReason().getLabel(), "");
         } catch (Exception e) {
             if (connectorAccepted) {
                 // Connector accepted the operation (200/202) but a subsequent local step failed.
@@ -1167,8 +1165,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                         certificate.getUuid(), e.getMessage(), e);
                 throw new CertificateOperationException(msg);
             }
-            // Connector itself failed — restore the entry state so a PENDING_APPROVAL cert
-            // doesn't get silently flipped to ISSUED.
+            // Connector itself failed. Nothing transitioned the cert before the connector call, so
+            // this restores it to its entry state — a defensive no-op, not a real transition, and so
+            // intentionally not routed through the SM (there is no self-transition row, and the SM
+            // governs state changes rather than idempotent restores). The FAILED audit below is the
+            // meaningful record of the failed revoke attempt.
             certificate.setState(entryState);
             certificateRepository.save(certificate);
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, e.getMessage(), "");
@@ -1198,9 +1199,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             logger.debug("Certificate {} is in state {}, not PENDING_APPROVAL; skipping revoke-rejection state restore", certificateUuid, certificate.getState().getLabel());
             return;
         }
-        certificate.setState(CertificateState.ISSUED);
-        certificateRepository.save(certificate);
-        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".", "");
+        stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.REVOKE,
+                "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".");
     }
 
     /**
@@ -1213,17 +1213,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
         certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
         certificate.setPendingRevokeAttributes(request.getAttributes());
-        certificate.setState(CertificateState.PENDING_REVOKE);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
+                "Revocation accepted; awaiting asynchronous completion.");
 
         scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.REVOKE,
-                CertificateEventStatus.SUCCESS,
-                "Revocation accepted; awaiting asynchronous completion.",
-                "");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -1787,11 +1780,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
             cert.setPendingRevokeDestroyKey(null);
             cert.setPendingRevokeAttributes(null);
-            cert.setState(CertificateState.REVOKED);
-            certificateRepository.save(cert);
-
-            certificateEventHistoryService.addEventHistory(cert.getUuid(), CertificateEvent.REVOKE,
-                    CertificateEventStatus.SUCCESS, "Revocation confirmed manually", "");
+            stateMachine.transition(cert, CertificateState.REVOKED, CertificateEvent.REVOKE,
+                    "Revocation confirmed manually");
             transactionManager.commit(tx);
         } catch (NotFoundException | RuntimeException e) {
             transactionManager.rollback(tx);
@@ -1854,12 +1844,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        commitLocalCancel(cert, target);
+        commitLocalCancel(cert, target, reason);
 
-        String label = target.isCancelIssue ? "Pending issue cancelled" : "Pending revocation cancelled";
-        String msg = reason.isEmpty() ? label : (label + ". Reason: " + reason);
-        certificateEventHistoryService.addEventHistory(cert.getUuid(), target.eventKind(),
-                CertificateEventStatus.SUCCESS, msg, "");
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(cert.getUuid(), ResourceAction.UPDATE));
         logger.info("Pending {} for certificate {} cancelled (target state: {})",
@@ -2015,7 +2001,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * renew/rekey predecessor would otherwise still link to a now-{@code FAILED}
      * successor.</p>
      */
-    private void commitLocalCancel(Certificate cert, CancelTarget target) {
+    private void commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -2049,13 +2035,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             if (target.isCancelIssue()) {
                 certificateRelationRepository.deleteAll(fresh.getPredecessorRelations());
                 fresh.getPredecessorRelations().clear();
-            }
-            fresh.setState(target.targetState());
-            if (!target.isCancelIssue()) {
+            } else {
                 fresh.setPendingRevokeDestroyKey(null);
                 fresh.setPendingRevokeAttributes(null);
             }
-            certificateRepository.save(fresh);
+            // Cancelling a pending operation is a non-success outcome. Routing through the SM records
+            // the audit with the transition row's status — FAILED for both PENDING_ISSUE→FAILED and
+            // the PENDING_REVOKE→ISSUED restore — so a cancelled issue is no longer logged SUCCESS.
+            String label = target.isCancelIssue() ? "Pending issue cancelled" : "Pending revocation cancelled";
+            String auditMessage = reason.isEmpty() ? label : (label + ". Reason: " + reason);
+            stateMachine.transition(fresh, target.targetState(), target.eventKind(), auditMessage);
             transactionManager.commit(cleanupTx);
         } catch (RuntimeException e) {
             transactionManager.rollback(cleanupTx);
