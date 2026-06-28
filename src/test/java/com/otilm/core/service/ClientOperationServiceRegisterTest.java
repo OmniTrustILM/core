@@ -244,6 +244,25 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     }
 
     @Test
+    void issueRequestedCertificateWithBlankCsrIsNotTreatedAsSuppliedCsr() throws Exception {
+        // A blank/whitespace request body must not be read as "a CSR was supplied": a REQUESTED cert
+        // carries its own (protocol-attached) CSR, so the issue proceeds rather than being rejected
+        // with "already has a signing request".
+        Certificate requested = new Certificate();
+        requested.setState(CertificateState.REQUESTED);
+        requested.setRaProfile(raProfile);
+        requested = certificateRepository.save(requested);
+        String certUuid = requested.getUuid().toString();
+
+        ClientCertificateSignRequestDto blank = new ClientCertificateSignRequestDto();
+        blank.setRequest("   ");
+
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, blank);
+
+        Mockito.verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+    }
+
+    @Test
     void issueRegisteredCertificateAttachesOperatorCsr() throws Exception {
         String certUuid = registerSyncRegistered();
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();

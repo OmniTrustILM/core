@@ -1141,6 +1141,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         certificate.setCertificateRequest(certificateRequestEntity);
         certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());
         certificate.setKeyUuid(getCertificateRequestKey(certificateRequestEntity, request.getPublicKey()));
+        if (request.getAltPublicKey() != null) {
+            // Preserve the hybrid/PQC alternative key's inventory linkage, mirroring the canonical
+            // CSR-attach path; the request entity is managed here, so its alt-key fields flush at commit.
+            setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
+        }
         certificateRepository.save(certificate);
     }
 

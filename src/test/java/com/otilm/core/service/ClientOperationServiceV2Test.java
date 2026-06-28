@@ -1664,7 +1664,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
         req.setReason("requirement changed");
 
-        Assertions.assertDoesNotThrow(() ->
+        var dto = Assertions.assertDoesNotThrow(() ->
                 clientOperationService.cancelPendingCertificateOperation(
                         SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                         raProfile.getSecuredUuid(),
@@ -1672,6 +1672,8 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, after.getState());
+        Assertions.assertEquals(CertificateState.FAILED, dto.getState(),
+                "returned DTO must reflect the post-cancel state, not the stale pre-cancel one");
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after);
         Assertions.assertTrue(

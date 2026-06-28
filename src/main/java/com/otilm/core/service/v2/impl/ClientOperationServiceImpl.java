@@ -711,7 +711,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException("Cannot issue a certificate that belongs to a different RA profile. Certificate: %s".formatted(certificate.toStringShort()));
         }
         CertificateState state = certificate.getState();
-        boolean hasCsr = request != null && request.getRequest() != null;
+        boolean hasCsr = request != null && request.getRequest() != null && !request.getRequest().isBlank();
 
         // State-keyed, body-optional contract: a REQUESTED cert already carries its (protocol-attached) CSR
         // and must not be given another; a REGISTERED placeholder has no CSR yet and requires the operator's.
@@ -1172,12 +1172,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
 
             // Connector revoked synchronously (200). Drive state to REVOKED before the fallible
-            // attribute write below, so a local failure afterwards cannot leave the cert out of
-            // sync with an authority that has already revoked it (state-divergence rule).
-            stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE,
-                    "Certificate revoked. Reason: " + caRequest.getReason().getLabel());
+            // attribute write so a later local failure cannot leave the cert out of sync with an
+            // authority that has already revoked it (state-divergence rule). The SM gates the
+            // transition but writes no audit here; the REVOKE/SUCCESS history is recorded only after
+            // the attribute write succeeds, so an attribute failure surfaces as the single
+            // connector-accepted-but-local-failure entry below, not a misleading SUCCESS+FAILED pair.
+            stateMachine.transitionAuditedExternally(certificate, CertificateState.REVOKED);
 
             attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + caRequest.getReason().getLabel(), "");
         } catch (Exception e) {
             if (connectorAccepted) {
                 // Connector accepted the operation (200/202) but a subsequent local step failed.
@@ -1870,14 +1873,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        commitLocalCancel(cert, target, reason);
+        CertificateDetailDto result = commitLocalCancel(cert, target, reason);
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(cert.getUuid(), ResourceAction.UPDATE));
         logger.info("Pending {} for certificate {} cancelled (target state: {})",
                 target.pendingOpLabel(), cert.getUuid(), target.targetState());
 
-        return cert.mapToDto();
+        return result;
     }
 
     /**
@@ -2027,7 +2030,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * renew/rekey predecessor would otherwise still link to a now-{@code FAILED}
      * successor.</p>
      */
-    private void commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
+    private CertificateDetailDto commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -2071,7 +2074,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             String label = target.isCancelIssue() ? "Pending issue cancelled" : "Pending revocation cancelled";
             String auditMessage = reason.isEmpty() ? label : (label + ". Reason: " + reason);
             stateMachine.transition(fresh, target.targetState(), target.eventKind(), auditMessage);
+            // Build the response DTO while the session is open so it reflects the committed
+            // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
+            // associations resolve here rather than after the session closes.
+            CertificateDetailDto dto = fresh.mapToDto();
             transactionManager.commit(cleanupTx);
+            return dto;
         } catch (RuntimeException e) {
             transactionManager.rollback(cleanupTx);
             throw e;

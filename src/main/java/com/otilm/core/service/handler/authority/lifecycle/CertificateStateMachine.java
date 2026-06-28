@@ -94,7 +94,9 @@ public class CertificateStateMachine {
      * entry (with approval-profile context) when an approval is created, so routing
      * {@code approvalCreatedAction} through {@link #transition} would write a duplicate row. The
      * (from, to) pair is still validated against {@link CertificateStateTransition}, so an illegal
-     * transition still throws — only the audit is skipped.
+     * transition still throws — only the audit is skipped. A second use is deferral: a caller that
+     * records the audit itself only after a dependent follow-up step succeeds (e.g. the synchronous
+     * revoke path writes {@code REVOKE/SUCCESS} only once the post-revoke attribute write completes).
      */
     @Transactional
     public void transitionAuditedExternally(Certificate cert, CertificateState toState) {

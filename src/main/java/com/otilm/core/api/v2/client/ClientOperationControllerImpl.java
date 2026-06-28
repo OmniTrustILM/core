@@ -169,8 +169,8 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     }
 
     @Override
-    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST)
-    public AvailableOperationsDto listAvailableOperations(@LogResource(uuid = true) String authorityUuid, @LogResource(uuid = true, affiliated = true) String raProfileUuid) throws NotFoundException {
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY, operation = Operation.LIST)
+    public AvailableOperationsDto listAvailableOperations(@LogResource(uuid = true, affiliated = true) String authorityUuid, @LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
         return clientOperationService.listAvailableOperations(
                 SecuredParentUUID.fromString(authorityUuid),
                 SecuredUUID.fromString(raProfileUuid));
