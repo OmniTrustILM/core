@@ -949,6 +949,11 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
+        Assertions.assertTrue(
+                certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate).stream()
+                        .anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_STATE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "a rejected issue with no message must record UPDATE_STATE/FAILED, not SUCCESS");
 
         certificateRelationRepository.save(relation);
         certificate.setState(CertificateState.REQUESTED);
@@ -1016,6 +1021,20 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
 
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
+    }
+
+    @Test
+    void issueCertificateRejectedAction_isIdempotent_whenAlreadyRejected() {
+        // A redelivered reject for an already-REJECTED certificate must be a no-op, not an
+        // InvalidTransitionException that fails the JMS message (REJECTED->REJECTED has no row).
+        certificate.setState(CertificateState.REJECTED);
+        certificate = certificateRepository.save(certificate);
+        UUID rejectedUuid = certificate.getUuid();
+
+        Assertions.assertDoesNotThrow(() -> clientOperationService.issueCertificateRejectedAction(rejectedUuid));
+
+        certificate = certificateRepository.findByUuid(rejectedUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 

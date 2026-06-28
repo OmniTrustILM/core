@@ -117,6 +117,48 @@ class CertificateStateMachineTest {
             eq(CertificateEventStatus.FAILED), anyString(), eq(""));
     }
 
+    @Test
+    void callerProvidedAuditDetailIsStored() {
+        // The 5-arg overload carries a detail payload (e.g. serialized additionalInformation)
+        // into the audit-history entry instead of the default empty detail.
+        Certificate cert = certWithState(CertificateState.PENDING_ISSUE);
+        sm.transition(cert, CertificateState.FAILED, CertificateEvent.ISSUE, "boom",
+            "{\"New Certificate UUID\":\"x\"}");
+
+        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), eq(CertificateEvent.ISSUE),
+            eq(CertificateEventStatus.FAILED), eq("boom"), eq("{\"New Certificate UUID\":\"x\"}"));
+    }
+
+    @Test
+    void externallyAuditedTransitionMutatesStateButWritesNoHistory() {
+        // approvalCreatedAction uses this: the APPROVAL_REQUEST history is owned by the approval
+        // event handler, so the SM gates + mutates the state without writing a (duplicate) entry.
+        Certificate cert = certWithState(CertificateState.REQUESTED);
+        sm.transitionAuditedExternally(cert, CertificateState.PENDING_APPROVAL);
+
+        assertEquals(CertificateState.PENDING_APPROVAL, cert.getState());
+        verify(certificateRepository).save(cert);
+        verify(eventHistoryService, never()).addEventHistory(any(), any(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void externallyAuditedTransitionStillValidates() {
+        // Validation is not skipped — only the audit. An illegal (from, to) still throws.
+        Certificate cert = certWithState(CertificateState.REVOKED);
+        assertThrows(InvalidTransitionException.class,
+            () -> sm.transitionAuditedExternally(cert, CertificateState.PENDING_APPROVAL));
+
+        assertEquals(CertificateState.REVOKED, cert.getState());
+        verify(certificateRepository, never()).save(any());
+    }
+
+    @Test
+    void canTransitionReflectsTheTransitionTable() {
+        assertTrue(sm.canTransition(CertificateState.REQUESTED, CertificateState.PENDING_ISSUE));
+        assertFalse(sm.canTransition(CertificateState.REJECTED, CertificateState.REJECTED));
+        assertFalse(sm.canTransition(CertificateState.REVOKED, CertificateState.ISSUED));
+    }
+
     private Certificate certWithState(CertificateState state) {
         Certificate cert = new Certificate();
         cert.setUuid(UUID.randomUUID());

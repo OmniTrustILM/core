@@ -446,9 +446,18 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        // Invoked from both the issue (REQUESTED) and revoke (ISSUED) approval-request paths;
-        // the SM resolves the correct (from, PENDING_APPROVAL) row from the cert's current state.
-        stateMachine.transition(certificate, CertificateState.PENDING_APPROVAL);
+        // Only REQUESTED (issue approval) and ISSUED (revoke approval) can enter PENDING_APPROVAL.
+        // A redelivered approval-created message for a certificate that already advanced past those
+        // states is a no-op: without this guard the SM would reject the now-illegal transition and
+        // fail the message. The APPROVAL_REQUEST history entry is owned by ApprovalRequestedEventHandler,
+        // so the SM only gates and mutates the state here — transitionAuditedExternally avoids a
+        // duplicate history row.
+        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.ISSUED) {
+            logger.debug("Certificate {} is in state {}, not awaiting an approval request; skipping PENDING_APPROVAL transition",
+                    certificateUuid, certificate.getState().getLabel());
+            return;
+        }
+        stateMachine.transitionAuditedExternally(certificate, CertificateState.PENDING_APPROVAL);
     }
 
     @Override
@@ -636,6 +645,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     private void handleFailedOrRejectedEvent(Certificate certificate, UUID oldCertificateUuid, CertificateState state, CertificateEvent event, Map<String, Object> additionalInformation, String message) {
+        // Idempotent on redelivery / state races: if the certificate can no longer transition to the
+        // target state (e.g. a redelivered reject for an already-REJECTED cert — REJECTED->REJECTED
+        // has no row), skip rather than letting the SM throw and fail the JMS message. Mirrors the
+        // guards on approvalCreatedAction and revokeCertificateRejectedAction.
+        if (!stateMachine.canTransition(certificate.getState(), state)) {
+            logger.debug("Certificate {} is in state {}; no transition to {} — skipping failed/rejected handling",
+                    certificate.getUuid(), certificate.getState().getLabel(), state.getLabel());
+            return;
+        }
         for (CertificateLocation location : certificate.getLocations()) {
             try {
                 locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
@@ -646,15 +664,23 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         CertificateState oldState = certificate.getState();
 
         // The SM writes the state-change audit; its status comes from the transition row (FAILED
-        // for both the failed-issue and the rejected rows). Preserve the original event/message:
-        // a rejection with no caller message keeps the UPDATE_STATE "state changed" wording, every
-        // other case records an ISSUE event carrying the failure message.
-        CertificateEvent auditEvent = (state == CertificateState.REJECTED && message == null)
-                ? CertificateEvent.UPDATE_STATE : CertificateEvent.ISSUE;
-        String auditMessage = (state == CertificateState.REJECTED && message == null)
-                ? "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel())
-                : message;
-        stateMachine.transition(certificate, state, auditEvent, auditMessage);
+        // for both the failed-issue and the rejected rows). Preserve the original event, message,
+        // and detail: a rejection with no caller message keeps the UPDATE_STATE "state changed"
+        // wording with no detail; every other case records an ISSUE event with the failure message
+        // and the serialized additional information.
+        final CertificateEvent auditEvent;
+        final String auditMessage;
+        final String auditDetail;
+        if (state == CertificateState.REJECTED && message == null) {
+            auditEvent = CertificateEvent.UPDATE_STATE;
+            auditMessage = "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel());
+            auditDetail = "";
+        } else {
+            auditEvent = CertificateEvent.ISSUE;
+            auditMessage = message;
+            auditDetail = additionalInformation != null ? MetaDefinitions.serialize(additionalInformation) : "";
+        }
+        stateMachine.transition(certificate, state, auditEvent, auditMessage, auditDetail);
 
         certificateRelationRepository.deleteAll(certificate.getPredecessorRelations());
 
