@@ -228,6 +228,20 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     }
 
     @Test
+    void issueRegisteredCertificateWithNullCsrFormatIsRejected() throws Exception {
+        // An explicit null format must surface a clear validation error, not NPE in the CSR parser's
+        // switch(format).
+        String certUuid = registerSyncRegistered();
+        ClientCertificateSignRequestDto noFormat = new ClientCertificateSignRequestDto();
+        noFormat.setRequest(generateCsrBase64());
+        noFormat.setFormat(null);
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, noFormat));
+    }
+
+    @Test
     void issueRequestedCertificateWithSuppliedCsrIsRejected() {
         Certificate requested = new Certificate();
         requested.setState(CertificateState.REQUESTED);

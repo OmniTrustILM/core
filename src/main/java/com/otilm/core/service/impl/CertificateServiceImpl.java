@@ -1119,6 +1119,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (signRequest == null || signRequest.getRequest() == null || signRequest.getRequest().isBlank()) {
             throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");
         }
+        if (signRequest.getFormat() == null) {
+            throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
+        }
         Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
 
         byte[] decodedCsr;

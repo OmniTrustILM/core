@@ -658,7 +658,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             try {
                 locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
             } catch (ConnectorException | NotFoundException ex) {
-                logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), message);
+                logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), ex.getMessage(), ex);
             }
         }
         CertificateState oldState = certificate.getState();
