@@ -292,6 +292,13 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerWithNullRequestIsRejected() {
+        // A missing registration body must surface a controlled ValidationException, not an NPE.
+        Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, null));
+    }
+
+    @Test
     void registerStaysPendingWhenConnectorAcceptedButLocalFailureRaised() throws Exception {
         Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed", new RuntimeException("boom")));
