@@ -1,5 +1,6 @@
 package com.otilm.core.architecture;
 
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.attribute.engine.CallerAuthorizedReferenceLoaderRegistry;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
@@ -35,15 +36,12 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 @AnalyzeClasses(packages = "com.otilm.core.attribute.engine", importOptions = ImportOption.DoNotIncludeTests.class)
 public class AttributeReferenceExpanderFenceArchTest {
 
-    /** The classes that make up callback mode's resolution path. */
-    private static final List<Class<?>> CALLBACK_PATH = List.of(
-            AttributeReferenceExpander.class,
-            CallerAuthorizedReferenceLoaderRegistry.class);
-
     @ArchTest
     static final ArchRule callback_path_must_not_call_unguarded_credential_list_loader =
             noClasses()
-                    .that().belongToAnyOf(AttributeReferenceExpander.class, CallerAuthorizedReferenceLoaderRegistry.class)
+                    .that().resideInAPackage("com.otilm.core.attribute.engine..")
+                    .and().areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+                    .and().areNotAssignableTo(AttributeEngine.class)
                     .should().callMethod(CredentialServiceImpl.class, "loadFullCredentialData", List.class)
                     .because("callback mode must resolve credentials only via the SecuredUUID+DETAIL guarded "
                             + "getAuthorizedObjectAttributes loader, never the resource-level (no per-object) list-loader");
@@ -51,7 +49,9 @@ public class AttributeReferenceExpanderFenceArchTest {
     @ArchTest
     static final ArchRule callback_path_must_not_call_unguarded_resource_list_loader =
             noClasses()
-                    .that().belongToAnyOf(AttributeReferenceExpander.class, CallerAuthorizedReferenceLoaderRegistry.class)
+                    .that().resideInAPackage("com.otilm.core.attribute.engine..")
+                    .and().areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+                    .and().areNotAssignableTo(AttributeEngine.class)
                     .should().callMethod(ResourceServiceImpl.class, "loadResourceObjectContentData", List.class)
                     .because("the resource list-loader carries no @ExternalAuthorization at all; callback mode must "
                             + "never reach it");
@@ -59,7 +59,9 @@ public class AttributeReferenceExpanderFenceArchTest {
     @ArchTest
     static final ArchRule callback_path_must_not_reach_unguarded_operation_builder =
             noClasses()
-                    .that().belongToAnyOf(AttributeReferenceExpander.class, CallerAuthorizedReferenceLoaderRegistry.class)
+                    .that().resideInAPackage("com.otilm.core.attribute.engine..")
+                    .and().areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+                    .and().areNotAssignableTo(AttributeEngine.class)
                     .should().dependOnClassesThat().areAssignableTo(ConnectorRequestAttributesBuilder.class)
                     .because("ConnectorRequestAttributesBuilder is the unguarded operation-mode primitive (it calls "
                             + "both unguarded list-loaders); callback mode must not link against it");
@@ -67,7 +69,9 @@ public class AttributeReferenceExpanderFenceArchTest {
     @ArchTest
     static final ArchRule expander_must_not_mutate_security_context =
             noClasses()
-                    .that().belongToAnyOf(AttributeReferenceExpander.class, CallerAuthorizedReferenceLoaderRegistry.class)
+                    .that().resideInAPackage("com.otilm.core.attribute.engine..")
+                    .and().areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+                    .and().areNotAssignableTo(AttributeEngine.class)
                     .should().dependOnClassesThat().areAssignableTo(AuthHelper.class)
                     .because("N3 invariant: the expander introduces no elevated principal — it never calls "
                             + "AuthHelper.authenticateAs* / sets a new Authentication; there is no context to leak");

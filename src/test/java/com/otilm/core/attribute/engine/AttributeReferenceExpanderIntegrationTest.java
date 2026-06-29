@@ -140,6 +140,32 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
+    void locationExpansionFailsClosedWhenDeniedOwningEntityDetail() {
+        // The LOCATION loader binds the parent gate to the location's owning entity in-body: a caller without
+        // ENTITY:DETAIL on that entity must fail closed even though LOCATION:DETAIL would pass.
+        EntityInstanceReference entity = new EntityInstanceReference();
+        entity.setName("it-entity-denied");
+        entity.setKind("sample");
+        entity = entityInstanceReferenceRepository.save(entity);
+
+        Location location = new Location();
+        location.setName("it-location-denied");
+        location.setEntityInstanceReference(entity);
+        location = locationRepository.save(location);
+
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL);
+
+        RequestAttribute locationRef = resourceRef(AttributeResource.LOCATION, location.getUuid());
+        Assertions.assertThrows(AccessDeniedException.class,
+                () -> expander.expandForCaller(List.of(locationRef), new HashSet<>()),
+                "lacking ENTITY:DETAIL on the owning entity must fail the location expansion closed");
+
+        ResourceObjectContent element = (ResourceObjectContent) ((List<?>) locationRef.getContent()).getFirst();
+        Assertions.assertNull(((ResourceSimpleContentData) element.getData()).getAttributes(),
+                "no blob may be set on the location reference when the owning-entity gate denies");
+    }
+
+    @Test
     void expanderDoesNotMutateAmbientPrincipal() throws Exception {
         Authentication before = SecurityContextHolder.getContext().getAuthentication();
 
