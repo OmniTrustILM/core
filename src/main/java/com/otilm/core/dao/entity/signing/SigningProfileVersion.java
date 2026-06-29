@@ -90,13 +90,13 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Enumerated(EnumType.STRING)
     private SigningWorkflowType workflowType;
 
-    @Column(name = "signature_formatter_connector_uuid")
-    private UUID signatureFormatterConnectorUuid;
+    @Column(name = "signature_formatting_connector_uuid")
+    private UUID signatureFormattingConnectorUuid;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "signature_formatter_connector_uuid", insertable = false, updatable = false)
+    @JoinColumn(name = "signature_formatting_connector_uuid", insertable = false, updatable = false)
     @ToString.Exclude
-    private Connector signatureFormatterConnector;
+    private Connector signatureFormattingConnector;
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;
@@ -169,9 +169,9 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
         this.delegatedSignerConnectorUuid = delegatedSignerConnector != null ? delegatedSignerConnector.getUuid() : null;
     }
 
-    public void setSignatureFormatterConnector(Connector signatureFormatterConnector) {
-        this.signatureFormatterConnector = signatureFormatterConnector;
-        this.signatureFormatterConnectorUuid = signatureFormatterConnector != null ? signatureFormatterConnector.getUuid() : null;
+    public void setSignatureFormattingConnector(Connector signatureFormattingConnector) {
+        this.signatureFormattingConnector = signatureFormattingConnector;
+        this.signatureFormattingConnectorUuid = signatureFormattingConnector != null ? signatureFormattingConnector.getUuid() : null;
     }
 
     @Override

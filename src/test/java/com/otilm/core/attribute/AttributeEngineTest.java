@@ -33,18 +33,22 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.common.attribute.v3.mapping.*;
+import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.jetbrains.annotations.NotNull;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -56,11 +60,16 @@ import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 class AttributeEngineTest extends BaseSpringBootTest {
+
+    private static final String REGISTERED_EXTENSION_OID = "9.9.9.1";
 
     @Autowired
     private AttributeEngine attributeEngine;
@@ -159,6 +168,15 @@ class AttributeEngineTest extends BaseSpringBootTest {
 
         loadMetadata();
         loadCustomAttributesData();
+    }
+
+    private static void ensureOidCached(OidCategory category, String oid, OidRecord oidRecord) {
+        Map<String, OidRecord> cache = OidHandler.getOidCache(category);
+        if (cache == null) {
+            OidHandler.cacheOidCategory(category, new HashMap<>());
+            cache = OidHandler.getOidCache(category);
+        }
+        cache.put(oid, oidRecord);
     }
 
     @Test
@@ -1124,5 +1142,345 @@ class AttributeEngineTest extends BaseSpringBootTest {
         Assertions.assertEquals(1, customFields.size());
         Assertions.assertTrue(dataFields.isEmpty());
         Assertions.assertTrue(metaFields.isEmpty());
+    }
+
+    @Nested
+    class ValidateMappedField {
+
+        // Snapshot of the process-wide OidHandler cache taken before this class mutates it.
+        private static final Map<OidCategory, Map<String, OidRecord>> savedOidCache = new EnumMap<>(OidCategory.class);
+
+        @BeforeAll
+        static void initOidCache() {
+            for (OidCategory category : OidCategory.values()) {
+                Map<String, OidRecord> existing = OidHandler.getOidCache(category);
+                savedOidCache.put(category, existing == null ? null : new HashMap<>(existing));
+                if (existing == null) {
+                    OidHandler.cacheOidCategory(category, new HashMap<>());
+                }
+            }
+        }
+
+        @AfterAll
+        static void restoreOidCache() {
+            for (OidCategory category : OidCategory.values()) {
+                Map<String, OidRecord> saved = savedOidCache.get(category);
+                if (saved != null) {
+                    OidHandler.cacheOidCategory(category, saved);
+                }
+            }
+        }
+
+        @BeforeEach
+        void setUp() {
+            // Re-seed OID entries that field-mapping tests depend on. The OID cache is loaded from DB
+            // on Spring context startup; entries added here are not in the DB, so they must be
+            // explicitly placed in the cache each time setUp() runs (before each test).
+            ensureOidCached(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3", OidRecord.builder().displayName("Common Name").code("CN").altCodes(List.of()).build());
+            ensureOidCached(OidCategory.CERTIFICATE_EXTENSION, REGISTERED_EXTENSION_OID, OidRecord.builder().displayName("Test Extension").build());
+        }
+
+
+        // ── validateFieldMapping / validateMappedField ────────────────────────────
+
+        @Test
+        void testFieldMapping_missingObjectType_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_no_obj_type");
+            FieldMapping fm = new FieldMapping();
+            fm.setObjectType(null);
+            fm.setFields(List.of(rdnField("CN")));
+            attr.setFieldMapping(fm);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_emptyFields_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_empty_fields");
+            FieldMapping fm = new FieldMapping();
+            fm.setObjectType(ObjectType.X509_CERTIFICATE);
+            fm.setFields(List.of());
+            attr.setFieldMapping(fm);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.fields must not be empty"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_rdnField_missingRdn_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_rdn_no_rdn");
+            attr.setFieldMapping(fieldMappingWith(rdnField(null)));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping RDN field is missing rdn"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_rdnField_unknownCode_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_rdn_bad_code");
+            attr.setFieldMapping(fieldMappingWith(rdnField("UNKNOWNCODE")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is not a known RDN code"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_rdnField_validCode_ok() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_rdn_valid_code");
+            attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_rdnField_dottedOid_ok() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_rdn_dotted_oid");
+            attr.setFieldMapping(fieldMappingWith(rdnField("1.2.840.113549.1.9.1")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_sanField_missingGeneralNameType_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_no_type");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(null);
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping SAN field is missing generalNameType"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_sanField_otherNameMissingOid_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_othername_no_oid");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(GeneralNameType.OTHER_NAME);
+            san.setOtherNameOid(null);
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is missing otherNameOid or it is not a valid OID"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_sanField_otherNameNotOid_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_othername_not_oid");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(GeneralNameType.OTHER_NAME);
+            san.setOtherNameOid("not an oid");
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is missing otherNameOid or it is not a valid OID"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_sanField_otherNameWithOid_ok() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_othername_with_oid");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(GeneralNameType.OTHER_NAME);
+            san.setOtherNameOid("1.2.3.4");
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_sanField_dns_ok() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_san_dns");
+            SanMappedField san = new SanMappedField();
+            san.setFieldType(FieldType.SAN);
+            san.setGeneralNameType(GeneralNameType.DNS);
+            attr.setFieldMapping(fieldMappingWith(san));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_extensionField_missingOid_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_ext_no_oid");
+            ExtensionMappedField ext = new ExtensionMappedField();
+            ext.setFieldType(FieldType.EXTENSION);
+            ext.setExtensionOid(null);
+            attr.setFieldMapping(fieldMappingWith(ext));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping EXTENSION field is missing extensionOid"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_extensionField_unregisteredOid_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_ext_unreg_oid");
+            ExtensionMappedField ext = new ExtensionMappedField();
+            ext.setFieldType(FieldType.EXTENSION);
+            ext.setExtensionOid("9.9.9.99");
+            attr.setFieldMapping(fieldMappingWith(ext));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("is not registered in the OID registry"), ex::getMessage);
+        }
+
+        @Test
+        void testFieldMapping_extensionField_registeredOid_ok() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_ext_reg_oid");
+            ExtensionMappedField ext = new ExtensionMappedField();
+            ext.setFieldType(FieldType.EXTENSION);
+            ext.setExtensionOid(REGISTERED_EXTENSION_OID);
+            attr.setFieldMapping(fieldMappingWith(ext));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+        }
+
+        // ── contentType must be STRING for fieldMapping attributes ────────────────
+
+        @Test
+        void testFieldMapping_nonStringContentType_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_integer");
+            attr.setContentType(AttributeContentType.INTEGER);
+            attr.setFieldMapping(fieldMappingWith(rdnField("CN")));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping is only valid for attributes with STRING or TEXT content type"), ex::getMessage);
+        }
+
+        // ── isRequestOperation gating ─────────────────────────────────────────────
+
+        @Test
+        void testFieldMapping_nonRequestOperation_skipsValidation() {
+            // Invalid fieldMapping (no objectType) should NOT throw when operation is not a request operation
+            DataAttributeV3 attr = fieldMappingAttribute("fm_non_req_op");
+            FieldMapping fm = new FieldMapping();
+            fm.setObjectType(null);
+            fm.setFields(List.of());
+            attr.setFieldMapping(fm);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            // null operation → skips validateFieldMapping, so no exception
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+        }
+
+        @Test
+        void testFieldMapping_signOperation_validatesFieldMapping() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_sign_op");
+            FieldMapping fm = new FieldMapping();
+            fm.setObjectType(null);
+            fm.setFields(List.of(rdnField("CN")));
+            attr.setFieldMapping(fm);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.SIGN, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("fieldMapping.objectType is required"), ex::getMessage);
+        }
+
+        // ── validateResourceAttributeProperties relaxation ───────────────────────
+
+        @Test
+        void testResourceAttribute_withStaticListValueSource_noCallbackRequired() {
+            DataAttributeV3 attr = new DataAttributeV3();
+            attr.setUuid(UUID.randomUUID().toString());
+            attr.setName("fm_static_list_resource");
+            attr.setType(AttributeType.DATA);
+            attr.setContentType(AttributeContentType.RESOURCE);
+            DataAttributeProperties props = new DataAttributeProperties();
+            props.setLabel("Resource Attr");
+            props.setResource(AttributeResource.AUTHORITY);
+            attr.setProperties(props);
+
+            ValueSource valueSource = new ValueSource();
+            valueSource.setKind(ValueSourceType.STATIC_LIST);
+            attr.setValueSource(valueSource);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            Assertions.assertDoesNotThrow(
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+        }
+
+        @Test
+        void testResourceAttribute_withNoneValueSource_callbackRequired() {
+            DataAttributeV3 attr = new DataAttributeV3();
+            attr.setUuid(UUID.randomUUID().toString());
+            attr.setName("fm_none_src_resource");
+            attr.setType(AttributeType.DATA);
+            attr.setContentType(AttributeContentType.RESOURCE);
+            DataAttributeProperties props = new DataAttributeProperties();
+            props.setLabel("Resource Attr");
+            props.setResource(AttributeResource.AUTHORITY);
+            attr.setProperties(props);
+
+            ValueSource valueSource = new ValueSource();
+            valueSource.setKind(ValueSourceType.NONE);
+            attr.setValueSource(valueSource);
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains("missing callback"), ex::getMessage);
+        }
+
+        // ── helpers ───────────────────────────────────────────────────────────────
+
+        private DataAttributeV3 fieldMappingAttribute(String name) {
+            DataAttributeV3 attr = new DataAttributeV3();
+            attr.setUuid(UUID.randomUUID().toString());
+            attr.setName(name);
+            attr.setType(AttributeType.DATA);
+            attr.setContentType(AttributeContentType.STRING);
+            DataAttributeProperties props = new DataAttributeProperties();
+            props.setLabel(name);
+            attr.setProperties(props);
+            return attr;
+        }
+
+        private FieldMapping fieldMappingWith(MappedField field) {
+            FieldMapping fm = new FieldMapping();
+            fm.setObjectType(ObjectType.X509_CERTIFICATE);
+            fm.setFields(List.of(field));
+            return fm;
+        }
+
+        private RdnMappedField rdnField(String rdn) {
+            RdnMappedField f = new RdnMappedField();
+            f.setFieldType(FieldType.RDN);
+            f.setRdn(rdn);
+            return f;
+        }
     }
 }

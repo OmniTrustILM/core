@@ -30,8 +30,9 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
+import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.acme.AcmeConstants;
-import com.otilm.core.service.acme.AcmeService;
+import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.message.AcmeJwsRequest;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.*;
@@ -89,7 +90,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
-public class AcmeServiceImpl implements AcmeService {
+public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
 
@@ -156,6 +157,7 @@ public class AcmeServiceImpl implements AcmeService {
 
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Directory> getDirectory(String acmeProfileName, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         logger.debug("Gathering Directory information for ACME: {}", acmeProfileName);
 
@@ -187,6 +189,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<?> getNonce(String acmeProfileName, Boolean isHead, URI requestUri, boolean isRaProfileBased) {
         String nonce = generateNonce();
         logger.debug("New Nonce: {}", nonce);
@@ -206,6 +209,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Account> newAccount(String acmeProfileName, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("New Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -272,6 +276,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Account> updateAccount(String acmeProfileName, String accountId, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -317,6 +322,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<?> keyRollover(String acmeProfileName, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -387,6 +393,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Order> newOrder(String acmeProfileName, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -423,6 +430,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<List<Order>> listOrders(String acmeProfileName, String accountId, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeAccount acmeAccount;
         try {
@@ -451,6 +459,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Authorization> getAuthorization(String acmeProfileName, String authorizationId, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -490,6 +499,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Challenge> validateChallenge(String acmeProfileName, String challengeId, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         logger.debug("Validating Challenge with ID {}:", challengeId);
         AcmeChallenge challenge = validateChallenge(challengeId);
@@ -531,6 +541,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Order> finalizeOrder(String acmeProfileName, String orderId, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);
@@ -596,6 +607,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Order> getOrder(String acmeProfileName, String orderId, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeOrder order = validateOrder(orderId);
         LoggingHelper.putLogResourceInfo(com.otilm.api.model.core.auth.Resource.ACME_ORDER, false, order.getUuid().toString(), order.getOrderId());
@@ -617,6 +629,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Resource> downloadCertificate(String acmeProfileName, String certificateId, URI requestUri, boolean isRaProfileBased) throws NotFoundException, CertificateException {
         logger.debug("Downloading the Certificate with ID: {}", certificateId);
         ByteArrayResource byteArrayResource = getCertificateResource(certificateId);
@@ -629,6 +642,7 @@ public class AcmeServiceImpl implements AcmeService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<?> revokeCertificate(String acmeProfileName, String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException, ConnectorException, CertificateException {
         if (requestJson.isEmpty()) {
             logger.error("Update Account request is empty. JWS is malformed for profile: {}", acmeProfileName);

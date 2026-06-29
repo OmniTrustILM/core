@@ -74,7 +74,8 @@ class ActionsListenerTest {
         // from happy-path tests that never invoke it.
         lenient().when(messagingProperties.routingKey()).thenReturn(new MessagingProperties.RoutingKey(
                 "actions", "audit-logs", "event", "notification", "scheduler", "validation",
-                "time-quality.config-request", "time-quality.config", "time-quality.results"));
+                "time-quality.config-request", "time-quality.config", "time-quality.results",
+                "provider.status-poll"));
     }
 
     // ==================== No approval needed — direct action ====================

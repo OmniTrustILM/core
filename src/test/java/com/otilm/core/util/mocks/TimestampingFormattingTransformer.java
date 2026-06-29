@@ -8,7 +8,7 @@ import com.github.tomakehurst.wiremock.http.ResponseDefinition;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 
 /**
- * Base for the WireMock extensions implementing the two phases of the RFC 3161 formatter contract
+ * Base for the WireMock extensions implementing the two phases of the RFC 3161 formatting contract
  * ({@link TimestampingFormatDtbsTransformer}, {@link TimestampingFormatResponseTransformer}).
  *
  * <p>Both phases rebuild the TSTInfo deterministically from their request DTO's fields — the client
@@ -16,7 +16,7 @@ import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
  * so the messageDigest signed in phase 1 matches the TSTInfo embedded in phase 2 without any
  * cross-request state in the mock.
  */
-abstract class TimestampingFormatterTransformer implements ResponseDefinitionTransformerV2 {
+abstract class TimestampingFormattingTransformer implements ResponseDefinitionTransformerV2 {
 
     /**
      * The DTOs use Java time types ({@code Instant}, {@code Duration}); registering all discoverable

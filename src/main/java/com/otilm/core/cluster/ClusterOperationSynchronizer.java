@@ -19,7 +19,8 @@ public class ClusterOperationSynchronizer {
     public enum Operation {
         SIGNING_RECORD_RETENTION(0x51_67_4E_43_52_45_43_00L),
         SIGNING_RECORD_DELETE_AFTER_RETRIEVAL(0x51_67_4E_43_52_44_52_00L),
-        SIGNING_RECORD_OUTBOX_DRAIN(0x51_67_4E_43_4F_42_44_52L);
+        SIGNING_RECORD_OUTBOX_DRAIN(0x51_67_4E_43_4F_42_44_52L),
+        PROVIDER_STATUS_POLL_SWEEP(0x50_52_4F_56_50_4F_4C_4CL);
 
         private final long lockKey;
 

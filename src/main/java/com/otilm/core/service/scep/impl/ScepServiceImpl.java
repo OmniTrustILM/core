@@ -39,7 +39,8 @@ import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CryptographicKeyService;
-import com.otilm.core.service.scep.ScepService;
+import com.otilm.core.security.authz.ProtocolEndpoint;
+import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.service.scep.message.ScepResponse;
 import com.otilm.core.service.v2.ClientOperationService;
@@ -77,7 +78,7 @@ import java.util.*;
 
 @Service
 @Transactional
-public class ScepServiceImpl implements ScepService {
+public class ScepServiceImpl implements ScepExternalService {
 
     public static final String SCEP_URL_PREFIX = "/v1/protocols/scep";
     public static final String SCEP_OPERATION_GET_CA_CERT = "GetCACert";
@@ -168,6 +169,7 @@ public class ScepServiceImpl implements ScepService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Object> handleGet(String profileName, String operation, String message) throws ScepException {
         logger.debug("SCEP GET request received for profile: {}, operation: {}, message: {}", profileName, operation, message);
         byte[] encoded = new byte[0];
@@ -178,6 +180,7 @@ public class ScepServiceImpl implements ScepService {
     }
 
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<Object> handlePost(String profileName, String operation, byte[] message) throws ScepException {
         if (logger.isDebugEnabled()) {
             logger.debug("SCEP POST request received for profile: {}, operation: {}, message: {}", profileName, operation, Base64.getEncoder().encodeToString(message));
