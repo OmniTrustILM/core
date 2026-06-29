@@ -10,6 +10,9 @@ import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.entity.EntityInstanceUpdateRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.connector.entity.EntityInstanceRequestDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -288,6 +291,18 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         return entityInstanceReferenceRepository.findResourceObject(objectUuid.getValue(), EntityInstanceReference_.name);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.DETAIL)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
+        EntityInstanceReference ref = entityInstanceReferenceRepository.findByUuid(objectUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(EntityInstanceReference.class, objectUuid));
+        ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.ENTITY);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.ENTITY, ref.getUuid()));
+        data.setUuid(ref.getUuid().toString());
+        data.setName(ref.getName());
+        return data;
     }
 
     @Override
