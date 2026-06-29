@@ -139,8 +139,8 @@ public class SigningRecordOutboxDrainer {
 
     private int drainRowsOneByOne(List<SigningRecord> records) {
         int drained = 0;
-        for (SigningRecord record : records) {
-            if (attemptDrain(record)) {
+        for (SigningRecord signingRecord : records) {
+            if (attemptDrain(signingRecord)) {
                 drained++;
             }
         }
@@ -148,9 +148,9 @@ public class SigningRecordOutboxDrainer {
     }
 
     private SigningRecord mapAndEvict(SigningRecordOutbox row) {
-        SigningRecord record = SigningRecordMapper.toRecord(row);
+        SigningRecord signingRecord = SigningRecordMapper.toRecord(row);
         entityManager.detach(row);
-        return record;
+        return signingRecord;
     }
 
     /**
@@ -159,14 +159,14 @@ public class SigningRecordOutboxDrainer {
      * crash-recovery duplicates), and records a failed attempt when the copy throws so the row advances
      * toward the poison threshold without aborting the rest of the batch.
      */
-    private boolean attemptDrain(SigningRecord record) {
+    private boolean attemptDrain(SigningRecord signingRecord) {
         try {
-            writer.saveRecordAndDeleteOutbox(record);
+            writer.saveRecordAndDeleteOutbox(signingRecord);
             return true;
         } catch (RuntimeException drainError) {
             metrics.persistFailed(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
-            log.warn("Failed to drain outbox row {}", record.uuid, drainError);
-            recordFailure(record.uuid, drainError.toString());
+            log.warn("Failed to drain outbox row {}", signingRecord.uuid, drainError);
+            recordFailure(signingRecord.uuid, drainError.toString());
             return false;
         }
     }
