@@ -3,7 +3,7 @@ package com.otilm.core.service.scep;
 import com.otilm.api.exception.ScepException;
 import org.springframework.http.ResponseEntity;
 
-public interface ScepService {
+public interface ScepExternalService {
 
     /**
      * Handle the GET request from the SCEP client

@@ -9,7 +9,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.service.cmp.CmpService;
+import com.otilm.core.service.cmp.CmpExternalService;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -18,10 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CmpControllerImpl implements CmpController {
 
-    private CmpService cmpService;
+    private CmpExternalService cmpService;
 
     @Autowired
-    public void setCmpService(CmpService cmpService) {
+    public void setCmpService(CmpExternalService cmpService) {
         this.cmpService = cmpService;
     }
 

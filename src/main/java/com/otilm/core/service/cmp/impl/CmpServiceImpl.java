@@ -19,7 +19,6 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
 import com.otilm.core.service.cmp.message.builder.PkiMessageBuilder;
-import com.otilm.core.service.cmp.message.handler.*;
 import com.otilm.core.service.cmp.message.handler.CertConfirmMessageHandler;
 import com.otilm.core.service.cmp.message.handler.CrmfMessageHandler;
 import com.otilm.core.service.cmp.message.handler.PollReqMessageHandler;
@@ -37,7 +36,8 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
-import com.otilm.core.service.cmp.CmpService;
+import com.otilm.core.security.authz.ProtocolEndpoint;
+import com.otilm.core.service.cmp.CmpExternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -64,7 +64,7 @@ import java.util.List;
 
 @Service
 @Transactional
-public class CmpServiceImpl implements CmpService {
+public class CmpServiceImpl implements CmpExternalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(CmpServiceImpl.class.getName());
 
@@ -184,6 +184,7 @@ public class CmpServiceImpl implements CmpService {
      * @throws CmpBaseException if any error has been raised
      */
     @Override
+    @ProtocolEndpoint
     public ResponseEntity<byte[]> handlePost(String profileName, byte[] request) throws CmpBaseException {
         final PKIMessage pkiRequest;
         try {
