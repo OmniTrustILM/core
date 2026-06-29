@@ -25,15 +25,13 @@ import java.util.UUID;
  * the claim is a plain ordered read with no row locks. The lock is transaction-scoped, hence the
  * {@link Propagation#REQUIRES_NEW} outer transaction — which does nothing but hold the lock and read batches.
  *
- * <p>Each row is copied in its own short transaction via
- * {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord)}, and a failed row
- * has its attempt recorded in a separate transaction via
+ * <p>Normal path: each batch is drained in one transaction via
+ * {@link SigningRecordWriter#persistBatchAndDeleteOutbox} — Hibernate JDBC batching + one bulk DELETE, so the
+ * per-batch cost is two round-trips regardless of batch size. If that transaction fails (rare crash-recovery
+ * duplicate: a node crashed after inserting into {@code signing_record} but before deleting the outbox row),
+ * the batch falls back to per-row draining via {@link SigningRecordWriter#saveRecordAndDeleteOutbox}, which
+ * uses a merge copy (idempotent) and records failed attempts toward the poison threshold via
  * {@link SigningRecordWriter#recordFailure(java.util.UUID, String)}.
- * This per-row isolation is what makes the retry/poison machinery work: a single un-persistable row rolls
- * back only its own transaction (leaving the healthy rows in the batch drained and committed) while its
- * attempt count still advances toward the poison threshold. Because the per-row writes run in their own
- * transactions and the outer transaction holds no row locks (only the advisory lock), there is nothing for
- * them to deadlock against.
  */
 @Slf4j
 @Component
@@ -105,38 +103,70 @@ public class SigningRecordOutboxDrainer {
         }
     }
 
+    /**
+     * Drains a batch using the fast bulk path: loads all rows in one query, maps them, and hands them to
+     * {@link SigningRecordWriter#persistBatchAndDeleteOutbox} which persists all records via Hibernate JDBC batching
+     * and removes the outbox rows with a single bulk DELETE — two round-trips per batch instead of four per row.
+     *
+     * <p>Falls back to per-row draining when the batch path throws. The only expected failure is a
+     * {@link PersistenceException} on the flush in crash-recovery: a node crashed after writing to
+     * {@code signing_record} but before deleting the outbox row, leaving a duplicate. The per-row fallback
+     * handles this via the idempotent {@link SigningRecordWriter#saveRecordAndDeleteOutbox} merge copy, and
+     * gives each row individual retry/poison accounting via {@link #recordFailure}.
+     */
     private int drainRows(List<UUID> outboxRowUuids) {
+        if (outboxRowUuids.isEmpty())
+            return 0;
+
+        List<SigningRecordOutbox> rows = outboxRepo.findAllById(outboxRowUuids);
+        if (rows.isEmpty())
+            return 0;
+
+        metrics.persist(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment(rows.size());
+
+        List<SigningRecord> records = rows.stream().map(this::mapAndEvict).toList();
+
+        try {
+            writer.persistBatchAndDeleteOutbox(records);
+            return records.size();
+        } catch (RuntimeException e) {
+            log.debug("Batch drain failed (crash-recovery duplicate?), falling back to row-by-row for {} rows: {}",
+                    outboxRowUuids.size(), e.getMessage());
+            metrics.batchDrainFallback().increment();
+            return drainRowsOneByOne(records);
+        }
+    }
+
+    private int drainRowsOneByOne(List<SigningRecord> records) {
         int drained = 0;
-        for (UUID uuid : outboxRowUuids) {
-            if (attemptDrain(uuid)) {
+        for (SigningRecord record : records) {
+            if (attemptDrain(record)) {
                 drained++;
             }
         }
         return drained;
     }
 
+    private SigningRecord mapAndEvict(SigningRecordOutbox row) {
+        SigningRecord record = SigningRecordMapper.toRecord(row);
+        entityManager.detach(row);
+        return record;
+    }
+
     /**
-     * Drains one row, or — when the copy fails — records the failed attempt so the row advances toward the
-     * poison threshold. Reads and maps the outbox row here, then hands the mapped record to the writer's
-     * single-transaction {@link SigningRecordWriter#saveRecordAndDeleteOutbox(SigningRecord)} copy. Returns
-     * {@code false} without touching the writer when the row is already gone (drained by an earlier pass or
-     * another node). The read, map and copy may throw; this method absorbs the failure and records the attempt,
-     * so one row never aborts the rest of the batch. A row already present in {@code signing_record} (crash
-     * recovery) is reconciled by the writer's idempotent merge copy and counts as drained.
+     * Per-row fallback used when the batch path fails. Copies the record to {@code signing_record} via
+     * {@link SigningRecordWriter#saveRecordAndDeleteOutbox} (idempotent merge copy that handles
+     * crash-recovery duplicates), and records a failed attempt when the copy throws so the row advances
+     * toward the poison threshold without aborting the rest of the batch.
      */
-    private boolean attemptDrain(UUID uuid) {
+    private boolean attemptDrain(SigningRecord record) {
         try {
-            SigningRecordOutbox row = outboxRepo.findById(uuid).orElse(null);
-            if (row == null) {
-                return false;
-            }
-            metrics.persist(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
-            writer.saveRecordAndDeleteOutbox(SigningRecordMapper.toRecord(row));
+            writer.saveRecordAndDeleteOutbox(record);
             return true;
         } catch (RuntimeException drainError) {
             metrics.persistFailed(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
-            log.warn("Failed to drain outbox row {}", uuid, drainError);
-            recordFailure(uuid, drainError.getMessage());
+            log.warn("Failed to drain outbox row {}", record.uuid, drainError);
+            recordFailure(record.uuid, drainError.toString());
             return false;
         }
     }

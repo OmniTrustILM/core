@@ -33,7 +33,7 @@ public class SigningRecordWriter {
     private static final int MAX_ERROR_LENGTH = 1000;
 
     @PersistenceContext
-    private EntityManager em;
+    private EntityManager entityManager;
 
     private final SigningRecordRepository recordRepository;
     private final SigningRecordOutboxRepository outboxRepository;
@@ -47,24 +47,27 @@ public class SigningRecordWriter {
     // --- Inbound writes (REQUIRED) ---------------------------------------------------------------------
 
     /**
-     * Persists one signing record. The entity carries an application-assigned UUID, so Spring Data routes the
-     * {@code save} through a merge rather than a bare persist; {@code saveAndFlush} forces the flush now so a
-     * constraint violation surfaces to the caller (and the strategy's metric scope) instead of being deferred
-     * to commit.
+     * Persists one signing record. Uses {@code EntityManager.persist()} directly to bypass Spring Data's merge
+     * path (which issues a SELECT per entity for application-assigned UUIDs). The explicit {@code flush()} forces
+     * the INSERT now so a constraint violation surfaces to the caller (and the strategy's metric scope) instead
+     * of being deferred to commit.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insert(SigningRecord signingRecord) {
-        recordRepository.saveAndFlush(signingRecord);
+        entityManager.persist(signingRecord);
+        entityManager.flush();
     }
 
     /**
-     * Stages one signing record into the outbox. The entity carries an application-assigned UUID, so the
-     * {@code save} runs as a merge; {@code saveAndFlush} forces the flush now so a constraint violation
-     * surfaces synchronously, and the row is durable the moment the signing operation commits.
+     * Stages one signing record into the outbox. Uses {@code EntityManager.persist()} directly to bypass Spring
+     * Data's merge path (which issues a SELECT per entity for application-assigned UUIDs). The explicit
+     * {@code flush()} forces the INSERT now so a constraint violation surfaces synchronously, and the row is
+     * durable the moment the signing operation commits.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insertOutbox(SigningRecordOutbox row) {
-        outboxRepository.saveAndFlush(row);
+        entityManager.persist(row);
+        entityManager.flush();
     }
 
     /**
@@ -76,21 +79,39 @@ public class SigningRecordWriter {
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insertBatch(List<SigningRecord> records) {
-        records.forEach(em::persist);
+        records.forEach(entityManager::persist);
     }
 
     // --- Outbox drain (REQUIRES_NEW) -------------------------------------------------------------------
 
     /**
+     * Bulk-drains a batch: persists all records in one transaction using Hibernate JDBC batching
+     * ({@code hibernate.jdbc.batch_size=500}) and removes the originating outbox rows with a single bulk
+     * DELETE. This is the fast path: one transaction and two round-trips per batch instead of one
+     * transaction and four round-trips per row.
+     *
+     * <p>Uses {@code entityManager.persist()} directly to bypass Spring Data's merge path
+     * ({@code save()} → {@code merge()} → SELECT-before-INSERT for application-assigned IDs). In the rare
+     * crash-recovery case (a row already exists in {@code signing_record}) the flush will throw a
+     * {@code PersistenceException}; the caller ({@link com.otilm.core.signing.record.SigningRecordOutboxDrainer})
+     * catches that and falls back to per-row draining where each row gets individual retry/poison accounting.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void persistBatchAndDeleteOutbox(List<SigningRecord> records) {
+        records.forEach(entityManager::persist);
+        entityManager.flush();
+        outboxRepository.deleteAllByUuidIn(records.stream().map(SigningRecord::getUuid).toList());
+    }
+
+    /**
      * Persists one signing record and removes its originating outbox row (which shares the record's UUID),
-     * atomically in a single transaction. The record carries an application-assigned UUID, so
-     * {@code saveAndFlush} runs as a merge-then-flush: the flush forces the write to execute now, so a
-     * constraint violation is thrown to the caller instead of being deferred to commit, and a pre-existing
-     * {@code signing_record} (crash recovery) is reconciled into a no-op update. The outbox row is removed by
-     * id via {@link SigningRecordOutboxRepository#deleteByUuid(UUID)} — a bare {@code DELETE} that reads no
-     * blobs and no-ops if the row is already gone — so the copy is idempotent. The orchestration around it —
-     * reading the outbox row, mapping it, and skipping an already-drained row — lives in
-     * {@link SigningRecordOutboxDrainer}.
+     * atomically in a single transaction. Used as the per-row fallback when the batch path fails (crash
+     * recovery). The record carries an application-assigned UUID, so {@code saveAndFlush} runs as a
+     * merge-then-flush: the flush forces the write to execute now, so a constraint violation is thrown to
+     * the caller instead of being deferred to commit, and a pre-existing {@code signing_record}
+     * (crash recovery) is reconciled into a no-op update. The outbox row is removed by id via
+     * {@link SigningRecordOutboxRepository#deleteByUuid(UUID)} — a bare {@code DELETE} that reads no blobs
+     * and no-ops if the row is already gone — so the copy is idempotent.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveRecordAndDeleteOutbox(SigningRecord signingRecord) {

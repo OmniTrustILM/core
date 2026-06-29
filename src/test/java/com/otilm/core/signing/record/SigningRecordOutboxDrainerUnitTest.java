@@ -12,14 +12,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyIterable;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -32,13 +36,14 @@ import static org.mockito.Mockito.when;
 /**
  * Pure unit test for {@link SigningRecordOutboxDrainer} over a mocked repository, writer, and cluster
  * synchronizer. The drainer's job is narrow: acquire the cluster-wide drain lock (or skip if another node holds
- * it), read successive drainable batches, read and map each claimed outbox row, hand the mapped record to the
- * writer's single-transaction {@link SigningRecordWriter#saveRecordAndDeleteOutbox} copy, and on failure record the
- * attempt via {@link SigningRecordWriter#recordFailure(java.util.UUID, String)} while leaving the healthy rows
- * drained. A row that is already gone (drained by an earlier pass or another node) is detected by the read
- * returning empty and is skipped without touching the writer. Poison exclusion lives in the claim query; the
- * per-row transaction isolation, idempotent copy, and field fidelity are covered against a real database in
- * {@link SigningRecordOutboxDrainerTest}.
+ * it), read successive drainable batches, bulk-load and map the claimed outbox rows, and hand all mapped records
+ * to {@link SigningRecordWriter#persistBatchAndDeleteOutbox} in one transaction (the fast path). When that batch
+ * transaction fails (crash-recovery duplicate), each row is retried individually via
+ * {@link SigningRecordWriter#saveRecordAndDeleteOutbox}, and failed per-row attempts are recorded via
+ * {@link SigningRecordWriter#recordFailure(java.util.UUID, String)} while healthy rows are still drained. A batch
+ * whose bulk load returns empty (all rows already gone) is skipped without touching the writer. Poison exclusion
+ * lives in the claim query; per-row transaction isolation, idempotent copy, and field fidelity are covered
+ * against a real database in {@link SigningRecordOutboxDrainerTest}.
  */
 class SigningRecordOutboxDrainerUnitTest {
 
@@ -51,6 +56,7 @@ class SigningRecordOutboxDrainerUnitTest {
     private SigningRecordOutboxRepository outboxRepo;
     private SigningRecordWriter writer;
     private ClusterOperationSynchronizer clusterSynchronizer;
+    private Map<UUID, SigningRecordOutbox> claimableRows;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +65,7 @@ class SigningRecordOutboxDrainerUnitTest {
         outboxRepo = mock(SigningRecordOutboxRepository.class);
         writer = mock(SigningRecordWriter.class);
         clusterSynchronizer = mock(ClusterOperationSynchronizer.class);
+        claimableRows = new HashMap<>();
         when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.SIGNING_RECORD_OUTBOX_DRAIN))
                 .thenReturn(true);
     }
@@ -74,8 +81,8 @@ class SigningRecordOutboxDrainerUnitTest {
         createDrainer().drainOnce();
 
         // then
-        batch.forEach(uuid -> verify(outboxRepo).findById(uuid));
-        verify(writer, times(batch.size())).saveRecordAndDeleteOutbox(any());
+        verify(writer).persistBatchAndDeleteOutbox(anyList());
+        verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(writer, never()).recordFailure(any(), any());
         assertEquals(3, atemptedDrainedCount());
     }
@@ -110,18 +117,18 @@ class SigningRecordOutboxDrainerUnitTest {
 
     @Test
     void drainOnce_recordsFailureAndKeepsRow_whenTheWriterThrows() {
-        // given
+        // given the batch path fails, forcing per-row fallback where the row copy also fails
         var failingUuid = aUuid();
-        var dbError = "constraint violation";
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(failingUuid));
         aClaimableRow(failingUuid);
-        doThrow(new RuntimeException(dbError)).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
+        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
+        doThrow(new RuntimeException("constraint violation")).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
 
         // when
         createDrainer().drainOnce();
 
         // then
-        verify(writer).recordFailure(failingUuid, dbError);
+        verify(writer).recordFailure(eq(failingUuid), any(String.class));
         assertEquals(1, failedCount());
         assertEquals(1, atemptedDrainedCount());
     }
@@ -134,6 +141,7 @@ class SigningRecordOutboxDrainerUnitTest {
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(brokenUuid, healthyUuid));
         aClaimableRow(brokenUuid);
         aClaimableRow(healthyUuid);
+        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
         doThrow(new RuntimeException("copy failed")).when(writer).saveRecordAndDeleteOutbox(recordFor(brokenUuid));
         doThrow(new RuntimeException("db unavailable")).when(writer).recordFailure(eq(brokenUuid), any());
 
@@ -145,20 +153,20 @@ class SigningRecordOutboxDrainerUnitTest {
 
     @Test
     void drainOnce_drainsHealthyRowsAndIsolatesTheFailingOne_inAMixedBatch() {
-        // given
+        // given the batch path fails, then per-row fallback: healthy succeeds, failing throws
         var healthyUuid = aUuid();
         var failingUuid = aUuid();
-        var dbError = "FK violation on signing_profile_uuid";
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(healthyUuid, failingUuid));
         aClaimableRow(healthyUuid);
         aClaimableRow(failingUuid);
-        doThrow(new RuntimeException(dbError)).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
+        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
+        doThrow(new RuntimeException("FK violation on signing_profile_uuid")).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
 
         // when
         createDrainer().drainOnce();
 
         // then
-        verify(writer).recordFailure(failingUuid, dbError);
+        verify(writer).recordFailure(eq(failingUuid), any(String.class));
         verify(writer, never()).recordFailure(eq(healthyUuid), any());
         assertEquals(1, failedCount());
         assertEquals(2, atemptedDrainedCount());
@@ -166,15 +174,16 @@ class SigningRecordOutboxDrainerUnitTest {
 
     @Test
     void drainOnce_doesNotCountARowAlreadyGoneFromTheOutbox() {
-        // given a row the read finds already gone (drained by an earlier pass or another node)
+        // given a batch where the bulk load returns empty (rows drained by another node or earlier pass)
         var takenUuid = aUuid();
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(takenUuid));
-        when(outboxRepo.findById(takenUuid)).thenReturn(Optional.empty());
+        when(outboxRepo.findAllById(anyIterable())).thenReturn(List.of());
 
         // when
         createDrainer().drainOnce();
 
         // then
+        verify(writer, never()).persistBatchAndDeleteOutbox(anyList());
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(writer, never()).recordFailure(any(), any());
         assertEquals(0, atemptedDrainedCount());
@@ -193,7 +202,8 @@ class SigningRecordOutboxDrainerUnitTest {
         createDrainer(batchSize, DEFAULT_POISON_THRESHOLD).drainOnce();
 
         // then both batches were drained and the loop stopped after the short one
-        verify(writer, times(3)).saveRecordAndDeleteOutbox(any());
+        verify(writer, times(2)).persistBatchAndDeleteOutbox(anyList());
+        verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(outboxRepo, times(2)).findDrainableBatch(DEFAULT_POISON_THRESHOLD, batchSize);
         assertEquals(3, atemptedDrainedCount());
     }
@@ -212,7 +222,8 @@ class SigningRecordOutboxDrainerUnitTest {
 
         // then it claims exactly the cap's worth of batches and stops, leaving the rest for the next run
         verify(outboxRepo, times(maxBatchesPerRun)).findDrainableBatch(DEFAULT_POISON_THRESHOLD, batchSize);
-        verify(writer, times(maxBatchesPerRun * batchSize)).saveRecordAndDeleteOutbox(any());
+        verify(writer, times(maxBatchesPerRun)).persistBatchAndDeleteOutbox(anyList());
+        verify(writer, never()).saveRecordAndDeleteOutbox(any());
     }
 
     @Test
@@ -225,6 +236,7 @@ class SigningRecordOutboxDrainerUnitTest {
 
         // then
         assertDoesNotThrow(drain);
+        verify(writer, never()).persistBatchAndDeleteOutbox(anyList());
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
     }
 
@@ -242,6 +254,27 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(outboxRepo).findDrainableBatch(poisonThreshold, batchSize);
     }
 
+    @Test
+    void drainOnce_fallsBackToPerRowDraining_whenBatchTransactionFails() {
+        // given two rows in a batch where the bulk transaction fails (crash-recovery duplicate on flush)
+        var uuid1 = aUuid();
+        var uuid2 = aUuid();
+        when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(uuid1, uuid2));
+        aClaimableRow(uuid1);
+        aClaimableRow(uuid2);
+        doThrow(new RuntimeException("could not execute batch")).when(writer)
+                .persistBatchAndDeleteOutbox(anyList());
+
+        // when
+        createDrainer().drainOnce();
+
+        // then each row is drained individually via the per-row fallback
+        verify(writer).saveRecordAndDeleteOutbox(recordFor(uuid1));
+        verify(writer).saveRecordAndDeleteOutbox(recordFor(uuid2));
+        verify(writer, never()).recordFailure(any(), any());
+        assertEquals(2, atemptedDrainedCount());
+    }
+
     /**
      * Matches the {@link SigningRecord} the drainer maps from the outbox row with the given UUID — the record
      * shares its originating outbox row's UUID, so this discriminates the per-row writer call by identity.
@@ -253,15 +286,30 @@ class SigningRecordOutboxDrainerUnitTest {
     private SigningRecordOutbox aClaimableRow(UUID uuid) {
         SigningRecordOutbox row = new SigningRecordOutbox();
         row.setUuid(uuid);
-        when(outboxRepo.findById(uuid)).thenReturn(Optional.of(row));
+        claimableRows.put(uuid, row);
+        when(outboxRepo.findAllById(anyIterable())).thenAnswer(invocation -> {
+            Iterable<UUID> ids = invocation.getArgument(0);
+            List<SigningRecordOutbox> result = new ArrayList<>();
+            for (UUID id : ids) {
+                SigningRecordOutbox r = claimableRows.get(id);
+                if (r != null)
+                    result.add(r);
+            }
+            return result;
+        });
         return row;
     }
 
     private void anyClaimedRowIsPresent() {
-        when(outboxRepo.findById(any())).thenAnswer(invocation -> {
-            SigningRecordOutbox row = new SigningRecordOutbox();
-            row.setUuid(invocation.getArgument(0));
-            return Optional.of(row);
+        when(outboxRepo.findAllById(anyIterable())).thenAnswer(invocation -> {
+            Iterable<UUID> ids = invocation.getArgument(0);
+            List<SigningRecordOutbox> result = new ArrayList<>();
+            for (UUID id : ids) {
+                SigningRecordOutbox row = new SigningRecordOutbox();
+                row.setUuid(id);
+                result.add(row);
+            }
+            return result;
         });
     }
 
