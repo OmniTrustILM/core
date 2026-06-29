@@ -27,6 +27,7 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -67,6 +68,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Autowired
     private ClientOperationService clientOperationService;
+    @Autowired
+    private CertificateService certificateService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
@@ -216,7 +219,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         OperationSupport register = operation(listOperations(), CertificateOperationKind.REGISTER);
         Assertions.assertTrue(register.isSupported());
         Assertions.assertTrue(register.isAsyncSupported());
-        Assertions.assertTrue(register.isCancelSupported());
+        // Register cancel is not advertised — cancelling a PENDING_REGISTRATION cert is not implemented
+        // (determineCancelTarget handles only PENDING_ISSUE / PENDING_REVOKE).
+        Assertions.assertFalse(register.isCancelSupported());
     }
 
     @Test
@@ -288,8 +293,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void issueRegisteredCertificateWithNullCsrFormatIsRejected() throws Exception {
-        // An explicit null format must surface a clear validation error, not NPE in the CSR parser's
-        // switch(format).
+        // An explicit null format must surface a clear validation error rather than an NPE inside the
+        // CSR parser's format-selection logic.
         String certUuid = registerSyncRegistered();
         ClientCertificateSignRequestDto noFormat = new ClientCertificateSignRequestDto();
         noFormat.setRequest(generateCsrBase64());
@@ -348,6 +353,50 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions.assertNotNull(cert.getCertificateRequest(), "operator CSR should be attached to the registered placeholder");
         Mockito.verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+    }
+
+    @Test
+    void issuingTwoRegisteredCertsWithTheSameCsrSharesOneCertificateRequest() throws Exception {
+        // Get-or-create by fingerprint: an identical CSR attached to two registered placeholders must be
+        // shared, not duplicated (matching the canonical CSR-attach path).
+        String csr = generateCsrBase64();
+        UUID first = UUID.fromString(registerSyncRegistered());
+        UUID second = UUID.fromString(registerSyncRegistered());
+
+        ClientCertificateSignRequestDto req1 = new ClientCertificateSignRequestDto();
+        req1.setRequest(csr);
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, first.toString(), req1);
+        ClientCertificateSignRequestDto req2 = new ClientCertificateSignRequestDto();
+        req2.setRequest(csr);
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, second.toString(), req2);
+
+        UUID firstReq = certificateRepository.findByUuid(first).orElseThrow().getCertificateRequestUuid();
+        UUID secondReq = certificateRepository.findByUuid(second).orElseThrow().getCertificateRequestUuid();
+        Assertions.assertNotNull(firstReq);
+        Assertions.assertEquals(firstReq, secondReq, "an identical CSR must be shared across registered placeholders, not duplicated");
+    }
+
+    @Test
+    void addCertificateRequestToExistingRejectsNonRegisteredCertificate() throws Exception {
+        // Defense-in-depth: the public attach method must refuse a non-REGISTERED certificate.
+        Certificate requested = new Certificate();
+        requested.setState(CertificateState.REQUESTED);
+        requested.setRaProfile(raProfile);
+        requested = certificateRepository.save(requested);
+        UUID uuid = requested.getUuid();
+        ClientCertificateSignRequestDto req = new ClientCertificateSignRequestDto();
+        req.setRequest(generateCsrBase64());
+
+        Assertions.assertThrows(ValidationException.class, () -> certificateService.addCertificateRequestToExisting(uuid, req));
+    }
+
+    @Test
+    void approvalCreatedTransitionsRegisteredCertToPendingApproval() throws Exception {
+        // A registered placeholder issued under an issue-approval profile must enter PENDING_APPROVAL.
+        UUID certUuid = UUID.fromString(registerSyncRegistered());
+        clientOperationService.approvalCreatedAction(certUuid);
+        Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL, cert.getState());
     }
 
     @Test

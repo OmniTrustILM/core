@@ -1123,6 +1123,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
         }
         Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+        // Defense-in-depth: a CSR is attached only while completing a registered placeholder. The sole
+        // caller (issueExistingCertificate) already gates on this, but guard here too so this public method
+        // cannot overwrite the request of an ISSUED / REQUESTED / pending certificate.
+        if (certificate.getState() != CertificateState.REGISTERED) {
+            throw new ValidationException("A certificate signing request can only be attached to a REGISTERED certificate. Certificate: %s".formatted(certificate.toStringShort()));
+        }
 
         byte[] decodedCsr;
         try {
@@ -1134,12 +1140,17 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
         // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
-        // written from the CA response at issuance.
-        CertificateRequestEntity certificateRequestEntity = certificate.prepareCertificateRequest(signRequest.getFormat());
-        certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(decodedCsr));
-        certificateRequestEntity.setContent(signRequest.getRequest());
-        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
-        certificateRequestRepository.save(certificateRequestEntity);
+        // written from the CA response at issuance. Get-or-create by fingerprint, mirroring the canonical
+        // CSR-attach path: an identical CSR already stored is shared, not duplicated.
+        final String fingerprint = CertificateUtil.getThumbprint(decodedCsr);
+        CertificateRequestEntity certificateRequestEntity = certificateRequestRepository.findByFingerprint(fingerprint).orElse(null);
+        if (certificateRequestEntity == null) {
+            certificateRequestEntity = certificate.prepareCertificateRequest(signRequest.getFormat());
+            certificateRequestEntity.setFingerprint(fingerprint);
+            certificateRequestEntity.setContent(signRequest.getRequest());
+            setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
+            certificateRequestRepository.save(certificateRequestEntity);
+        }
 
         certificate.setCertificateRequest(certificateRequestEntity);
         certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());

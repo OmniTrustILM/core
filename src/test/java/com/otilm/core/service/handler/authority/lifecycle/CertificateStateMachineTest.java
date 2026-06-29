@@ -118,6 +118,19 @@ class CertificateStateMachineTest {
     }
 
     @Test
+    void registeredCertificateEntersPendingApprovalForIssueApproval() {
+        // REGISTERED -> PENDING_APPROVAL: issuing a registered placeholder under an issue-approval profile.
+        // approvalCreatedAction uses transitionAuditedExternally (the APPROVAL_REQUEST history is owned by
+        // the approval event handler), so the state mutates without a (duplicate) audit row.
+        Certificate cert = certWithState(CertificateState.REGISTERED);
+        sm.transitionAuditedExternally(cert, CertificateState.PENDING_APPROVAL);
+
+        assertEquals(CertificateState.PENDING_APPROVAL, cert.getState());
+        verify(certificateRepository).save(cert);
+        verify(eventHistoryService, never()).addEventHistory(any(), any(), any(), anyString(), anyString());
+    }
+
+    @Test
     void callerProvidedAuditDetailIsStored() {
         // The 5-arg overload carries a detail payload (e.g. serialized additionalInformation)
         // into the audit-history entry instead of the default empty detail.
@@ -125,8 +138,8 @@ class CertificateStateMachineTest {
         sm.transition(cert, CertificateState.FAILED, CertificateEvent.ISSUE, "boom",
             "{\"New Certificate UUID\":\"x\"}");
 
-        verify(eventHistoryService).addEventHistory(eq(cert.getUuid()), eq(CertificateEvent.ISSUE),
-            eq(CertificateEventStatus.FAILED), eq("boom"), eq("{\"New Certificate UUID\":\"x\"}"));
+        verify(eventHistoryService).addEventHistory(cert.getUuid(), CertificateEvent.ISSUE,
+            CertificateEventStatus.FAILED, "boom", "{\"New Certificate UUID\":\"x\"}");
     }
 
     @Test
@@ -155,6 +168,7 @@ class CertificateStateMachineTest {
     @Test
     void canTransitionReflectsTheTransitionTable() {
         assertTrue(sm.canTransition(CertificateState.REQUESTED, CertificateState.PENDING_ISSUE));
+        assertTrue(sm.canTransition(CertificateState.REGISTERED, CertificateState.PENDING_APPROVAL));
         assertFalse(sm.canTransition(CertificateState.REJECTED, CertificateState.REJECTED));
         assertFalse(sm.canTransition(CertificateState.REVOKED, CertificateState.ISSUED));
     }

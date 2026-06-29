@@ -386,6 +386,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector already accepted the registration (2xx/202); per the state-divergence rule local state
             // must NOT roll back — leave the cert PENDING_REGISTRATION so the poll or operator reconciles it.
+            // Record the divergence to cert-event history (as the sibling meta/issue/revoke paths do) so the
+            // audit trail explains why the cert is left PENDING_REGISTRATION.
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
+                    CertificateEventStatus.FAILED,
+                    "Connector accepted the registration but a local step failed; left in PENDING_REGISTRATION for reconciliation. Cause: " + e.getMessage(), "");
             throw e;
         } catch (ConnectorException e) {
             // Rejected before acceptance — no upstream work in flight, so the placeholder safely fails.
@@ -460,7 +465,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 new OperationSupport(CertificateOperationKind.ISSUE, true, async, async),
                 new OperationSupport(CertificateOperationKind.RENEW, true, async, async),
                 new OperationSupport(CertificateOperationKind.REVOKE, true, async, async),
-                new OperationSupport(CertificateOperationKind.REGISTER, register, register && async, register && async)
+                // REGISTER cancel is not advertised: determineCancelTarget handles only PENDING_ISSUE /
+                // PENDING_REVOKE, so cancelling a PENDING_REGISTRATION cert is not yet implemented.
+                new OperationSupport(CertificateOperationKind.REGISTER, register, register && async, false)
         );
         return new AvailableOperationsDto(operations);
     }
@@ -468,13 +475,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        // Only REQUESTED (issue approval) and ISSUED (revoke approval) can enter PENDING_APPROVAL.
+        // Only REQUESTED (issue approval), REGISTERED (issue approval for a registered placeholder)
+        // and ISSUED (revoke approval) can enter PENDING_APPROVAL.
         // A redelivered approval-created message for a certificate that already advanced past those
         // states is a no-op: without this guard the SM would reject the now-illegal transition and
         // fail the message. The APPROVAL_REQUEST history entry is owned by ApprovalRequestedEventHandler,
         // so the SM only gates and mutates the state here — transitionAuditedExternally avoids a
         // duplicate history row.
-        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.ISSUED) {
+        if (certificate.getState() != CertificateState.REQUESTED
+                && certificate.getState() != CertificateState.REGISTERED
+                && certificate.getState() != CertificateState.ISSUED) {
             logger.debug("Certificate {} is in state {}, not awaiting an approval request; skipping PENDING_APPROVAL transition",
                     certificateUuid, certificate.getState().getLabel());
             return;
@@ -1283,13 +1293,6 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
     }
 
-    /**
-     * Best-effort enqueue of an async status-poll row (due now) after a connector accepts an operation
-     * with HTTP 202. The calling {@code *Action} methods run with {@code Propagation.NOT_SUPPORTED}, so the
-     * {@code PENDING_*} transition has already committed in its own transaction by the time this runs — per the
-     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The write is
-     * idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
-     */
     /** Schedules an async status poll, reloading the certificate with the polling entity graph — for callers
      *  whose own load did not fetch the authority's connector interface (issue/renew/rekey/revoke).
      *  @return {@code true} iff a poll was scheduled. */
@@ -1319,8 +1322,9 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private boolean scheduleStatusPoll(Certificate certificate, CertificateOperation operation, BooleanSupplier pollable) {
         try {
             if (!pollable.getAsBoolean()) {
-                logger.debug("Authority for certificate {} does not advertise CERTIFICATE_STATUS_POLLING; "
-                        + "no poll scheduled (left PENDING for manual/out-of-band completion)", certificate.getUuid());
+                logger.debug("Authority for certificate {} is not pollable (not v3, or does not advertise "
+                        + "CERTIFICATE_STATUS_POLLING); no poll scheduled (left PENDING for manual/out-of-band completion)",
+                        certificate.getUuid());
                 return false;
             }
             pollWriter.schedule(certificate.getUuid(), operation, OffsetDateTime.now(ZoneOffset.UTC));
