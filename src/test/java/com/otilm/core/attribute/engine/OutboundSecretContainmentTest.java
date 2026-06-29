@@ -7,6 +7,7 @@ import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeC
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
@@ -148,5 +149,57 @@ class OutboundSecretContainmentTest {
     void allowsPlainResourceSimpleContentData() {
         ResourceSimpleContentData simple = new ResourceSimpleContentData(AttributeResource.AUTHORITY);
         assertDoesNotThrow(() -> containment.assertNoExpandedSecretOutbound(List.of(simple), new HashSet<>()));
+    }
+
+    @Test
+    void recordsNestedCredentialSecretThroughAllWrappers() {
+        // Deeply nested: ResourceSimpleContentData -> ResponseAttribute -> CredentialAttributeContentV2 ->
+        // CredentialAttributeContentData -> DataAttributeV2 -> SecretAttributeContentV2 -> SecretAttributeContentData.
+        // recordExpandedSecrets walks the whole graph (no early throw) so every wrapper-descent branch is exercised.
+        DataAttributeV2 inner = new DataAttributeV2();
+        inner.setName("pw");
+        inner.setContentType(AttributeContentType.SECRET);
+        inner.setContent(List.of(new SecretAttributeContentV2("r", new SecretAttributeContentData("deep-secret"))));
+        CredentialAttributeContentData cad = new CredentialAttributeContentData();
+        cad.setName("cred");
+        cad.setAttributes(List.of(inner));
+        ResponseAttributeV2 ra = new ResponseAttributeV2();
+        ra.setName("credAttr");
+        ra.setContent(List.of(new CredentialAttributeContentV2("r", cad)));
+        ResourceSimpleContentData blob = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
+        blob.setAttributes(List.of(ra));
+
+        Set<String> expandedSecrets = new HashSet<>();
+        containment.recordExpandedSecrets(blob, expandedSecrets);
+        assertTrue(expandedSecrets.contains("deep-secret"),
+                "a secret nested through credential/data wrappers must be recorded");
+    }
+
+    @Test
+    void allowsArrayOfHarmlessContent() {
+        Object[] response = new Object[]{new ResourceSimpleContentData(AttributeResource.AUTHORITY)};
+        assertDoesNotThrow(() -> containment.assertNoExpandedSecretOutbound(response, new HashSet<>()));
+    }
+
+    @Test
+    void rejectsBarePopulatedSecretAttributeContentData() {
+        Object response = List.of(new SecretAttributeContentData("bare-secret"));
+        assertThrows(OutboundSecretLeakException.class,
+                () -> containment.assertNoExpandedSecretOutbound(response, new HashSet<>()));
+    }
+
+    @Test
+    void nullResponseAndNullExpandedSetAreNoOps() {
+        assertDoesNotThrow(() -> containment.assertNoExpandedSecretOutbound(null, new HashSet<>()));
+        // null sink must short-circuit without NPE
+        assertDoesNotThrow(() -> containment.recordExpandedSecrets(
+                new ResourceSecretContentData("u", "n", new ApiKeySecretContent("x")), null));
+    }
+
+    @Test
+    void doesNotRecordResourceSecretContentDataWithNullContent() {
+        Set<String> expandedSecrets = new HashSet<>();
+        containment.recordExpandedSecrets(new ResourceSecretContentData(), expandedSecrets);
+        assertTrue(expandedSecrets.isEmpty(), "a bare secret reference (no inline content) records nothing");
     }
 }

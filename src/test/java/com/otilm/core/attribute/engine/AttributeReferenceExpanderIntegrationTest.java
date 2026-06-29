@@ -9,8 +9,14 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectConten
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Credential;
+import com.otilm.core.dao.entity.EntityInstanceReference;
+import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
+import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
@@ -40,6 +46,12 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
 
     @Autowired
     private CredentialRepository credentialRepository;
+    @Autowired
+    private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
+    @Autowired
+    private LocationRepository locationRepository;
 
     private Credential credential;
 
@@ -85,6 +97,46 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
         ResourceObjectContent element = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
         Assertions.assertNull(((ResourceSimpleContentData) element.getData()).getAttributes(),
                 "no blob may be set on the reference when the gate denies");
+    }
+
+    private RequestAttribute resourceRef(AttributeResource kind, UUID uuid) {
+        ResourceSimpleContentData ref = new ResourceSimpleContentData(kind);
+        ref.setUuid(uuid.toString());
+        List<BaseAttributeContentV3<?>> elements = new ArrayList<>();
+        elements.add(new ResourceObjectContent(null, ref));
+        return new RequestAttributeV3(UUID.randomUUID(), "ref", AttributeContentType.RESOURCE, elements);
+    }
+
+    @Test
+    void authorizedCallerExpandsAuthorityEntityAndLocationBlobs() throws Exception {
+        // The unit test mocks these loaders; this drives the REAL @ExternalAuthorization(KIND, DETAIL) bodies of
+        // AuthorityInstance/EntityInstance/Location getAuthorizedObjectAttributes through the expander.
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setName("it-authority");
+        authority.setKind("sample");
+        authority = authorityInstanceReferenceRepository.save(authority);
+
+        EntityInstanceReference entity = new EntityInstanceReference();
+        entity.setName("it-entity");
+        entity.setKind("sample");
+        entity = entityInstanceReferenceRepository.save(entity);
+
+        Location location = new Location();
+        location.setName("it-location");
+        location.setEntityInstanceReference(entity);
+        location = locationRepository.save(location);
+
+        RequestAttribute authRef = resourceRef(AttributeResource.AUTHORITY, authority.getUuid());
+        RequestAttribute entityRef = resourceRef(AttributeResource.ENTITY, entity.getUuid());
+        RequestAttribute locationRef = resourceRef(AttributeResource.LOCATION, location.getUuid());
+
+        expander.expandForCaller(List.of(authRef, entityRef, locationRef), new HashSet<>());
+
+        for (RequestAttribute attr : List.of(authRef, entityRef, locationRef)) {
+            ResourceObjectContent element = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
+            Assertions.assertInstanceOf(ResourceSimpleContentData.class, element.getData(),
+                    "each authorized reference must be expanded to its blob via the real DETAIL-guarded loader");
+        }
     }
 
     @Test
