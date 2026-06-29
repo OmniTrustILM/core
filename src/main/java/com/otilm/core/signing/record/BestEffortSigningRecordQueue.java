@@ -29,6 +29,8 @@ public class BestEffortSigningRecordQueue {
      * caller can account for the loss.
      */
     public int enqueueDropping(SigningRecord signingRecord) {
+        if (queue.offer(signingRecord))
+            return 0;
         List<String> evictedUuids = new ArrayList<>();
         while (!queue.offer(signingRecord)) {
             SigningRecord removed = queue.poll();
@@ -36,9 +38,7 @@ public class BestEffortSigningRecordQueue {
                 evictedUuids.add(removed.getUuid().toString());
             }
         }
-        if (!evictedUuids.isEmpty()) {
-            log.warn("BEST_EFFORT queue full; evicted {} record(s) {} to admit {}", evictedUuids.size(), evictedUuids, signingRecord.getUuid());
-        }
+        log.warn("BEST_EFFORT queue full; evicted {} record(s) {} to admit {}", evictedUuids.size(), evictedUuids, signingRecord.getUuid());
         return evictedUuids.size();
     }
 
