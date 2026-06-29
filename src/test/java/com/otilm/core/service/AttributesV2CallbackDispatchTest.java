@@ -19,9 +19,13 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -57,6 +61,10 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
 
     @MockitoSpyBean
     private ConnectorApiFactory connectorApiFactory;
@@ -283,5 +291,34 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
                 "lacking AUTHORITY:DETAIL on the scoped authority must fail the NG callback closed");
 
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
+    }
+
+    @Test
+    void ngTokenProfileRouteDispatchesWithBothNullInterfaceContext() throws Exception {
+        // TOKEN_PROFILE/CRYPTOGRAPHIC_KEY/LOCATION have no stored interface version (only authorities carry one), so
+        // the arm emits a both-null interface envelope. A dependsOn callback on this route must still dispatch — the
+        // interface-version fail-fast must not trip on the both-null shape, and the envelope omits connectorInterface.
+        TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setConnector(connector);
+        tokenInstance = tokenInstanceReferenceRepository.save(tokenInstance);
+
+        TokenProfile tokenProfile = new TokenProfile();
+        tokenProfile.setName("tp-ng");
+        tokenProfile.setTokenInstanceReference(tokenInstance);
+        tokenProfile = tokenProfileRepository.save(tokenProfile);
+
+        DataAttributeV2 ng = ngDataAttribute("ngTokenProfile");
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngTokenProfile");
+        req.setUuid(ng.getUuid());
+        callbackService.resourceCallback(Resource.TOKEN_PROFILE, tokenProfile.getUuid().toString(), req);
+
+        mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .withRequestBody(WireMock.notMatching("(?s).*\"connectorInterface\".*")));
     }
 }

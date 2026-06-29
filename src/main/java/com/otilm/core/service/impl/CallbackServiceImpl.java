@@ -363,7 +363,10 @@ public class CallbackServiceImpl implements CallbackExternalService {
                 // the definition declares dependsOn) is resolved below.
                 connector = tokenProfileService.getTokenProfileEntity(SecuredUUID.fromString(resourceUuid))
                         .getTokenInstanceReference().getConnector();
-                connectorInterface = ConnectorInterface.CRYPTOGRAPHY;
+                // No stored interface version for this route — only authorities carry a ConnectorInterfaceEntity, so
+                // unlike RA_PROFILE/CERTIFICATE there is no version to pair with a connectorInterface. Leave both unset
+                // (the connector-scoped envelope shape) rather than stamp a half-pair the dispatcher rejects; #1764
+                // wires the interface context when this NG route goes live.
                 break;
 
             case CRYPTOGRAPHIC_KEY:
@@ -373,7 +376,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                         resourceUuid
                                 )
                         ).getTokenInstanceReference().getConnector();
-                connectorInterface = ConnectorInterface.CRYPTOGRAPHY;
+                // See TOKEN_PROFILE: no stored interface version for this route, so leave the envelope's interface
+                // context unset (both-null) rather than stamp a half-pair the dispatcher rejects.
                 definitions = cryptographicKeyService.listCreateKeyAttributes(
                         null,
                         SecuredParentUUID.fromString(
@@ -392,7 +396,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                 )
                         );
                 connector = entityInstance.getConnector();
-                connectorInterface = ConnectorInterface.ENTITY;
+                // See TOKEN_PROFILE: no stored interface version for this route, so leave the envelope's interface
+                // context unset (both-null) rather than stamp a half-pair the dispatcher rejects.
                 ApiClientConnectorInfo locationConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
