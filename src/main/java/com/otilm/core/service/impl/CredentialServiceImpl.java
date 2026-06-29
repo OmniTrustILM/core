@@ -301,7 +301,7 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
         // a passing per-object check. The reference expander resolves credentials through THIS method only —
         // never the unguarded private getCredentialEntity/findByUuid nor the resource-level
         // loadFullCredentialData(List) (enforced by the ArchUnit fence test).
-        Credential credential = credentialRepository.findByUuid(objectUuid)
+        Credential credential = credentialRepository.findByUuid(objectUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Credential.class, objectUuid));
         ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
         data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.CREDENTIAL, credential.getUuid()));

@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * Raised when reference expansion cannot complete safely — currently only on depth-cap overflow.
  * <p>
- * Overflow is a loud failure by design (plan Q5): returning the unexpanded tail would let a bare object
+ * Overflow is a loud failure by design: returning the unexpanded tail would let a bare object
  * UUID flow to the connector instead of the resolved blob, which is a silent correctness/security defect.
  * The legitimate chain is shallow (scope blob -&gt; credential, depth 2); exceeding the cap signals either a
  * mis-modelled attribute graph or a crafted cycle the visited-set somehow missed.

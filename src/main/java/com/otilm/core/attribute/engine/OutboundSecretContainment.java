@@ -17,13 +17,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.Iterator;
 import java.util.Set;
 
 /**
- * Bounded outbound containment for callback responses (#1624 AC4 / D19, widened).
+ * Bounded outbound containment for callback responses.
  * <p>
  * Two complementary checks ensure stored secret material the expander materialized server-side never echoes back
  * to the FE through a connector's callback response:
@@ -44,9 +45,18 @@ public class OutboundSecretContainment {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboundSecretContainment.class);
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     private static final int MAX_WALK_DEPTH = 12;
+
+    /**
+     * The application's wire ObjectMapper. Using the managed bean (not a bespoke {@code new ObjectMapper()}) keeps
+     * the value-echo serialization byte-identical to what actually goes on the wire — a private mapper could
+     * serialize a secret differently (and miss an echo) or fail to serialize a type the wire mapper handles.
+     */
+    private final ObjectMapper objectMapper;
+
+    public OutboundSecretContainment(@Qualifier("jacksonObjectMapper") ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * Record the secret leaf values materialized by expanding {@code blob}, so a later echo of them in the
@@ -62,16 +72,28 @@ public class OutboundSecretContainment {
         if (expandedSecrets == null) {
             return;
         }
-        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets));
+        // Record path is best-effort (failClosedOnDepth=false): the value-echo + structural reject are the gates.
+        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
     }
 
     private void recordIfSecretLeaf(Object node, Set<String> sink) {
         if (node instanceof ResourceSecretContentData secret && secret.getContent() != null) {
-            JsonNode tree = objectMapper.valueToTree(secret.getContent());
-            // Drop the @JsonTypeInfo discriminator ("type": apiKey/basicAuth/...): it is a low-entropy type tag,
-            // not secret material, and recording it would false-positive the value-echo check on benign responses.
+            JsonNode tree;
+            try {
+                tree = objectMapper.valueToTree(secret.getContent());
+            } catch (RuntimeException e) {
+                // Recording is best-effort; the (depth-unbounded) value-echo scan + structural check are the
+                // safety nets. A serialization failure here must not abort a legitimate outbound expansion.
+                logger.warn("Could not serialize expanded secret content for echo recording; skipping", e);
+                return;
+            }
+            // Drop low-entropy, non-secret fields so the value-echo check cannot false-positive on a benign
+            // response that legitimately echoes an identifier: the @JsonTypeInfo discriminator ("type"), the
+            // basic-auth username, and the keystore type tag. The actual secret fields (content/password/...) stay.
             if (tree instanceof ObjectNode obj) {
                 obj.remove("type");
+                obj.remove("username");
+                obj.remove("keyStoreType");
             }
             collectScalarStrings(tree, sink);
         } else if (node instanceof SecretAttributeContentData data) {
@@ -98,12 +120,20 @@ public class OutboundSecretContainment {
         }
         // Structural: walk the response object graph (incl. typed DTO wrappers, not just collections) and reject
         // any secret-bearing shape — same traversal as recordExpandedSecrets, so a wrapped secret cannot slip.
-        walkSecretGraph(response, 0, this::rejectIfSecretShape);
+        // failClosedOnDepth=true: a response too deeply nested to fully inspect is refused, not waved through.
+        walkSecretGraph(response, 0, this::rejectIfSecretShape, true);
 
         if (expandedSecrets == null || expandedSecrets.isEmpty()) {
             return;
         }
-        JsonNode tree = objectMapper.valueToTree(response);
+        JsonNode tree;
+        try {
+            tree = objectMapper.valueToTree(response);
+        } catch (RuntimeException e) {
+            // Cannot verify the response can't carry an echoed secret -> refuse (fail closed), never forward unchecked.
+            logger.warn("Callback response could not be serialized for secret-echo verification; refusing", e);
+            throw new OutboundSecretLeakException("Callback response could not be verified for secret containment");
+        }
         if (containsAnyScalar(tree, expandedSecrets)) {
             logger.warn("Callback response echoes a server-expanded secret value; refusing to forward to FE");
             throw new OutboundSecretLeakException(
@@ -145,39 +175,51 @@ public class OutboundSecretContainment {
      * ResourceSimpleContentData / Credential + Secret content) that a Jackson value-tree walk cannot type-detect.
      * Both the value-recording and structural-rejection checks share this traversal so they cannot diverge.
      */
-    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor) {
-        if (node == null || depth > MAX_WALK_DEPTH) {
+    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor,
+                                 boolean failClosedOnDepth) {
+        if (node == null) {
+            return;
+        }
+        if (depth > MAX_WALK_DEPTH) {
+            // The structural check fails CLOSED on overflow: a response too deep to fully inspect must be refused,
+            // matching ReferenceExpansionException.depthExceeded. The record path passes false (best-effort; the
+            // unbounded value-echo scan is its safety net) so a deep legitimate expansion is never spuriously aborted.
+            if (failClosedOnDepth) {
+                logger.warn("Callback response nests deeper than {} wrappers; too deep to verify, refusing", MAX_WALK_DEPTH);
+                throw new OutboundSecretLeakException(
+                        "Callback response too deeply nested to verify for secret containment");
+            }
             return;
         }
         visitor.accept(node);
 
         if (node instanceof Iterable<?> iterable) {
-            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor));
+            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
         } else if (node instanceof Object[] array) {
             for (Object o : array) {
-                walkSecretGraph(o, depth + 1, visitor);
+                walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth);
             }
         } else if (node instanceof java.util.Map<?, ?> map) {
-            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor));
+            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
         } else if (node instanceof AttributeCallbackResponseDto response) {
-            walkSecretGraph(response.getContent(), depth + 1, visitor);
-            walkSecretGraph(response.getAttributes(), depth + 1, visitor);
+            walkSecretGraph(response.getContent(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(response.getAttributes(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof ResourceObjectContent resourceObjectContent) {
-            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor);
+            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof ResourceSimpleContentData simple) {
-            walkSecretGraph(simple.getAttributes(), depth + 1, visitor);
+            walkSecretGraph(simple.getAttributes(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof ResponseAttribute responseAttribute) {
-            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor);
+            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof BaseAttribute baseAttribute) {
             // The response 'attributes' arm is List<BaseAttribute> — Data/Metadata/Custom all expose content via
             // the universal getContent(); descend the base type so a secret nested in any of them is reached.
-            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor);
+            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentV2 credential) {
-            walkSecretGraph(credential.getData(), depth + 1, visitor);
+            walkSecretGraph(credential.getData(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentData credential) {
-            walkSecretGraph(credential.getAttributes(), depth + 1, visitor);
+            walkSecretGraph(credential.getAttributes(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof SecretAttributeContentV2 secret) {
-            walkSecretGraph(secret.getData(), depth + 1, visitor);
+            walkSecretGraph(secret.getData(), depth + 1, visitor, failClosedOnDepth);
         }
     }
 

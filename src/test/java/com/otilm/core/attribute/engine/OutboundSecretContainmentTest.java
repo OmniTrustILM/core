@@ -29,7 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** D19 (widened) outbound containment: value-echo + structural secret-shape rejection. */
 class OutboundSecretContainmentTest {
 
-    private final OutboundSecretContainment containment = new OutboundSecretContainment();
+    private final OutboundSecretContainment containment =
+            new OutboundSecretContainment(new com.fasterxml.jackson.databind.ObjectMapper());
 
     @Test
     void recordsAndRejectsValueEchoOfExpandedSecret() {
@@ -201,5 +202,30 @@ class OutboundSecretContainmentTest {
         Set<String> expandedSecrets = new HashSet<>();
         containment.recordExpandedSecrets(new ResourceSecretContentData(), expandedSecrets);
         assertTrue(expandedSecrets.isEmpty(), "a bare secret reference (no inline content) records nothing");
+    }
+
+    @Test
+    void recordsSecretFieldButNotLowEntropyIdentifier() {
+        // Basic-auth: password is the secret, username is a low-entropy identifier. Recording the username as an
+        // echo needle would false-positive a benign response that legitimately echoes the username.
+        Set<String> expandedSecrets = new HashSet<>();
+        containment.recordExpandedSecrets(
+                new ResourceSecretContentData("u", "n",
+                        new com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent("alice", "s3cr3t-pw")),
+                expandedSecrets);
+        assertTrue(expandedSecrets.contains("s3cr3t-pw"), "the password is the secret and must be recorded");
+        assertEquals(Set.of("s3cr3t-pw"), expandedSecrets, "the username must NOT be recorded as an echo needle");
+    }
+
+    @Test
+    void structuralCheckFailsClosedWhenResponseTooDeeplyNested() {
+        // A secret-bearing shape buried beyond MAX_WALK_DEPTH must be REFUSED (fail-closed), not waved through.
+        Object deep = new ResourceSecretContentData("u", "n", new ApiKeySecretContent("buried-secret"));
+        for (int i = 0; i < 13; i++) {
+            deep = List.of(deep);
+        }
+        final Object payload = deep;
+        assertThrows(OutboundSecretLeakException.class,
+                () -> containment.assertNoExpandedSecretOutbound(payload, new HashSet<>()));
     }
 }

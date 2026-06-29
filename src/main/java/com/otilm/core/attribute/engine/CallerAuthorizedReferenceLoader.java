@@ -11,7 +11,7 @@ import com.otilm.core.security.authz.SecuredUUID;
  * <p>
  * The argument is always a {@link SecuredUUID} so the implementation's {@code @ExternalAuthorization(<KIND>, DETAIL)}
  * aspect resolves and authorizes the concrete object before any blob is read. This typed contract is the
- * fail-open-prevention device (plan Q3-device-1): the registry can only hold values of this type, so a future
+ * fail-open-prevention device: the registry can only hold values of this type, so a future
  * kind cannot be wired to a non-{@code SecuredUUID}, non-DETAIL finder by accident.
  */
 @FunctionalInterface

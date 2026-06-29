@@ -7,7 +7,6 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import org.slf4j.Logger;
@@ -33,8 +32,8 @@ import java.util.UUID;
  * <p>
  * The aspect reads the ambient Spring {@code SecurityContext}; there is no API to pass a context in, so there is
  * deliberately no {@code SecurityContext} parameter, and this class performs <strong>no</strong>
- * {@code setAuthentication} / principal swap of any kind (plan N3 invariant — kept closed; asserted by
- * {@code AttributeReferenceExpanderIntegrationTest.expanderDoesNotMutateAmbientPrincipal}).
+ * {@code setAuthentication} / principal swap of any kind (invariant: the expander never swaps the ambient
+ * principal — asserted by {@code AttributeReferenceExpanderIntegrationTest.expanderDoesNotMutateAmbientPrincipal}).
  * <p>
  * <strong>Single-level only today.</strong> Only the references directly present in the passed attribute list
  * are resolved (depth 0). Resolving references nested <em>inside</em> an already-loaded blob (depth 1+) is not
@@ -47,10 +46,10 @@ import java.util.UUID;
  * by-UUID primitives ({@code CredentialServiceImpl.getCredentialEntity}/{@code findByUuid},
  * {@code CredentialService.loadFullCredentialData(List)}, {@code ResourceService.loadResourceObjectContentData(List)},
  * {@code ConnectorRequestAttributesBuilder}). Those primitives are public and pervasively reachable, so a
- * package-private fence is impossible (plan-review P1); the boundary is carried by a type-level ArchUnit
+ * package-private fence is impossible; the boundary is carried by a type-level ArchUnit
  * reachability test ({@code AttributeReferenceExpanderFenceArchTest}). That test is the load-bearing fence.
  *
- * <h2>DEFERRED — operation mode (Task 3)</h2>
+ * <h2>DEFERRED — operation mode</h2>
  * The operation path (authority-v3 op-path wiring through a fenced, non-per-object loader) is intentionally
  * NOT implemented here. See {@code #expandViaOperationLoader} placeholder below and the follow-up PR. This
  * facility slice ships callback mode only.
@@ -64,7 +63,7 @@ public class AttributeReferenceExpander {
      * Max reference-chain depth for the (not-yet-active) nested-blob recursion. Today {@link #attributesOf}
      * returns empty, so expansion is single-level only and this cap is never reached at runtime; it and the
      * cross-frame cycle guard are kernel-tested ({@link ReferenceTraversal}) scaffolding that becomes live when
-     * the operation-path follow-up implements nested resolution. Overflow throws (Q5), never silently truncates.
+     * the operation-path follow-up implements nested resolution. Overflow throws, never silently truncates.
      */
     static final int MAX_DEPTH = 3;
 
@@ -114,10 +113,17 @@ public class AttributeReferenceExpander {
             return;
         }
         AttributeResource kind = ref.getResource();
-        UUID uuid = UUID.fromString(ref.getUuid());
+        final UUID uuid;
+        try {
+            uuid = UUID.fromString(ref.getUuid());
+        } catch (IllegalArgumentException e) {
+            // The reference uuid is client/connector-supplied; a malformed value is a validation error (4xx),
+            // not an unchecked 500. Echoing the bad value is safe — it is the caller's own input.
+            throw new AttributeException("Malformed RESOURCE reference UUID: " + ref.getUuid());
+        }
 
         if (!ReferenceTraversal.shouldDescend(kind, uuid, visited)) {
-            return; // already expanded on this call (cycle guard) — Q6
+            return; // already expanded on this call (cycle guard)
         }
         if (ReferenceTraversal.exceedsDepth(depth, MAX_DEPTH)) {
             throw ReferenceExpansionException.depthExceeded(kind, uuid, MAX_DEPTH);
@@ -166,22 +172,20 @@ public class AttributeReferenceExpander {
      * operation-path follow-up's job. Until then a reference nested inside a loaded blob stays a bare reference.
      */
     private static List<RequestAttribute> attributesOf(ResourceObjectContentData blob) {
-        if (!(blob instanceof ResourceSimpleContentData simple) || simple.getAttributes() == null) {
-            return List.of();
-        }
+        // Nested-blob resolution is deferred (single-level expansion only today): always empty. Real extraction
+        // returns with the operation-path follow-up; see the Javadoc above.
         return List.of();
     }
 
     // ---------------------------------------------------------------------------------------------
-    // DEFERRED to the operation-path PR (Task 3) — do NOT wire the 8 AuthorityProviderV3Adapter callsites.
+    // DEFERRED to the operation-path follow-up — do NOT wire the AuthorityProviderV3Adapter callsites here.
     //
     // Operation mode must resolve through a fenced loader carrying NO @ExternalAuthorization and performing NO
     // setAuthentication (it runs under the operation path's existing principal). The live operation primitive is
-    // the public ConnectorRequestAttributesBuilder (plan-review P4); the safety rests on extending the ArchUnit
-    // fence to cover the operation entrypoint, NOT on a new unguarded twin. Until that PR:
+    // the public ConnectorRequestAttributesBuilder; safety rests on extending the ArchUnit fence to cover the
+    // operation entrypoint, NOT on a new unguarded twin. Until that follow-up:
     //   - no expandViaOperationLoader is exposed,
     //   - no adapter callsite is changed,
     //   - the v2-adapter-does-not-expand / noDoubleExpansion / protocol-principal regression tests live there.
-    // See ingest/plans-v2/1624-...-plan-v2.md §"Task 3" and plan-review.md P2/P4.
     // ---------------------------------------------------------------------------------------------
 }

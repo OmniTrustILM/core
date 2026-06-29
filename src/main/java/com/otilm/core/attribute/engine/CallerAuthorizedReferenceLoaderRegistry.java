@@ -11,7 +11,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Typed {@code AttributeResource -> SecuredUUID-guarded loader} registry (plan Q3-device-1). Callback-mode
+ * Typed {@code AttributeResource -> SecuredUUID-guarded loader} registry. Callback-mode
  * expansion resolves <strong>only</strong> through this map, and every value is a {@link CallerAuthorizedReferenceLoader}
  * — i.e. a per-object {@code @ExternalAuthorization(<KIND>, DETAIL)} entrypoint taking a {@code SecuredUUID}.
  * <p>

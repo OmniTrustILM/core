@@ -751,13 +751,15 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Override
-    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL, parentResource = Resource.ENTITY, parentAction = ResourceAction.DETAIL)
+    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL)
     public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
-        // LOCATION:DETAIL is object-scoped to objectUuid (the per-object gate, the primary control). NOTE: unlike
-        // the sibling guards (getLocation/editLocation), this loader takes no SecuredParentUUID, so the parent
-        // ENTITY:DETAIL check is resource-level here, not bound to this location's owning entity. Tightening it to
-        // per-entity scope needs the parent uuid threaded through the loader contract — deferred to the op-path PR.
-        Location location = locationRepository.findByUuid(objectUuid)
+        // Object-scoped LOCATION:DETAIL on objectUuid is the per-object gate (consistent with the sibling
+        // Credential/Authority/Entity loaders, which likewise carry no parent). No parent (ENTITY) annotation is
+        // declared: the loader contract carries only the location uuid (no SecuredParentUUID), so a parent
+        // annotation here would be evaluated resource-level — an unscoped check that reads as enforcement it
+        // cannot provide. Per-entity parent scoping would require threading the owning-entity uuid through the
+        // loader contract; that belongs with the operation-path follow-up.
+        Location location = locationRepository.findByUuid(objectUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
         ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.LOCATION);
         data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.LOCATION, location.getUuid()));

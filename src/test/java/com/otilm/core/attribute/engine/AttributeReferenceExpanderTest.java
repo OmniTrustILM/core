@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -75,6 +76,19 @@ class AttributeReferenceExpanderTest {
     }
 
     // ---- AC1: authorized expansion -------------------------------------------------------------
+
+    @Test
+    void malformedReferenceUuidFailsAsValidationNotServerError() {
+        // A client/connector-supplied malformed reference uuid must surface as AttributeException (4xx), not a
+        // raw IllegalArgumentException (unchecked 500).
+        ResourceSimpleContentData ref = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
+        ref.setUuid("not-a-uuid");
+        List<BaseAttributeContentV3<?>> elements = new ArrayList<>();
+        elements.add(new ResourceObjectContent(null, ref));
+        RequestAttribute attr = new RequestAttributeV3(UUID.randomUUID(), "ref", AttributeContentType.RESOURCE, elements);
+
+        assertThrows(AttributeException.class, () -> expander.expandForCaller(List.of(attr), expandedSecrets));
+    }
 
     @Test
     void expandsCredentialReferenceForAuthorizedCaller() throws Exception {
