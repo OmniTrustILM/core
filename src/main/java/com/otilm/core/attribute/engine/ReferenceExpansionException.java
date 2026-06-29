@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.auth.AttributeResource;
 
 import java.util.UUID;
@@ -12,7 +13,7 @@ import java.util.UUID;
  * The legitimate chain is shallow (scope blob -&gt; credential, depth 2); exceeding the cap signals either a
  * mis-modelled attribute graph or a crafted cycle the visited-set somehow missed.
  */
-public class ReferenceExpansionException extends RuntimeException {
+public class ReferenceExpansionException extends RuntimeException implements PlatformException {
 
     public ReferenceExpansionException(String message) {
         super(message);
