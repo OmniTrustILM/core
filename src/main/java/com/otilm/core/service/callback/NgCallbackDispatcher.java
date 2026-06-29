@@ -121,6 +121,14 @@ public class NgCallbackDispatcher {
             response = connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, refreshedEnvelope);
         }
 
+        // The MQ/proxy transport can hand back a null body on an empty 2xx (the REST client's requireBody guards
+        // against this, the MQ one does not). Surface it as a clean error rather than NPE at the caller's
+        // response.getContent() (which would become an opaque 500 on a successful-but-empty connector reply).
+        if (response == null) {
+            throw new ValidationException(ValidationError.create(
+                    "Connector returned an empty attribute-callback response"));
+        }
+
         // Fail-closed leak gate (#1624) runs BEFORE any ingest/commit: a connector must not echo back a secret
         // value Core expanded server-side, nor carry a secret-bearing shape. Rejecting first means a violating
         // response never has its child definitions persisted (handleResponseArms commits to the registry).
@@ -130,6 +138,16 @@ public class NgCallbackDispatcher {
     }
 
     private AttributeCallbackRequestDto buildEnvelope(NgDispatchContext context, RequestAttributeCallback callback) {
+        // connectorInterface and interfaceVersion are a pair (the envelope marks interfaceVersion @NotBlank). The
+        // connector-scoped entrypoints legitimately stamp neither; a form-context scope arm that stamps the interface
+        // but not the version would emit an envelope omitting the required version (NON_NULL drops it). Fail fast
+        // rather than ship a malformed envelope a conformant connector silently rejects.
+        if (context.connectorInterface() != null
+                && (context.interfaceVersion() == null || context.interfaceVersion().isBlank())) {
+            throw new ValidationException(ValidationError.create(
+                    "NG callback envelope stamps connectorInterface " + context.connectorInterface()
+                            + " but no interfaceVersion; the scope arm must stamp both or neither"));
+        }
         BaseAttribute definition = context.definition();
         AttributeCallbackRequestDto envelope = new AttributeCallbackRequestDto();
         envelope.setConnectorInterface(context.connectorInterface());

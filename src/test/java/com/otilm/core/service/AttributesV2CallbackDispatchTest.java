@@ -7,6 +7,7 @@ import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -117,7 +118,7 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
     }
 
     @Test
-    void bothContextAndDependsOnPrefersLegacy_neverHitsV2Endpoint() throws AttributeException, NotFoundException, ConnectorException {
+    void callbackContextOnly_usesLegacyEndpoint() throws AttributeException, NotFoundException, ConnectorException {
         // A definition with both set is rejected at ingest; route the test through a callbackContext-only def to
         // assert the legacy endpoint (NOT /v2/attributes/callback) is used whenever callbackContext is present.
         DataAttributeV2 legacy = ngDataAttribute("legacyAttr");
@@ -245,5 +246,42 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
 
         mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
                 .withRequestBody(matchingJsonPath("$.connectorInterface", WireMock.equalTo("authority"))));
+    }
+
+    @Test
+    void ngScopeChainFailsClosedWhenParentDetailDenied() throws Exception {
+        // The NG scope chain authorizes each scope PARENT object per the calling user (<KIND>:DETAIL), not only the
+        // credential references nested inside it. An operator with CONNECTOR:LIST but lacking AUTHORITY:DETAIL on the
+        // scoped authority must fail closed: AccessDeniedException, and NO connector POST may fire (no scope blob
+        // escapes outbound). Guards the fail-closed wiring through the dispatch path against a future try/catch.
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setConnectorUuid(connector.getUuid());
+        iface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        iface.setVersion("v3");
+        connectorInterfaceRepository.save(iface);
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setName("denied-authority");
+        authority.setKind("ApiKey");
+        authority.setConnector(connector);
+        authority.setConnectorInterface(iface);
+        authorityInstanceReferenceRepository.save(authority);
+
+        DataAttributeV2 ng = ngDataAttribute("ngDenied");
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL);
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngDenied");
+        req.setUuid(ng.getUuid());
+
+        Assertions.assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> callbackService.resourceCallback(Resource.RA_PROFILE, authority.getUuid().toString(), req),
+                "lacking AUTHORITY:DETAIL on the scoped authority must fail the NG callback closed");
+
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
     }
 }

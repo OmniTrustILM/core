@@ -146,6 +146,32 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
+    void nullConnectorResponseIsRejectedAsValidationNotNpe() throws Exception {
+        // The MQ/proxy transport can return a null body on an empty 2xx (unlike the REST client's requireBody guard).
+        // A null response must surface as a clean ValidationException, not an NPE/500 at the caller's response.getContent().
+        Mockito.when(client.callback(any(), any())).thenReturn(null);
+
+        assertThrows(ValidationException.class, () ->
+                dispatcher.dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>()));
+    }
+
+    @Test
+    void connectorInterfaceWithoutInterfaceVersionIsRejectedBeforeDispatch() {
+        // A scope arm that stamps connectorInterface but no interfaceVersion would emit an envelope omitting the
+        // @NotBlank interfaceVersion (NON_NULL drops it). Fail fast before the connector POST rather than ship it.
+        DataAttributeV2 def = new DataAttributeV2();
+        def.setUuid(UUID.randomUUID().toString());
+        def.setName("ngAttr");
+        def.setContentType(AttributeContentType.STRING);
+        NgCallbackDispatcher.NgDispatchContext bad = new NgCallbackDispatcher.NgDispatchContext(
+                def, com.otilm.api.model.client.connector.v2.ConnectorInterface.CRYPTOGRAPHY, null, List.of(), List.of());
+
+        assertThrows(ValidationException.class, () ->
+                dispatcher.dispatchNgCallback(connector, bad, new RequestAttributeCallback(), new HashSet<>()));
+        Mockito.verifyNoInteractions(client);
+    }
+
+    @Test
     void childIngestFailureDoesNotLeakRawRuntimeMessageToTheWire() throws Exception {
         AttributeCallbackResponseDto response = new AttributeCallbackResponseDto();
         DataAttributeV2 child = new DataAttributeV2();
