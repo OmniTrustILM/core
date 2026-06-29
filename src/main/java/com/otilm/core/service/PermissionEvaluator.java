@@ -42,6 +42,13 @@ public interface PermissionEvaluator {
     void authorityInstance(SecuredUUID uuid) throws NotFoundException;
 
     /**
+     * Function to evaluate ENTITY:DETAIL permission for an Entity Instance.
+     * @param uuid UUID of the entity instance
+     * @throws NotFoundException when the entity instance with the requested UUID is not found
+     */
+    void entityInstance(SecuredUUID uuid) throws NotFoundException;
+
+    /**
      * Function to evaluate the permission for list of token profiles
      * @param uuids UUIDs of the token profile
      */
