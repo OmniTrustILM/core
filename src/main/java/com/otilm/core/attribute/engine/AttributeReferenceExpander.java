@@ -4,7 +4,6 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
@@ -26,7 +25,7 @@ import java.util.UUID;
  * upstream without holding the credential material itself.
  *
  * <h2>Callback mode — the only mode implemented here</h2>
- * {@link #expandForCaller(List)} authorizes the <em>ambient calling user</em> per referenced object through the
+ * {@link #expandForCaller(List, Set)} authorizes the <em>ambient calling user</em> per referenced object through the
  * resource's object-scoped {@code @ExternalAuthorization(<KIND>, DETAIL)} guarded entrypoint (a {@link SecuredUUID}
  * argument the auth aspect resolves the concrete object from). It <strong>fails closed</strong>: any
  * {@code AccessDeniedException} from a DETAIL gate propagates and aborts the whole expansion — no partial blob is
@@ -35,7 +34,7 @@ import java.util.UUID;
  * The aspect reads the ambient Spring {@code SecurityContext}; there is no API to pass a context in, so there is
  * deliberately no {@code SecurityContext} parameter, and this class performs <strong>no</strong>
  * {@code setAuthentication} / principal swap of any kind (plan N3 invariant — kept closed; asserted by
- * {@code expanderInvokesNoSetAuthentication}).
+ * {@code AttributeReferenceExpanderIntegrationTest.expanderDoesNotMutateAmbientPrincipal}).
  * <p>
  * <strong>Single-level only today.</strong> Only the references directly present in the passed attribute list
  * are resolved (depth 0). Resolving references nested <em>inside</em> an already-loaded blob (depth 1+) is not
