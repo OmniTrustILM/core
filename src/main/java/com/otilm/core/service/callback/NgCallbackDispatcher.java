@@ -32,18 +32,18 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * #1622 — outbound NG attribute-callback dispatcher.
+ * Outbound NG attribute-callback dispatcher.
  *
  * <p>This is a <strong>separate collaborator bean</strong>, by design. {@link com.otilm.core.service.impl.CallbackServiceImpl}
  * is class-level {@code @Transactional}; if the dispatch were a private method on it, the
  * {@code NOT_SUPPORTED} suspension would be a self-invocation no-op (Spring AOP skips the proxy) and the
  * connector HTTP call would run inside the ambient transaction — exactly the "don't hold a tx across an
- * external call" violation core CLAUDE.md forbids. Crossing this proxy boundary makes the suspension real.
+ * external call" violation we forbid. Crossing this proxy boundary makes the suspension real.
  *
  * <p>{@link #dispatchNgCallback} runs with no ambient transaction: it builds the
  * {@link AttributeCallbackRequestDto} envelope, POSTs it via the v2 client, and only then opens a short
  * explicit transaction for any registry ingest the response requires. On {@code ATTRIBUTE_DEFINITION_NOT_FOUND}
- * it refreshes the missed definition exactly once and retries the dispatch a single time (OQ-5).
+ * it refreshes the missed definition exactly once and retries the dispatch a single time.
  */
 @Component
 public class NgCallbackDispatcher {
@@ -72,7 +72,7 @@ public class NgCallbackDispatcher {
     }
 
     /**
-     * Envelope inputs assembled by #1621's scope resolver and the dispatch ladder. Core stamps
+     * Envelope inputs assembled by the scope resolver and the dispatch ladder. Core stamps
      * {@code connectorInterface}/{@code interfaceVersion} from the form context.
      *
      * @param definition        the resolved attribute definition (carries attributeUuid + name)
@@ -129,7 +129,7 @@ public class NgCallbackDispatcher {
                     "Connector returned an empty attribute-callback response"));
         }
 
-        // Fail-closed leak gate (#1624) runs BEFORE any ingest/commit: a connector must not echo back a secret
+        // Fail-closed leak gate runs BEFORE any ingest/commit: a connector must not echo back a secret
         // value Core expanded server-side, nor carry a secret-bearing shape. Rejecting first means a violating
         // response never has its child definitions persisted (handleResponseArms commits to the registry).
         outboundContainment.assertNoExpandedSecretOutbound(response, expandedSecrets);
@@ -165,7 +165,7 @@ public class NgCallbackDispatcher {
     /**
      * The {@code attributes} arm of an NG response carries child definitions to ingest (the NG analogue of
      * the legacy GROUP post-process). Unlike the legacy {@code processGroupAttributes}, ingest failures are
-     * NOT swallowed — a failed ingest is surfaced so callers cannot silently proceed on stale state (R5).
+     * NOT swallowed — a failed ingest is surfaced so callers cannot silently proceed on stale state.
      */
     private void handleResponseArms(UUID connectorUuid, AttributeCallbackResponseDto response) throws ValidationException {
         if (response == null || response.getAttributes() == null || response.getAttributes().isEmpty()) {
@@ -179,7 +179,7 @@ public class NgCallbackDispatcher {
         } catch (AttributeException | RuntimeException e) {
             transactionManager.rollback(tx);
             // Never forward the raw message: a DataIntegrityViolationException (or similar) can carry SQL/column
-            // fragments to the wire (core CLAUDE.md "Don't leak runtime details to the wire").
+            // fragments to the wire.
             logger.debug("Failed to ingest NG callback child definitions: {}", e.getMessage());
             throw new ValidationException(ValidationError.create(
                     "Callback child attribute definitions could not be ingested for connector " + connectorUuid));

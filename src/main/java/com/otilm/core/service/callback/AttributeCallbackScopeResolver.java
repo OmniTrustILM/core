@@ -31,7 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * #1621 Task 5 — table-driven scope-chain resolver for NG attribute callbacks.
+ * Table-driven scope-chain resolver for NG attribute callbacks.
  *
  * <p>Replaces the hand-coded resource→object mapping with a table {@code Map<Resource, walker>}: each scoped
  * resource resolves to an ordered (parent-first) chain of scope objects, and each scope object is turned into
@@ -151,7 +151,7 @@ public class AttributeCallbackScopeResolver {
                         .connector(step.connectorUuid())
                         .build());
         // Per-caller, per-object authorization; mutates the list in place, expanding credential references. The
-        // shared expandedSecrets accumulator lets the dispatcher reject a connector echoing any of these back (#1624).
+        // shared expandedSecrets accumulator lets the dispatcher reject a connector echoing any of these back.
         expander.expandForCaller(attributes, expandedSecrets);
 
         ScopedAttributes scoped = new ScopedAttributes();

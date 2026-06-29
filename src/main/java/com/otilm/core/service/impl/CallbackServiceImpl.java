@@ -176,7 +176,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
         // NG (dependsOn) dispatch: routed only when the definition declares a dependsOn callback and carries no
         // legacy callbackContext. It is checked BEFORE the legacy callback validation because the NG shape has no
         // callbackContext/callbackMethod (which AttributeDefinitionUtils.validateCallback requires); the NG
-        // declaration is validated at ingest instead (#1622 Task 4b). Both-set is rejected at ingest, so the
+        // declaration is validated at ingest instead. Both-set is rejected at ingest, so the
         // callbackContext == null conjunct here is defensive. Legacy callbacks fall through unchanged.
         if (isNgCallback(attributeCallback)) {
             return dispatchNg(connector, attribute, callback, scopeResource, scopeResourceUuid, connectorInterface, interfaceVersion);
@@ -239,7 +239,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
 
     private BaseAttribute getBaseAttributeFromExistingDefinition(RequestAttributeCallback callback, UUID connectorUuid) throws NotFoundException {
         // Prefer the referenced attributeUuid when it actually identifies a stored (attributeUuid, name) row: a
-        // non-unique (type, connector, name) must not silently pick the wrong row on the initial dispatch (C6).
+        // non-unique (type, connector, name) must not silently pick the wrong row on the initial dispatch.
         // Fall back to deterministic name-only resolution when no uuid is given OR the uuid does not match a row
         // (RequestAttributeCallback.uuid is overloaded — some legacy callers put the connector uuid there).
         String name = callback.getName();
@@ -295,7 +295,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
             throws NotFoundException, ConnectorException, AttributeException {
         // The scope chain is resolved HERE (not in resourceCallback) so legacy callbacks never pay its per-object
         // DETAIL authorization. One accumulator spans the scope chain + currentAttributes expansion so the
-        // dispatcher can reject a connector echoing any server-expanded secret back toward the FE (#1624 containment).
+        // dispatcher can reject a connector echoing any server-expanded secret back toward the FE.
         Set<String> expandedSecrets = new HashSet<>();
         List<ScopedAttributes> contextAttributes = scopeResource == null
                 ? List.of()
@@ -345,7 +345,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
             case CERTIFICATE:
                 // Issuance scope (NG-only): the FE issuance form sends (CERTIFICATE, raProfile). Resolve the
                 // connector via the raProfile -> authority chain, consistent with the scope walker
-                // (walkCertificateIssuance). Inert until FE #1764; the scope chain is resolved by the NG path below.
+                // (walkCertificateIssuance). Inert until the FE issuance form is wired; the scope chain is resolved by the NG path below.
                 RaProfile issuanceRaProfile = raProfileRepository.findByUuid(UUID.fromString(resourceUuid))
                         .orElseThrow(() -> new NotFoundException(RaProfile.class, resourceUuid));
                 AuthorityInstanceReference issuanceAuthority = issuanceRaProfile.getAuthorityInstanceReference();
@@ -365,8 +365,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
                         .getTokenInstanceReference().getConnector();
                 // No stored interface version for this route — only authorities carry a ConnectorInterfaceEntity, so
                 // unlike RA_PROFILE/CERTIFICATE there is no version to pair with a connectorInterface. Leave both unset
-                // (the connector-scoped envelope shape) rather than stamp a half-pair the dispatcher rejects; #1764
-                // wires the interface context when this NG route goes live.
+                // (the connector-scoped envelope shape) rather than stamp a half-pair the dispatcher rejects; the FE
+                // wiring supplies the interface context when this NG route goes live.
                 break;
 
             case CRYPTOGRAPHIC_KEY:
@@ -417,9 +417,9 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     /**
-     * Local v3-authority predicate. Mirrors {@code AuthorityInstanceServiceImpl.isV3} byte-for-byte but lives
-     * here so #1621 does not have to edit the authority-v3 team's file (avoids a merge conflict on in-flight
-     * work). Reads the connector-interface version directly off the reference entity.
+     * Local v3-authority predicate. Mirrors {@code AuthorityInstanceServiceImpl.isV3} byte-for-byte but is
+     * duplicated here to avoid coupling to the in-flight authority-v3 changes. Reads the connector-interface
+     * version directly off the reference entity.
      */
     private static boolean isV3Authority(AuthorityInstanceReference ref) {
         ConnectorInterfaceEntity iface = ref.getConnectorInterface();

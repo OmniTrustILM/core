@@ -231,7 +231,7 @@ public class AttributeEngine {
     }
 
     /**
-     * NG-callback resolution (#1622): resolve the definition the caller actually referenced by its
+     * NG-callback resolution: resolve the definition the caller actually referenced by its
      * {@code attributeUuid}, not just by name. Two rows can share {@code (type, connector, name)} with both
      * {@code operation == null} but different {@code attributeUuid}/{@code contentType} (the registry-fetch,
      * GROUP-child and callback-ingest paths all write {@code operation == null}), and the legacy Optional
@@ -251,7 +251,7 @@ public class AttributeEngine {
 
     /**
      * METADATA strict read for NG resolution. The META connector read is UUID-keyed via the Optional finder
-     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName} (unique by construction — no C6/500 exposure).
+     * {@code findByTypeAndConnectorUuidAndAttributeUuidAndName} (unique by construction — no 500 exposure).
      */
     public BaseAttribute getMetadataAttributeDefinitionStrict(UUID connectorUuid, UUID attributeUuid, String name) {
         AttributeDefinition definition = attributeDefinitionRepository
@@ -1107,9 +1107,9 @@ public class AttributeEngine {
     }
 
     /**
-     * #1622 Task 4b — declaration validity for the NG ({@code dependsOn}) callback shape at the ingest
+     * Declaration validity for the NG ({@code dependsOn}) callback shape at the ingest
      * choke point. {@code dependsOn} (NG, scope-resolved) and {@code callbackContext} (legacy, body-mapped)
-     * are mutually exclusive: a definition declaring both is ambiguous to dispatch, so #1621's NG branch can
+     * are mutually exclusive: a definition declaring both is ambiguous to dispatch, so the NG branch can
      * safely gate on {@code dependsOn != null}. {@code dependsOn} on a RESOURCE-content attribute is also
      * rejected — RESOURCE content is resolved through the core resource path, not an NG callback.
      */

@@ -24,16 +24,16 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * #1622 — the NG definition-resolution ladder.
+ * The NG definition-resolution ladder.
  *
- * <p>Resolves the attribute definition a callback references, by its {@code attributeUuid} first
- * (#1622 N1/C6 fix), with a single registry refresh on a miss:
+ * <p>Resolves the attribute definition a callback references, by its {@code attributeUuid} first,
+ * with a single registry refresh on a miss:
  * <pre>
  *   stored (UUID-first strict read) -&gt; miss -&gt; GET /v2/attributes?uuids= (fetch + ingest) -&gt;
  *   re-read -&gt; still missing -&gt; 422 ValidationException naming the unresolved UUID
  * </pre>
  *
- * <p>The connector registry fetch is an HTTP call; per core CLAUDE.md the ingest writes that follow it
+ * <p>The connector registry fetch is an HTTP call; the ingest writes that follow it
  * run in a <strong>short explicit transaction</strong>, never holding a tx across the fetch. This bean
  * carries no class-level {@code @Transactional}; it is invoked from {@link NgCallbackDispatcher} (which
  * runs the whole dispatch path outside any ambient tx).
@@ -101,7 +101,7 @@ public class AttributeDefinitionResolver {
 
     private void fetchAndIngest(ApiClientConnectorInfo connector, UUID connectorUuid, UUID attributeUuid, AttributeType type)
             throws ConnectorException, ValidationException {
-        // HTTP fetch — strictly outside any transaction (core CLAUDE.md: never hold a tx across a connector call).
+        // HTTP fetch — strictly outside any transaction: never hold a tx across a connector call.
         AttributeDefinitionsDto fetched = connectorApiFactory.getAttributesApiClientV2(connector)
                 .listDefinitions(connector, List.of(attributeUuid));
         List<BaseAttribute> definitions = fetched == null ? List.of() : fetched.getDefinitions();
@@ -133,7 +133,7 @@ public class AttributeDefinitionResolver {
             }
         } catch (AttributeException e) {
             // AttributeException is mapped to 400 by the advice; the resolution contract is 422 naming the UUID.
-            // Do not forward the raw connector/engine message to the wire (core CLAUDE.md no-leak rule).
+            // Do not forward the raw connector/engine message to the wire.
             logger.debug("Ingest of fetched definitions failed: {}", e.getMessage());
             throw new ValidationException(ValidationError.create(
                     "Fetched attribute definitions could not be ingested for connector " + connectorUuid));
