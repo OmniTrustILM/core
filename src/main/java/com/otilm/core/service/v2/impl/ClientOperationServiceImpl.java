@@ -49,6 +49,9 @@ import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
@@ -91,6 +94,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 
 @Service("clientOperationServiceImplV2")
 @Transactional
@@ -133,6 +137,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private CertificateStatusPollWriter pollWriter;
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
+    private ConnectorCapabilityService capabilityService;
 
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
@@ -147,6 +152,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     @Autowired
     public void setStateMachine(CertificateStateMachine stateMachine) {
         this.stateMachine = stateMachine;
+    }
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
     }
 
     @Autowired
@@ -351,10 +361,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         }
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
 
-        // Gate before creating anything: registration is v3-only, so a request against a non-registering
-        // authority is rejected without leaving a placeholder behind.
-        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
-        if (!(adapter instanceof RegisterCapability registerCapability)) {
+        // Gate before creating anything (defense-in-depth): registration requires the v3 protocol
+        // (instanceof RegisterCapability) AND the opt-in CERTIFICATE_REGISTRATION FeatureFlag advertised
+        // by the authority's connector interface. A non-registering authority is rejected without
+        // leaving a placeholder behind.
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+        if (!(adapter instanceof RegisterCapability registerCapability)
+                || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
             throw new ValidationException("Certificate registration is not supported by the authority of RA profile %s.".formatted(raProfile.getName()));
         }
 
@@ -381,13 +395,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         persistRegistrationMeta(certificate, result.meta());
         if (result.isAsync()) {
-            if (adapter instanceof AsyncOperationCapability) {
-                scheduleStatusPoll(certificate, CertificateOperation.REGISTER);
+            // Log on the actual scheduling outcome, not just instanceof: an async-capable adapter that does not
+            // advertise CERTIFICATE_STATUS_POLLING is NOT polled, so "awaiting completion" would be misleading.
+            if (scheduleStatusPoll(certificate, adapter, authority, CertificateOperation.REGISTER)) {
                 logger.info("Certificate {} registration accepted by authority; awaiting asynchronous completion", certificate.getUuid());
             } else {
-                // Accepted asynchronously but the adapter cannot poll status — do not enqueue a poll the listener
-                // would immediately abandon; leave PENDING_REGISTRATION for operator reconciliation.
-                logger.warn("Certificate {} registration accepted asynchronously but the authority adapter does not support status polling; left in PENDING_REGISTRATION", certificate.getUuid());
+                logger.warn("Certificate {} registration accepted asynchronously but status polling is not available "
+                        + "(authority is not v3 or does not advertise CERTIFICATE_STATUS_POLLING); "
+                        + "left in PENDING_REGISTRATION for manual/out-of-band completion", certificate.getUuid());
             }
         } else {
             stateMachine.transition(certificate, CertificateState.REGISTERED);
@@ -430,13 +445,17 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
-        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
 
-        // Capability-derived support flags: issue/renew/revoke are offered by every authority, register is
-        // v3-only, and asynchronous completion + cancellation come together with AsyncOperationCapability.
-        // Finer per-connector advertisement (FeatureFlag-driven) is layered on later.
-        boolean register = adapter instanceof RegisterCapability;
-        boolean async = adapter instanceof AsyncOperationCapability;
+        // Capability-derived support flags, gated defense-in-depth — protocol-level (instanceof) AND the
+        // opt-in FeatureFlag advertised by the connector interface: register needs RegisterCapability +
+        // CERTIFICATE_REGISTRATION; async completion + cancellation need AsyncOperationCapability +
+        // CERTIFICATE_STATUS_POLLING.
+        boolean register = adapter instanceof RegisterCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION);
+        boolean async = adapter instanceof AsyncOperationCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING);
         List<OperationSupport> operations = List.of(
                 new OperationSupport(CertificateOperationKind.ISSUE, true, async, async),
                 new OperationSupport(CertificateOperationKind.RENEW, true, async, async),
@@ -1271,13 +1290,64 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The write is
      * idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
      */
-    private void scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+    /** Schedules an async status poll, reloading the certificate with the polling entity graph — for callers
+     *  whose own load did not fetch the authority's connector interface (issue/renew/rekey/revoke).
+     *  @return {@code true} iff a poll was scheduled. */
+    private boolean scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+        return scheduleStatusPoll(certificate, operation, () -> isAsyncPollable(certificate.getUuid()));
+    }
+
+    /** Schedules an async status poll using an already-resolved adapter and authority (no reload) — for callers
+     *  that loaded the certificate with the polling graph and resolved the adapter already (registration).
+     *  @return {@code true} iff a poll was scheduled. */
+    private boolean scheduleStatusPoll(Certificate certificate, AuthorityProviderAdapter adapter,
+                                       AuthorityInstanceReference authority, CertificateOperation operation) {
+        return scheduleStatusPoll(certificate, operation, () -> isAsyncPollable(adapter, authority));
+    }
+
+    /**
+     * Defense-in-depth gate: schedule a poll only when the authority is v3 (the status endpoint exists —
+     * instanceof AsyncOperationCapability) AND advertises CERTIFICATE_STATUS_POLLING ("poll me"). A v2 or
+     * non-advertising v3 authority (e.g. an out-of-band / manual-completion connector that 202s then 404s its
+     * status endpoint) is left PENDING with no poll row, no queue message and no listener WARN.
+     *
+     * <p>Best-effort: the connector has already accepted the operation, so neither the gate evaluation nor the
+     * scheduling may roll it back (state-divergence rule). Any failure degrades to "no poll".
+     *
+     * @return {@code true} iff a poll was scheduled.
+     */
+    private boolean scheduleStatusPoll(Certificate certificate, CertificateOperation operation, BooleanSupplier pollable) {
         try {
+            if (!pollable.getAsBoolean()) {
+                logger.debug("Authority for certificate {} does not advertise CERTIFICATE_STATUS_POLLING; "
+                        + "no poll scheduled (left PENDING for manual/out-of-band completion)", certificate.getUuid());
+                return false;
+            }
             pollWriter.schedule(certificate.getUuid(), operation, OffsetDateTime.now(ZoneOffset.UTC));
+            return true;
         } catch (Exception e) {
-            logger.warn("Failed to schedule async status poll for certificate {} (operation {}): {}",
+            logger.warn("Failed to evaluate or schedule async status poll for certificate {} (operation {}): {}",
                     certificate.getUuid(), operation, e.getMessage(), e);
+            return false;
         }
+    }
+
+    /** Whether the authority should be polled for asynchronous completion: it is v3 (the status endpoint
+     *  exists — instanceof AsyncOperationCapability) AND advertises {@code CERTIFICATE_STATUS_POLLING}. */
+    private boolean isAsyncPollable(AuthorityProviderAdapter adapter, AuthorityInstanceReference authority) {
+        return adapter instanceof AsyncOperationCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING);
+    }
+
+    /** Reloads with the polling entity graph so the authority's connector interface is initialized in this
+     *  tx-less path, resolves the adapter, then applies the gate. */
+    private boolean isAsyncPollable(UUID certificateUuid) {
+        return certificateRepository.findForPollingByUuid(certificateUuid)
+                .map(cert -> {
+                    AuthorityInstanceReference authority = cert.getRaProfile().getAuthorityInstanceReference();
+                    return isAsyncPollable(adapterFactory.forAuthority(authority), authority);
+                })
+                .orElse(false);
     }
 
     private static CertificateOperation pollOperationFor(ResourceAction originatingAction) {

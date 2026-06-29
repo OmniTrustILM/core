@@ -3,6 +3,7 @@ package com.otilm.core.service;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -26,6 +27,7 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -85,6 +87,11 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @MockitoBean
     private ActionProducer actionProducer;
 
+    // The service-layer capability gate (layer 2). Mocked here so each test controls advertisement
+    // directly; the real flag-resolution logic is covered by ConnectorCapabilityServiceTest.
+    @MockitoBean
+    private ConnectorCapabilityService capabilityService;
+
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
     private SecuredParentUUID authorityParent;
@@ -111,6 +118,11 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         raProfile = raProfileRepository.save(raProfile);
         authorityParent = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
         securedRaProfile = raProfile.getSecuredUuid();
+
+        // Default: the authority advertises every flag, so capability-gated paths run. The gating
+        // tests below re-stub a specific flag to false to assert the gate is consulted.
+        Mockito.when(capabilityService.supports(Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
+                .thenReturn(true);
     }
 
     private ClientCertificateRegistrationDto registrationRequest() {
@@ -205,6 +217,53 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         Assertions.assertTrue(register.isSupported());
         Assertions.assertTrue(register.isAsyncSupported());
         Assertions.assertTrue(register.isCancelSupported());
+    }
+
+    @Test
+    void registrationRejectedWhenCapabilityNotAdvertised() {
+        // Adapter implements RegisterCapability (layer 1 passes), but the authority does not advertise
+        // CERTIFICATE_REGISTRATION — the layer-2 gate must still reject, without persisting a placeholder.
+        registeringAdapter();
+        Mockito.when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_REGISTRATION)))
+                .thenReturn(false);
+
+        Assertions.assertThrows(ValidationException.class, this::register);
+        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a gated request");
+    }
+
+    @Test
+    void asyncRegistrationSkipsPollWhenStatusPollingNotAdvertised() throws Exception {
+        // Registration is advertised (proceeds), but status polling is not — the cert is left PENDING
+        // with no poll scheduled (manual / out-of-band completion).
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(null));
+        Mockito.when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
+                .thenReturn(false);
+
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
+        Mockito.verify(pollWriter, Mockito.never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void listAvailableOperationsGatesRegisterAndAsyncOnAdvertisedFlags() throws Exception {
+        // Adapter implements both capabilities (layer 1 passes for both), but neither flag is advertised
+        // — listAvailableOperations must report REGISTER unsupported and issue async unsupported.
+        registeringAdapter();
+        Mockito.when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
+                .thenReturn(false);
+
+        AvailableOperationsDto ops = listOperations();
+
+        Assertions.assertFalse(operation(ops, CertificateOperationKind.REGISTER).isSupported());
+        OperationSupport issue = operation(ops, CertificateOperationKind.ISSUE);
+        Assertions.assertTrue(issue.isSupported());
+        Assertions.assertFalse(issue.isAsyncSupported());
     }
 
     private AvailableOperationsDto listOperations() throws Exception {
