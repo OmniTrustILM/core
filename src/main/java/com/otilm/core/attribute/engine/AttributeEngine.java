@@ -215,7 +215,7 @@ public class AttributeEngine {
     }
 
     public DataAttribute getDataAttributeDefinition(UUID connectorUuid, String name) {
-        AttributeDefinition definition = selectByNameDeterministic(AttributeType.DATA, connectorUuid, name, null);
+        AttributeDefinition definition = selectByNameDeterministic(AttributeType.DATA, connectorUuid, name);
         if (definition != null) {
             return (DataAttribute) definition.getDefinition();
         }
@@ -223,7 +223,7 @@ public class AttributeEngine {
     }
 
     public BaseAttribute getGroupAttributeDefinition(UUID connectorUuid, String name) {
-        AttributeDefinition definition = selectByNameDeterministic(AttributeType.GROUP, connectorUuid, name, null);
+        AttributeDefinition definition = selectByNameDeterministic(AttributeType.GROUP, connectorUuid, name);
         if (definition != null) {
             return definition.getDefinition();
         }
@@ -264,7 +264,7 @@ public class AttributeEngine {
         if (attributeUuid == null) {
             // No UUID discriminator in scope (a definition resolved without a stored uuid). Degrade to the
             // deterministic name-only selection rather than NPE on List.of(null) (which would surface as a 500).
-            return selectByNameDeterministic(type, connectorUuid, name, null);
+            return selectByNameDeterministic(type, connectorUuid, name);
         }
         if (name == null) {
             // A uuid with no name cannot match the (attributeUuid, name) key; List.of(null) would NPE -> 500.
@@ -280,12 +280,11 @@ public class AttributeEngine {
 
     /**
      * Name-only resolution for legacy callers that have no referenced UUID in scope. Uses a List finder plus a
-     * deterministic tiebreak so it can never throw {@code IncorrectResultSizeDataAccessException}: prefer the row
-     * whose {@code operation} matches the active operation context, else the {@code operation == null}
-     * (connector/registry) row, else the lexicographically smallest {@code attributeUuid} (a stable tiebreak,
-     * not {@code updatedAt} which same-batch ingests share).
+     * deterministic tiebreak so it can never throw {@code IncorrectResultSizeDataAccessException}: prefer the
+     * {@code operation == null} (connector/registry-origin) row, else the lexicographically smallest
+     * {@code attributeUuid} (a stable tiebreak, not {@code updatedAt} which same-batch ingests share).
      */
-    private AttributeDefinition selectByNameDeterministic(AttributeType type, UUID connectorUuid, String name, String operation) {
+    private AttributeDefinition selectByNameDeterministic(AttributeType type, UUID connectorUuid, String name) {
         List<AttributeDefinition> rows = attributeDefinitionRepository.findAllByTypeAndConnectorUuidAndName(type, connectorUuid, name);
         if (rows.isEmpty()) {
             return null;
@@ -295,7 +294,7 @@ public class AttributeEngine {
         }
         return rows.stream()
                 .min(Comparator
-                        .comparingInt((AttributeDefinition d) -> Objects.equals(d.getOperation(), operation) ? 0 : (d.getOperation() == null ? 1 : 2))
+                        .comparingInt((AttributeDefinition d) -> d.getOperation() == null ? 0 : 1)
                         .thenComparing(d -> d.getAttributeUuid() == null ? "" : d.getAttributeUuid().toString()))
                 .orElse(null);
     }

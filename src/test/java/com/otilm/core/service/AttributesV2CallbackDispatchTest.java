@@ -146,6 +146,21 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
     }
 
     @Test
+    void dataAttributeWithoutCallbackIsRejectedAsValidationNotNpe() throws AttributeException, NotFoundException, ConnectorException {
+        // A DATA attribute stored without any callback must not 500: isNgCallback / validateCallback both
+        // dereference the callback, so a missing one has to surface as a controlled 400 ValidationException.
+        DataAttributeV2 noCallback = ngDataAttribute("noCallbackAttr");
+        noCallback.setAttributeCallback(null);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(noCallback));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName(noCallback.getName());
+
+        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+                () -> callbackService.callback(connector.getUuid(), req));
+    }
+
+    @Test
     void noTransactionActiveDuringConnectorCall() throws AttributeException, NotFoundException, ConnectorException {
         DataAttributeV2 ng = ngDataAttribute("txAttr");
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));

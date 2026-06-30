@@ -110,8 +110,10 @@ public class NgCallbackDispatcher {
             // Single-shot refresh-and-retry: the connector did not recognise the definition, so re-fetch it from
             // the connector registry and rebuild the envelope from the refreshed definition before dispatching
             // once more. The recoverable case is a stale local uuid/name (the refresh corrects what we send);
-            // resending the identical envelope would be pointless, so we do not.
-            BaseAttribute refreshed = definitionResolver.resolve(connector,
+            // resending the identical envelope would be pointless, so we do not. resolveForced (not resolve) is
+            // mandatory here: the local row is still present, so resolve() would short-circuit on it and re-send
+            // the rejected envelope unchanged — resolveForced always re-fetches the registry definition.
+            BaseAttribute refreshed = definitionResolver.resolveForced(connector,
                     context.definition().getUuid() == null ? null : UUID.fromString(context.definition().getUuid()),
                     context.definition().getName(), context.definition().getType());
             AttributeCallbackRequestDto refreshedEnvelope = buildEnvelope(
@@ -133,6 +135,14 @@ public class NgCallbackDispatcher {
         // value Core expanded server-side, nor carry a secret-bearing shape. Rejecting first means a violating
         // response never has its child definitions persisted (handleResponseArms commits to the registry).
         outboundContainment.assertNoExpandedSecretOutbound(response, expandedSecrets);
+        // Enforce the response-arm XOR (AttributeCallbackResponseDto contract: exactly one of content/attributes).
+        // Both set -> handleResponseArms would persist the attributes arm AND dispatchNg would return the content arm
+        // (a response that both mutates the registry and returns data). Both null -> dispatchNg returns null to the FE.
+        // The single (content == null) == (attributes == null) test covers both edges.
+        if ((response.getContent() == null) == (response.getAttributes() == null)) {
+            throw new ValidationException(ValidationError.create(
+                    "Connector callback response must set exactly one of content or attributes"));
+        }
         handleResponseArms(connectorUuid, response);
         return response;
     }

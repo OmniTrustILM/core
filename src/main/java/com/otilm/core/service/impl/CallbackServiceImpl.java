@@ -170,6 +170,13 @@ public class CallbackServiceImpl implements CallbackExternalService {
         BaseAttribute attribute = getBaseAttribute(callback, definitions, connectorUuid);
 
         AttributeCallback attributeCallback = getAttributeCallback(attribute);
+        if (attributeCallback == null) {
+            // A DATA/GROUP attribute can be stored without a callback. Every path below (isNgCallback,
+            // validateCallback, the core/getCredentials and RESOURCE arms) dereferences it, so a null here would be
+            // an unhandled 500 NPE. Surface a controlled 400 instead.
+            throw new ValidationException(ValidationError.create(
+                    "Attribute '" + attribute.getName() + "' has no callback definition to invoke"));
+        }
 
         AttributeResource attributeResource = getAttributeResource(attribute);
 
@@ -279,7 +286,10 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     private static boolean isNgCallback(AttributeCallback attributeCallback) {
-        return attributeCallback.getDependsOn() != null && !attributeCallback.getDependsOn().isEmpty()
+        // A DATA attribute can be stored without any callback, so getAttributeCallback returns null here. This runs
+        // before validateCallback (which would surface a controlled 400), so a null deref would become a 500 NPE.
+        return attributeCallback != null
+                && attributeCallback.getDependsOn() != null && !attributeCallback.getDependsOn().isEmpty()
                 && attributeCallback.getCallbackContext() == null;
     }
 

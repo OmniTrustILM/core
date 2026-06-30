@@ -112,7 +112,7 @@ class NgCallbackDispatcherTest {
         refreshed.setUuid(UUID.randomUUID().toString());
         refreshed.setName("refreshedName");
         refreshed.setContentType(AttributeContentType.STRING);
-        Mockito.when(definitionResolver.resolve(any(), any(), any(), any())).thenReturn((BaseAttribute) refreshed);
+        Mockito.when(definitionResolver.resolveForced(any(), any(), any(), any())).thenReturn((BaseAttribute) refreshed);
 
         dispatcher.dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>());
 
@@ -188,6 +188,36 @@ class NgCallbackDispatcherTest {
 
         assertDoesNotThrow(() ->
                 dispatcher.dispatchNgCallback(connector, bothNull, new RequestAttributeCallback(), new HashSet<>()));
+    }
+
+    @Test
+    void bothArmsNullIsRejectedAsValidation() throws Exception {
+        // A response with neither content nor attributes violates the XOR contract; left unguarded it would return
+        // null to the FE (the legacy path returned the raw response). Reject it as a clean ValidationException.
+        AttributeCallbackResponseDto empty = new AttributeCallbackResponseDto();
+        Mockito.when(client.callback(any(), any())).thenReturn(empty);
+
+        assertThrows(ValidationException.class, () ->
+                dispatcher.dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>()));
+        Mockito.verify(attributeEngine, Mockito.never()).updateDataAttributeDefinitions(any(), any(), any());
+    }
+
+    @Test
+    void bothArmsSetIsRejectedBeforeAnyRegistryWrite() throws Exception {
+        // Both arms set would persist the attributes arm AND return the content arm. Containment passes (no expanded
+        // secrets), so the XOR guard is what must reject it — before handleResponseArms writes the registry.
+        AttributeCallbackResponseDto both = new AttributeCallbackResponseDto();
+        both.setContent(List.of(new StringAttributeContentV3("public")));
+        DataAttributeV2 child = new DataAttributeV2();
+        child.setUuid(UUID.randomUUID().toString());
+        child.setName("child");
+        child.setContentType(AttributeContentType.STRING);
+        both.setAttributes(List.of(child));
+        Mockito.when(client.callback(any(), any())).thenReturn(both);
+
+        assertThrows(ValidationException.class, () ->
+                dispatcher.dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>()));
+        Mockito.verify(attributeEngine, Mockito.never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
     @Test

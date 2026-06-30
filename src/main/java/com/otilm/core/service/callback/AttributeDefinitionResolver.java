@@ -78,7 +78,25 @@ public class AttributeDefinitionResolver {
         if (stored != null) {
             return stored;
         }
+        return refreshAndReread(connector, connectorUuid, attributeUuid, name, type);
+    }
 
+    /**
+     * Force a single registry refresh and re-read, skipping the stored-first short circuit.
+     *
+     * <p>The {@code ATTRIBUTE_DEFINITION_NOT_FOUND} retry must NOT use {@link #resolve}: the local row is still
+     * present (the connector rejected it, Core did not delete it), so {@code resolve} would return it unchanged and
+     * the retry would re-POST the identical envelope the connector just rejected. This always runs
+     * {@code fetchAndIngest} so the retry dispatches the refreshed definition.
+     */
+    public BaseAttribute resolveForced(ApiClientConnectorInfo connector, UUID attributeUuid, String name, AttributeType type)
+            throws ConnectorException, ValidationException {
+        UUID connectorUuid = UUID.fromString(connector.getUuid());
+        return refreshAndReread(connector, connectorUuid, attributeUuid, name, type);
+    }
+
+    private BaseAttribute refreshAndReread(ApiClientConnectorInfo connector, UUID connectorUuid, UUID attributeUuid,
+                                           String name, AttributeType type) throws ConnectorException, ValidationException {
         fetchAndIngest(connector, connectorUuid, attributeUuid, type);
 
         BaseAttribute refreshed = readStored(connectorUuid, attributeUuid, name, type);
@@ -115,7 +133,15 @@ public class AttributeDefinitionResolver {
             transactionManager.commit(tx);
         } catch (RuntimeException e) {
             transactionManager.rollback(tx);
-            throw e;
+            if (e instanceof ValidationException) {
+                // Already shaped by ingest() (no-leak rule honoured) — let it through unchanged.
+                throw e;
+            }
+            // A deferred-constraint commit can surface here as a DataIntegrityViolationException carrying SQL/column
+            // text; never forward the raw message to the wire.
+            logger.debug("Commit of fetched definitions failed for connector {}: {}", connectorUuid, e.getMessage());
+            throw new ValidationException(ValidationError.create(
+                    "Fetched attribute definitions could not be ingested for connector " + connectorUuid));
         }
     }
 

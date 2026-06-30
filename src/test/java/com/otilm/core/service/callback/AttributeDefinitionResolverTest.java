@@ -90,4 +90,58 @@ class AttributeDefinitionResolverTest {
         assertFalse(message.contains("secret_col"), "raw engine/SQL fragment must not reach the wire");
         assertFalse(message.contains("raw engine detail"), "raw engine message must not reach the wire");
     }
+
+    @Test
+    void commitFailureDoesNotLeakRawSqlToTheWire() throws Exception {
+        // A deferred constraint can surface only at commit time as a DataIntegrityViolationException (a
+        // RuntimeException, NOT an AttributeException). The ingest() try/catch does not wrap it, so the
+        // fetchAndIngest catch must sanitise before it reaches the API response.
+        Mockito.when(attributeEngine.getDataAttributeDefinitionStrict(any(), any(), any())).thenReturn(null);
+
+        DataAttributeV2 fetched = new DataAttributeV2();
+        fetched.setUuid(UUID.randomUUID().toString());
+        fetched.setName("ngAttr");
+        fetched.setContentType(AttributeContentType.STRING);
+        AttributeDefinitionsDto dto = new AttributeDefinitionsDto();
+        dto.setDefinitions(List.of(fetched));
+        Mockito.when(client.listDefinitions(any(), any())).thenReturn(dto);
+
+        Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException(
+                        "ERROR: duplicate key value violates unique constraint \"attribute_definition_uq\""))
+                .when(txManager).commit(any());
+
+        ValidationException ex = assertThrows(ValidationException.class,
+                () -> resolver.resolve(connector, UUID.randomUUID(), "ngAttr", AttributeType.DATA));
+
+        String message = String.valueOf(ex.getMessage());
+        assertFalse(message.contains("duplicate key"), "raw SQL fragment must not reach the wire");
+        assertFalse(message.contains("constraint"), "raw SQL fragment must not reach the wire");
+        Mockito.verify(txManager).rollback(any());
+    }
+
+    @Test
+    void resolveForcedFetchesAndIngestsEvenWhenAStoredRowIsPresent() throws Exception {
+        // The not-found retry must force a registry refresh: resolve() would short-circuit on the still-present
+        // stored row and re-send the identical envelope the connector just rejected. resolveForced skips the
+        // stored-first read so fetchAndIngest always runs.
+        UUID attributeUuid = UUID.randomUUID();
+        DataAttributeV2 refreshed = new DataAttributeV2();
+        refreshed.setUuid(attributeUuid.toString());
+        refreshed.setName("ngAttr");
+        refreshed.setContentType(AttributeContentType.STRING);
+        Mockito.when(attributeEngine.getDataAttributeDefinitionStrict(any(), any(), any())).thenReturn(refreshed);
+
+        DataAttributeV2 fetched = new DataAttributeV2();
+        fetched.setUuid(attributeUuid.toString());
+        fetched.setName("ngAttr");
+        fetched.setContentType(AttributeContentType.STRING);
+        AttributeDefinitionsDto dto = new AttributeDefinitionsDto();
+        dto.setDefinitions(List.of(fetched));
+        Mockito.when(client.listDefinitions(any(), any())).thenReturn(dto);
+
+        resolver.resolveForced(connector, attributeUuid, "ngAttr", AttributeType.DATA);
+
+        Mockito.verify(client).listDefinitions(any(), any());
+        Mockito.verify(attributeEngine).updateDataAttributeDefinitions(any(), any(), any());
+    }
 }

@@ -104,7 +104,7 @@ public class AttributeCallbackScopeResolver {
 
     /**
      * Resolve the ordered (parent-first) scope chain for the given scoped resource into expanded
-     * {@link ScopedAttributes} blobs. Unknown resource → empty list.
+     * {@link ScopedAttributes} blobs. An unmapped resource fails closed with a {@link ValidationException}.
      */
     public List<ScopedAttributes> resolveScopeChain(Resource resource, UUID resourceUuid, Set<String> expandedSecrets)
             throws NotFoundException, AttributeException, ConnectorException {
