@@ -21,15 +21,12 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
-import com.otilm.api.model.core.cryptography.key.KeyState;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -42,7 +39,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
-import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
@@ -67,6 +63,7 @@ import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
@@ -80,6 +77,8 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.UUID;
+
+import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 
 abstract class SigningProfileTestBase extends BaseSpringBootTest {
 
@@ -109,6 +108,9 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
 
     @Autowired
     protected CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    @Autowired
+    protected CryptographicKeySeeder cryptographicKeySeeder;
 
     @Autowired
     protected CertificateRepository certificateRepository;
@@ -230,24 +232,8 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         tokenProfile = tokenProfileRepository.saveAndFlush(tokenProfile);
 
         // MLDSA key — produces empty attribute definitions; used by generic scheme tests
-        cryptographicKey = new CryptographicKey();
-        cryptographicKey.setName("test-key-mldsa");
-        cryptographicKey.setTokenProfile(tokenProfile);
-        cryptographicKey.setTokenInstanceReference(tokenInstanceRef);
-        cryptographicKey = cryptographicKeyRepository.saveAndFlush(cryptographicKey);
-
-        CryptographicKeyItem mldsaKeyItem = new CryptographicKeyItem();
-        mldsaKeyItem.setKey(cryptographicKey);
-        mldsaKeyItem.setKeyUuid(cryptographicKey.getUuid());
-        mldsaKeyItem.setType(KeyType.PRIVATE_KEY);
-        mldsaKeyItem.setState(KeyState.ACTIVE);
-        mldsaKeyItem.setEnabled(true);
-        mldsaKeyItem.setKeyAlgorithm(KeyAlgorithm.MLDSA);
-        mldsaKeyItem.setLength(2048);
-        mldsaKeyItem.setUsage(List.of(KeyUsage.SIGN));
-        mldsaKeyItem = cryptographicKeyItemRepository.saveAndFlush(mldsaKeyItem);
-        mldsaKeyItem.setKeyReferenceUuid(mldsaKeyItem.getUuid());
-        cryptographicKeyItemRepository.saveAndFlush(mldsaKeyItem);
+        cryptographicKey = cryptographicKeySeeder.seedKey("test-key-mldsa", tokenProfile, tokenInstanceRef,
+                signingPrivateKey(KeyAlgorithm.MLDSA));
 
         // Certificate associated with the MLDSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
         certificate = new Certificate();
@@ -258,24 +244,8 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         attachSelfSignedContent(certificate);
 
         // RSA key — produces RSA attribute definitions; used by attribute-persistence tests
-        rsaCryptographicKey = new CryptographicKey();
-        rsaCryptographicKey.setName("test-key-rsa");
-        rsaCryptographicKey.setTokenProfile(tokenProfile);
-        rsaCryptographicKey.setTokenInstanceReference(tokenInstanceRef);
-        rsaCryptographicKey = cryptographicKeyRepository.saveAndFlush(rsaCryptographicKey);
-
-        CryptographicKeyItem rsaKeyItem = new CryptographicKeyItem();
-        rsaKeyItem.setKey(rsaCryptographicKey);
-        rsaKeyItem.setKeyUuid(rsaCryptographicKey.getUuid());
-        rsaKeyItem.setType(KeyType.PRIVATE_KEY);
-        rsaKeyItem.setState(KeyState.ACTIVE);
-        rsaKeyItem.setEnabled(true);
-        rsaKeyItem.setKeyAlgorithm(KeyAlgorithm.RSA);
-        rsaKeyItem.setLength(2048);
-        rsaKeyItem.setUsage(List.of(KeyUsage.SIGN));
-        rsaKeyItem = cryptographicKeyItemRepository.saveAndFlush(rsaKeyItem);
-        rsaKeyItem.setKeyReferenceUuid(rsaKeyItem.getUuid());
-        cryptographicKeyItemRepository.saveAndFlush(rsaKeyItem);
+        rsaCryptographicKey = cryptographicKeySeeder.seedKey("test-key-rsa", tokenProfile, tokenInstanceRef,
+                signingPrivateKey(KeyAlgorithm.RSA));
 
         // Certificate associated with the RSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
         rsaCertificate = new Certificate();

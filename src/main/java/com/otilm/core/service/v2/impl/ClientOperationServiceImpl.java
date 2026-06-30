@@ -9,6 +9,11 @@ import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
@@ -32,7 +37,10 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.v2.*;
+import com.otilm.core.attribute.CertificateRequestAttributeProjector;
 import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
@@ -71,6 +79,7 @@ import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -274,7 +283,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             throw new ValidationException("Cannot submit certificate request without specifying key or uploaded request content");
         }
 
-        String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(), request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(), request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(), request.getAltSignatureAttributes());
+        RaProfile raProfile = request.getRaProfileUuid() != null
+                ? raProfileRepository.findByUuid(request.getRaProfileUuid()).orElse(null)
+                : null;
+        if (raProfile != null && Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException(String.format("Cannot submit certificate request with disabled RA profile. RA Profile: %s", raProfile.getName()));
+        }
+
+        String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(), request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(), request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(), request.getAltSignatureAttributes(), raProfile);
         CertificateDetailDto certificate = certificateService.submitCertificateRequest(certificateRequest, request.getFormat(), request.getSignatureAttributes(), request.getAltSignatureAttributes(), request.getCsrAttributes(), request.getIssueAttributes(), request.getKeyUuid(), request.getAltKeyUuid(), request.getRaProfileUuid(), request.getSourceCertificateUuid(),
                 protocolInfo);
 
@@ -1039,6 +1055,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 keyUuid,
                 getTokenProfileUuid(request.getTokenProfileUuid(), oldCertificate),
                 principal,
+                null,
                 signatureAttributes,
                 request.getAltKeyUuid(),
                 altTokenProfileUuid,
@@ -1570,11 +1587,12 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * @param keyUuid             UUID of the key
      * @param tokenProfileUuid    Token profile UUID
      * @param principal           X500 Principal
+     * @param extensions          Extensions
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException When the key or tokenProfile UUID is not found
      */
-    private String generateBase64EncodedCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
+    private String generateBase64EncodedCsr(UUID keyUuid, UUID tokenProfileUuid, X500Principal principal, Extensions extensions, List<RequestAttribute> signatureAttributes, UUID altKeyUUid,
                                             UUID altTokenProfileUuid,
                                             List<RequestAttribute> altSignatureAttributes) throws NotFoundException {
         try {
@@ -1583,6 +1601,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     keyUuid,
                     tokenProfileUuid,
                     principal,
+                    extensions,
                     signatureAttributes,
                     altKeyUUid,
                     altTokenProfileUuid,
@@ -1678,8 +1697,74 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         }
     }
 
+    /**
+     * Merges connector-supplied v3 definitions with the static {@link CsrAttributes} default set.
+     * Connector definitions take precedence: any default definition whose {@code fieldMapping} targets
+     * overlap with a connector definition is dropped in favour of the connector one.
+     * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
+     */
+    private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) throws ConnectorException, NotFoundException {
+        List<DataAttributeV3> defaults = CsrAttributes.csrAttributesAsDataAttributesV3();
+        if (raProfile == null) {
+            return defaults;
+        }
+        var connectorAttrs = extendedAttributeService.listIssueCertificateAttributes(raProfile);
+        List<DataAttributeV3> connectorDefs = connectorAttrs.stream()
+                .filter(DataAttributeV3.class::isInstance)
+                .map(DataAttributeV3.class::cast)
+                .toList();
+        int droppedNonV3 = connectorAttrs.size() - connectorDefs.size();
+        if (droppedNonV3 > 0) {
+            logger.debug("Ignoring {} non-v3 connector issue attribute(s) for RA profile {}; structured CSR enrichment requires a v3 authority connector",
+                    droppedNonV3, raProfile.getName());
+        }
+        return mergeIssuanceDefinitions(defaults, connectorDefs, OidHandler.getCodeToOidMap());
+    }
+
+    /**
+     * Merges connector-supplied v3 definitions with the static default set. Connector definitions take
+     * precedence: any default whose RDN field mapping is also claimed by a connector definition is dropped.
+     * Connector definitions without a {@code fieldMapping} (connector-specific fields) carry no RDN claim
+     * and are always retained.
+     */
+    static List<DataAttributeV3> mergeIssuanceDefinitions(List<DataAttributeV3> defaults,
+                                                          List<DataAttributeV3> connectorDefs,
+                                                          Map<String, String> codeToOid) {
+        Set<String> claimedRdns = connectorDefs.stream()
+                .flatMap(d -> rdnFields(d).map(f -> normalizeRdn(f.getRdn(), codeToOid)))
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<DataAttributeV3> filteredDefaults = defaults.stream()
+                .filter(d -> rdnFields(d)
+                        .map(f -> normalizeRdn(f.getRdn(), codeToOid))
+                        .noneMatch(claimedRdns::contains))
+                .toList();
+
+        List<DataAttributeV3> merged = new ArrayList<>(connectorDefs);
+        merged.addAll(filteredDefaults);
+        return merged;
+    }
+
+    /**
+     * Streams the RDN-typed mapped fields of a definition, tolerating connector payloads that carry a
+     * null {@code fieldMapping} or a mapping with null {@code fields}.
+     */
+    private static java.util.stream.Stream<RdnMappedField> rdnFields(DataAttributeV3 def) {
+        FieldMapping fm = def.getFieldMapping();
+        if (fm == null || fm.getFields() == null) {
+            return java.util.stream.Stream.empty();
+        }
+        return fm.getFields().stream()
+                .filter(f -> f.getFieldType() == FieldType.RDN)
+                .map(RdnMappedField.class::cast);
+    }
+
+    private static String normalizeRdn(String rdn, Map<String, String> codeToOid) {
+        return codeToOid == null ? rdn : codeToOid.getOrDefault(rdn, rdn);
+    }
+
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
-                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes) throws NotFoundException, CertificateException, AttributeException, CertificateRequestException {
+                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes, RaProfile raProfile) throws NotFoundException, CertificateException, AttributeException, ConnectorException {
         String requestB64;
         String csr;
         if (uploadedRequest != null && !uploadedRequest.isEmpty()) {
@@ -1689,16 +1774,38 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             if (requestFormat == CertificateRequestFormat.CRMF) {
                 throw new CertificateException("CRMF format is not supported for CSR generation");
             }
-            // get definitions
-            List<BaseAttribute> definitions = CsrAttributes.csrAttributes();
+            // The platform-built (key generation) path needs an RA profile to resolve issuance attributes.
+            if (raProfile == null) {
+                throw new ValidationException("Cannot generate certificate request without specifying RA profile");
+            }
+            // prefer connector-supplied v3 definitions (carry fieldMapping); fall back to a static CSR default set
+            List<DataAttributeV3> definitions = resolveIssuanceDefinitions(raProfile);
 
-            // validate and update definitions of certificate request attributes with attribute engine
+            // validate and update definitions of certificate request attributes with the attribute engine
             attributeEngine.validateUpdateDataAttributes(null, null, definitions, csrAttributes);
-            // TODO: return CertificateRequest object instead of Base64 encoded CSR
+
+            X509RequestContent requestContent = CertificateRequestAttributeProjector.project(definitions, csrAttributes);
+            Extensions extensions;
+            try {
+                extensions = X509RequestContentRenderer.toExtensions(requestContent);
+            } catch (IOException e) {
+                logger.error("Failed to build CSR extensions for RA profile {}", raProfile.getName(), e);
+                throw new CertificateException("Failed to build CSR extensions", e);
+            }
+
+            X500Principal principal;
+            try {
+                 principal = X509RequestContentRenderer.toX500Principal(requestContent);
+            } catch (IOException e) {
+                logger.error("Failed to build CSR subject for RA profile {}", raProfile.getName(), e);
+                throw new CertificateException("Failed to build CSR subject", e);
+            }
+
             csr = generateBase64EncodedCsr(
                     keyUUid,
                     tokenProfileUuid,
-                    CertificateRequestUtils.buildSubject(csrAttributes),
+                    principal,
+                    extensions,
                     signatureAttributes,
                     altKeyUUid,
                     altTokenProfileUuid,
