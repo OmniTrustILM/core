@@ -12,6 +12,9 @@ import com.otilm.api.model.client.location.EditLocationRequestDto;
 import com.otilm.api.model.client.location.IssueToLocationRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
@@ -745,6 +748,27 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
         permissionEvaluator.authorityInstance(location.getEntityInstanceReference().getSecuredUuid());
         return new NameAndUuidDto(String.valueOf(objectUuid), location.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
+        // Object-scoped LOCATION:DETAIL on objectUuid is the per-object gate. The parent (ENTITY) scope is bound
+        // to THIS location's owning entity in-body: a resource-level parent annotation could not scope to the
+        // specific owning entity (the loader contract carries only the location uuid), so the parent check is
+        // performed here against the resolved owning-entity uuid — failing closed (AccessDeniedException) when the
+        // caller lacks ENTITY:DETAIL on it. A location with no owning entity has no ENTITY parent to scope against
+        // (mirrors evaluatePermissionChain), so only the object gate applies.
+        Location location = locationRepository.findByUuid(objectUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
+        if (location.getEntityInstanceReference() != null) {
+            permissionEvaluator.entityInstance(location.getEntityInstanceReference().getSecuredUuid());
+        }
+        ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.LOCATION);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.LOCATION, location.getUuid()));
+        data.setUuid(location.getUuid().toString());
+        data.setName(location.getName());
+        return data;
     }
 
     @Override
