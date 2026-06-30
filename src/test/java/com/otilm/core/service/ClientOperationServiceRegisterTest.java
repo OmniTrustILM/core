@@ -36,7 +36,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -68,7 +68,7 @@ import java.util.UUID;
 class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationServiceImpl clientOperationService;
     @Autowired
     private CertificateService certificateService;
     @Autowired

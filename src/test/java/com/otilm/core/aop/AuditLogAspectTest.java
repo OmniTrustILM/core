@@ -21,7 +21,7 @@ import com.otilm.core.dao.repository.AuditLogRepository;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.messaging.jms.listeners.AuditLogsListener;
 import com.otilm.core.messaging.model.AuditLogMessage;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -68,7 +68,7 @@ class AuditLogAspectTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private AuditLogRepository auditLogRepository;

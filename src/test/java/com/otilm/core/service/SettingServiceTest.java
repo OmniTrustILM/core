@@ -34,7 +34,7 @@ class SettingServiceTest extends BaseSpringBootTest {
     private static final String TEST_TRIGGER_UUID = "3a1db3f5-f9eb-4fbf-92c9-c4c1499bfca7";
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private SettingRepository settingRepository;

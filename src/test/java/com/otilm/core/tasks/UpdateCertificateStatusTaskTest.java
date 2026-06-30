@@ -20,7 +20,7 @@ import com.otilm.core.messaging.jms.producers.ValidationProducer;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
@@ -57,7 +57,7 @@ class UpdateCertificateStatusTaskTest extends BaseSpringBootTest {
     @Autowired
     private SettingsCache settingsCache;
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @MockitoBean
     private ValidationProducer validationProducer;

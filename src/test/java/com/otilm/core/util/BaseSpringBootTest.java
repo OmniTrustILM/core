@@ -12,7 +12,7 @@ import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.opa.OpaClient;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingInternalService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +44,7 @@ public class BaseSpringBootTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private SettingService settingService;
+    private SettingInternalService settingService;
 
     @BeforeEach
     public void setupAuth() throws SQLException {

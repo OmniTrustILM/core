@@ -14,7 +14,8 @@ import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.SettingInternalService;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.SecretEncodingVersion;
@@ -42,7 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 @Service("settingService")
 @Transactional
-public class SettingServiceImpl implements SettingService {
+public class SettingServiceImpl implements SettingExternalService, SettingInternalService {
     public static final String UTILS_SERVICE_URL_NAME = "utilsServiceUrl";
     public static final String CBOM_REPOSITORY_URL_NAME = "cbomRepositoryUrl";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";

@@ -18,13 +18,13 @@ import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.model.ScheduledTaskResult;
-import com.otilm.core.service.CbomService;
+import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 
 class CbomSyncTaskTest extends BaseSpringBootTest {
 
     @MockitoBean
-    private CbomService cbomService;
+    private CbomServiceImpl cbomService;
 
     @Autowired
     private CbomSyncTask cbomSyncTask;

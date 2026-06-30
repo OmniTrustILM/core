@@ -4,7 +4,7 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUp
 import com.otilm.core.auth.oauth2.PlatformJwtAuthenticationConverter;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -30,7 +30,7 @@ class PlatformJwtConvertorTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    SettingService settingService;
+    SettingExternalService settingService;
 
     @Autowired
     PlatformJwtAuthenticationConverter jwtAuthenticationConverter;

@@ -13,7 +13,7 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUp
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.converter.SettingsSectionCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -23,10 +23,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class SettingControllerImpl implements SettingController {
 
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
-    public void setSettingService(SettingService settingService) {
+    public void setSettingService(SettingExternalService settingService) {
         this.settingService = settingService;
     }
 

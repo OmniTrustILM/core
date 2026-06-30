@@ -21,7 +21,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,7 +48,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     private CertificateEventHistoryExternalService certificateEventHistoryService;
 
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
 
     private ApprovalExternalService approvalService;
 
@@ -254,7 +254,7 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationExternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 
