@@ -50,11 +50,18 @@ public class CertificateStateMachine {
         this.eventHistoryService = eventHistoryService;
     }
 
+    /** Whether a {@code (from, to)} transition is defined in {@link CertificateStateTransition}.
+     *  Lets callers stay idempotent — skip a redelivered or raced action rather than letting
+     *  {@link #transition} throw — without reaching into the transition table directly. */
+    public boolean canTransition(CertificateState fromState, CertificateState toState) {
+        return CertificateStateTransition.lookup(fromState, toState).isPresent();
+    }
+
     /** Convenience overload: the audit event and the reason message are both auto-derived — the
      *  event from the transition row's {@code defaultAuditEvent}, the message from the from/to states. */
     @Transactional
     public void transition(Certificate cert, CertificateState toState) {
-        applyTransition(cert, toState, null, null);
+        applyTransition(cert, toState, null, null, null);
     }
 
     /**
@@ -65,14 +72,60 @@ public class CertificateStateMachine {
     public void transition(Certificate cert, CertificateState toState,
                            @Nullable CertificateEvent auditEventOverride,
                            @Nullable String reasonMessage) {
-        applyTransition(cert, toState, auditEventOverride, reasonMessage);
+        applyTransition(cert, toState, auditEventOverride, reasonMessage, null);
+    }
+
+    /**
+     * @param auditDetail if non-null, stored as the audit-history entry's detail payload (e.g. a
+     *                    serialized additional-information map); otherwise the detail is empty.
+     */
+    @Transactional
+    public void transition(Certificate cert, CertificateState toState,
+                           @Nullable CertificateEvent auditEventOverride,
+                           @Nullable String reasonMessage,
+                           @Nullable String auditDetail) {
+        applyTransition(cert, toState, auditEventOverride, reasonMessage, auditDetail);
+    }
+
+    /**
+     * Validate + mutate + persist the state WITHOUT writing an audit-history entry, for transitions
+     * whose certificate history is owned by another component. The approval flow is the case in
+     * point: {@code ApprovalRequestedEventHandler} already records the {@code APPROVAL_REQUEST}
+     * entry (with approval-profile context) when an approval is created, so routing
+     * {@code approvalCreatedAction} through {@link #transition} would write a duplicate row. The
+     * (from, to) pair is still validated against {@link CertificateStateTransition}, so an illegal
+     * transition still throws — only the audit is skipped. A second use is deferral: a caller that
+     * records the audit itself only after a dependent follow-up step succeeds (e.g. the synchronous
+     * revoke path writes {@code REVOKE/SUCCESS} only once the post-revoke attribute write completes).
+     */
+    @Transactional
+    public void transitionAuditedExternally(Certificate cert, CertificateState toState) {
+        applyStateChange(cert, toState);
     }
 
     /** Private so the {@code @Transactional} public overloads are reached through the Spring proxy
      *  rather than by self-invocation. */
     private void applyTransition(Certificate cert, CertificateState toState,
                                  @Nullable CertificateEvent auditEventOverride,
-                                 @Nullable String reasonMessage) {
+                                 @Nullable String reasonMessage,
+                                 @Nullable String auditDetail) {
+        CertificateState fromState = cert.getState();
+        CertificateStateTransition row = applyStateChange(cert, toState);
+
+        CertificateEvent auditEvent = auditEventOverride != null ? auditEventOverride : row.defaultAuditEvent;
+        String message = reasonMessage != null
+            ? reasonMessage
+            : "State changed from %s to %s".formatted(fromState.getLabel(), toState.getLabel());
+        // Status comes from the transition row: failure/rejection/failed-restore rows are audited
+        // FAILED, not SUCCESS (the destination state alone can't tell them apart).
+        eventHistoryService.addEventHistory(cert.getUuid(), auditEvent,
+            row.defaultStatus, message, auditDetail != null ? auditDetail : "");
+    }
+
+    /** Validate the (from, to) pair against {@link CertificateStateTransition}, then apply and
+     *  persist the new state. Shared by the audited and externally-audited entry points; returns the
+     *  matched row so an audited caller can derive the event and status. */
+    private CertificateStateTransition applyStateChange(Certificate cert, CertificateState toState) {
         Objects.requireNonNull(cert, "cert");
         Objects.requireNonNull(toState, "toState");
         CertificateState fromState = cert.getState();
@@ -82,14 +135,6 @@ public class CertificateStateMachine {
 
         cert.setState(toState);
         certificateRepository.save(cert);
-
-        CertificateEvent auditEvent = auditEventOverride != null ? auditEventOverride : row.defaultAuditEvent;
-        String message = reasonMessage != null
-            ? reasonMessage
-            : "State changed from %s to %s".formatted(fromState.getLabel(), toState.getLabel());
-        // Status comes from the transition row: failure/rejection/failed-restore rows are audited
-        // FAILED, not SUCCESS (the destination state alone can't tell them apart).
-        eventHistoryService.addEventHistory(cert.getUuid(), auditEvent,
-            row.defaultStatus, message, "");
+        return row;
     }
 }

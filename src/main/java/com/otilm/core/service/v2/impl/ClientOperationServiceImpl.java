@@ -2,6 +2,7 @@ package com.otilm.core.service.v2.impl;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
@@ -45,7 +46,16 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.handler.authority.AdapterOperationResult;
+import com.otilm.core.service.handler.authority.AsyncOperationCapability;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.handler.authority.RegisterCapability;
+import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
@@ -84,6 +94,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.function.BooleanSupplier;
 
 @Service("clientOperationServiceImplV2")
 @Transactional
@@ -124,10 +135,28 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
+    private AuthorityProviderAdapterFactory adapterFactory;
+    private CertificateStateMachine stateMachine;
+    private ConnectorCapabilityService capabilityService;
 
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
+    }
+
+    @Autowired
+    public void setStateMachine(CertificateStateMachine stateMachine) {
+        this.stateMachine = stateMachine;
+    }
+
+    @Autowired
+    public void setCapabilityService(ConnectorCapabilityService capabilityService) {
+        this.capabilityService = capabilityService;
     }
 
     @Autowired
@@ -316,10 +345,154 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException {
+        if (request == null) {
+            throw new ValidationException("A certificate registration request is required.");
+        }
+        // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
+        // every association the adapter dereferences must be initialized before the session closes.
+        RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        if (Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException("Cannot register certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
+        }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
+
+        // Gate before creating anything (defense-in-depth): registration requires the v3 protocol
+        // (instanceof RegisterCapability) AND the opt-in CERTIFICATE_REGISTRATION FeatureFlag advertised
+        // by the authority's connector interface. A non-registering authority is rejected without
+        // leaving a placeholder behind.
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+        if (!(adapter instanceof RegisterCapability registerCapability)
+                || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
+            throw new ValidationException("Certificate registration is not supported by the authority of RA profile %s.".formatted(raProfile.getName()));
+        }
+
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, request);
+        // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
+        // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
+        // is not yet known to any concurrent actor, so the read-modify-write below cannot race.
+        Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
+                .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
+        stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
+
+        AdapterOperationResult result;
+        try {
+            result = registerCapability.register(certificate, request);
+        } catch (ConnectorAcceptedButLocalFailureException e) {
+            // Connector already accepted the registration (2xx/202); per the state-divergence rule local state
+            // must NOT roll back — leave the cert PENDING_REGISTRATION so the poll or operator reconciles it.
+            // Record the divergence to cert-event history (as the sibling meta/issue/revoke paths do) so the
+            // audit trail explains why the cert is left PENDING_REGISTRATION.
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
+                    CertificateEventStatus.FAILED,
+                    "Connector accepted the registration but a local step failed; left in PENDING_REGISTRATION for reconciliation. Cause: " + e.getMessage(), "");
+            throw e;
+        } catch (ConnectorException | RuntimeException e) {
+            // Pre-acceptance failure — either an explicit connector rejection, or (per the
+            // RegisterCapability.register contract, under which any post-acceptance failure must surface as
+            // ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException. No upstream work
+            // is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            throw e;
+        }
+
+        persistRegistrationMeta(certificate, result.meta());
+        if (result.isAsync()) {
+            // Log on the actual scheduling outcome, not just instanceof: an async-capable adapter that does not
+            // advertise CERTIFICATE_STATUS_POLLING is NOT polled, so "awaiting completion" would be misleading.
+            if (scheduleStatusPoll(certificate, adapter, authority, CertificateOperation.REGISTER)) {
+                logger.info("Certificate {} registration accepted by authority; awaiting asynchronous completion", certificate.getUuid());
+            } else {
+                logger.warn("Certificate {} registration accepted asynchronously but status polling is not available "
+                        + "(authority is not v3 or does not advertise CERTIFICATE_STATUS_POLLING); "
+                        + "left in PENDING_REGISTRATION for manual/out-of-band completion", certificate.getUuid());
+            }
+        } else {
+            stateMachine.transition(certificate, CertificateState.REGISTERED);
+            logger.info("Certificate {} registered by authority", certificate.getUuid());
+        }
+
+        ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
+        response.setUuid(certificate.getUuid().toString());
+        response.setCertificateData(result.certificateData() != null ? result.certificateData() : "");
+        return response;
+    }
+
+    /**
+     * Persists connector-returned tracking metadata against the certificate so a later status poll or
+     * cancel can replay it. Registration has already been accepted upstream by the time this runs, so a
+     * persistence failure must not roll local state back (state-divergence rule): it is recorded to
+     * cert-event history and the flow proceeds, with later tracking falling back to queryable metadata.
+     */
+    private void persistRegistrationMeta(Certificate certificate, List<MetadataAttribute> meta) {
+        if (meta == null || meta.isEmpty()) {
+            return;
+        }
+        try {
+            attributeEngine.updateMetadataAttributes(meta,
+                    ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid())
+                            .connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid())
+                            .build());
+        } catch (Exception metaEx) {
+            logger.warn("Failed to persist registration metadata for cert {}: {}", certificate.getUuid(), metaEx.getMessage(), metaEx);
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
+                    CertificateEventStatus.FAILED,
+                    "Failed to persist connector registration metadata; later status tracking may be limited. Cause: " + metaEx.getMessage(), "");
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public AvailableOperationsDto listAvailableOperations(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid) throws NotFoundException {
+        RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
+
+        // Capability-derived support flags, gated defense-in-depth — protocol-level (instanceof) AND the
+        // opt-in FeatureFlag advertised by the connector interface: register needs RegisterCapability +
+        // CERTIFICATE_REGISTRATION; async completion + cancellation need AsyncOperationCapability +
+        // CERTIFICATE_STATUS_POLLING.
+        boolean register = adapter instanceof RegisterCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION);
+        boolean async = adapter instanceof AsyncOperationCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING);
+        List<OperationSupport> operations = List.of(
+                new OperationSupport(CertificateOperationKind.ISSUE, true, async, async),
+                new OperationSupport(CertificateOperationKind.RENEW, true, async, async),
+                new OperationSupport(CertificateOperationKind.REVOKE, true, async, async),
+                // REGISTER cancel is not advertised: determineCancelTarget handles only PENDING_ISSUE /
+                // PENDING_REVOKE, so cancelling a PENDING_REGISTRATION cert is not yet implemented.
+                new OperationSupport(CertificateOperationKind.REGISTER, register, register && async, false)
+        );
+        return new AvailableOperationsDto(operations);
+    }
+
+    @Override
     public void approvalCreatedAction(UUID certificateUuid) throws NotFoundException {
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificateRepository.save(certificate);
+        // Only REQUESTED (issue approval), REGISTERED (issue approval for a registered placeholder)
+        // and ISSUED (revoke approval) can enter PENDING_APPROVAL.
+        // A redelivered approval-created message for a certificate that already advanced past those
+        // states is a no-op: without this guard the SM would reject the now-illegal transition and
+        // fail the message. The APPROVAL_REQUEST history entry is owned by ApprovalRequestedEventHandler,
+        // so the SM only gates and mutates the state here — transitionAuditedExternally avoids a
+        // duplicate history row.
+        if (certificate.getState() != CertificateState.REQUESTED
+                && certificate.getState() != CertificateState.REGISTERED
+                && certificate.getState() != CertificateState.ISSUED) {
+            logger.debug("Certificate {} is in state {}, not awaiting an approval request; skipping PENDING_APPROVAL transition",
+                    certificateUuid, certificate.getState().getLabel());
+            return;
+        }
+        stateMachine.transitionAuditedExternally(certificate, CertificateState.PENDING_APPROVAL);
     }
 
     @Override
@@ -331,15 +504,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         final Certificate certificate = certificateRepository.findWithAssociationsByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         if (certificate.isArchived())
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate that has been archived. Certificate: %s", certificate.toStringShort())));
-        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate that has been archived. Certificate: %s", certificate.toStringShort())));
+        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL && certificate.getState() != CertificateState.REGISTERED) {
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
         }
         if (certificate.getRaProfile() == null) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no RA Profile associated. Certificate: %s", certificate)));
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no RA Profile associated. Certificate: %s", certificate)));
         }
         if (certificate.getCertificateRequest() == null) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with no certificate request. Certificate: %s", certificate)));
+            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no certificate request. Certificate: %s", certificate)));
         }
 
         CertificateSignRequestDto caRequest = new CertificateSignRequestDto();
@@ -427,17 +600,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             }
         }
 
-        certificate.setState(CertificateState.PENDING_ISSUE);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
+                "Issuance accepted; awaiting asynchronous completion.");
 
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.ISSUE,
-                CertificateEventStatus.SUCCESS,
-                "Issuance accepted; awaiting asynchronous completion.",
-                "");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -452,6 +618,15 @@ public class ClientOperationServiceImpl implements ClientOperationService {
 
         logger.info("Certificate {} transitioned to PENDING_ISSUE (originating action: {})",
                 certificate.getUuid(), originatingAction.getCode());
+    }
+
+    /** Rejects a request whose RA profile does not belong to the authority named in the path. The RA profile's
+     *  authorityInstanceReferenceUuid is an eager column, so this is safe to call with no transaction held. */
+    private static void assertRaProfileUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
+        if (!authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+            throw new ValidationException(String.format(
+                    "RA profile %s does not belong to the requested authority.", raProfile.getName()));
+        }
     }
 
     private static void assertCertificateBelongsToRaProfile(Certificate certificate,
@@ -505,42 +680,92 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     private void handleFailedOrRejectedEvent(Certificate certificate, UUID oldCertificateUuid, CertificateState state, CertificateEvent event, Map<String, Object> additionalInformation, String message) {
+        // Idempotent on redelivery / state races: if the certificate can no longer transition to the
+        // target state (e.g. a redelivered reject for an already-REJECTED cert — REJECTED->REJECTED
+        // has no row), skip rather than letting the SM throw and fail the JMS message. Mirrors the
+        // guards on approvalCreatedAction and revokeCertificateRejectedAction.
+        if (!stateMachine.canTransition(certificate.getState(), state)) {
+            logger.debug("Certificate {} is in state {}; no transition to {} — skipping failed/rejected handling",
+                    certificate.getUuid(), certificate.getState().getLabel(), state.getLabel());
+            return;
+        }
         for (CertificateLocation location : certificate.getLocations()) {
             try {
                 locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
             } catch (ConnectorException | NotFoundException ex) {
-                logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), message);
+                logger.error("Failed to remove certificate with UUID {} from location with UUID {}: {}", certificate.getUuid(), location.getId().getLocationUuid(), ex.getMessage(), ex);
             }
         }
         CertificateState oldState = certificate.getState();
-        certificate.setState(state);
-        certificateRepository.save(certificate);
+
+        // The SM writes the state-change audit; its status comes from the transition row (FAILED
+        // for both the failed-issue and the rejected rows). Preserve the original event, message,
+        // and detail: a rejection with no caller message keeps the UPDATE_STATE "state changed"
+        // wording with no detail; every other case records an ISSUE event with the failure message
+        // and the serialized additional information.
+        final CertificateEvent auditEvent;
+        final String auditMessage;
+        final String auditDetail;
+        if (state == CertificateState.REJECTED && message == null) {
+            auditEvent = CertificateEvent.UPDATE_STATE;
+            auditMessage = "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel());
+            auditDetail = "";
+        } else {
+            auditEvent = CertificateEvent.ISSUE;
+            auditMessage = message;
+            auditDetail = additionalInformation != null ? MetaDefinitions.serialize(additionalInformation) : "";
+        }
+        stateMachine.transition(certificate, state, auditEvent, auditMessage, auditDetail);
 
         certificateRelationRepository.deleteAll(certificate.getPredecessorRelations());
 
+        // A failed renew/rekey also records the failure against the predecessor certificate so its
+        // history reflects the abandoned operation (the SM call above only audits the new cert).
         if (state == CertificateState.FAILED) {
-            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
             if (event == CertificateEvent.RENEW)
                 certificateEventHistoryService.addEventHistory(oldCertificateUuid, CertificateEvent.RENEW, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
             if (event == CertificateEvent.REKEY)
                 certificateEventHistoryService.addEventHistory(oldCertificateUuid, CertificateEvent.REKEY, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
         }
-
-        if (state == CertificateState.REJECTED) {
-            if (message == null) {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE, CertificateEventStatus.SUCCESS, "Certificate state changed from %s to %s.".formatted(oldState.getLabel(), CertificateState.REJECTED.getLabel()), "");
-            } else {
-                certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED, message, MetaDefinitions.serialize(additionalInformation));
-            }
-        }
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueRequestedCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid) throws ConnectorException, NotFoundException {
+    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateSignRequestDto request) throws NotFoundException {
+        // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
+        // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
+        RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        if (Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException("Cannot issue certificate with disabled RA profile. Ra Profile: %s".formatted(raProfile.getName()));
+        }
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
-        if (certificate.getState() != CertificateState.REQUESTED) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue requested certificate with status %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
+        if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
+            throw new ValidationException("Cannot issue a certificate that belongs to a different RA profile. Certificate: %s".formatted(certificate.toStringShort()));
+        }
+        CertificateState state = certificate.getState();
+        boolean hasCsr = request != null && request.getRequest() != null && !request.getRequest().isBlank();
+
+        // State-keyed, body-optional contract: a REQUESTED cert already carries its (protocol-attached) CSR
+        // and must not be given another; a REGISTERED placeholder has no CSR yet and requires the operator's.
+        if (state != CertificateState.REGISTERED && state != CertificateState.REQUESTED) {
+            throw new ValidationException(ValidationError.create("Cannot issue certificate with state %s. Certificate: %s".formatted(state.getLabel(), certificate.toStringShort())));
+        }
+        boolean registered = state == CertificateState.REGISTERED;
+        if (registered && !hasCsr) {
+            throw new ValidationException(ValidationError.create("A certificate signing request is required to issue a registered certificate. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (!registered && hasCsr) {
+            throw new ValidationException(ValidationError.create("This certificate already has a signing request and cannot accept another. Certificate: %s".formatted(certificate.toStringShort())));
+        }
+        if (registered) {
+            try {
+                certificateService.addCertificateRequestToExisting(certificate.getUuid(), request);
+            } catch (CertificateRequestException | NoSuchAlgorithmException e) {
+                throw new ValidationException(ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
+            }
         }
 
         final ActionMessage actionMessage = new ActionMessage();
@@ -549,7 +774,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         actionMessage.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
-        actionMessage.setResourceUuid(UUID.fromString(certificateUuid));
+        actionMessage.setResourceUuid(certificate.getUuid());
         actionProducer.produceMessage(actionMessage);
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -981,8 +1206,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                 return;
             }
 
-            certificate.setState(CertificateState.REVOKED);
-            certificateRepository.save(certificate);
+            // Connector revoked synchronously (200). Drive state to REVOKED before the fallible
+            // attribute write so a later local failure cannot leave the cert out of sync with an
+            // authority that has already revoked it (state-divergence rule). The SM gates the
+            // transition but writes no audit here; the REVOKE/SUCCESS history is recorded only after
+            // the attribute write succeeds, so an attribute failure surfaces as the single
+            // connector-accepted-but-local-failure entry below, not a misleading SUCCESS+FAILED pair.
+            stateMachine.transitionAuditedExternally(certificate, CertificateState.REVOKED);
 
             attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + caRequest.getReason().getLabel(), "");
@@ -999,8 +1229,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                         certificate.getUuid(), e.getMessage(), e);
                 throw new CertificateOperationException(msg);
             }
-            // Connector itself failed — restore the entry state so a PENDING_APPROVAL cert
-            // doesn't get silently flipped to ISSUED.
+            // Connector itself failed. Nothing transitioned the cert before the connector call, so
+            // this restores it to its entry state — a defensive no-op, not a real transition, and so
+            // intentionally not routed through the SM (there is no self-transition row, and the SM
+            // governs state changes rather than idempotent restores). The FAILED audit below is the
+            // meaningful record of the failed revoke attempt.
             certificate.setState(entryState);
             certificateRepository.save(certificate);
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, e.getMessage(), "");
@@ -1030,9 +1263,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             logger.debug("Certificate {} is in state {}, not PENDING_APPROVAL; skipping revoke-rejection state restore", certificateUuid, certificate.getState().getLabel());
             return;
         }
-        certificate.setState(CertificateState.ISSUED);
-        certificateRepository.save(certificate);
-        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".", "");
+        stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.REVOKE,
+                "Revocation approval was rejected; certificate restored to " + CertificateState.ISSUED.getLabel() + ".");
     }
 
     /**
@@ -1045,17 +1277,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
         certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
         certificate.setPendingRevokeAttributes(request.getAttributes());
-        certificate.setState(CertificateState.PENDING_REVOKE);
-        certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
+                "Revocation accepted; awaiting asynchronous completion.");
 
         scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
-
-        certificateEventHistoryService.addEventHistory(
-                certificate.getUuid(),
-                CertificateEvent.REVOKE,
-                CertificateEventStatus.SUCCESS,
-                "Revocation accepted; awaiting asynchronous completion.",
-                "");
 
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(
@@ -1071,20 +1296,65 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
     }
 
+    /** Schedules an async status poll, reloading the certificate with the polling entity graph — for callers
+     *  whose own load did not fetch the authority's connector interface (issue/renew/rekey/revoke).
+     *  @return {@code true} iff a poll was scheduled. */
+    private boolean scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+        return scheduleStatusPoll(certificate, operation, () -> isAsyncPollable(certificate.getUuid()));
+    }
+
+    /** Schedules an async status poll using an already-resolved adapter and authority (no reload) — for callers
+     *  that loaded the certificate with the polling graph and resolved the adapter already (registration).
+     *  @return {@code true} iff a poll was scheduled. */
+    private boolean scheduleStatusPoll(Certificate certificate, AuthorityProviderAdapter adapter,
+                                       AuthorityInstanceReference authority, CertificateOperation operation) {
+        return scheduleStatusPoll(certificate, operation, () -> isAsyncPollable(adapter, authority));
+    }
+
     /**
-     * Best-effort enqueue of an async status-poll row (due now) after a connector accepts an operation
-     * with HTTP 202. The calling {@code *Action} methods run with {@code Propagation.NOT_SUPPORTED}, so the
-     * {@code PENDING_*} transition has already committed in its own transaction by the time this runs — per the
-     * state-divergence rule a scheduling failure must NOT roll that back, so we log and continue. The write is
-     * idempotent on the certificate UUID, so a duplicate (e.g. a retried request) is a no-op.
+     * Defense-in-depth gate: schedule a poll only when the authority is v3 (the status endpoint exists —
+     * instanceof AsyncOperationCapability) AND advertises CERTIFICATE_STATUS_POLLING ("poll me"). A v2 or
+     * non-advertising v3 authority (e.g. an out-of-band / manual-completion connector that 202s then 404s its
+     * status endpoint) is left PENDING with no poll row, no queue message and no listener WARN.
+     *
+     * <p>Best-effort: the connector has already accepted the operation, so neither the gate evaluation nor the
+     * scheduling may roll it back (state-divergence rule). Any failure degrades to "no poll".
+     *
+     * @return {@code true} iff a poll was scheduled.
      */
-    private void scheduleStatusPoll(Certificate certificate, CertificateOperation operation) {
+    private boolean scheduleStatusPoll(Certificate certificate, CertificateOperation operation, BooleanSupplier pollable) {
         try {
+            if (!pollable.getAsBoolean()) {
+                logger.debug("Authority for certificate {} is not pollable (not v3, or does not advertise "
+                        + "CERTIFICATE_STATUS_POLLING); no poll scheduled (left PENDING for manual/out-of-band completion)",
+                        certificate.getUuid());
+                return false;
+            }
             pollWriter.schedule(certificate.getUuid(), operation, OffsetDateTime.now(ZoneOffset.UTC));
+            return true;
         } catch (Exception e) {
-            logger.warn("Failed to schedule async status poll for certificate {} (operation {}): {}",
+            logger.warn("Failed to evaluate or schedule async status poll for certificate {} (operation {}): {}",
                     certificate.getUuid(), operation, e.getMessage(), e);
+            return false;
         }
+    }
+
+    /** Whether the authority should be polled for asynchronous completion: it is v3 (the status endpoint
+     *  exists — instanceof AsyncOperationCapability) AND advertises {@code CERTIFICATE_STATUS_POLLING}. */
+    private boolean isAsyncPollable(AuthorityProviderAdapter adapter, AuthorityInstanceReference authority) {
+        return adapter instanceof AsyncOperationCapability
+                && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING);
+    }
+
+    /** Reloads with the polling entity graph so the authority's connector interface is initialized in this
+     *  tx-less path, resolves the adapter, then applies the gate. */
+    private boolean isAsyncPollable(UUID certificateUuid) {
+        return certificateRepository.findForPollingByUuid(certificateUuid)
+                .map(cert -> {
+                    AuthorityInstanceReference authority = cert.getRaProfile().getAuthorityInstanceReference();
+                    return isAsyncPollable(adapterFactory.forAuthority(authority), authority);
+                })
+                .orElse(false);
     }
 
     private static CertificateOperation pollOperationFor(ResourceAction originatingAction) {
@@ -1494,9 +1764,32 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
 
+        cancelInFlightAsyncIssueBestEffort(certificate.getUuid());
+
         Certificate refreshed = certificateRepository.findByUuid(certificate.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
         return refreshed.mapToDto();
+    }
+
+    /**
+     * Operator finalized issuance out-of-band; if a v3 connector still has an in-flight asynchronous issue
+     * for this certificate, best-effort tell it to cancel so the upstream operation is not left orphaned.
+     * Reloads with the full adapter graph (the manual-issue finder omits the authority interface) and runs
+     * with no transaction held. Failures are swallowed — the certificate is already issued locally.
+     */
+    private void cancelInFlightAsyncIssueBestEffort(UUID certificateUuid) {
+        try {
+            Certificate certificate = certificateRepository.findForPollingByUuid(certificateUuid).orElse(null);
+            if (certificate == null) {
+                return;
+            }
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(certificate.getRaProfile().getAuthorityInstanceReference());
+            if (adapter instanceof AsyncOperationCapability async) {
+                async.cancel(certificate, CertificateOperation.ISSUE);
+            }
+        } catch (Exception e) {
+            logger.warn("Best-effort cancel of in-flight async issue after manual issue failed (cert {}): {}", certificateUuid, e.getMessage(), e);
+        }
     }
 
     private static void assertCertificateInPendingIssueWithCsr(Certificate certificate) {
@@ -1596,11 +1889,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
             cert.setPendingRevokeDestroyKey(null);
             cert.setPendingRevokeAttributes(null);
-            cert.setState(CertificateState.REVOKED);
-            certificateRepository.save(cert);
-
-            certificateEventHistoryService.addEventHistory(cert.getUuid(), CertificateEvent.REVOKE,
-                    CertificateEventStatus.SUCCESS, "Revocation confirmed manually", "");
+            stateMachine.transition(cert, CertificateState.REVOKED, CertificateEvent.REVOKE,
+                    "Revocation confirmed manually");
             transactionManager.commit(tx);
         } catch (NotFoundException | RuntimeException e) {
             transactionManager.rollback(tx);
@@ -1663,18 +1953,14 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        commitLocalCancel(cert, target);
+        CertificateDetailDto result = commitLocalCancel(cert, target, reason);
 
-        String label = target.isCancelIssue ? "Pending issue cancelled" : "Pending revocation cancelled";
-        String msg = reason.isEmpty() ? label : (label + ". Reason: " + reason);
-        certificateEventHistoryService.addEventHistory(cert.getUuid(), target.eventKind(),
-                CertificateEventStatus.SUCCESS, msg, "");
         eventProducer.produceMessage(
                 CertificateActionPerformedEventHandler.constructEventMessage(cert.getUuid(), ResourceAction.UPDATE));
         logger.info("Pending {} for certificate {} cancelled (target state: {})",
                 target.pendingOpLabel(), cert.getUuid(), target.targetState());
 
-        return cert.mapToDto();
+        return result;
     }
 
     /**
@@ -1824,7 +2110,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * renew/rekey predecessor would otherwise still link to a now-{@code FAILED}
      * successor.</p>
      */
-    private void commitLocalCancel(Certificate cert, CancelTarget target) {
+    private CertificateDetailDto commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -1858,14 +2144,22 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             if (target.isCancelIssue()) {
                 certificateRelationRepository.deleteAll(fresh.getPredecessorRelations());
                 fresh.getPredecessorRelations().clear();
-            }
-            fresh.setState(target.targetState());
-            if (!target.isCancelIssue()) {
+            } else {
                 fresh.setPendingRevokeDestroyKey(null);
                 fresh.setPendingRevokeAttributes(null);
             }
-            certificateRepository.save(fresh);
+            // Cancelling a pending operation is a non-success outcome. Routing through the SM records
+            // the audit with the transition row's status — FAILED for both PENDING_ISSUE→FAILED and
+            // the PENDING_REVOKE→ISSUED restore — so a cancelled issue is no longer logged SUCCESS.
+            String label = target.isCancelIssue() ? "Pending issue cancelled" : "Pending revocation cancelled";
+            String auditMessage = reason.isEmpty() ? label : (label + ". Reason: " + reason);
+            stateMachine.transition(fresh, target.targetState(), target.eventKind(), auditMessage);
+            // Build the response DTO while the session is open so it reflects the committed
+            // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
+            // associations resolve here rather than after the session closes.
+            CertificateDetailDto dto = fresh.mapToDto();
             transactionManager.commit(cleanupTx);
+            return dto;
         } catch (RuntimeException e) {
             transactionManager.rollback(cleanupTx);
             throw e;

@@ -44,12 +44,15 @@ public enum CertificateStateTransition {
     ISSUED_TO_PENDING_APPROVAL        (ISSUED,               PENDING_APPROVAL,     CertificateEvent.APPROVAL_REQUEST, CertificateEventStatus.SUCCESS),
     PENDING_APPROVAL_TO_PENDING_REVOKE(PENDING_APPROVAL,     PENDING_REVOKE,       CertificateEvent.APPROVAL_CLOSE,   CertificateEventStatus.SUCCESS),
     PENDING_APPROVAL_TO_ISSUED        (PENDING_APPROVAL,     ISSUED,               CertificateEvent.APPROVAL_CLOSE,   CertificateEventStatus.FAILED),  // revoke rejected — restore
+    PENDING_APPROVAL_TO_REVOKED       (PENDING_APPROVAL,     REVOKED,              CertificateEvent.REVOKE,           CertificateEventStatus.SUCCESS), // approved revoke completed synchronously (connector 200)
 
     // v3 register lifecycle
     REQUESTED_TO_PENDING_REGISTRATION (REQUESTED,            PENDING_REGISTRATION, CertificateEvent.UPDATE_STATE,     CertificateEventStatus.SUCCESS),
     PENDING_REGISTRATION_TO_REGISTERED(PENDING_REGISTRATION, REGISTERED,           CertificateEvent.UPDATE_STATE,     CertificateEventStatus.SUCCESS),
     PENDING_REGISTRATION_TO_FAILED    (PENDING_REGISTRATION, FAILED,               CertificateEvent.UPDATE_STATE,     CertificateEventStatus.FAILED),
     REGISTERED_TO_PENDING_ISSUE       (REGISTERED,           PENDING_ISSUE,        CertificateEvent.ISSUE,            CertificateEventStatus.SUCCESS),
+    REGISTERED_TO_PENDING_APPROVAL    (REGISTERED,           PENDING_APPROVAL,     CertificateEvent.APPROVAL_REQUEST, CertificateEventStatus.SUCCESS),  // issuing a registered placeholder requires approval
+    REGISTERED_TO_FAILED              (REGISTERED,           FAILED,               CertificateEvent.ISSUE,            CertificateEventStatus.FAILED),  // issuing a registered placeholder failed
 
     // Compliance rejection
     REQUESTED_TO_REJECTED             (REQUESTED,            REJECTED,             CertificateEvent.UPDATE_STATE,     CertificateEventStatus.FAILED),
