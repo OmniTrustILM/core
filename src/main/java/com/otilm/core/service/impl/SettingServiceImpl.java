@@ -6,6 +6,8 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.settings.*;
+import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.api.model.core.settings.authentication.*;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
@@ -32,6 +34,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -137,9 +141,35 @@ public class SettingServiceImpl implements SettingService {
             certificateSettingsDto.setValidation(defaultValidationSettings);
         }
 
+        certificateSettingsDto.setRequestAttributes(readRequestAttributesSettings(certificateSettings));
+
         platformSettings.setCertificates(certificateSettingsDto);
 
         return platformSettings;
+    }
+
+    private Setting certificateSetting(Map<String, Setting> certificateSettings, String name) {
+        Setting setting = certificateSettings == null ? null : certificateSettings.get(name);
+        if (setting == null) {
+            setting = new Setting();
+            setting.setSection(SettingsSection.PLATFORM);
+            setting.setCategory(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
+            setting.setName(name);
+        }
+        return setting;
+    }
+
+    private CertificateRequestAttributesSettingsDto readRequestAttributesSettings(Map<String, Setting> certificateSettings) {
+        CertificateRequestAttributesSettingsDto dto = new CertificateRequestAttributesSettingsDto();
+        Setting definitions = certificateSettings == null ? null : certificateSettings.get(DefaultRequestAttributeSet.SETTING_NAME);
+        // resolve() seeds the built-in default set (CsrAttributes) when nothing has been stored yet.
+        dto.setRequestAttributes(DefaultRequestAttributeSet.resolve(definitions == null ? null : definitions.getValue()));
+
+        Setting strict = certificateSettings == null ? null : certificateSettings.get(DefaultRequestAttributeSet.STRICT_SETTING_NAME);
+        if (strict != null && strict.getValue() != null) {
+            dto.setExternalCsrValidationStrict(Boolean.valueOf(strict.getValue()));
+        }
+        return dto;
     }
 
     @Override
@@ -176,31 +206,54 @@ public class SettingServiceImpl implements SettingService {
 
         // Certificate Settings
         if (platformSettings.getCertificates() != null) {
-            Setting certificatesValidationSetting;
             Map<String, Setting> certificateSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
-            if (certificateSettings == null || (certificatesValidationSetting = certificateSettings.get(CERTIFICATES_VALIDATION_SETTINGS_NAME)) == null) {
-                certificatesValidationSetting = new Setting();
-                certificatesValidationSetting.setSection(SettingsSection.PLATFORM);
-                certificatesValidationSetting.setCategory(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
-                certificatesValidationSetting.setName(CERTIFICATES_VALIDATION_SETTINGS_NAME);
-            }
 
-            try {
-                CertificateValidationSettingsUpdateDto validation = platformSettings.getCertificates().getValidation();
-                // Set null values for validation disabled
-                if (!validation.isEnabled()) {
-                    validation.setFrequency(null);
-                    validation.setExpiringThreshold(null);
+            CertificateValidationSettingsUpdateDto validation = platformSettings.getCertificates().getValidation();
+            if (validation != null) {
+                Setting certificatesValidationSetting = certificateSetting(certificateSettings, CERTIFICATES_VALIDATION_SETTINGS_NAME);
+                try {
+                    // Set null values for validation disabled
+                    if (!validation.isEnabled()) {
+                        validation.setFrequency(null);
+                        validation.setExpiringThreshold(null);
+                    }
+                    certificatesValidationSetting.setValue(objectMapper.writeValueAsString(validation));
+                } catch (JsonProcessingException e) {
+                    logger.warn("Failed to serialize platform certificates validation settings", e);
+                    throw new ValidationException("Cannot serialize platform certificates settings.");
                 }
-                certificatesValidationSetting.setValue(objectMapper.writeValueAsString(validation));
-            } catch (JsonProcessingException e) {
-                throw new ValidationException("Cannot serialize platform certificates settings: " + e.getMessage());
+                settingRepository.save(certificatesValidationSetting);
             }
-            settingRepository.save(certificatesValidationSetting);
 
+            CertificateRequestAttributesSettingsUpdateDto requestAttributes = platformSettings.getCertificates().getRequestAttributes();
+            if (requestAttributes != null) {
+                Setting definitionsSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.SETTING_NAME);
+                definitionsSetting.setValue(AttributeDefinitionUtils.serialize(requestAttributes.getRequestAttributes()));
+                settingRepository.save(definitionsSetting);
+
+                Setting strictSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.STRICT_SETTING_NAME);
+                strictSetting.setValue(requestAttributes.getExternalCsrValidationStrict() == null
+                        ? null : requestAttributes.getExternalCsrValidationStrict().toString());
+                settingRepository.save(strictSetting);
+            }
         }
 
-        settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings());
+        // Refresh the cache only once the write transaction commits; otherwise a later rollback would
+        // leave the cache holding values that never reached the database.
+        cacheAfterCommit(() -> settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings()));
+    }
+
+    private void cacheAfterCommit(Runnable refresh) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    refresh.run();
+                }
+            });
+        } else {
+            refresh.run();
+        }
     }
 
     @Override
