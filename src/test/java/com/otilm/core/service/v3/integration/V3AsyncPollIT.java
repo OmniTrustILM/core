@@ -3,6 +3,7 @@ package com.otilm.core.service.v3.integration;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.moreThanOrExactly;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -168,7 +169,7 @@ class V3AsyncPollIT extends BaseMessagingIntTest {
                 .pollInterval(200, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
                     // Confirm the status endpoint was called at least once (listener has run)
-                    wireMockServer.verify(1, postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
+                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
                     // Row must still exist (rescheduled to a future next_poll_at by the claimer)
                     long rowCount = countPollRows(certUuid);
                     Certificate current = reloadCert(certUuid);
@@ -238,7 +239,7 @@ class V3AsyncPollIT extends BaseMessagingIntTest {
                 .pollInterval(200, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
                     // Confirm the status endpoint was called at least once (listener has run)
-                    wireMockServer.verify(1, postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
+                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
                     Certificate current = reloadCert(certUuid);
                     Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, current.getState(),
                             "After first sweep (IN_PROGRESS, not timed out): cert must remain PENDING_REGISTRATION");
