@@ -1,6 +1,7 @@
 package com.otilm.core.service;
 
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -238,25 +239,21 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
     }
 
     @Test
-    void fallsBackToDefaultCsrAttributes_whenConnectorAttributeFetchFails() throws Exception {
-        // given — the v3 connector issue-attributes endpoint errors, so resolveIssuanceDefinitions
-        // catches the failure and falls back to the static default CSR attribute set (which carries
-        // the CN mapping). The downstream v2 issue-attribute listing/validation still succeeds.
+    void failsRequest_whenConnectorAttributeFetchFails() throws Exception {
+        // given — the v3 connector issue-attributes endpoint errors. resolveIssuanceDefinitions fails on a genuine connector
+        // failure rather than silently falling back to the default CSR set, so the request is rejected.
         stubIssueAttributes("[]");
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v3/authorityProvider/certificates/issue/attributes"))
-                .willReturn(WireMock.serverError()));
+                .willReturn(WireMock.serverError().withBody("issue-attributes endpoint is unavailable")));
         stubSigning();
 
         var request = baseRequest();
-        request.setCsrAttributes(List.of(commonNameAttribute("FallbackCn")));
+        request.setCsrAttributes(List.of(commonNameAttribute("FailClosed")));
 
-        // when
-        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
-
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.getSubjectDn()).contains("CN=FallbackCn");
+        // when / then
+        assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
+                .isInstanceOf(ConnectorException.class);
     }
 
     @Test
