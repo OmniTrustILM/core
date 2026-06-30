@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -25,7 +26,13 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "certificate_status_poll")
+// The unique constraint on certificate_uuid backs the atomic scheduleIfAbsent insert
+// (ON CONFLICT (certificate_uuid) DO NOTHING) — a certificate has at most one async operation in
+// flight. Declared here (not only in the Flyway migration) so Hibernate-generated schema, used when
+// Flyway is disabled, carries the constraint too.
+@Table(name = "certificate_status_poll",
+        uniqueConstraints = @UniqueConstraint(name = "uq_certificate_status_poll_certificate",
+                columnNames = "certificate_uuid"))
 public class CertificateStatusPoll extends UniquelyIdentified {
 
     @Column(name = "certificate_uuid", nullable = false)
@@ -42,8 +49,11 @@ public class CertificateStatusPoll extends UniquelyIdentified {
     private OffsetDateTime nextPollAt;
 
     // Populated by the DB default (the row is inserted via the native scheduleIfAbsent query, not a JPA
-    // persist), so this is a read-only mapping — JPA never writes it.
-    @Column(name = "i_cre", nullable = false, insertable = false, updatable = false)
+    // persist), so this is a read-only mapping — JPA never writes it. The columnDefinition carries the
+    // DEFAULT now() into the Hibernate-generated schema (used when Flyway is disabled): the native insert
+    // omits this column entirely, so without the default the NOT NULL would be violated.
+    @Column(name = "i_cre", nullable = false, insertable = false, updatable = false,
+            columnDefinition = "timestamptz not null default now()")
     private OffsetDateTime created;
 
     // No-op override required by Sonar S2160 (a field-adding subclass of UniquelyIdentified must override
