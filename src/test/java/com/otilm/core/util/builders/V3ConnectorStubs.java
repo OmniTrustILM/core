@@ -117,6 +117,23 @@ public final class V3ConnectorStubs {
                                 """)));
     }
 
+    /**
+     * Registers a stateless stub for the register-status endpoint that always returns
+     * {@code IN_PROGRESS}. Use for timeout/max-attempts scenarios where the connector
+     * never completes the operation.
+     *
+     * @param wm the WireMock server to register the stub on
+     */
+    public static void stubRegisterStatusAlwaysInProgress(WireMockServer wm) {
+        wm.stubFor(post(urlEqualTo(REGISTER_STATUS))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {"status": "inProgress", "certificateData": null, "meta": []}
+                                """)));
+    }
+
     // ---- Cancel ---------------------------------------------------------
 
     /**
