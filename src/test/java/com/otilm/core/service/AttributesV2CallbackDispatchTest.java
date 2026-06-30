@@ -8,6 +8,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -158,6 +159,23 @@ class AttributesV2CallbackDispatchTest extends BaseSpringBootTest {
 
         Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
                 () -> callbackService.callback(connector.getUuid(), req));
+    }
+
+    @Test
+    void nameOnlyResolutionPicksDeterministicallyAcrossDuplicateRows() throws AttributeException {
+        // Two DATA rows share (type, connector, name), both with operation == null (the callback-ingest write path).
+        // Name-only resolution must never throw IncorrectResultSizeDataAccessException and must pick deterministically:
+        // operation == null first (both here), then the lexicographically smallest attributeUuid.
+        DataAttributeV2 a = ngDataAttribute("dupName");
+        DataAttributeV2 b = ngDataAttribute("dupName");
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(a));
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(b));
+
+        String expected = a.getUuid().compareTo(b.getUuid()) <= 0 ? a.getUuid() : b.getUuid();
+        DataAttribute resolved = attributeEngine.getDataAttributeDefinition(connector.getUuid(), "dupName");
+
+        Assertions.assertNotNull(resolved);
+        Assertions.assertEquals(expected, resolved.getUuid());
     }
 
     @Test
