@@ -223,6 +223,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         // via the ActionProducer doAnswer; poll until the order reaches VALID.
         awaitOrderStatus(order.orderId, OrderStatus.VALID);
 
+        // Verify the issue call was routed to the exact authority instance (not just any authority).
+        wireMockServer.verify(postRequestedFor(urlMatching(
+                "/v2/authorityProvider/authorities/"
+                        + java.util.regex.Pattern.quote(fixture.authority().getAuthorityInstanceUuid())
+                        + "/certificates/issue")));
+
         // ── Step 7: Verify order status ───────────────────────────────────────
         ResponseEntity<com.otilm.api.model.core.acme.Order> orderResponse = acmeService.getOrder(
                 ACME_PROFILE_NAME, order.orderId,

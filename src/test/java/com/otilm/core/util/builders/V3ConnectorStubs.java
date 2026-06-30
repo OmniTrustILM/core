@@ -34,7 +34,7 @@ public final class V3ConnectorStubs {
     // ---- endpoint paths (from CertificateApiClient v3 constants) ----
 
     private static final String REGISTER_PATH   = "/v3/authorityProvider/certificates/register";
-    private static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
+    public static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
 
     // State names for the stateful register-status scenario.
     public static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;

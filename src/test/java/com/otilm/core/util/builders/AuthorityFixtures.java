@@ -178,10 +178,14 @@ public final class AuthorityFixtures {
         connector.setVersion(ConnectorVersion.V2);
         connector = r.connectorRepository().save(connector);
 
-        FunctionGroup functionGroup = new FunctionGroup();
-        functionGroup.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);
-        functionGroup.setName(FunctionGroupCode.AUTHORITY_PROVIDER.getCode());
-        r.functionGroupRepository().save(functionGroup);
+        FunctionGroup functionGroup = r.functionGroupRepository()
+                .findByCode(FunctionGroupCode.AUTHORITY_PROVIDER)
+                .orElseGet(() -> {
+                    FunctionGroup fg = new FunctionGroup();
+                    fg.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);
+                    fg.setName(FunctionGroupCode.AUTHORITY_PROVIDER.getCode());
+                    return r.functionGroupRepository().save(fg);
+                });
 
         Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
         c2fg.setConnector(connector);

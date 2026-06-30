@@ -62,6 +62,10 @@ import static org.awaitility.Awaitility.await;
  * the production default of 50.
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
+// Poll timing is driven by makePollDueNow() back-dating, not by configured delays.
+// max-attempts=2 is load-bearing: limits the timeout test to exactly two sweeps.
+// delays[0] initialises the required non-null delays list; the value is irrelevant because
+// makePollDueNow() back-dates the row rather than relying on the configured interval.
 @TestPropertySource(properties = {
         "provider.status-poll.by-kind.REGISTER.delays[0]=PT0S",
         "provider.status-poll.by-kind.REGISTER.max-attempts=2"
@@ -85,8 +89,7 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
     @Autowired
     private CertificateStatusPollWriter pollWriter;
 
-    // ActionProducer spy is required by BaseSpringBootTest → AcmeProtocolFlowITest pattern;
-    // no explicit interaction here but the bean must be present to satisfy the context.
+    // Spied for parity with the issue-driving suites; this suite stubs/verifies no interactions on it.
     @MockitoSpyBean
     @SuppressWarnings("unused")
     private ActionProducer actionProducer;
@@ -169,7 +172,7 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
                 .pollInterval(200, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
                     // Confirm the status endpoint was called at least once (listener has run)
-                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
+                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo(V3ConnectorStubs.REGISTER_STATUS)));
                     // Row must still exist (rescheduled to a future next_poll_at by the claimer)
                     long rowCount = countPollRows(certUuid);
                     Certificate current = reloadCert(certUuid);
@@ -239,7 +242,7 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
                 .pollInterval(200, TimeUnit.MILLISECONDS)
                 .untilAsserted(() -> {
                     // Confirm the status endpoint was called at least once (listener has run)
-                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo("/v3/authorityProvider/certificates/register/status")));
+                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo(V3ConnectorStubs.REGISTER_STATUS)));
                     Certificate current = reloadCert(certUuid);
                     Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, current.getState(),
                             "After first sweep (IN_PROGRESS, not timed out): cert must remain PENDING_REGISTRATION");
@@ -311,7 +314,7 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
                 .filter(p -> certUuid.equals(p.getCertificateUuid()))
                 .map(p -> p.getAttempt())
                 .findFirst()
-                .orElse(0);
+                .orElseThrow(() -> new AssertionError("No poll row for cert " + certUuid + " — already consumed or never created"));
         pollWriter.reschedule(certUuid, currentAttempt, OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(1));
     }
 }

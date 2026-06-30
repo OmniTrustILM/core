@@ -5,7 +5,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -92,7 +91,7 @@ public class V3CancelITest extends BaseSpringBootTest {
     private ClientOperationService clientOperationService;
 
     @MockitoSpyBean
-    @SuppressWarnings("unused") // required by context; no spy interactions in this suite
+    @SuppressWarnings("unused") // Spied for parity with the issue-driving suites; this suite stubs/verifies no interactions on it.
     private ActionProducer actionProducer;
 
     @Autowired
@@ -231,8 +230,8 @@ public class V3CancelITest extends BaseSpringBootTest {
     @Test
     public void manualIssueHook_firesV3CancelOnce_whenConnectorReturns204() throws Exception {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
-        KeyPair kp = seedPendingIssueCertWithCsr(fixture);
-        String certBase64 = buildSelfSignedCertBase64(kp, "v3-manual-cancel-hook");
+        SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
+        String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-hook");
 
         // v2 identify endpoint — required by manuallyIssueCertificate
         wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
@@ -247,7 +246,7 @@ public class V3CancelITest extends BaseSpringBootTest {
         req.setCustomAttributes(List.of());
 
         // Act: manuallyIssueCertificate issues locally and then fires the best-effort cancel hook
-        Certificate certBefore = reloadCert(findCertUuidForFixture(fixture));
+        Certificate certBefore = reloadCert(seeded.uuid());
         SecuredUUID raProfileSecured = fixture.raProfile().getSecuredUuid();
         clientOperationService.manuallyIssueCertificate(
                 SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
@@ -267,8 +266,8 @@ public class V3CancelITest extends BaseSpringBootTest {
     @Test
     public void manualIssueHook_doesNotBreakIssuance_whenConnectorReturns500() throws Exception {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
-        KeyPair kp = seedPendingIssueCertWithCsr(fixture);
-        String certBase64 = buildSelfSignedCertBase64(kp, "v3-manual-cancel-resilience");
+        SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
+        String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-resilience");
 
         // v2 identify endpoint
         wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
@@ -282,7 +281,7 @@ public class V3CancelITest extends BaseSpringBootTest {
         req.setCertificate(certBase64);
         req.setCustomAttributes(List.of());
 
-        Certificate certBefore = reloadCert(findCertUuidForFixture(fixture));
+        Certificate certBefore = reloadCert(seeded.uuid());
         SecuredUUID raProfileSecured = fixture.raProfile().getSecuredUuid();
 
         // Act: must complete without throwing even though the cancel hook encounters a 500
@@ -340,12 +339,16 @@ public class V3CancelITest extends BaseSpringBootTest {
         return certificateRepository.save(cert);
     }
 
+    /** Carries the UUID and key pair from a seeded PENDING_ISSUE certificate. */
+    private record SeededCert(UUID uuid, KeyPair keyPair) {}
+
     /**
      * Seeds a PENDING_ISSUE certificate with a real PKCS#10 CSR, as required by
-     * {@code manuallyIssueCertificate}. Returns the key pair so the caller can build a
-     * matching certificate.
+     * {@code manuallyIssueCertificate}. Returns a {@link SeededCert} that surfaces the saved
+     * certificate's UUID alongside the key pair so the caller can build a matching certificate
+     * without a full-table scan.
      */
-    private KeyPair seedPendingIssueCertWithCsr(AuthorityFixtures.Fixture fixture) throws Exception {
+    private SeededCert seedPendingIssueCertWithCsr(AuthorityFixtures.Fixture fixture) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair kp = kpg.generateKeyPair();
@@ -370,20 +373,7 @@ public class V3CancelITest extends BaseSpringBootTest {
         cert.setCertificateRequestUuid(csrEntity.getUuid());
         certificateRepository.save(cert);
 
-        return kp;
-    }
-
-    /**
-     * Finds the UUID of the certificate seeded for the given fixture. Used when the cert UUID is
-     * not tracked by the caller directly (e.g. after {@link #seedPendingIssueCertWithCsr}).
-     */
-    private UUID findCertUuidForFixture(AuthorityFixtures.Fixture fixture) {
-        return certificateRepository.findAll().stream()
-                .filter(c -> fixture.raProfile().equals(c.getRaProfile()))
-                .filter(c -> c.getState() == CertificateState.PENDING_ISSUE)
-                .map(Certificate::getUuid)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("No PENDING_ISSUE certificate found for fixture RA profile"));
+        return new SeededCert(cert.getUuid(), kp);
     }
 
     /** Builds a self-signed X.509 certificate matching the given key pair; returns base64-DER. */

@@ -21,7 +21,6 @@ import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationService;
 import com.otilm.core.util.BaseSpringBootTest;

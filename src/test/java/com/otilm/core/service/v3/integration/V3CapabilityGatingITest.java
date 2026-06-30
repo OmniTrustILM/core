@@ -53,7 +53,7 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
     private ClientOperationService clientOperationService;
 
     @MockitoSpyBean
-    @SuppressWarnings("unused") // required by BaseSpringBootTest harness; no spy interactions needed here
+    @SuppressWarnings("unused") // Spied for parity with the issue-driving suites; this suite stubs/verifies no interactions on it.
     private ActionProducer actionProducer;
 
     @Autowired
@@ -177,7 +177,8 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
      *   <li><b>v3 + both flags:</b> {@code REGISTER.supported=true}, {@code REGISTER.asyncSupported=true};
      *       {@code ISSUE.asyncSupported=true}.</li>
      *   <li><b>v3 + only {@code CERTIFICATE_REGISTRATION}:</b> {@code REGISTER.supported=true},
-     *       {@code REGISTER.asyncSupported=false} (no polling flag), {@code REGISTER.cancelSupported=false};
+     *       {@code REGISTER.asyncSupported=false} (no polling flag),
+     *       {@code REGISTER.cancelSupported=false} (hardcoded false for all variants, never flag-gated);
      *       {@code ISSUE.asyncSupported=false}.</li>
      * </ul>
      * </p>
@@ -216,6 +217,8 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
                 "v3 + both flags: REGISTER must be supported");
         Assertions.assertTrue(v3BothRegister.isAsyncSupported(),
                 "v3 + both flags: REGISTER asyncSupported must be true");
+        Assertions.assertFalse(v3BothRegister.isCancelSupported(),
+                "v3 + both flags: REGISTER cancelSupported must be false (hardcoded, never advertised regardless of flags)");
         Assertions.assertTrue(v3BothIssue.isAsyncSupported(),
                 "v3 + both flags: ISSUE asyncSupported must be true");
 
