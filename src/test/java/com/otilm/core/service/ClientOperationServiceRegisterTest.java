@@ -14,6 +14,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
@@ -94,6 +95,12 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     // directly; the real flag-resolution logic is covered by ConnectorCapabilityServiceTest.
     @MockitoBean
     private ConnectorCapabilityService capabilityService;
+
+    // Mocked so registerPersistsConnectorMetadata can verify the metadata write rather than relying on the
+    // real engine (whose failure persistRegistrationMeta swallows). Only that test passes a non-empty meta,
+    // so the other register tests are unaffected.
+    @MockitoBean
+    private AttributeEngine attributeEngine;
 
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
@@ -190,6 +197,20 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
                 .thenThrow(new ConnectorException("upstream refused"));
 
         Assertions.assertThrows(ConnectorException.class, this::register);
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState());
+    }
+
+    @Test
+    void registerRuntimeFailureLeavesPlaceholderFailed() throws Exception {
+        // A raw RuntimeException from register() is pre-acceptance per the RegisterCapability contract, so
+        // the placeholder must be FAILED — not orphaned in PENDING_REGISTRATION with no transition.
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new IllegalStateException("pre-acceptance failure"));
+
+        Assertions.assertThrows(IllegalStateException.class, this::register);
 
         List<Certificate> certs = certificateRepository.findAll();
         Assertions.assertEquals(1, certs.size());
@@ -505,9 +526,11 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
                 authorityParent,
                 securedRaProfile, registrationRequest());
 
-        // Metadata persistence runs (and tolerates failure); registration still completes.
+        // The connector metadata is actually handed to the attribute engine (not merely tolerated), and
+        // registration completes.
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        Mockito.verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
     }
 
     @Test

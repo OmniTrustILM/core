@@ -14,9 +14,7 @@ public interface RaProfileRepository extends SecurityFilterRepository<RaProfile,
     Optional<RaProfile> findByUuid(UUID uuid);
 
     /**
-     * Loads an RA profile with its authority, connector and connector interface eagerly. The v3 register
-     * flow resolves the authority adapter and calls the connector with no transaction held, so every
-     * association touched there must be initialized up front to avoid lazy-initialization failures.
+     * Loads an RA profile with its authority, connector and connector interface eagerly.
      */
     @EntityGraph(attributePaths = {
             "authorityInstanceReference",

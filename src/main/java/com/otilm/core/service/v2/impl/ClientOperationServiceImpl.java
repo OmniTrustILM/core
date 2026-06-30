@@ -396,6 +396,13 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             // Rejected before acceptance — no upstream work in flight, so the placeholder safely fails.
             stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
             throw e;
+        } catch (RuntimeException e) {
+            // A raw RuntimeException (not ConnectorAcceptedButLocalFailureException) is pre-acceptance by the
+            // RegisterCapability.register contract: the connector has not accepted, so no upstream work is in
+            // flight and failing the placeholder cannot diverge from the connector. Mirror the rejection path
+            // rather than orphaning the cert in PENDING_REGISTRATION.
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            throw e;
         }
 
         persistRegistrationMeta(certificate, result.meta());

@@ -1134,7 +1134,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         try {
             decodedCsr = Base64.getDecoder().decode(signRequest.getRequest());
         } catch (IllegalArgumentException e) {
-            throw new CertificateRequestException("Certificate signing request is not valid Base64");
+            throw new CertificateRequestException("Certificate signing request is not valid Base64", e);
         }
         CertificateRequest request = CertificateRequestUtils.createCertificateRequest(decodedCsr, signRequest.getFormat());
 

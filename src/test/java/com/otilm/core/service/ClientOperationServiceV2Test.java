@@ -1232,6 +1232,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        // The sync-200 revoke routes through transitionAuditedExternally so the REVOKE history is written
+        // exactly once (SUCCESS), after the attribute update — not a misleading SUCCESS+FAILED pair.
+        var revokeEvents = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched)
+                .stream().filter(h -> h.getEvent() == CertificateEvent.REVOKE).toList();
+        Assertions.assertEquals(1, revokeEvents.size(),
+                "sync-200 revoke must record exactly one REVOKE history entry, not a SUCCESS+FAILED pair");
+        Assertions.assertEquals(CertificateEventStatus.SUCCESS, revokeEvents.get(0).getStatus());
     }
 
     @Test
