@@ -178,69 +178,75 @@ public class SettingServiceImpl implements SettingService {
         List<Setting> settings = settingRepository.findBySection(SettingsSection.PLATFORM);
         Map<String, Map<String, Setting>> mappedSettings = mapSettingsByCategory(settings);
 
-        // Auxiliary services: utils service and cbom repository
         if (platformSettings.getUtils() != null) {
-            Setting utilSetting;
-            Map<String, Setting> platformUtilsSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-            if (platformUtilsSettings == null || (utilSetting = platformUtilsSettings.get(UTILS_SERVICE_URL_NAME)) == null) {
-                utilSetting = new Setting();
-                utilSetting.setSection(SettingsSection.PLATFORM);
-                utilSetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-                utilSetting.setName(UTILS_SERVICE_URL_NAME);
-            }
-
-            utilSetting.setValue(platformSettings.getUtils().getUtilsServiceUrl());
-            settingRepository.save(utilSetting);
-
-            Setting cbomRepositorySetting;
-            if (platformUtilsSettings == null || (cbomRepositorySetting = platformUtilsSettings.get(CBOM_REPOSITORY_URL_NAME)) == null) {
-                cbomRepositorySetting = new Setting();
-                cbomRepositorySetting.setSection(SettingsSection.PLATFORM);
-                cbomRepositorySetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
-                cbomRepositorySetting.setName(CBOM_REPOSITORY_URL_NAME);
-            }
-
-            cbomRepositorySetting.setValue(platformSettings.getUtils().getCbomRepositoryUrl());
-            settingRepository.save(cbomRepositorySetting);
+            updateUtilsSettings(platformSettings, mappedSettings);
         }
-
-        // Certificate Settings
         if (platformSettings.getCertificates() != null) {
-            Map<String, Setting> certificateSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
-
-            CertificateValidationSettingsUpdateDto validation = platformSettings.getCertificates().getValidation();
-            if (validation != null) {
-                Setting certificatesValidationSetting = certificateSetting(certificateSettings, CERTIFICATES_VALIDATION_SETTINGS_NAME);
-                try {
-                    // Set null values for validation disabled
-                    if (!validation.isEnabled()) {
-                        validation.setFrequency(null);
-                        validation.setExpiringThreshold(null);
-                    }
-                    certificatesValidationSetting.setValue(objectMapper.writeValueAsString(validation));
-                } catch (JsonProcessingException e) {
-                    logger.warn("Failed to serialize platform certificates validation settings", e);
-                    throw new ValidationException("Cannot serialize platform certificates settings.");
-                }
-                settingRepository.save(certificatesValidationSetting);
-            }
-
-            CertificateRequestAttributesSettingsUpdateDto requestAttributes = platformSettings.getCertificates().getRequestAttributes();
-            if (requestAttributes != null) {
-                Setting definitionsSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.SETTING_NAME);
-                definitionsSetting.setValue(AttributeDefinitionUtils.serialize(requestAttributes.getRequestAttributes()));
-                settingRepository.save(definitionsSetting);
-
-                Setting strictSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.STRICT_SETTING_NAME);
-                strictSetting.setValue(requestAttributes.getExternalCsrValidationStrict() == null
-                        ? null : requestAttributes.getExternalCsrValidationStrict().toString());
-                settingRepository.save(strictSetting);
-            }
+            updateCertificateSettings(platformSettings, mappedSettings);
         }
 
-        // Refresh the cache only once the write transaction commits; otherwise a later rollback would
+        // Refresh the cache only once the transaction commits; otherwise a later rollback would
         // leave the cache holding values that never reached the database.
         cacheAfterCommit(() -> settingsCache.cacheSettings(SettingsSection.PLATFORM, getPlatformSettings()));
+    }
+
+    // Auxiliary services: utils service and cbom repository
+    private void updateUtilsSettings(PlatformSettingsUpdateDto platformSettings, Map<String, Map<String, Setting>> mappedSettings) {
+        Setting utilSetting;
+        Map<String, Setting> platformUtilsSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_UTILS.getCode());
+        if (platformUtilsSettings == null || (utilSetting = platformUtilsSettings.get(UTILS_SERVICE_URL_NAME)) == null) {
+            utilSetting = new Setting();
+            utilSetting.setSection(SettingsSection.PLATFORM);
+            utilSetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
+            utilSetting.setName(UTILS_SERVICE_URL_NAME);
+        }
+
+        utilSetting.setValue(platformSettings.getUtils().getUtilsServiceUrl());
+        settingRepository.save(utilSetting);
+
+        Setting cbomRepositorySetting;
+        if (platformUtilsSettings == null || (cbomRepositorySetting = platformUtilsSettings.get(CBOM_REPOSITORY_URL_NAME)) == null) {
+            cbomRepositorySetting = new Setting();
+            cbomRepositorySetting.setSection(SettingsSection.PLATFORM);
+            cbomRepositorySetting.setCategory(SettingsSectionCategory.PLATFORM_UTILS.getCode());
+            cbomRepositorySetting.setName(CBOM_REPOSITORY_URL_NAME);
+        }
+
+        cbomRepositorySetting.setValue(platformSettings.getUtils().getCbomRepositoryUrl());
+        settingRepository.save(cbomRepositorySetting);
+    }
+
+    private void updateCertificateSettings(PlatformSettingsUpdateDto platformSettings, Map<String, Map<String, Setting>> mappedSettings) {
+        Map<String, Setting> certificateSettings = mappedSettings.get(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
+
+        CertificateValidationSettingsUpdateDto validation = platformSettings.getCertificates().getValidation();
+        if (validation != null) {
+            Setting certificatesValidationSetting = certificateSetting(certificateSettings, CERTIFICATES_VALIDATION_SETTINGS_NAME);
+            try {
+                // Set null values for validation disabled
+                if (!validation.isEnabled()) {
+                    validation.setFrequency(null);
+                    validation.setExpiringThreshold(null);
+                }
+                certificatesValidationSetting.setValue(objectMapper.writeValueAsString(validation));
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize platform certificates validation settings", e);
+                throw new ValidationException("Cannot serialize platform certificates settings.");
+            }
+            settingRepository.save(certificatesValidationSetting);
+        }
+
+        CertificateRequestAttributesSettingsUpdateDto requestAttributes = platformSettings.getCertificates().getRequestAttributes();
+        if (requestAttributes != null) {
+            Setting definitionsSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.SETTING_NAME);
+            definitionsSetting.setValue(AttributeDefinitionUtils.serialize(requestAttributes.getRequestAttributes()));
+            settingRepository.save(definitionsSetting);
+
+            Setting strictSetting = certificateSetting(certificateSettings, DefaultRequestAttributeSet.STRICT_SETTING_NAME);
+            strictSetting.setValue(requestAttributes.getExternalCsrValidationStrict() == null
+                    ? null : requestAttributes.getExternalCsrValidationStrict().toString());
+            settingRepository.save(strictSetting);
+        }
     }
 
     private void cacheAfterCommit(Runnable refresh) {
