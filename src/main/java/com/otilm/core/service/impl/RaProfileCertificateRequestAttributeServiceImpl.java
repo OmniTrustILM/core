@@ -67,7 +67,19 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile, AttributeSetMergeMode mode)
             throws ConnectorException, NotFoundException {
-        List<BaseAttribute> staticSet = getStaticSet(raProfile);
+        return resolve(raProfile, loadStoredSet(raProfile), mode);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile) throws ConnectorException, NotFoundException {
+        RaProfileCertificateRequestAttribute stored = loadStoredSet(raProfile);
+        return resolve(raProfile, stored, stored == null ? null : stored.getMergeMode());
+    }
+
+    private List<BaseAttribute> resolve(RaProfile raProfile, RaProfileCertificateRequestAttribute stored, AttributeSetMergeMode mode)
+            throws ConnectorException, NotFoundException {
+        List<BaseAttribute> staticSet = stored == null ? new ArrayList<>() : deserializeOrEmpty(stored.getRequestAttributes());
         List<BaseAttribute> connectorSet =
                 RequestAttributeSetResolver.effectiveMode(mode) == AttributeSetMergeMode.STATIC_ONLY
                         ? List.of()
@@ -82,10 +94,8 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
         return RequestAttributeSetResolver.applyValueSourceBindings(merged, loadValueSourceBindings(raProfile));
     }
 
-    @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        return resolveIssueAttributeSet(raProfile, getStoredMergeMode(raProfile));
+    private RaProfileCertificateRequestAttribute loadStoredSet(RaProfile raProfile) {
+        return requestAttributeRepository.findByRaProfileUuid(raProfile.getUuid()).orElse(null);
     }
 
     private List<BaseAttribute> listConnectorIssueAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
@@ -100,12 +110,6 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
         return requestAttributeRepository.findByRaProfileUuid(raProfile.getUuid())
                 .map(set -> deserializeOrEmpty(set.getRequestAttributes()))
                 .orElseGet(ArrayList::new);
-    }
-
-    private AttributeSetMergeMode getStoredMergeMode(RaProfile raProfile) {
-        return requestAttributeRepository.findByRaProfileUuid(raProfile.getUuid())
-                .map(RaProfileCertificateRequestAttribute::getMergeMode)
-                .orElse(null);
     }
 
     @Override
