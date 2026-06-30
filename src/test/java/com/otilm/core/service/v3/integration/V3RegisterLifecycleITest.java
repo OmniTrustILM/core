@@ -60,7 +60,7 @@ import java.util.UUID;
  * {@link com.otilm.core.service.acme.integration.AcmeProtocolFlowITest}, forwarding ISSUE actions
  * synchronously to avoid a RabbitMQ dependency.
  */
-public class V3RegisterLifecycleIT extends BaseSpringBootTest {
+public class V3RegisterLifecycleITest extends BaseSpringBootTest {
 
     // ── Spring beans ──────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ public class V3RegisterLifecycleIT extends BaseSpringBootTest {
         WireMock.configureFor("localhost", wireMockServer.port());
 
         // Intercept ActionProducer to drive ISSUE actions synchronously, bypassing RabbitMQ.
-        // All other action types are no-ops. Pattern: AcmeProtocolFlowITest lines 182–188.
+        // All other action types are no-ops. Mirrors the AcmeProtocolFlowITest ActionProducer spy pattern.
         Mockito.doAnswer(inv -> {
             ActionMessage msg = inv.getArgument(0);
             if (msg.getResourceAction() == ResourceAction.ISSUE) {
@@ -190,7 +190,7 @@ public class V3RegisterLifecycleIT extends BaseSpringBootTest {
 
         V3ConnectorStubs.stubRegisterAsync(wireMockServer, null);
 
-        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=nopoil-device,O=Acme");
+        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=nopoll-device,O=Acme");
 
         UUID certUuid = UUID.fromString(response.getUuid());
         Certificate cert = reloadCert(response.getUuid());

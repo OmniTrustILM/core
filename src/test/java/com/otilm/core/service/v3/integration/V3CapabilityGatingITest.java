@@ -45,7 +45,7 @@ import java.util.UUID;
  *       v2, v3 + both flags, v3 + only {@code CERTIFICATE_REGISTRATION}.</li>
  * </ol>
  */
-public class V3CapabilityGatingIT extends BaseSpringBootTest {
+public class V3CapabilityGatingITest extends BaseSpringBootTest {
 
     // ── Spring beans ──────────────────────────────────────────────────────────
 

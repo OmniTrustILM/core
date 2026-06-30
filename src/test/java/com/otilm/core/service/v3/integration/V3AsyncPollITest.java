@@ -66,7 +66,7 @@ import static org.awaitility.Awaitility.await;
         "provider.status-poll.by-kind.REGISTER.delays[0]=PT0S",
         "provider.status-poll.by-kind.REGISTER.max-attempts=2"
 })
-class V3AsyncPollIT extends BaseMessagingIntTest {
+class V3AsyncPollITest extends BaseMessagingIntTest {
 
     // ── Spring beans ──────────────────────────────────────────────────────────
 

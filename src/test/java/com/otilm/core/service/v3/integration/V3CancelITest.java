@@ -74,7 +74,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
  *       The {@code CancelResult} is discarded; a failure must not abort the issuance.</li>
  * </ol>
  */
-public class V3CancelIT extends BaseSpringBootTest {
+public class V3CancelITest extends BaseSpringBootTest {
 
     // v3 issue/cancel path — used by cancelInFlightAsyncIssueBestEffort via v3 adapter cancel(ISSUE)
     private static final String V3_ISSUE_CANCEL_PATH = "/v3/authorityProvider/certificates/issue/cancel";

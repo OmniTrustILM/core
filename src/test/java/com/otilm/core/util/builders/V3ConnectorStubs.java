@@ -35,7 +35,6 @@ public final class V3ConnectorStubs {
 
     private static final String REGISTER_PATH   = "/v3/authorityProvider/certificates/register";
     private static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
-    private static final String REGISTER_CANCEL = "/v3/authorityProvider/certificates/register/cancel";
 
     // State names for the stateful register-status scenario.
     public static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;
@@ -132,20 +131,6 @@ public final class V3ConnectorStubs {
                         .withBody("""
                                 {"status": "inProgress", "certificateData": null, "meta": []}
                                 """)));
-    }
-
-    // ---- Cancel ---------------------------------------------------------
-
-    /**
-     * Stubs the register-cancel endpoint with the given HTTP status code.
-     *
-     * @param wm     the WireMock server to register the stub on
-     * @param status HTTP status code to return (typically 204 for success)
-     */
-    public static void stubCancel(WireMockServer wm, int status) {
-        wm.stubFor(post(urlEqualTo(REGISTER_CANCEL))
-                .willReturn(aResponse()
-                        .withStatus(status)));
     }
 
     // ---- v2 issue (tail call from issueCertificateAction) ---------------
