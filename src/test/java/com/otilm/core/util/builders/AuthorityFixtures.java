@@ -32,13 +32,22 @@ import java.util.UUID;
  * the service layer. This makes it usable from any {@code @SpringBootTest} IT class that already
  * starts a WireMock server.
  *
- * <p>Two factory methods are provided:
+ * <p>Four factory methods are provided:
  * <ul>
- *   <li>{@link #v2Authority} — framework-v2 adapter path; {@code connectorInterface} is null.</li>
- *   <li>{@link #v3Authority} — v3 adapter path; a {@link ConnectorInterfaceEntity} with
- *       {@code AUTHORITY} interface code and the given feature flags is saved and bound to the
- *       authority reference.</li>
+ *   <li>{@link #v2Authority(Repos, WireMockServer, String)} — v2 adapter path; connector URL is
+ *       bound to the given WireMock server. Use when the test makes connector HTTP calls.</li>
+ *   <li>{@link #v2Authority(Repos, String)} — v2 adapter path; connector URL is a unique synthetic
+ *       placeholder. Use for tests that inspect v2 capability flags but make no connector calls.</li>
+ *   <li>{@link #v3Authority(Repos, WireMockServer, FeatureFlag...)} — v3 adapter path; connector URL
+ *       is bound to the given WireMock server. Use when the test makes connector HTTP calls.</li>
+ *   <li>{@link #v3Authority(Repos, FeatureFlag...)} — v3 adapter path; connector URL is a unique
+ *       synthetic placeholder. Use for tests that inspect v3 capability flags but make no connector
+ *       calls.</li>
  * </ul>
+ *
+ * <p>The synthetic-URL overloads generate a URL of the form
+ * {@code "http://localhost/" + UUID.randomUUID()} so that each connector satisfies the
+ * {@code uq_connector_url_version} unique index without requiring an extra WireMock server.
  */
 public final class AuthorityFixtures {
 
@@ -73,9 +82,10 @@ public final class AuthorityFixtures {
     ) {}
 
     /**
-     * Builds a v2-adapter authority fixture.
+     * Builds a v2-adapter authority fixture whose connector URL is bound to the given WireMock server.
      *
-     * <p>The resulting {@code Fixture.authority.getConnectorInterface()} is {@code null},
+     * <p>Use this overload when the test makes real HTTP calls to the connector (e.g. issue, revoke,
+     * list-attributes). The resulting {@code Fixture.authority.getConnectorInterface()} is {@code null},
      * meaning the service layer will select the v2 (legacy) adapter path.
      *
      * @param r    repository holder
@@ -83,16 +93,38 @@ public final class AuthorityFixtures {
      * @param kind authority kind label stored on the AuthorityInstanceReference (e.g. "MOCK_EJBCA")
      */
     public static Fixture v2Authority(Repos r, WireMockServer wm, String kind) {
-        Connector connector = saveConnector(r, wm);
+        Connector connector = saveConnector(r, "http://localhost:" + wm.port());
         AuthorityInstanceReference authority = saveAuthority(r, connector, null, kind);
         RaProfile raProfile = saveRaProfile(r, authority);
         return new Fixture(connector, authority, raProfile);
     }
 
     /**
-     * Builds a v3-adapter authority fixture.
+     * Builds a v2-adapter authority fixture with a unique synthetic connector URL.
      *
-     * <p>A {@link ConnectorInterfaceEntity} with interface code {@code AUTHORITY}, version {@code "v3"},
+     * <p>Use this overload for tests that inspect v2 capability flags or trigger pre-connector
+     * rejections but make no HTTP calls to the connector. Each call generates a distinct URL so
+     * multiple connectors within one test satisfy the {@code uq_connector_url_version} unique index
+     * without requiring an extra WireMock server.
+     *
+     * <p>The resulting {@code Fixture.authority.getConnectorInterface()} is {@code null},
+     * meaning the service layer will select the v2 (legacy) adapter path.
+     *
+     * @param r    repository holder
+     * @param kind authority kind label stored on the AuthorityInstanceReference (e.g. "MOCK_V2")
+     */
+    public static Fixture v2Authority(Repos r, String kind) {
+        Connector connector = saveConnector(r, syntheticUrl());
+        AuthorityInstanceReference authority = saveAuthority(r, connector, null, kind);
+        RaProfile raProfile = saveRaProfile(r, authority);
+        return new Fixture(connector, authority, raProfile);
+    }
+
+    /**
+     * Builds a v3-adapter authority fixture whose connector URL is bound to the given WireMock server.
+     *
+     * <p>Use this overload when the test makes real HTTP calls to the connector (e.g. register, cancel,
+     * poll). A {@link ConnectorInterfaceEntity} with interface code {@code AUTHORITY}, version {@code "v3"},
      * and the supplied feature flags is saved and bound to the authority reference, causing the service
      * layer to select the v3 adapter.
      *
@@ -101,7 +133,30 @@ public final class AuthorityFixtures {
      * @param features feature flags advertised by the authority (e.g. CERTIFICATE_REGISTRATION, CERTIFICATE_STATUS_POLLING)
      */
     public static Fixture v3Authority(Repos r, WireMockServer wm, FeatureFlag... features) {
-        Connector connector = saveConnector(r, wm);
+        Connector connector = saveConnector(r, "http://localhost:" + wm.port());
+        ConnectorInterfaceEntity iface = saveConnectorInterface(r, connector, features);
+        AuthorityInstanceReference authority = saveAuthority(r, connector, iface, null);
+        RaProfile raProfile = saveRaProfile(r, authority);
+        return new Fixture(connector, authority, raProfile);
+    }
+
+    /**
+     * Builds a v3-adapter authority fixture with a unique synthetic connector URL.
+     *
+     * <p>Use this overload for tests that inspect v3 capability flags or trigger pre-connector
+     * rejections but make no HTTP calls to the connector. Each call generates a distinct URL so
+     * multiple connectors within one test satisfy the {@code uq_connector_url_version} unique index
+     * without requiring an extra WireMock server.
+     *
+     * <p>A {@link ConnectorInterfaceEntity} with interface code {@code AUTHORITY}, version {@code "v3"},
+     * and the supplied feature flags is saved and bound to the authority reference, causing the service
+     * layer to select the v3 adapter.
+     *
+     * @param r        repository holder
+     * @param features feature flags advertised by the authority (e.g. CERTIFICATE_REGISTRATION, CERTIFICATE_STATUS_POLLING)
+     */
+    public static Fixture v3Authority(Repos r, FeatureFlag... features) {
+        Connector connector = saveConnector(r, syntheticUrl());
         ConnectorInterfaceEntity iface = saveConnectorInterface(r, connector, features);
         AuthorityInstanceReference authority = saveAuthority(r, connector, iface, null);
         RaProfile raProfile = saveRaProfile(r, authority);
@@ -110,10 +165,15 @@ public final class AuthorityFixtures {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private static Connector saveConnector(Repos r, WireMockServer wm) {
+    /** Returns a URL that is unique per call and will never receive real HTTP traffic. */
+    private static String syntheticUrl() {
+        return "http://localhost/" + UUID.randomUUID();
+    }
+
+    private static Connector saveConnector(Repos r, String url) {
         Connector connector = new Connector();
         connector.setName("testConnector-" + UUID.randomUUID());
-        connector.setUrl("http://localhost:" + wm.port());
+        connector.setUrl(url);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector.setVersion(ConnectorVersion.V2);
         connector = r.connectorRepository().save(connector);

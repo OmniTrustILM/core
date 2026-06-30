@@ -98,11 +98,11 @@ public class V3CapabilityGatingIT extends BaseSpringBootTest {
      *
      * <p>The v2 adapter does not implement {@code RegisterCapability}, so the gate in
      * {@code ClientOperationServiceImpl.registerCertificate} must reject the call before creating a
-     * placeholder certificate.</p>
+     * placeholder certificate. No connector HTTP call is made, so a synthetic URL is sufficient.</p>
      */
     @Test
     public void register_v2Authority_rejected() {
-        AuthorityFixtures.Fixture fixture = AuthorityFixtures.v2Authority(repos(), wireMockServer, "MOCK_V2");
+        AuthorityFixtures.Fixture fixture = AuthorityFixtures.v2Authority(repos(), "MOCK_V2");
 
         long certsBefore = certificateRepository.count();
 
@@ -121,12 +121,13 @@ public class V3CapabilityGatingIT extends BaseSpringBootTest {
      *
      * <p>The v3 adapter implements {@code RegisterCapability} at the protocol level, but the capability
      * service gate requires the {@code CERTIFICATE_REGISTRATION} feature flag to also be present in the
-     * connector interface. Without it the call must fail before creating a placeholder.</p>
+     * connector interface. Without it the call must fail before creating a placeholder. No connector HTTP
+     * call is made, so a synthetic URL is sufficient.</p>
      */
     @Test
     public void register_v3WithoutFlag_rejected() {
-        // v3Authority with zero feature flags
-        AuthorityFixtures.Fixture fixture = AuthorityFixtures.v3Authority(repos(), wireMockServer);
+        // v3Authority with zero feature flags; no HTTP call is made so no WireMock server is needed
+        AuthorityFixtures.Fixture fixture = AuthorityFixtures.v3Authority(repos());
 
         long certsBefore = certificateRepository.count();
 
@@ -165,8 +166,9 @@ public class V3CapabilityGatingIT extends BaseSpringBootTest {
     /**
      * {@code listAvailableOperations} must reflect the correct boolean flags across three fixture variants.
      *
-     * <p>Each fixture uses its own {@link WireMockServer} started on an ephemeral port so that the
-     * connectors have distinct URLs and do not collide on the {@code uq_connector_url_version} constraint.
+     * <p>None of the variants make connector HTTP calls — capability inspection is purely local —
+     * so all three connectors use synthetic URLs via the no-WireMock overloads. This avoids spinning
+     * up extra WireMock servers purely for URL uniqueness.
      *
      * <p>Assertions:
      * <ul>
@@ -182,68 +184,59 @@ public class V3CapabilityGatingIT extends BaseSpringBootTest {
      */
     @Test
     public void listAvailableOperations_reflectsFlags() throws Exception {
-        // Each fixture needs its own WireMock port so the connector URLs are distinct.
-        // The shared per-test wireMockServer is already running but not used here.
-        WireMockServer wm2 = new WireMockServer(0);
-        WireMockServer wm3 = new WireMockServer(0);
-        wm2.start();
-        wm3.start();
-        try {
-            // --- variant 1: v2 authority ---
-            AuthorityFixtures.Fixture v2Fixture = AuthorityFixtures.v2Authority(repos(), wireMockServer, "MOCK_V2");
-            AvailableOperationsDto v2Ops = clientOperationService.listAvailableOperations(
-                    SecuredParentUUID.fromUUID(v2Fixture.authority().getUuid()),
-                    v2Fixture.raProfile().getSecuredUuid());
+        // No connector HTTP calls are made; synthetic URLs keep each connector URL unique.
 
-            OperationSupport v2Register = getOperation(v2Ops, CertificateOperationKind.REGISTER);
-            OperationSupport v2Issue    = getOperation(v2Ops, CertificateOperationKind.ISSUE);
+        // --- variant 1: v2 authority ---
+        AuthorityFixtures.Fixture v2Fixture = AuthorityFixtures.v2Authority(repos(), "MOCK_V2");
+        AvailableOperationsDto v2Ops = clientOperationService.listAvailableOperations(
+                SecuredParentUUID.fromUUID(v2Fixture.authority().getUuid()),
+                v2Fixture.raProfile().getSecuredUuid());
 
-            Assertions.assertFalse(v2Register.isSupported(),
-                    "v2 authority: REGISTER must not be supported");
-            Assertions.assertFalse(v2Issue.isAsyncSupported(),
-                    "v2 authority: ISSUE asyncSupported must be false");
+        OperationSupport v2Register = getOperation(v2Ops, CertificateOperationKind.REGISTER);
+        OperationSupport v2Issue    = getOperation(v2Ops, CertificateOperationKind.ISSUE);
 
-            // --- variant 2: v3 + both flags ---
-            AuthorityFixtures.Fixture v3BothFixture = AuthorityFixtures.v3Authority(
-                    repos(), wm2,
-                    FeatureFlag.CERTIFICATE_REGISTRATION,
-                    FeatureFlag.CERTIFICATE_STATUS_POLLING);
-            AvailableOperationsDto v3BothOps = clientOperationService.listAvailableOperations(
-                    SecuredParentUUID.fromUUID(v3BothFixture.authority().getUuid()),
-                    v3BothFixture.raProfile().getSecuredUuid());
+        Assertions.assertFalse(v2Register.isSupported(),
+                "v2 authority: REGISTER must not be supported");
+        Assertions.assertFalse(v2Issue.isAsyncSupported(),
+                "v2 authority: ISSUE asyncSupported must be false");
 
-            OperationSupport v3BothRegister = getOperation(v3BothOps, CertificateOperationKind.REGISTER);
-            OperationSupport v3BothIssue    = getOperation(v3BothOps, CertificateOperationKind.ISSUE);
+        // --- variant 2: v3 + both flags ---
+        AuthorityFixtures.Fixture v3BothFixture = AuthorityFixtures.v3Authority(
+                repos(),
+                FeatureFlag.CERTIFICATE_REGISTRATION,
+                FeatureFlag.CERTIFICATE_STATUS_POLLING);
+        AvailableOperationsDto v3BothOps = clientOperationService.listAvailableOperations(
+                SecuredParentUUID.fromUUID(v3BothFixture.authority().getUuid()),
+                v3BothFixture.raProfile().getSecuredUuid());
 
-            Assertions.assertTrue(v3BothRegister.isSupported(),
-                    "v3 + both flags: REGISTER must be supported");
-            Assertions.assertTrue(v3BothRegister.isAsyncSupported(),
-                    "v3 + both flags: REGISTER asyncSupported must be true");
-            Assertions.assertTrue(v3BothIssue.isAsyncSupported(),
-                    "v3 + both flags: ISSUE asyncSupported must be true");
+        OperationSupport v3BothRegister = getOperation(v3BothOps, CertificateOperationKind.REGISTER);
+        OperationSupport v3BothIssue    = getOperation(v3BothOps, CertificateOperationKind.ISSUE);
 
-            // --- variant 3: v3 + only CERTIFICATE_REGISTRATION (no polling flag) ---
-            AuthorityFixtures.Fixture v3RegOnlyFixture = AuthorityFixtures.v3Authority(
-                    repos(), wm3, FeatureFlag.CERTIFICATE_REGISTRATION);
-            AvailableOperationsDto v3RegOnlyOps = clientOperationService.listAvailableOperations(
-                    SecuredParentUUID.fromUUID(v3RegOnlyFixture.authority().getUuid()),
-                    v3RegOnlyFixture.raProfile().getSecuredUuid());
+        Assertions.assertTrue(v3BothRegister.isSupported(),
+                "v3 + both flags: REGISTER must be supported");
+        Assertions.assertTrue(v3BothRegister.isAsyncSupported(),
+                "v3 + both flags: REGISTER asyncSupported must be true");
+        Assertions.assertTrue(v3BothIssue.isAsyncSupported(),
+                "v3 + both flags: ISSUE asyncSupported must be true");
 
-            OperationSupport v3RegOnlyRegister = getOperation(v3RegOnlyOps, CertificateOperationKind.REGISTER);
-            OperationSupport v3RegOnlyIssue    = getOperation(v3RegOnlyOps, CertificateOperationKind.ISSUE);
+        // --- variant 3: v3 + only CERTIFICATE_REGISTRATION (no polling flag) ---
+        AuthorityFixtures.Fixture v3RegOnlyFixture = AuthorityFixtures.v3Authority(
+                repos(), FeatureFlag.CERTIFICATE_REGISTRATION);
+        AvailableOperationsDto v3RegOnlyOps = clientOperationService.listAvailableOperations(
+                SecuredParentUUID.fromUUID(v3RegOnlyFixture.authority().getUuid()),
+                v3RegOnlyFixture.raProfile().getSecuredUuid());
 
-            Assertions.assertTrue(v3RegOnlyRegister.isSupported(),
-                    "v3 + CERTIFICATE_REGISTRATION only: REGISTER must be supported");
-            Assertions.assertFalse(v3RegOnlyRegister.isAsyncSupported(),
-                    "v3 + CERTIFICATE_REGISTRATION only: REGISTER asyncSupported must be false (no polling flag)");
-            Assertions.assertFalse(v3RegOnlyRegister.isCancelSupported(),
-                    "v3 + CERTIFICATE_REGISTRATION only: REGISTER cancelSupported must be false");
-            Assertions.assertFalse(v3RegOnlyIssue.isAsyncSupported(),
-                    "v3 + CERTIFICATE_REGISTRATION only: ISSUE asyncSupported must be false (no polling flag)");
-        } finally {
-            wm2.stop();
-            wm3.stop();
-        }
+        OperationSupport v3RegOnlyRegister = getOperation(v3RegOnlyOps, CertificateOperationKind.REGISTER);
+        OperationSupport v3RegOnlyIssue    = getOperation(v3RegOnlyOps, CertificateOperationKind.ISSUE);
+
+        Assertions.assertTrue(v3RegOnlyRegister.isSupported(),
+                "v3 + CERTIFICATE_REGISTRATION only: REGISTER must be supported");
+        Assertions.assertFalse(v3RegOnlyRegister.isAsyncSupported(),
+                "v3 + CERTIFICATE_REGISTRATION only: REGISTER asyncSupported must be false (no polling flag)");
+        Assertions.assertFalse(v3RegOnlyRegister.isCancelSupported(),
+                "v3 + CERTIFICATE_REGISTRATION only: REGISTER cancelSupported must be false");
+        Assertions.assertFalse(v3RegOnlyIssue.isAsyncSupported(),
+                "v3 + CERTIFICATE_REGISTRATION only: ISSUE asyncSupported must be false (no polling flag)");
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
