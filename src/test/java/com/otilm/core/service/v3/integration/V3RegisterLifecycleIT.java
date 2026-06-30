@@ -262,6 +262,8 @@ public class V3RegisterLifecycleIT extends BaseSpringBootTest {
         // registration placeholder subject is always kept for traceability).
         Assertions.assertNotNull(certAfterIssue.getSubjectDn(),
                 "Subject DN must not be null after issuance");
+        Assertions.assertTrue(certAfterIssue.getSubjectDn().contains("CN=round-trip"),
+                "Registration subject DN must be preserved through issuance; was: " + certAfterIssue.getSubjectDn());
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
