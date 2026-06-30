@@ -32,6 +32,8 @@ import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +64,7 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile, AttributeSetMergeMode mode)
             throws ConnectorException, NotFoundException {
         List<BaseAttribute> staticSet = getStaticSet(raProfile);
@@ -80,13 +83,13 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile) throws ConnectorException, NotFoundException {
         return resolveIssueAttributeSet(raProfile, getStoredMergeMode(raProfile));
     }
 
     private List<BaseAttribute> listConnectorIssueAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        if (raProfile.getAuthorityInstanceReference() == null
-                || raProfile.getAuthorityInstanceReference().getConnectorUuid() == null) {
+        if (raProfile.getAuthorityInstanceReference() == null || raProfile.getAuthorityInstanceReference().getConnector() == null) {
             return List.of(); // offline/external authority: no dynamic set
         }
         return extendedAttributeService.listIssueCertificateAttributes(raProfile);
@@ -110,8 +113,8 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
         RaProfileCertificateRequestAttributesDto dto = new RaProfileCertificateRequestAttributesDto();
         RaProfileCertificateRequestAttribute set = requestAttributeRepository.findByRaProfileUuid(raProfile.getUuid())
                 .orElse(null);
+        dto.setRequestAttributes(set == null ? new ArrayList<>() : deserializeOrEmpty(set.getRequestAttributes()));
         if (set != null) {
-            dto.setRequestAttributes(deserializeOrEmpty(set.getRequestAttributes()));
             dto.setExternalCsrValidationStrict(set.getExternalCsrValidationStrict());
         }
         // Read view always exposes the effective merge mode (resolved even when no set is stored), so clients never

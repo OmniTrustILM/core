@@ -166,8 +166,8 @@ public class SettingServiceImpl implements SettingService {
         dto.setRequestAttributes(DefaultRequestAttributeSet.resolve(definitions == null ? null : definitions.getValue()));
 
         Setting strict = certificateSettings == null ? null : certificateSettings.get(DefaultRequestAttributeSet.STRICT_SETTING_NAME);
-        if (strict != null && strict.getValue() != null) {
-            dto.setExternalCsrValidationStrict(Boolean.valueOf(strict.getValue()));
+        if (strict != null && strict.getValue() != null && !strict.getValue().isBlank()) {
+            dto.setExternalCsrValidationStrict(Boolean.valueOf(strict.getValue().trim()));
         }
         return dto;
     }

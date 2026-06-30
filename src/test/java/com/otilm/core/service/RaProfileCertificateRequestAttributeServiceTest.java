@@ -10,6 +10,7 @@ import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesD
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.ValueSourceBindingDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RaProfileValueSourceBinding;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -58,8 +59,10 @@ class RaProfileCertificateRequestAttributeServiceTest extends BaseSpringBootTest
     }
 
     private void attachConnector(RaProfile raProfile) {
+        Connector connector = new Connector();
+        connector.setUuid(UUID.randomUUID());
         AuthorityInstanceReference authority = new AuthorityInstanceReference();
-        authority.setConnectorUuid(UUID.randomUUID());
+        authority.setConnector(connector);
         raProfile.setAuthorityInstanceReference(authority);
     }
 
@@ -119,6 +122,24 @@ class RaProfileCertificateRequestAttributeServiceTest extends BaseSpringBootTest
 
         // then: connector wins the c1 conflict; static contributes only s2
         assertThat(resolved).extracting(BaseAttribute::getName).containsExactly("connector-name", "static-only");
+    }
+
+    @Test
+    void connectorUuidSetButConnectorMissingSkipsConnectorSetGracefully() throws Exception {
+        // given: the authority carries a connectorUuid, but its Connector is unresolved/deleted (getConnector() == null)
+        RaProfile raProfile = newRaProfile();
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setConnectorUuid(UUID.randomUUID());
+        raProfile.setAuthorityInstanceReference(authority);
+        writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("s1", "static-only"))),
+                AttributeSetMergeMode.MERGE, null);
+
+        // when
+        List<BaseAttribute> resolved = service.resolveIssueAttributeSet(raProfile, AttributeSetMergeMode.MERGE);
+
+        // then: the connector fetch is skipped gracefully (no NotFoundException) and only the static set resolves
+        Mockito.verify(extendedAttributeService, Mockito.never()).listIssueCertificateAttributes(Mockito.any());
+        assertThat(resolved).extracting(BaseAttribute::getName).containsExactly("static-only");
     }
 
     @Test

@@ -93,6 +93,8 @@ public final class RequestAttributeSetResolver {
      * Applies Core-side value-source bindings onto the resolved definitions. A binding binds to a definition by UUID,
      * falling back to name. Only {@link DataAttributeV3} definitions can carry a {@code valueSource}; others are passed through untouched.
      * Definitions are mutated in place and returned.
+     *
+     * <p>A matched binding <em>overrides</em> any {@code valueSource} a connector definition already carries.
      */
     public static List<BaseAttribute> applyValueSourceBindings(List<? extends BaseAttribute> definitions,
                                                                List<ValueSourceBindingSpec> bindings) {
