@@ -394,7 +394,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAltKeyUuid(altKey.getUuid());
         request.setAltTokenProfileUuid(altKey.getTokenProfileUuid());
         request.setAltSignatureAttributes(List.of());
-        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
+        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
         SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
         SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
         String certificateUuid = String.valueOf(certificate.getUuid());
@@ -949,6 +949,11 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
+        Assertions.assertTrue(
+                certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate).stream()
+                        .anyMatch(h -> h.getEvent() == CertificateEvent.UPDATE_STATE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "a rejected issue with no message must record UPDATE_STATE/FAILED, not SUCCESS");
 
         certificateRelationRepository.save(relation);
         certificate.setState(CertificateState.REQUESTED);
@@ -1016,6 +1021,20 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
 
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
+    }
+
+    @Test
+    void issueCertificateRejectedAction_isIdempotent_whenAlreadyRejected() {
+        // A redelivered reject for an already-REJECTED certificate must be a no-op, not an
+        // InvalidTransitionException that fails the JMS message (REJECTED->REJECTED has no row).
+        certificate.setState(CertificateState.REJECTED);
+        certificate = certificateRepository.save(certificate);
+        UUID rejectedUuid = certificate.getUuid();
+
+        Assertions.assertDoesNotThrow(() -> clientOperationService.issueCertificateRejectedAction(rejectedUuid));
+
+        certificate = certificateRepository.findByUuid(rejectedUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 
@@ -1213,6 +1232,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
+        // The sync-200 revoke routes through transitionAuditedExternally so the REVOKE history is written
+        // exactly once (SUCCESS), after the attribute update — not a misleading SUCCESS+FAILED pair.
+        var revokeEvents = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched)
+                .stream().filter(h -> h.getEvent() == CertificateEvent.REVOKE).toList();
+        Assertions.assertEquals(1, revokeEvents.size(),
+                "sync-200 revoke must record exactly one REVOKE history entry, not a SUCCESS+FAILED pair");
+        Assertions.assertEquals(CertificateEventStatus.SUCCESS, revokeEvents.get(0).getStatus());
     }
 
     @Test
@@ -1645,7 +1671,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
         req.setReason("requirement changed");
 
-        Assertions.assertDoesNotThrow(() ->
+        var dto = Assertions.assertDoesNotThrow(() ->
                 clientOperationService.cancelPendingCertificateOperation(
                         SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
                         raProfile.getSecuredUuid(),
@@ -1653,6 +1679,15 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, after.getState());
+        Assertions.assertEquals(CertificateState.FAILED, dto.getState(),
+                "returned DTO must reflect the post-cancel state, not the stale pre-cancel one");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "cancelling a pending issue must record ISSUE/FAILED, not SUCCESS");
     }
 
     @Test
@@ -1678,6 +1713,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         Assertions.assertEquals(CertificateState.ISSUED, after.getState());
         Assertions.assertNull(after.getPendingRevokeDestroyKey());
         Assertions.assertNull(after.getPendingRevokeAttributes());
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.REVOKE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "cancelling a pending revoke must record REVOKE/FAILED for the restored cert");
     }
 
     @Test

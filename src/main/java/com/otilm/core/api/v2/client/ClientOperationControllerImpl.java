@@ -39,7 +39,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid,
             ClientCertificateSignRequestDto request) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException {
-        return clientOperationService.issueRequestedCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), certificateUuid);
+        return clientOperationService.issueExistingCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), certificateUuid, request);
     }
 
     @Override
@@ -162,12 +162,17 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.REGISTER)
     public ClientCertificateDataResponseDto registerCertificate(String authorityUuid, @LogResource(uuid = true, affiliated = true) String raProfileUuid, ClientCertificateRegistrationDto request) throws NotFoundException, ValidationException, ConnectorException {
-        throw new NotSupportedException("Certificate registration is not implemented yet; it will be implemented in follow-up PRs.");
+        return clientOperationService.registerCertificate(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid),
+                request);
     }
 
     @Override
-    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST)
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY, operation = Operation.LIST)
     public AvailableOperationsDto listAvailableOperations(@LogResource(uuid = true, affiliated = true) String authorityUuid, @LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
-        throw new NotSupportedException("Listing available operations is not implemented yet; it will be implemented in follow-up PRs.");
+        return clientOperationService.listAvailableOperations(
+                SecuredParentUUID.fromString(authorityUuid),
+                SecuredUUID.fromString(raProfileUuid));
     }
 }

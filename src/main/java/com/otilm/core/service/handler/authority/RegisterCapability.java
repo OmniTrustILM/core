@@ -24,6 +24,11 @@ public interface RegisterCapability {
      * Sends a pre-registration request to the upstream CA for the given certificate placeholder.
      * The CA reserves a slot/identity and returns a tracking handle in the response metadata.
      *
+     * <p><b>Failure contract:</b> any failure occurring <i>after</i> the connector has accepted the request
+     * (HTTP 2xx/202) MUST be thrown as {@link com.otilm.core.exception.ConnectorAcceptedButLocalFailureException}.
+     * A raw {@link RuntimeException} from this method therefore signals a <i>pre-acceptance</i> failure with no
+     * upstream work in flight, so the caller may safely fail the placeholder. Implementations must uphold this.
+     *
      * @return SYNC_OK when the CA confirmed registration immediately, ASYNC_ACCEPTED when polling is needed.
      */
     AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req) throws ConnectorException;
