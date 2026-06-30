@@ -1,9 +1,11 @@
 package com.otilm.core.service;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.SourceParam;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesDto;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RaProfileCertificateRequestAttributeServiceTest extends BaseSpringBootTest {
 
@@ -171,8 +174,8 @@ class RaProfileCertificateRequestAttributeServiceTest extends BaseSpringBootTest
         request.setRequestAttributes(List.of(invalid));
 
         // then
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
-                .isInstanceOf(com.otilm.api.exception.ValidationException.class);
+        assertThatThrownBy(() -> service.updateConfiguration(raProfile, request))
+                .isInstanceOf(ValidationException.class);
     }
 
     @Test
@@ -187,7 +190,7 @@ class RaProfileCertificateRequestAttributeServiceTest extends BaseSpringBootTest
         bindingDto.setAttributeUuid("u1");
         bindingDto.setValueSourceType(ValueSourceType.STATIC_LIST);
         bindingDto.setCollectionRef("cmdb.servers");
-        com.otilm.api.model.common.attribute.v3.mapping.SourceParam param = new com.otilm.api.model.common.attribute.v3.mapping.SourceParam();
+        SourceParam param = new SourceParam();
         param.setAttributeName("datacenter");
         bindingDto.setParams(List.of(param));
         request.setValueSourceBindings(List.of(bindingDto));

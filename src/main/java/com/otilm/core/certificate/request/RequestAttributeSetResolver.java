@@ -115,6 +115,7 @@ public final class RequestAttributeSetResolver {
                                                                            List<ValueSourceBindingSpec> bindings) {
         for (ValueSourceBindingSpec binding : bindings) {
             boolean uuidMatch = binding.attributeUuid() != null && binding.attributeUuid().equals(def.getUuid());
+            // Name is a deliberate fallback that fires even when the binding has a UUID, so a binding survives the connector rotating the attribute's UUID.
             boolean nameMatch = binding.attributeName() != null && binding.attributeName().equals(def.getName());
             if (uuidMatch || nameMatch) {
                 return Optional.of(binding);
