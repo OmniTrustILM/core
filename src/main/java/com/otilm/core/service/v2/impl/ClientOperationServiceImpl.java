@@ -392,15 +392,11 @@ public class ClientOperationServiceImpl implements ClientOperationService {
                     CertificateEventStatus.FAILED,
                     "Connector accepted the registration but a local step failed; left in PENDING_REGISTRATION for reconciliation. Cause: " + e.getMessage(), "");
             throw e;
-        } catch (ConnectorException e) {
-            // Rejected before acceptance — no upstream work in flight, so the placeholder safely fails.
-            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
-            throw e;
-        } catch (RuntimeException e) {
-            // A raw RuntimeException (not ConnectorAcceptedButLocalFailureException) is pre-acceptance by the
-            // RegisterCapability.register contract: the connector has not accepted, so no upstream work is in
-            // flight and failing the placeholder cannot diverge from the connector. Mirror the rejection path
-            // rather than orphaning the cert in PENDING_REGISTRATION.
+        } catch (ConnectorException | RuntimeException e) {
+            // Pre-acceptance failure — either an explicit connector rejection, or (per the
+            // RegisterCapability.register contract, under which any post-acceptance failure must surface as
+            // ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException. No upstream work
+            // is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
             stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
             throw e;
         }
