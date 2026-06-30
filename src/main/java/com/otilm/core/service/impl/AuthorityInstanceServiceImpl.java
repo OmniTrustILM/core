@@ -15,6 +15,8 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.connector.authority.AuthorityProviderInstanceDto;
 import com.otilm.api.model.connector.authority.AuthorityProviderInstanceRequestDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -391,6 +393,18 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         return authorityInstanceReferenceRepository.findResourceObject(objectUuid.getValue(), AuthorityInstanceReference_.name);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.DETAIL)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
+        AuthorityInstanceReference ref = authorityInstanceReferenceRepository.findByUuid(objectUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, objectUuid));
+        ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.AUTHORITY);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.AUTHORITY, ref.getUuid()));
+        data.setUuid(ref.getUuid().toString());
+        data.setName(ref.getName());
+        return data;
     }
 
     @Override

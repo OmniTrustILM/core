@@ -16,6 +16,9 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.ObjectAttributeContentV2;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
@@ -288,6 +291,23 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
     @ExternalAuthorization(resource = Resource.CREDENTIAL, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         return credentialRepository.findResourceObject(objectUuid.getValue(), Credential_.name);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CREDENTIAL, action = ResourceAction.DETAIL)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException {
+        // Single guarded gate-then-load: CREDENTIAL:DETAIL on this exact object (the SecuredUUID arg) is
+        // enforced by the aspect before the body runs, so the credential material below is only loaded behind
+        // a passing per-object check. The reference expander resolves credentials through THIS method only —
+        // never the unguarded private getCredentialEntity/findByUuid nor the resource-level
+        // loadFullCredentialData(List) (enforced by the ArchUnit fence test).
+        Credential credential = credentialRepository.findByUuid(objectUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(Credential.class, objectUuid));
+        ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.CREDENTIAL);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.CREDENTIAL, credential.getUuid()));
+        data.setUuid(credential.getUuid().toString());
+        data.setName(credential.getName());
+        return data;
     }
 
     @Override
