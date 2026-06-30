@@ -11,7 +11,6 @@ import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Primitive;
-import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERPrintableString;
@@ -73,15 +72,16 @@ public final class X509RequestContentRenderer {
 
         List<GeneralNameEntry> sans = x509.getSubjectAltNames() == null ? List.of() : x509.getSubjectAltNames();
         if (!sans.isEmpty()) {
-            GeneralName[] names = sans.stream()
-                    .map(X509RequestContentRenderer::toGeneralName)
-                    .toArray(GeneralName[]::new);
-            gen.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(names));
+            GeneralName[] names = new GeneralName[sans.size()];
+            for (int i = 0; i < sans.size(); i++) {
+                names[i] = toGeneralName(sans.get(i));
+            }
+            gen.addExtension(Extension.subjectAlternativeName, isSubjectEmpty(x509), new GeneralNames(names));
         }
 
         List<RequestedExtension> extensions = x509.getExtensions() == null ? List.of() : x509.getExtensions();
         for (RequestedExtension ext : extensions) {
-            ASN1ObjectIdentifier oid = new ASN1ObjectIdentifier(ext.getOid());
+            ASN1ObjectIdentifier oid = parseOid(ext.getOid());
             boolean critical = effectiveCritical(ext.getOid(), ext.getCritical());
             byte[] derValue = encodeExtensionValue(ext.getValue(), ext.getEncoding());
             gen.addExtension(oid, critical, derValue);
@@ -90,6 +90,20 @@ public final class X509RequestContentRenderer {
         if (gen.isEmpty()) return null;
 
         return gen.generate();
+    }
+
+    private static boolean isSubjectEmpty(X509RequestContent x509) {
+        return x509.getSubject() == null || x509.getSubject().isEmpty();
+    }
+
+    /**
+     * Parses a connector-supplied extension/otherName OID, rejecting null or malformed values with a controlled {@link IOException}.
+     */
+    private static ASN1ObjectIdentifier parseOid(String oid) throws IOException {
+        if (oid == null || !OID_PATTERN.matcher(oid).matches()) {
+            throw new IOException("Invalid or missing extension OID: " + oid);
+        }
+        return new ASN1ObjectIdentifier(oid);
     }
 
     /**
@@ -109,7 +123,8 @@ public final class X509RequestContentRenderer {
             case IA5_STRING -> new DERIA5String(value).getEncoded(ASN1Encoding.DER);
             case PRINTABLE_STRING -> new DERPrintableString(value).getEncoded(ASN1Encoding.DER);
             case OCTET_STRING -> new DEROctetString(value.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER);
-            case BIT_STRING -> new DERBitString(value.getBytes(StandardCharsets.UTF_8)).getEncoded(ASN1Encoding.DER);
+            case BIT_STRING -> throw new IOException(
+                    "BIT_STRING extension value encoding is not supported; supply a DER-encoded value instead");
         };
     }
 
@@ -133,11 +148,11 @@ public final class X509RequestContentRenderer {
         return requestedCritical;
     }
 
-    private static GeneralName toGeneralName(GeneralNameEntry e) {
+    private static GeneralName toGeneralName(GeneralNameEntry e) throws IOException {
         if (e.getType() == GeneralNameType.OTHER_NAME) {
             ASN1Encodable asn1Value = encodeOtherNameValue(e.getValue(), e.getValueEncoding());
             return new GeneralName(GeneralName.otherName,
-                    new OtherName(new ASN1ObjectIdentifier(e.getOtherNameOid()), asn1Value));
+                    new OtherName(parseOid(e.getOtherNameOid()), asn1Value));
         }
         return new GeneralName(e.getType().getBcTag(), e.getValue());
     }

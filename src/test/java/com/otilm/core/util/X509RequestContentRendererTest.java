@@ -205,6 +205,87 @@ class X509RequestContentRendererTest {
             // when / then
             assertThat(X509RequestContentRenderer.toExtensions(x509)).isNull();
         }
+
+        @Test
+        void buildsSubjectAltName_fromIpSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.IP, "192.0.2.10"));
+
+            // when
+            GeneralName[] names = sanNamesOf(X509RequestContentRenderer.toExtensions(x509));
+
+            // then
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.iPAddress);
+        }
+
+        @Test
+        void buildsSubjectAltName_fromDirectoryNameSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.DIRECTORY_NAME, "CN=dir.example.com,O=Example"));
+
+            // when
+            GeneralName[] names = sanNamesOf(X509RequestContentRenderer.toExtensions(x509));
+
+            // then
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.directoryName);
+        }
+
+        @Test
+        void buildsSubjectAltName_fromRegisteredIdSan() throws Exception {
+            // given
+            var x509 = sansOf(san(GeneralNameType.REGISTERED_ID, "1.3.6.1.4.1.99999.7"));
+
+            // when
+            GeneralName[] names = sanNamesOf(X509RequestContentRenderer.toExtensions(x509));
+
+            // then
+            assertThat(names[0].getTagNo()).isEqualTo(GeneralName.registeredID);
+        }
+
+        @Test
+        void marksSanCritical_whenSubjectIsEmpty() throws Exception {
+            // given — SAN present but no subject DN (RFC 5280 §4.2.1.6)
+            var x509 = sansOf(san(GeneralNameType.DNS, "host.example.com"));
+
+            // when
+            Extensions ext = X509RequestContentRenderer.toExtensions(x509);
+
+            // then
+            assertThat(ext.getExtension(Extension.subjectAlternativeName).isCritical()).isTrue();
+        }
+
+        @Test
+        void marksSanNonCritical_whenSubjectIsPresent() throws Exception {
+            // given — both a subject RDN and a SAN
+            var x509 = sansOf(san(GeneralNameType.DNS, "host.example.com"));
+            RdnEntry cn = new RdnEntry();
+            cn.setType("CN");
+            cn.setValue("host.example.com");
+            x509.setSubject(List.of(cn));
+
+            // when
+            Extensions ext = X509RequestContentRenderer.toExtensions(x509);
+
+            // then
+            assertThat(ext.getExtension(Extension.subjectAlternativeName).isCritical()).isFalse();
+        }
+
+        @Test
+        void throwsIoException_whenExtensionOidIsMalformed() {
+            // given — a requested extension carrying a non-OID string
+            var ext = new RequestedExtension();
+            ext.setOid("not-an-oid");
+            ext.setCritical(false);
+            ext.setEncoding(ExtensionValueEncoding.DER);
+            ext.setValue("MAMCAQA=");
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(ext));
+
+            // when / then
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Invalid or missing extension OID");
+        }
     }
 
     // ── OtherNameEncoding ───────────────────────────────────────────────────
@@ -463,6 +544,18 @@ class X509RequestContentRendererTest {
             assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("Invalid base64-encoded DER extension value");
+        }
+
+        @Test
+        void throwsIoException_whenEncodingIsBitString() {
+            // given — BIT_STRING is not supported on the extension path (would embed literal UTF-8 as bits)
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(extension(EXT_OID, ExtensionValueEncoding.BIT_STRING, "anything")));
+
+            // when / then
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("BIT_STRING extension value encoding is not supported");
         }
 
         @Test

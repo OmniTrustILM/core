@@ -61,9 +61,11 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Override
     public List<BaseAttribute> listIssueCertificateAttributes(RaProfile raProfile) throws ConnectorException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
-        if (authorityRef.getConnector() == null) {
+        var connector = authorityRef.getConnector();
+        if (connector == null) {
             throw new NotFoundException("Connector of the Authority is not available / deleted");
         }
+        validateLegacyConnector(connector);
         return authorityProviderAdapterFactory.forAuthority(authorityRef).listIssueAttributes(authorityRef, raProfile);
     }
 

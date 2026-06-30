@@ -107,6 +107,14 @@ public class CertificateRequestAttributeProjector {
         return value;
     }
 
+    /**
+     * Extracts a single string value per attribute, keyed by attribute UUID.
+     *
+     * <p><b>Single-value limitation:</b> only the first content item is read, and only when its data is a {@code String}.
+     * A multi-value attribute (e.g. several SANs under one mapping) keeps only its first entry, and non-string content is dropped.
+     * This matches the legacy {@code buildSubject} baseline this projector replaced (which used {@code getSingleItemAttributeContentValue} for every RDN),
+     * so it is not a regression. Multi-valued RDNs/SANs are deferred to a follow-up; emit one mapped field per value there.
+     */
     private static Map<UUID, String> extractStringValues(List<? extends RequestAttribute> attributes) {
         Map<UUID, String> map = new HashMap<>();
         for (RequestAttribute attr : attributes) {

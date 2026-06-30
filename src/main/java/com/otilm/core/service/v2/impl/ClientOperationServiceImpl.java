@@ -286,8 +286,8 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         RaProfile raProfile = request.getRaProfileUuid() != null
                 ? raProfileRepository.findByUuid(request.getRaProfileUuid()).orElse(null)
                 : null;
-        if (raProfile == null) {
-            throw new ValidationException("Cannot submit certificate request without specifying RA profile");
+        if (raProfile != null && Boolean.FALSE.equals(raProfile.getEnabled())) {
+            throw new ValidationException(String.format("Cannot submit certificate request with disabled RA profile. RA Profile: %s", raProfile.getName()));
         }
 
         String certificateRequest = generateBase64EncodedCsr(request.getRequest(), request.getFormat(), request.getCsrAttributes(), request.getKeyUuid(), request.getTokenProfileUuid(), request.getSignatureAttributes(), request.getAltKeyUuid(), request.getAltTokenProfileUuid(), request.getAltSignatureAttributes(), raProfile);
@@ -1703,23 +1703,21 @@ public class ClientOperationServiceImpl implements ClientOperationService {
      * overlap with a connector definition is dropped in favour of the connector one.
      * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
      */
-    private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) {
+    private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) throws ConnectorException, NotFoundException {
         List<DataAttributeV3> defaults = CsrAttributes.csrAttributesAsDataAttributesV3();
         if (raProfile == null) {
             return defaults;
         }
-        List<DataAttributeV3> connectorDefs;
-        try {
-            connectorDefs = extendedAttributeService.listIssueCertificateAttributes(raProfile).stream()
-                    .filter(DataAttributeV3.class::isInstance)
-                    .map(DataAttributeV3.class::cast)
-                    .toList();
-        } catch (Exception e) {
-            logger.debug("Could not fetch connector issue attributes for RA profile {}; using default CSR attribute set: {}",
-                    raProfile.getName(), e.getMessage());
-            return defaults;
+        var connectorAttrs = extendedAttributeService.listIssueCertificateAttributes(raProfile);
+        List<DataAttributeV3> connectorDefs = connectorAttrs.stream()
+                .filter(DataAttributeV3.class::isInstance)
+                .map(DataAttributeV3.class::cast)
+                .toList();
+        int droppedNonV3 = connectorAttrs.size() - connectorDefs.size();
+        if (droppedNonV3 > 0) {
+            logger.debug("Ignoring {} non-v3 connector issue attribute(s) for RA profile {}; structured CSR enrichment requires a v3 authority connector",
+                    droppedNonV3, raProfile.getName());
         }
-
         return mergeIssuanceDefinitions(defaults, connectorDefs, OidHandler.getCodeToOidMap());
     }
 
@@ -1766,7 +1764,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
-                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes, RaProfile raProfile) throws NotFoundException, CertificateException, AttributeException {
+                                            UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes, RaProfile raProfile) throws NotFoundException, CertificateException, AttributeException, ConnectorException {
         String requestB64;
         String csr;
         if (uploadedRequest != null && !uploadedRequest.isEmpty()) {
@@ -1775,6 +1773,10 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             // TODO: support for the CRMF should be handled also in case it should be generated
             if (requestFormat == CertificateRequestFormat.CRMF) {
                 throw new CertificateException("CRMF format is not supported for CSR generation");
+            }
+            // The platform-built (key generation) path needs an RA profile to resolve issuance attributes.
+            if (raProfile == null) {
+                throw new ValidationException("Cannot generate certificate request without specifying RA profile");
             }
             // prefer connector-supplied v3 definitions (carry fieldMapping); fall back to a static CSR default set
             List<DataAttributeV3> definitions = resolveIssuanceDefinitions(raProfile);
@@ -1787,14 +1789,16 @@ public class ClientOperationServiceImpl implements ClientOperationService {
             try {
                 extensions = X509RequestContentRenderer.toExtensions(requestContent);
             } catch (IOException e) {
-                throw new CertificateException("Failed to build CSR extensions: " + e.getMessage());
+                logger.error("Failed to build CSR extensions for RA profile {}", raProfile.getName(), e);
+                throw new CertificateException("Failed to build CSR extensions", e);
             }
 
             X500Principal principal;
             try {
                  principal = X509RequestContentRenderer.toX500Principal(requestContent);
             } catch (IOException e) {
-                throw new CertificateException("Failed to build CSR subject: " + e.getMessage());
+                logger.error("Failed to build CSR subject for RA profile {}", raProfile.getName(), e);
+                throw new CertificateException("Failed to build CSR subject", e);
             }
 
             csr = generateBase64EncodedCsr(
