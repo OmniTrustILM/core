@@ -42,10 +42,10 @@ class ComplianceProfileServiceV2Test extends BaseComplianceTest {
         complianceProfile2.setDescription("Sample Description2");
         complianceProfileRepository.save(complianceProfile2);
 
-        var objects = complianceProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        var objects = complianceProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(2, objects.size());
 
-        var profileInfo = complianceProfileService.getResourceObjectInternal(complianceProfile.getUuid());
+        var profileInfo = complianceProfileInternalService.getResourceObjectInternal(complianceProfile.getUuid());
         Assertions.assertEquals(complianceProfile.getName(), profileInfo.getName());
     }
 

@@ -46,7 +46,7 @@ import static org.awaitility.Awaitility.await;
 /**
  * Real-broker integration test for the v3 async-poll cycle.
  *
- * <p>Drives the full stack: {@link ClientOperationService#registerCertificate} → 202 async
+ * <p>Drives the full stack: {@link ClientOperationExternalService#registerCertificate} → 202 async
  * accept → {@code certificate_status_poll} row → {@link CertificateStatusPollSweeper#sweep()}
  * → poll message to RabbitMQ → {@code CertificateStatusPollListener} → WireMock register-status
  * endpoint → state-machine transition.

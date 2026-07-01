@@ -90,7 +90,7 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     private IntuneConfigProperties intuneConfigProperties;
 
     @MockitoSpyBean
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
 
     @MockitoSpyBean
     private ScepProfileRepository scepProfileRepositorySpy;

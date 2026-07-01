@@ -151,7 +151,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private GroupRepository groupRepository;
     private GroupAssociationRepository groupAssociationRepository;
     private LocationRepository locationRepository;
@@ -281,7 +281,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileInternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 

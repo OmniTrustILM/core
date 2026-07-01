@@ -44,6 +44,12 @@ public class AuthPermissionEvaluationServiceImpl implements PermissionEvaluator 
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL)
+    public void raProfile(SecuredUUID uuid) throws NotFoundException {
+        // Method empty to only evaluate permissions based on ExternalAuthorization annotation
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.DETAIL)
     public void entityInstance(SecuredUUID uuid) throws NotFoundException {
         // Method empty to only evaluate permissions based on ExternalAuthorization annotation
