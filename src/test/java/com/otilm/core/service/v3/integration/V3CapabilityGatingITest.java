@@ -18,7 +18,7 @@ import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.security.authz.SecuredParentUUID;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
@@ -50,7 +50,7 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
     // ── Spring beans ──────────────────────────────────────────────────────────
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
 
     @MockitoSpyBean
     @SuppressWarnings("unused") // Spied for parity with the issue-driving suites; this suite stubs/verifies no interactions on it.

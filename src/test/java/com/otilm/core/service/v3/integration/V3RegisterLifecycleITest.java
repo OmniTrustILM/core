@@ -22,7 +22,8 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.acme.AcmeTestUtil;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
@@ -64,7 +65,10 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
     // ── Spring beans ──────────────────────────────────────────────────────────
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
+
+    @Autowired
+    private ClientOperationInternalService clientOperationInternalService;
 
     @MockitoSpyBean
     private ActionProducer actionProducer;
@@ -106,7 +110,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         Mockito.doAnswer(inv -> {
             ActionMessage msg = inv.getArgument(0);
             if (msg.getResourceAction() == ResourceAction.ISSUE) {
-                clientOperationService.issueCertificateAction(msg.getResourceUuid(), false);
+                clientOperationInternalService.issueCertificateAction(msg.getResourceUuid(), false);
             }
             return null;
         }).when(actionProducer).produceMessage(Mockito.any());
