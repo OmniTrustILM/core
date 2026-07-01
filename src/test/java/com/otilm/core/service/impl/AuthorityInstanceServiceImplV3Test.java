@@ -333,6 +333,66 @@ class AuthorityInstanceServiceImplV3Test {
         assertThat(service.validateRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid), null)).isTrue();
     }
 
+    @Test
+    void listAuthorityInstanceAttributesListsAndPersistsForV3() throws Exception {
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(v3Adapter.listAuthorityInstanceAttributes(any())).thenReturn(definitions);
+
+        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(connectorUuid, null);
+
+        assertThat(result).isSameAs(definitions);
+        // definitions are persisted so later validation / content preparation can resolve them
+        verify(attributeEngine).updateDataAttributeDefinitions(eq(connectorUuid), any(), eq(definitions));
+    }
+
+    @Test
+    void listAuthorityInstanceAttributesRejectsNonV3Connector() throws Exception {
+        Connector v2Connector = new Connector();
+        ConnectorInterfaceEntity v2Iface = new ConnectorInterfaceEntity();
+        v2Iface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        v2Iface.setVersion("v2");
+        v2Iface.setConnectorUuid(connectorUuid);
+        v2Connector.getInterfaces().add(v2Iface);
+        when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(v2Connector));
+
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(connectorUuid, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("stateless (v3)");
+        verify(v3Adapter, never()).listAuthorityInstanceAttributes(any());
+    }
+
+    @Test
+    void listAuthorityInstanceAttributesRejectsMultipleAuthorityInterfacesWithoutInterfaceUuid() {
+        ConnectorInterfaceEntity secondIface = new ConnectorInterfaceEntity();
+        secondIface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        secondIface.setVersion("v2");
+        secondIface.setConnectorUuid(connectorUuid);
+        connectorEntity.getInterfaces().add(secondIface);
+
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(connectorUuid, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("multiple AUTHORITY interfaces");
+    }
+
+    @Test
+    void listAuthorityInstanceAttributesWithExplicitInterfaceUuidSelectsThatInterface() throws Exception {
+        UUID ifaceUuid = UUID.randomUUID();
+        v3Iface.setUuid(ifaceUuid);
+        // second AUTHORITY interface so interfaceUuid is required to disambiguate
+        ConnectorInterfaceEntity secondIface = new ConnectorInterfaceEntity();
+        secondIface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        secondIface.setVersion("v2");
+        secondIface.setUuid(UUID.randomUUID());
+        secondIface.setConnectorUuid(connectorUuid);
+        connectorEntity.getInterfaces().add(secondIface);
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(v3Adapter.listAuthorityInstanceAttributes(any())).thenReturn(definitions);
+
+        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(connectorUuid, ifaceUuid);
+
+        assertThat(result).isSameAs(definitions);
+    }
+
     // ---- helpers ----
 
     private AuthorityInstanceRequestDto buildRequest() {
