@@ -41,7 +41,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AuthorityInstanceExternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -106,7 +106,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private AuthorityInstanceExternalService authorityInstanceService;
     @Autowired
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
     @Autowired
     private AcmeProfileExternalService acmeProfileService;
     @Autowired
