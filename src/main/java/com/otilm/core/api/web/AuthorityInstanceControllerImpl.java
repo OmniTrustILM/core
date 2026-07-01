@@ -97,7 +97,7 @@ public class AuthorityInstanceControllerImpl implements AuthorityInstanceControl
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "authority", affiliatedResource = Resource.CONNECTOR, operation = Operation.LIST_ATTRIBUTES)
     public List<BaseAttribute> listAuthorityInstanceAttributes(@LogResource(uuid = true, affiliated = true) @PathVariable String connectorUuid, @RequestParam(required = false) String interfaceUuid) throws ConnectorException, NotFoundException, AttributeException {
-        return authorityInstanceService.listAuthorityInstanceAttributes(SecuredUUID.fromString(connectorUuid),
+        return authorityInstanceService.listAuthorityInstanceAttributes(UUID.fromString(connectorUuid),
                 interfaceUuid != null ? UUID.fromString(interfaceUuid) : null);
     }
 

@@ -31,7 +31,7 @@ public interface AuthorityInstanceExternalService {
 
     List<NameAndIdDto> listCAsInProfile(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException;
 
-    List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException;
+    List<BaseAttribute> listAuthorityInstanceAttributes(UUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException;
 
     List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
 
