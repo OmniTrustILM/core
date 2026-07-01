@@ -1801,7 +1801,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         raProfile.getName(), e);
                 throw new CertificateException(
                         "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request"
-                                .formatted(raProfile.getName()));
+                                .formatted(raProfile.getName()), e);
             }
             // Lenient policy tolerates an availability failure and proceeds unvalidated.
             logger.warn("Could not resolve request-attribute set for Mode B validation (RA profile {}); lenient validation skipped",

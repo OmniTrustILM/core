@@ -50,54 +50,68 @@ public final class X509RequestContentParser {
         }
         String dn = PlatformX500NameStyle.DEFAULT.toString(subject);
         for (String rdn : splitOnUnescaped(dn, ',')) {
-            int eq = indexOfUnescaped(rdn, '=');
-            if (eq <= 0) {
-                continue;
+            RdnEntry entry = toRdnEntry(rdn);
+            if (entry != null) {
+                result.add(entry);
             }
-            String value = unescape(rdn.substring(eq + 1));
-            if (value.isBlank()) {
-                continue; // an empty RDN carries no identity to validate
-            }
-            RdnEntry entry = new RdnEntry();
-            entry.setType(rdn.substring(0, eq).trim());
-            entry.setValue(value);
-            result.add(entry);
         }
         // Reverse because PlatformX500NameStyle.DEFAULT reverses RDN order for display
         Collections.reverse(result);
         return result;
     }
 
+    /** Parses a single {@code type=value} RDN, or null when it has no equals sign or an empty value. */
+    private static RdnEntry toRdnEntry(String rdn) {
+        int eq = indexOfUnescaped(rdn, '=');
+        if (eq <= 0) {
+            return null;
+        }
+        String value = unescape(rdn.substring(eq + 1));
+        if (value.isBlank()) {
+            return null; // an empty RDN carries no identity to validate
+        }
+        RdnEntry entry = new RdnEntry();
+        entry.setType(rdn.substring(0, eq).trim());
+        entry.setValue(value);
+        return entry;
+    }
+
     private static List<GeneralNameEntry> parseSans(CertificateRequest request) {
         List<GeneralNameEntry> result = new ArrayList<>();
         if (request instanceof CrmfCertificateRequest && extractExtensions(request) == null) {
-            return result; // CMRF request with no extensions -> no SANs
+            return result; // CRMF request with no extensions -> no SANs
         }
         Map<String, List<String>> sans = CertificateUtil.getSAN(request);
         for (Map.Entry<String, List<String>> e : sans.entrySet()) {
-            if (e.getValue() == null || e.getValue().isEmpty()) {
-                continue;
-            }
-            if ("otherName".equals(e.getKey())) {
-                log.warn("Skipping otherName SAN in CSR: ASN.1 encoding cannot be recovered from the flattened representation");
-                continue;
-            }
-            GeneralNameType type;
-            try {
-                String code = mapSanKeyToGeneralNameTypeCode(e.getKey());
-                type = GeneralNameType.fromCode(code);
-            } catch (IllegalArgumentException ex) {
-                log.warn("Skipping unknown SAN type code in CSR: {}", e.getKey());
-                continue;
-            }
-            for (String value : e.getValue()) {
-                GeneralNameEntry entry = new GeneralNameEntry();
-                entry.setType(type);
-                entry.setValue(value);
-                result.add(entry);
-            }
+            result.addAll(toGeneralNameEntries(e.getKey(), e.getValue()));
         }
         return result;
+    }
+
+    /** Maps one flattened SAN bucket to typed entries, skipping empty, otherName, and unknown-type buckets. */
+    private static List<GeneralNameEntry> toGeneralNameEntries(String sanTypeKey, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        if ("otherName".equals(sanTypeKey)) {
+            log.warn("Skipping otherName SAN in CSR: ASN.1 encoding cannot be recovered from the flattened representation");
+            return List.of();
+        }
+        GeneralNameType type;
+        try {
+            type = GeneralNameType.fromCode(mapSanKeyToGeneralNameTypeCode(sanTypeKey));
+        } catch (IllegalArgumentException ex) {
+            log.warn("Skipping unknown SAN type code in CSR: {}", sanTypeKey);
+            return List.of();
+        }
+        List<GeneralNameEntry> entries = new ArrayList<>(values.size());
+        for (String value : values) {
+            GeneralNameEntry entry = new GeneralNameEntry();
+            entry.setType(type);
+            entry.setValue(value);
+            entries.add(entry);
+        }
+        return entries;
     }
 
     private static String mapSanKeyToGeneralNameTypeCode(String sanTypeKey) {
@@ -119,23 +133,31 @@ public final class X509RequestContentParser {
             return result;
         }
         for (ASN1ObjectIdentifier oid : extensions.getExtensionOIDs()) {
-            if (Extension.subjectAlternativeName.equals(oid)) {
-                continue; // SAN lives in subjectAltNames only
+            RequestedExtension re = toRequestedExtension(oid, extensions);
+            if (re != null) {
+                result.add(re);
             }
-            Extension ext = extensions.getExtension(oid);
-            String value = Base64.getEncoder().encodeToString(ext.getExtnValue().getOctets());
-            if (value.isBlank()) {
-                log.warn("Skipping extension {} in CSR: empty extension value", oid.getId());
-                continue;
-            }
-            RequestedExtension re = new RequestedExtension();
-            re.setOid(oid.getId());
-            re.setCritical(ext.isCritical());
-            re.setEncoding(ExtensionValueEncoding.DER);
-            re.setValue(value);
-            result.add(re);
         }
         return result;
+    }
+
+    /** Encodes one requested extension, skipping the SAN OID (kept in subjectAltNames) and empty values. */
+    private static RequestedExtension toRequestedExtension(ASN1ObjectIdentifier oid, Extensions extensions) {
+        if (Extension.subjectAlternativeName.equals(oid)) {
+            return null; // SAN lives in subjectAltNames only
+        }
+        Extension ext = extensions.getExtension(oid);
+        String value = Base64.getEncoder().encodeToString(ext.getExtnValue().getOctets());
+        if (value.isBlank()) {
+            log.warn("Skipping extension {} in CSR: empty extension value", oid.getId());
+            return null;
+        }
+        RequestedExtension re = new RequestedExtension();
+        re.setOid(oid.getId());
+        re.setCritical(ext.isCritical());
+        re.setEncoding(ExtensionValueEncoding.DER);
+        re.setValue(value);
+        return re;
     }
 
     private static Extensions extractExtensions(CertificateRequest request) {
@@ -172,7 +194,7 @@ public final class X509RequestContentParser {
                 current.append(c);
             }
         }
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             parts.add(current.toString());
         }
         return parts;

@@ -27,6 +27,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
 
 /**
  * Validates a parsed {@link X509RequestContent} against the resolved request-attribute definitions.
@@ -67,21 +69,17 @@ public class CertificateRequestContentValidator {
         Set<String> mappedExtensionOids = new HashSet<>();
 
         for (BaseAttribute def : definitions) {
-            if (!(def instanceof DataAttributeV3 v3) || v3.getFieldMapping() == null) {
-                continue;
-            }
-            FieldMapping mapping = v3.getFieldMapping();
-            if (mapping.getObjectType() != ObjectType.X509_CERTIFICATE || mapping.getFields() == null) {
+            if (!(def instanceof DataAttributeV3 v3) || !isX509CertificateMapping(v3.getFieldMapping())) {
                 continue;
             }
             boolean required = v3.getProperties() != null && v3.getProperties().isRequired();
 
-            for (MappedField field : mapping.getFields()) {
+            for (MappedField field : v3.getFieldMapping().getFields()) {
                 List<String> matchedValues = collectMatchedValues(field, subject, sans, extensions,
                         mappedRdnKeys, mappedSanTypes, mappedExtensionOids, codeToOid);
 
                 if (required && matchedValues.isEmpty()) {
-                    record(result, policy, "Missing required mapped field for attribute '%s' (%s)"
+                    recordViolation(result, policy, "Missing required mapped field for attribute '%s' (%s)"
                             .formatted(label(v3), describe(field)));
                 }
                 if (!matchedValues.isEmpty()) {
@@ -95,6 +93,12 @@ public class CertificateRequestContentValidator {
                     codeToOid, policy, result);
         }
         return result;
+    }
+
+    private static boolean isX509CertificateMapping(FieldMapping mapping) {
+        return mapping != null
+                && mapping.getObjectType() == ObjectType.X509_CERTIFICATE
+                && mapping.getFields() != null;
     }
 
     /**
@@ -122,8 +126,8 @@ public class CertificateRequestContentValidator {
      * policy is strict, or to {@link RequestAttributeValidationResult#addWarning(String)} otherwise,
      * so every violation honors {@link RequestAttributePolicy#strict()} uniformly.
      */
-    private static void record(RequestAttributeValidationResult result, RequestAttributePolicy policy,
-                               String message) {
+    private static void recordViolation(RequestAttributeValidationResult result, RequestAttributePolicy policy,
+                                        String message) {
         if (policy.strict()) {
             result.addError(message);
         } else {
@@ -139,42 +143,35 @@ public class CertificateRequestContentValidator {
                                                      Set<GeneralNameType> mappedSanTypes,
                                                      Set<String> mappedExtensionOids,
                                                      Map<String, String> codeToOid) {
+        return switch (field) {
+            case RdnMappedField rdn -> collectMatched(
+                    canonicalRdnKey(rdn.getRdn(), codeToOid), mappedRdnKeys, subject,
+                    (key, e) -> key.equalsIgnoreCase(canonicalRdnKey(e.getType(), codeToOid)), RdnEntry::getValue);
+            case SanMappedField san -> collectMatched(
+                    san.getGeneralNameType(), mappedSanTypes, sans,
+                    (type, e) -> type == e.getType(), GeneralNameEntry::getValue);
+            case ExtensionMappedField ext -> collectMatched(
+                    ext.getExtensionOid(), mappedExtensionOids, extensions,
+                    (oid, e) -> oid.equals(e.getOid()), RequestedExtension::getValue);
+            default -> List.of(); // non-X.509 mapped-field kinds carry no target here
+        };
+    }
+
+    /**
+     * Registers {@code key} as a mapped identifier (for the later whitelist pass) and returns every
+     * source-entry value whose identifier matches it. A null key maps nothing and matches nothing.
+     */
+    private static <K, E> List<String> collectMatched(K key, Set<K> mappedKeys, List<E> entries,
+                                                      BiPredicate<K, E> matches, Function<E, String> value) {
+        if (key == null) {
+            return List.of();
+        }
+        mappedKeys.add(key);
         List<String> values = new ArrayList<>();
-        switch (field) {
-            case RdnMappedField rdn -> {
-                String key = canonicalRdnKey(rdn.getRdn(), codeToOid);
-                if (key != null) {
-                    mappedRdnKeys.add(key);
-                    for (RdnEntry e : subject) {
-                        if (key.equalsIgnoreCase(canonicalRdnKey(e.getType(), codeToOid))) {
-                            values.add(e.getValue());
-                        }
-                    }
-                }
+        for (E entry : entries) {
+            if (matches.test(key, entry)) {
+                values.add(value.apply(entry));
             }
-            case SanMappedField san -> {
-                GeneralNameType type = san.getGeneralNameType();
-                if (type != null) {
-                    mappedSanTypes.add(type);
-                    for (GeneralNameEntry e : sans) {
-                        if (type == e.getType()) {
-                            values.add(e.getValue());
-                        }
-                    }
-                }
-            }
-            case ExtensionMappedField ext -> {
-                String oid = ext.getExtensionOid();
-                if (oid != null) {
-                    mappedExtensionOids.add(oid);
-                    for (RequestedExtension e : extensions) {
-                        if (oid.equals(e.getOid())) {
-                            values.add(e.getValue());
-                        }
-                    }
-                }
-            }
-            default -> { /* non-X.509 mapped-field kinds carry no target here */ }
         }
         return values;
     }
@@ -186,7 +183,7 @@ public class CertificateRequestContentValidator {
             contents.add(new StringAttributeContentV3(v));
         }
         for (ValidationError error : AttributeDefinitionUtils.validateConstraints(def, contents)) {
-            record(result, policy, error.getErrorDescription());
+            recordViolation(result, policy, error.getErrorDescription());
         }
     }
 
@@ -202,19 +199,19 @@ public class CertificateRequestContentValidator {
         for (RdnEntry e : subject) {
             String key = canonicalRdnKey(e.getType(), codeToOid);
             if (mappedRdnKeys.stream().noneMatch(c -> c.equalsIgnoreCase(key))) {
-                record(result, policy,
+                recordViolation(result, policy,
                         "Subject RDN '%s' is not allowed by the request-attribute set".formatted(e.getType()));
             }
         }
         for (GeneralNameEntry e : sans) {
             if (!mappedSanTypes.contains(e.getType())) {
-                record(result, policy, "SAN %s '%s' is not allowed by the request-attribute set"
+                recordViolation(result, policy, "SAN %s '%s' is not allowed by the request-attribute set"
                         .formatted(asn1FieldName(e.getType()), e.getValue()));
             }
         }
         for (RequestedExtension e : extensions) {
             if (!mappedExtensionOids.contains(e.getOid())) {
-                record(result, policy,
+                recordViolation(result, policy,
                         "Extension '%s' is not allowed by the request-attribute set".formatted(e.getOid()));
             }
         }

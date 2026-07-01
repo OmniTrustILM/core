@@ -110,7 +110,9 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
 
     @AfterEach
     void stopMockServer() {
-        mockServer.stop();
+        if (mockServer != null) {
+            mockServer.stop();
+        }
     }
 
     @Test
