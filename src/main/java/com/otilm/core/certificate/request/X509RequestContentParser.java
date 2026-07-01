@@ -40,8 +40,6 @@ public final class X509RequestContentParser {
 
     public static X509RequestContent parse(CertificateRequest request) {
         X509RequestContent x509 = new X509RequestContent();
-        // X509RequestContent's base class declares certificateType as the REQUIRED @JsonTypeInfo discriminator;
-        // set it so the parsed object honours its own contract (mirrors CertificateRequestAttributeProjector).
         x509.setCertificateType(CertificateType.X509);
         x509.setSubject(parseSubject(request));
         x509.setSubjectAltNames(parseSans(request));
