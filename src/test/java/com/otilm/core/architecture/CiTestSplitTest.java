@@ -63,7 +63,7 @@ class CiTestSplitTest {
     }
 
     @Test
-    void threeProfilesArePairwiseDisjointAndCoverIntegrationRoot() throws Exception {
+    void integrationRootIsIncludedByIntegrationProfileAndExcludedByOthers() throws Exception {
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         dbf.setNamespaceAware(false);
         Document pom = dbf.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
