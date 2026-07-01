@@ -4,10 +4,14 @@ import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.cmp.CmpTestUtil;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.crmf.CertReqMessages;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
@@ -29,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.Security;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,24 +44,27 @@ class X509RequestContentParserTest {
     private static Map<String, OidRecord> savedRdnCache;
 
     @BeforeAll
-    static void snapshotRdnCache() {
+    static void snapshotAndSeedRdnCache() {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+
+        // Snapshot the original global cache BEFORE seeding.
         Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
         savedRdnCache = existing == null ? null : new HashMap<>(existing);
-    }
 
-    @AfterAll
-    static void restoreRdnCache() {
-        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
-                savedRdnCache != null ? savedRdnCache : new HashMap<>());
-    }
-
-    static {
         // Seed the OidHandler with standard RDN attribute types for PlatformX500NameStyle
         OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
         OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3",
                 OidRecord.builder().displayName("Common Name").code("CN").build());
         OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.10",
                 OidRecord.builder().displayName("Organization").code("O").build());
+    }
+
+    @AfterAll
+    static void restoreRdnCache() {
+        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
+                savedRdnCache != null ? savedRdnCache : new HashMap<>());
     }
 
     @Nested
@@ -210,7 +218,31 @@ class X509RequestContentParserTest {
         }
     }
 
+    @Nested
+    class Crmf {
+
+        @Test
+        void parsesSubject_andYieldsNoSansOrExtensions_whenCertTemplateHasNoExtensions() throws Exception {
+            // given — a CRMF request whose CertTemplate carries a subject but no extensions
+            var request = crmf("CN=host.example.com");
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request);
+
+            // then
+            assertThat(content.getSubject()).extracting("type").contains("CN");
+            assertThat(content.getSubjectAltNames()).isEmpty();
+            assertThat(content.getExtensions()).isEmpty();
+        }
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private static CertificateRequest crmf(String subjectDn) throws Exception {
+        var message = CmpTestUtil.createCrmf(new X500Name("CN=issuer"), new X500Name(subjectDn)).build();
+        CertReqMessages certReqMessages = new CertReqMessages(message.toASN1Structure());
+        return new CrmfCertificateRequest(certReqMessages.getEncoded());
+    }
 
     private static CertificateRequest pkcs10(X500Name subject) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");

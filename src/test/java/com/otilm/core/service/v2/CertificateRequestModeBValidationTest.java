@@ -74,7 +74,7 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
 
     @BeforeEach
     void wireStrictRaProfileRequiringCommonName() throws Exception {
-        // given — an RA profile with no authority connector attached (offline authority)
+        // given — a strict RA profile backed by a mock authority connector that serves the request-attribute set
         mockServer = new WireMockServer(0);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
@@ -144,6 +144,31 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
 
         // then — issuance proceeds; no validation exception
         assertThat(certificate).isNotNull();
+    }
+
+    @Test
+    void rejectsUploadedCsr_whenStrictProfileAndAttributeSetCannotBeResolved() {
+        // given — a strict profile whose merge mode consults the authority connector, and that connector errors
+        RaProfileCertificateRequestAttributesUpdateDto config = new RaProfileCertificateRequestAttributesUpdateDto();
+        config.setRequestAttributes(List.of(CsrAttributes.commonNameAttribute()));
+        config.setMergeMode(AttributeSetMergeMode.MERGE);
+        config.setExternalCsrValidationStrict(Boolean.TRUE);
+        requestAttributeService.updateConfiguration(raProfile, config);
+
+        mockServer.stubFor(WireMock
+                .get(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                .willReturn(WireMock.serverError().withBody("authority connector is unavailable")));
+
+        ClientCertificateRequestDto request = uploadRequest(csrMissingCommonName);
+
+        // when / then — strict policy fails closed: an unavailable attribute set blocks issuance
+        assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
+                .isInstanceOf(CertificateException.class)
+                .hasMessageContaining("unavailable");
+
+        // and — nothing is persisted for the profile
+        assertThat(certificateRepository.findAll())
+                .noneMatch(c -> c.getRaProfileUuid() != null && c.getRaProfileUuid().equals(raProfile.getUuid()));
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

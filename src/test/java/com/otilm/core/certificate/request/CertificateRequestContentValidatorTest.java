@@ -7,6 +7,7 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.connector.v3.certificate.RdnEntry;
+import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.OidCategory;
@@ -245,6 +246,132 @@ class CertificateRequestContentValidatorTest {
     }
 
     @Nested
+    class MappedExtensions {
+
+        @Test
+        void passes_whenRequiredMappedExtensionPresent() {
+            // given — the set requires the extendedKeyUsage extension and the CSR carries it
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("eku").required().mappingExtension("2.5.29.37").build());
+            var content = content(List.of(), List.of(), List.of(ext("2.5.29.37", "MAoGCCsGAQUFBwMB")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then
+            assertThat(result.isValid()).isTrue();
+        }
+
+        @Test
+        void reportsError_whenRequiredMappedExtensionMissing() {
+            // given — required extension mapping, but the CSR carries no extensions
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("eku").required().mappingExtension("2.5.29.37").build());
+            var content = content(List.of(), List.of(), List.of());
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, false));
+
+            // then
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.toLowerCase().contains("required"));
+        }
+
+        @Test
+        void rejectsExtensionOutsideSet_whenWhitelistEnabled() {
+            // given — the set maps CN only; the CSR carries an unmapped extension
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var content = content(
+                    List.of(rdn("CN", "host.example.com")), List.of(),
+                    List.of(ext("2.5.29.37", "MAoGCCsGAQUFBwMB")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("2.5.29.37") && e.contains("not allowed"));
+        }
+
+        @Test
+        void allowsExtensionOutsideSet_whenWhitelistDisabled() {
+            // given
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var content = content(
+                    List.of(rdn("CN", "host.example.com")), List.of(),
+                    List.of(ext("2.5.29.37", "MAoGCCsGAQUFBwMB")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, false));
+
+            // then
+            assertThat(result.isValid()).isTrue();
+        }
+
+        @Test
+        void doesNotFlagWhitelist_whenExtensionMappingCoversPresentExtension() {
+            // given — the CSR carries an extension that the set explicitly maps
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("eku").mappingExtension("2.5.29.37").build());
+            var content = content(List.of(), List.of(), List.of(ext("2.5.29.37", "MAoGCCsGAQUFBwMB")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then
+            assertThat(result.getErrors()).noneMatch(e -> e.contains("not allowed"));
+        }
+    }
+
+    @Nested
+    class WhitelistErrorVocabulary {
+
+        @Test
+        void namesEachSanTypeUsingItsAsn1FieldName_whenWhitelistRejects() {
+            // given — the set maps CN only; the CSR carries one SAN of every whitelist-reportable type
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var content = content(
+                    List.of(rdn("CN", "host.example.com")),
+                    List.of(san(GeneralNameType.EMAIL, "user@example.com"),
+                            san(GeneralNameType.DNS, "host.example.com"),
+                            san(GeneralNameType.DIRECTORY_NAME, "CN=dir"),
+                            san(GeneralNameType.URI, "https://example.com"),
+                            san(GeneralNameType.IP, "10.0.0.1"),
+                            san(GeneralNameType.REGISTERED_ID, "1.2.3.4")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then — each SAN is reported using the same ASN.1 vocabulary as the parser
+            assertThat(result.getErrors())
+                    .anyMatch(e -> e.contains("rfc822Name"))
+                    .anyMatch(e -> e.contains("dNSName"))
+                    .anyMatch(e -> e.contains("directoryName"))
+                    .anyMatch(e -> e.contains("uniformResourceIdentifier"))
+                    .anyMatch(e -> e.contains("iPAddress"))
+                    .anyMatch(e -> e.contains("registeredID"));
+        }
+
+        @Test
+        void rejectsSubjectRdnOutsideSet_whenWhitelistEnabled() {
+            // given — the set maps CN only; the CSR subject also carries an unmapped O
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var content = content(
+                    List.of(rdn("CN", "host.example.com"), rdn("O", "Acme")), List.of());
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("O") && e.contains("not allowed"));
+        }
+    }
+
+    @Nested
     class InstanceOverload {
 
         @Test
@@ -286,11 +413,22 @@ class CertificateRequestContentValidatorTest {
     }
 
     private static X509RequestContent content(List<RdnEntry> subject, List<GeneralNameEntry> sans) {
+        return content(subject, sans, List.of());
+    }
+
+    private static X509RequestContent content(List<RdnEntry> subject, List<GeneralNameEntry> sans, List<RequestedExtension> extensions) {
         X509RequestContent c = new X509RequestContent();
         c.setSubject(subject);
         c.setSubjectAltNames(sans);
-        c.setExtensions(List.of());
+        c.setExtensions(extensions);
         return c;
+    }
+
+    private static RequestedExtension ext(String oid, String value) {
+        RequestedExtension e = new RequestedExtension();
+        e.setOid(oid);
+        e.setValue(value);
+        return e;
     }
 
     private static RdnEntry rdn(String type, String value) {

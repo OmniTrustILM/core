@@ -4,6 +4,7 @@ import com.otilm.api.model.common.attribute.common.constraint.RegexpAttributeCon
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.MappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.ObjectType;
@@ -55,6 +56,13 @@ public final class MappedDataAttributeV3Builder {
     public MappedDataAttributeV3Builder mappingSan(GeneralNameType type) {
         SanMappedField field = new SanMappedField();
         field.setGeneralNameType(type);
+        fields.add(field);
+        return this;
+    }
+
+    public MappedDataAttributeV3Builder mappingExtension(String oid) {
+        ExtensionMappedField field = new ExtensionMappedField();
+        field.setExtensionOid(oid);
         fields.add(field);
         return this;
     }

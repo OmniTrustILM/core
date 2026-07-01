@@ -70,6 +70,9 @@ public final class X509RequestContentParser {
 
     private static List<GeneralNameEntry> parseSans(CertificateRequest request) {
         List<GeneralNameEntry> result = new ArrayList<>();
+        if (request instanceof CrmfCertificateRequest && extractExtensions(request) == null) {
+            return result; // CMRF request with no extensions -> no SANs
+        }
         Map<String, List<String>> sans = CertificateUtil.getSAN(request);
         for (Map.Entry<String, List<String>> e : sans.entrySet()) {
             if (e.getValue() == null || e.getValue().isEmpty()) {

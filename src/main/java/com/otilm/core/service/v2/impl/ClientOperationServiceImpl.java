@@ -1796,9 +1796,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             definitions = requestAttributeService.resolveIssueAttributeSet(raProfile);
         } catch (ConnectorException | NotFoundException e) {
-            logger.debug("Could not resolve request-attribute set for Mode B validation (RA profile {})", raProfile.getName(), e);
-            // If the attribute set cannot be resolved (connector is unreachable), issuance proceeds unvalidated rather than blocking on
-            // an availability failure. Operators tuning the strict flag must know validation is silently skipped during a connector outage.
+            if (resolveExternalCsrValidationStrict(raProfile)) {
+                logger.warn("Could not resolve request-attribute set for Mode B validation; strict RA profile {} rejects issuance during the connector outage",
+                        raProfile.getName(), e);
+                throw new CertificateException(
+                        "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request"
+                                .formatted(raProfile.getName()));
+            }
+            // Lenient policy tolerates an availability failure and proceeds unvalidated.
+            logger.warn("Could not resolve request-attribute set for Mode B validation (RA profile {}); lenient validation skipped",
+                    raProfile.getName(), e);
             return;
         }
         if (definitions == null || definitions.isEmpty()) {
@@ -1827,9 +1834,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             }
         } catch (CertificateRequestException e) {
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
-            throw new CertificateException("Uploaded certificate request could not be parsed for validation");
+            throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
         } catch (CertificateRequestValidationException e) {
-            throw new CertificateException(e.getMessage());
+            throw new CertificateException(e.getMessage(), e);
         }
     }
 
