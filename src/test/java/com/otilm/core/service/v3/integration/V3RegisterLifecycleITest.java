@@ -38,7 +38,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.cert.X509Certificate;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -235,7 +237,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         gen.initialize(2048);
         KeyPair kp = gen.generateKeyPair();
 
-        java.security.cert.X509Certificate x509 = AcmeTestUtil.createTestCertificate(kp, "round-trip");
+        X509Certificate x509 = AcmeTestUtil.createTestCertificate(kp, "round-trip");
         String certData = Base64.getEncoder().encodeToString(x509.getEncoded());
         V3ConnectorStubs.stubV2Issue(wireMockServer, certData);
 
@@ -246,8 +248,8 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
         signRequest.setRequest(base64Csr);
         signRequest.setFormat(CertificateRequestFormat.PKCS10);
-        signRequest.setAttributes(java.util.List.of());
-        signRequest.setCustomAttributes(java.util.List.of());
+        signRequest.setAttributes(List.of());
+        signRequest.setCustomAttributes(List.of());
 
         clientOperationService.issueExistingCertificate(
                 SecuredParentUUID.fromUUID(fixture.authority().getUuid()),

@@ -4,11 +4,13 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.OperationSupport;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -153,12 +155,12 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
 
         ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=gating-ok,O=Test");
 
-        com.otilm.core.dao.entity.Certificate cert =
+        Certificate cert =
                 certificateRepository.findByUuid(UUID.fromString(response.getUuid()))
                         .orElseThrow(() -> new AssertionError("Certificate not found: " + response.getUuid()));
 
         Assertions.assertEquals(
-                com.otilm.api.model.core.certificate.CertificateState.REGISTERED,
+                CertificateState.REGISTERED,
                 cert.getState(),
                 "v3 authority with CERTIFICATE_REGISTRATION flag + sync stub must transition cert to REGISTERED");
     }

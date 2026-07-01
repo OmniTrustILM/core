@@ -14,8 +14,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
  * WireMock stub helpers for the v3 authority provider wire contract.
  *
  * <p>Each static method registers one or more stubs on the supplied {@link WireMockServer} for a
- * specific v3 connector endpoint. All paths are taken directly from the S6 wire-contract reference
- * and the {@code CertificateApiClient} v3 constants:
+ * specific v3 connector endpoint. All paths are taken directly from the {@code CertificateApiClient} v3 constants:
  *
  * <ul>
  *   <li>REGISTER  — POST /v3/authorityProvider/certificates/register</li>
@@ -37,8 +36,8 @@ public final class V3ConnectorStubs {
     public static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
 
     // State names for the stateful register-status scenario.
-    public static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;
-    public static final String STATUS_SCENARIO_COMPLETED   = "COMPLETED";
+    private static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;
+    private static final String STATUS_SCENARIO_COMPLETED   = "COMPLETED";
 
     private V3ConnectorStubs() {}
 

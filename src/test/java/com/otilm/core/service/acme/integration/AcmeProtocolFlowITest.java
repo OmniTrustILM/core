@@ -68,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
@@ -226,7 +227,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         // Verify the issue call was routed to the exact authority instance (not just any authority).
         wireMockServer.verify(postRequestedFor(urlMatching(
                 "/v2/authorityProvider/authorities/"
-                        + java.util.regex.Pattern.quote(fixture.authority().getAuthorityInstanceUuid())
+                        + Pattern.quote(fixture.authority().getAuthorityInstanceUuid())
                         + "/certificates/issue")));
 
         // ── Step 7: Verify order status ───────────────────────────────────────
