@@ -147,6 +147,15 @@ public class ProxyClientConfig {
     }
 
     /**
+     * Create MQ-based v2 AttributesApiClient bean.
+     * This bean is used when connector has proxyId set for v2 attribute operations (definitions + callback).
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v2.AttributesApiClient mqAttributesApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.AttributesApiClient(proxyClient);
+    }
+
+    /**
      * Create MQ-based ComplianceApiClient bean.
      * This bean is used when connector has proxyId set for compliance operations.
      */
