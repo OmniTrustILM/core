@@ -34,7 +34,7 @@ import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.message.AcmeJwsRequest;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.*;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSObject;
@@ -101,7 +101,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private AcmeOrderRepository acmeOrderRepository;
     private AcmeAuthorizationRepository acmeAuthorizationRepository;
     private AcmeChallengeRepository acmeChallengeRepository;
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
 
@@ -146,7 +146,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

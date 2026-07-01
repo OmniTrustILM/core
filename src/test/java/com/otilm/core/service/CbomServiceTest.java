@@ -97,7 +97,10 @@ class CbomServiceTest extends BaseSpringBootTest {
     """;
 
     @Autowired
-    private CbomService cbomService;
+    private CbomExternalService cbomService;
+
+    @Autowired
+    private CbomInternalService cbomInternalService;
 
     @Autowired
     private CbomRepository cbomRepository;
@@ -1020,7 +1023,7 @@ class CbomServiceTest extends BaseSpringBootTest {
         mockEntrySpecVersionSource(entry3, "1.7", "name-3", timestamp);
 
         // When
-        cbomService.sync();
+        cbomInternalService.sync();
 
         // Then
         List<Cbom> savedCboms = cbomRepository.findAll();
@@ -1061,7 +1064,7 @@ class CbomServiceTest extends BaseSpringBootTest {
         mockEntrySpecVersionSource(entry3, "1.7", "name-3", null);
 
         // When
-        cbomService.sync();
+        cbomInternalService.sync();
 
         // Then
         List<Cbom> savedCboms = cbomRepository.findAll();
@@ -1145,7 +1148,7 @@ class CbomServiceTest extends BaseSpringBootTest {
                 .withBody("[]")));
 
         // When
-        cbomService.sync();
+        cbomInternalService.sync();
 
         // Then: WireMock verification ensures the 'after' param matched the DB timestamp
         mockServer.verify(WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom"))
@@ -1170,7 +1173,7 @@ class CbomServiceTest extends BaseSpringBootTest {
 
         // Then sync should throw an exception
         assertThrows(CbomRepositoryException.class, () -> {
-            cbomService.sync();
+            cbomInternalService.sync();
         });
 
         mockServer.verify(WireMock.getRequestedFor(WireMock.urlPathEqualTo("/api/v1/bom"))
@@ -1188,7 +1191,7 @@ class CbomServiceTest extends BaseSpringBootTest {
         mockSearchResponse(response);
 
         // When
-        cbomService.sync();
+        cbomInternalService.sync();
 
         // Then no boms were stored
         List<Cbom> savedCboms = cbomRepository.findAll();
@@ -1222,7 +1225,7 @@ class CbomServiceTest extends BaseSpringBootTest {
                     """)));
 
         // When
-        cbomService.sync();
+        cbomInternalService.sync();
 
         // Then no boms were stored
         List<Cbom> savedCboms = cbomRepository.findAll();
@@ -1244,11 +1247,11 @@ class CbomServiceTest extends BaseSpringBootTest {
         cbom.setSpecVersion("1.6");
         cbomRepository.save(cbom);
 
-        NameAndUuidDto nameAndUuidDto = cbomService.getResourceObjectInternal(cbom.getUuid());
+        NameAndUuidDto nameAndUuidDto = cbomInternalService.getResourceObjectInternal(cbom.getUuid());
         Assertions.assertEquals(cbom.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cbom.getSerialNumber(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = cbomService.getResourceObjectExternal(cbom.getSecuredUuid());
+        nameAndUuidDto = cbomInternalService.getResourceObjectExternal(cbom.getSecuredUuid());
         Assertions.assertEquals(cbom.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(cbom.getSerialNumber(), nameAndUuidDto.getName());
 
@@ -1364,7 +1367,7 @@ class CbomServiceTest extends BaseSpringBootTest {
                .when(cbomRepositorySpy).existsBySerialNumberAndVersion(serialNumber, version);
 
         // When
-        String result = cbomService.sync();
+        String result = cbomInternalService.sync();
 
         // Then: counted as duplicate, nothing stored
         assertTrue(result.contains("skipped duplicates 1"));
@@ -1388,7 +1391,7 @@ class CbomServiceTest extends BaseSpringBootTest {
                .when(cbomRepositorySpy).save(Mockito.any(Cbom.class));
 
         // When
-        String result = cbomService.sync();
+        String result = cbomInternalService.sync();
 
         // Then: DataIntegrityViolationException propagates out of the transaction and is counted as duplicate
         assertTrue(result.contains("skipped duplicates 1"));

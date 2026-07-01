@@ -51,7 +51,7 @@ import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -91,7 +91,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorService connectorService;
     private CertificateService certificateService;
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
@@ -138,7 +138,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

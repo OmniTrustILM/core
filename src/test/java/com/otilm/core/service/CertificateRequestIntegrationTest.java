@@ -18,7 +18,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
@@ -57,7 +57,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
     private static final String EXT_ATTR_UUID = "bbbbbbbb-0000-0000-0000-000000000002";
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
 
     @Autowired
     private AttributeEngine attributeEngine;

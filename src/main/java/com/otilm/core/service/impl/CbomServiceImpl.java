@@ -63,9 +63,11 @@ import com.otilm.core.model.cbom.BomVersionDto;
 import com.otilm.core.model.cbom.CryptoStatsDto;
 import com.otilm.core.model.cbom.BomSearchRequestDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CbomService;
+import com.otilm.core.service.CbomExternalService;
+import com.otilm.core.service.CbomInternalService;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -79,7 +81,7 @@ import jakarta.persistence.criteria.Root;
 
 @Service(Resource.Codes.CBOM)
 @Transactional
-public class CbomServiceImpl implements CbomService {
+public class CbomServiceImpl implements CbomExternalService, CbomInternalService {
 
     private static final LoggerWrapper logger = new LoggerWrapper(CbomServiceImpl.class, Module.CORE, Resource.CBOM);
 
@@ -326,6 +328,7 @@ public class CbomServiceImpl implements CbomService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CBOM, false);
 

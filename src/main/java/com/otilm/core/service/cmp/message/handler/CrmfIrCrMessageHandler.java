@@ -14,7 +14,7 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.*;
 import org.bouncycastle.asn1.crmf.*;
@@ -47,10 +47,10 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
             PKIBody.TYPE_INIT_REQ,          // ir       [0]  CertReqMessages,       --Initialization Req
             PKIBody.TYPE_CERT_REQ);         // cr       [2]  CertReqMessages,       --Certification Req
 
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

@@ -10,7 +10,7 @@ import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.security.authn.PlatformAnonymousToken;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +45,7 @@ class JwtDecoderTest extends BaseSpringBootTest {
     private JwtDecoder jwtDecoder;
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private SettingRepository settingRepository;
