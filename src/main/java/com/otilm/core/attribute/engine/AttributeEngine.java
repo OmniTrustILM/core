@@ -79,7 +79,6 @@ public class AttributeEngine {
             .findAndAddModules()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
             .build();
-    private static final Pattern OID_REGEX_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -1154,7 +1153,7 @@ public class AttributeEngine {
                     throw new AttributeException("fieldMapping SAN field is missing generalNameType",
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
                 if (san.getGeneralNameType() == GeneralNameType.OTHER_NAME
-                        && (san.getOtherNameOid() == null || !OID_REGEX_PATTERN.matcher(san.getOtherNameOid()).matches()))
+                        && !OidHandler.isOid(san.getOtherNameOid()))
                     throw new AttributeException("fieldMapping SAN field of type OTHER_NAME is missing otherNameOid or it is not a valid OID",
                             attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
@@ -1182,7 +1181,7 @@ public class AttributeEngine {
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         // Dotted-decimal OIDs are always valid; short codes must resolve via OidHandler at build time
         String rdnValue = rdn.getRdn();
-        boolean isOid = OID_REGEX_PATTERN.matcher(rdnValue).matches();
+        boolean isOid = OidHandler.isOid(rdnValue);
         if (!isOid && !codeToOidMap.get().containsKey(rdnValue))
             throw new AttributeException("fieldMapping RDN code '%s' is not a known RDN code".formatted(rdnValue),
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);

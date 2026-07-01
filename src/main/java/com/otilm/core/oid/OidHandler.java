@@ -5,10 +5,19 @@ import com.otilm.api.model.core.oid.OidCategory;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 public class OidHandler {
 
     private OidHandler() {
+    }
+
+    /** Dotted-decimal OID form (e.g. {@code 2.5.4.3}); anything else is treated as a short RDN code. */
+    public static final Pattern OID_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
+
+    /** {@code true} if {@code value} is a well-formed dotted-decimal OID (never {@code null}-safe true). */
+    public static boolean isOid(String value) {
+        return value != null && OID_PATTERN.matcher(value).matches();
     }
 
     private static final Map<OidCategory, Map<String, OidRecord>> oidCache = new ConcurrentHashMap<>();

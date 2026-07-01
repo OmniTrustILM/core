@@ -27,15 +27,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Pure-kernel renderer: maps {@link X509RequestContent} into BouncyCastle structures.
  * No Spring context required; all methods are static.
  */
 public final class X509RequestContentRenderer {
-
-    private static final Pattern OID_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
 
     /**
      * RFC 5280 extensions that MUST stay critical regardless of criticalOverridable or registry defaults.
@@ -100,7 +97,7 @@ public final class X509RequestContentRenderer {
      * Parses a connector-supplied extension/otherName OID, rejecting null or malformed values with a controlled {@link IOException}.
      */
     private static ASN1ObjectIdentifier parseOid(String oid) throws IOException {
-        if (oid == null || !OID_PATTERN.matcher(oid).matches()) {
+        if (!OidHandler.isOid(oid)) {
             throw new IOException("Invalid or missing extension OID: " + oid);
         }
         return new ASN1ObjectIdentifier(oid);
@@ -188,7 +185,7 @@ public final class X509RequestContentRenderer {
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException("RDN type is required");
         }
-        if (OID_PATTERN.matcher(type).matches()) {
+        if (OidHandler.isOid(type)) {
             return new ASN1ObjectIdentifier(type);
         }
         if (codeToOid != null && codeToOid.containsKey(type)) {

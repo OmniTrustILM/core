@@ -36,10 +36,17 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.settings.CertificateSettingsDto;
 import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
 import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.certificate.request.CertificateRequestContentValidator;
+import com.otilm.core.certificate.request.RequestAttributePolicy;
+import com.otilm.core.certificate.request.RequestAttributeValidationResult;
+import com.otilm.core.certificate.request.X509RequestContentParser;
 import com.otilm.core.oid.OidHandler;
+import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
+import com.otilm.core.service.SettingInternalService;
 import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -148,6 +155,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
     private ConnectorCapabilityService capabilityService;
+    private RaProfileCertificateRequestAttributeService requestAttributeService;
+    private SettingInternalService settingService;
+
+    @Autowired
+    public void setRequestAttributeService(RaProfileCertificateRequestAttributeService requestAttributeService) {
+        this.requestAttributeService = requestAttributeService;
+    }
+
+    @Autowired
+    public void setSettingService(SettingInternalService settingService) {
+        this.settingService = settingService;
+    }
 
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
@@ -1764,12 +1783,77 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return codeToOid == null ? rdn : codeToOid.getOrDefault(rdn, rdn);
     }
 
+    /**
+     * Parse the uploaded CSR into typed content and validate it against the resolved request-attribute set under the RA-Profile policy.
+     * Strict rejects with a shaped message; lenient logs warnings and proceeds. The resolved-set lookup calls the authority connector.
+     */
+    private void validateUploadedRequestAttributes(String csr, CertificateRequestFormat requestFormat, RaProfile raProfile)
+            throws CertificateException {
+        if (raProfile == null) {
+            return;
+        }
+        List<BaseAttribute> definitions;
+        try {
+            definitions = requestAttributeService.resolveIssueAttributeSet(raProfile);
+        } catch (ConnectorException | NotFoundException e) {
+            logger.debug("Could not resolve request-attribute set for Mode B validation (RA profile {})", raProfile.getName(), e);
+            // If the attribute set cannot be resolved (connector is unreachable), issuance proceeds unvalidated rather than blocking on
+            // an availability failure. Operators tuning the strict flag must know validation is silently skipped during a connector outage.
+            return;
+        }
+        if (definitions == null || definitions.isEmpty()) {
+            return;
+        }
+        boolean strict = resolveExternalCsrValidationStrict(raProfile);
+        try {
+            CertificateRequest parsed = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
+            X509RequestContent content = X509RequestContentParser.parse(parsed);
+            RequestAttributeValidationResult result =
+                    CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(strict, strict /* whitelist: strict mode enforces whitelist */));
+
+            // Kernel routes violations by policy: strict -> errors (blocking), lenient -> warnings (non-blocking).
+            // Lenient mode does NOT run the whitelist check.
+            if (!result.getWarnings().isEmpty()) {
+                logger.warn("Request-attribute validation (lenient) for uploaded CSR (RA profile {}): {}",
+                        raProfile.getName(), result.getWarnings());
+            }
+            if (result.hasErrors()) {
+                logger.warn("Request-attribute validation failed for uploaded CSR (RA profile {}): {}",
+                        raProfile.getName(), result.getErrors());
+                throw new CertificateRequestValidationException(
+                        "Uploaded certificate request does not satisfy the request-attribute policy of RA profile '%s'"
+                                .formatted(raProfile.getName()),
+                        result.getErrors());
+            }
+        } catch (CertificateRequestException e) {
+            logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
+            throw new CertificateException("Uploaded certificate request could not be parsed for validation");
+        } catch (CertificateRequestValidationException e) {
+            throw new CertificateException(e.getMessage());
+        }
+    }
+
+    /** Effective strictness: per-RA-Profile value, else the platform default, else lenient. */
+    private boolean resolveExternalCsrValidationStrict(RaProfile raProfile) {
+        Boolean perProfile = requestAttributeService.getConfiguration(raProfile).getExternalCsrValidationStrict();
+        if (perProfile != null) {
+            return perProfile;
+        }
+        CertificateSettingsDto certificates = settingService.getPlatformSettingsInternal().getCertificates();
+        if (certificates != null && certificates.getRequestAttributes() != null
+                && certificates.getRequestAttributes().getExternalCsrValidationStrict() != null) {
+            return certificates.getRequestAttributes().getExternalCsrValidationStrict();
+        }
+        return false;
+    }
+
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,
                                             UUID altKeyUUid, UUID altTokenProfileUuid, List<RequestAttribute> altSignatureAttributes, RaProfile raProfile) throws NotFoundException, CertificateException, AttributeException, ConnectorException {
         String requestB64;
         String csr;
         if (uploadedRequest != null && !uploadedRequest.isEmpty()) {
             csr = uploadedRequest;
+            validateUploadedRequestAttributes(csr, requestFormat, raProfile);
         } else {
             // TODO: support for the CRMF should be handled also in case it should be generated
             if (requestFormat == CertificateRequestFormat.CRMF) {
