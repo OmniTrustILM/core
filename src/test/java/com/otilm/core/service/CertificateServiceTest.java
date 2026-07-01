@@ -1991,7 +1991,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         @Test
         void revokeCertificateBySerial_illegalFromState_throwsInvalidTransition() {
-            // given — seed a cert in a non-revocable state (REQUESTED has no ISSUED->REVOKED arc)
+            // given — seed a cert in a non-revocable state (REQUESTED has no ->REVOKED arc; revoke requires ISSUED)
             Certificate cert = aCertificate()
                     .withSerialNumber("smc3-requested-" + UUID.randomUUID())
                     .withState(CertificateState.REQUESTED)
