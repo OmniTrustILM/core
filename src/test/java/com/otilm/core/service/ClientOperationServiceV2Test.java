@@ -1153,6 +1153,36 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 "expected an ISSUE/SUCCESS event in cert history after 202 from connector");
     }
 
+    /**
+     * The synchronous (HTTP 200) issue path must now pass through PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finish in ISSUED. The pre-connector transition is the
+     * only source of an ISSUE/SUCCESS "Issuance in progress" audit row, so its presence proves the
+     * cert went through PENDING_ISSUE on the way to ISSUED (SMC.2a).
+     */
+    @Test
+    void issueCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, fetched.getState(),
+                "sync 200 issue must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the state-machine's PENDING_ISSUE audit row (ISSUE/SUCCESS, "
+                        + "\"Issuance in progress\") to precede ISSUED on the sync path");
+    }
+
     @Test
     void revokeCertificateAction_transitionsToPendingRevoke_when202FromConnector() throws Exception {
         mockServer.stubFor(WireMock

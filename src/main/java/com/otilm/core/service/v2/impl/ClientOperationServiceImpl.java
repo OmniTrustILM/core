@@ -539,6 +539,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, certificate.getRaProfile().getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).build()));
 
         try {
+            // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
+            // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
+            // state via the state machine.
+            stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
+                    "Issuance in progress");
+
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> issueResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).issueCertificate(
                     connectorDto,
@@ -547,8 +553,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             if (issueResponse.getStatusCode().value() == 202) {
                 // The connector accepted the request but completion is asynchronous; the
-                // certificate moves to PENDING_ISSUE rather than FAILED.
-                transitionToPendingIssue(certificate, issueResponse.getBody(), ResourceAction.ISSUE);
+                // certificate stays in PENDING_ISSUE rather than moving to FAILED.
+                onAsyncAccepted(certificate, issueResponse.getBody(), ResourceAction.ISSUE);
                 return;
             }
 
@@ -581,13 +587,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Transitions the certificate to {@code PENDING_ISSUE}, persists any metadata the connector
-     * returned in its {@code 202 Accepted} response body, and records an event-history entry.
+     * Records the connector's asynchronous acceptance ({@code 202 Accepted}) of an issue / renew /
+     * rekey: persists any metadata the connector returned in its response body, schedules the status
+     * poll, raises the action-performed event, and writes the async-acceptance event-log entry. The
+     * certificate is already in {@code PENDING_ISSUE} by the time this runs — the handlers transition
+     * it via the state machine before calling the connector — so this method no longer transitions.
      * The {@code originatingAction} (ISSUE / RENEW / REKEY) drives the event-log
      * {@code CERTIFICATE_ACTION_PERFORMED} message so subscribers see the operation that produced
      * this state — not always {@code ISSUE}.
      */
-    private void transitionToPendingIssue(Certificate certificate, CertificateDataResponseDto acceptedBody, ResourceAction originatingAction) {
+    private void onAsyncAccepted(Certificate certificate, CertificateDataResponseDto acceptedBody, ResourceAction originatingAction) {
         if (acceptedBody != null && acceptedBody.getMeta() != null && !acceptedBody.getMeta().isEmpty()) {
             try {
                 attributeEngine.updateMetadataAttributes(acceptedBody.getMeta(),
@@ -617,9 +626,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             }
         }
 
-        stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                "Issuance accepted; awaiting asynchronous completion.");
-
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
 
         eventProducer.produceMessage(
@@ -633,7 +639,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 List.of(new ResourceObjectIdentity(certificate.getSerialNumber(), certificate.getUuid())),
                 "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_ISSUE");
 
-        logger.info("Certificate {} transitioned to PENDING_ISSUE (originating action: {})",
+        logger.info("Certificate {} accepted asynchronously by connector; parked in PENDING_ISSUE (originating action: {})",
                 certificate.getUuid(), originatingAction.getCode());
     }
 
@@ -889,6 +895,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
+            // Move the new certificate to PENDING_ISSUE before calling the connector so every path
+            // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
+            // uniform PENDING_ISSUE state via the state machine.
+            stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
+                    "Issuance in progress");
+
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> renewResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
                     connectorDto,
@@ -897,8 +909,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             if (renewResponse.getStatusCode().value() == 202) {
                 // The connector accepted the renewal but completion is asynchronous; the new
-                // certificate moves to PENDING_ISSUE while the predecessor remains ISSUED.
-                transitionToPendingIssue(certificate, renewResponse.getBody(), ResourceAction.RENEW);
+                // certificate stays in PENDING_ISSUE while the predecessor remains ISSUED.
+                onAsyncAccepted(certificate, renewResponse.getBody(), ResourceAction.RENEW);
                 certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                         CertificateEventStatus.SUCCESS, "Renewal accepted; awaiting asynchronous completion.",
                         MetaDefinitions.serialize(additionalInformation));
@@ -1098,6 +1110,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
         try {
+            // Move the new certificate to PENDING_ISSUE before calling the connector so every path
+            // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
+            // uniform PENDING_ISSUE state via the state machine.
+            stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
+                    "Issuance in progress");
+
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
             ResponseEntity<CertificateDataResponseDto> rekeyResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
                     connectorDto,
@@ -1106,8 +1124,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             if (rekeyResponse.getStatusCode().value() == 202) {
                 // The connector accepted the rekey but completion is asynchronous; the new
-                // certificate moves to PENDING_ISSUE while the predecessor remains ISSUED.
-                transitionToPendingIssue(certificate, rekeyResponse.getBody(), ResourceAction.REKEY);
+                // certificate stays in PENDING_ISSUE while the predecessor remains ISSUED.
+                onAsyncAccepted(certificate, rekeyResponse.getBody(), ResourceAction.REKEY);
                 certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                         CertificateEventStatus.SUCCESS, "Rekey accepted; awaiting asynchronous completion.",
                         MetaDefinitions.serialize(additionalInformation));
