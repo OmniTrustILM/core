@@ -14,22 +14,14 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * One in-flight async certificate operation awaiting a status poll. A row is created when an
- * authority operation returns "in progress" (HTTP 202) and is deleted once the operation reaches a
- * terminal state (or times out). The {@code certificate_uuid} is unique — a certificate can have at
- * most one async operation in flight at a time.
- *
- * <p>{@code next_poll_at} is the due time the sweep scans for; {@code attempt} is how many polls have
- * been scheduled so far and indexes the backoff curve. This is internal polling machinery, not a
- * user-facing entity, so it carries no author/update audit columns — only a DB-populated creation timestamp.</p>
+ * One in-flight async certificate operation awaiting a status poll: created on an authority
+ * "in progress" (HTTP 202) response and deleted once the operation reaches a terminal state or times
+ * out. Internal polling machinery, not a user-facing entity — hence no author/update audit columns.
  */
 @Getter
 @Setter
 @Entity
-// The unique constraint on certificate_uuid backs the atomic scheduleIfAbsent insert
-// (ON CONFLICT (certificate_uuid) DO NOTHING) — a certificate has at most one async operation in
-// flight. Declared here (not only in the Flyway migration) so Hibernate-generated schema, used when
-// Flyway is disabled, carries the constraint too.
+// A certificate has at most one async operation in flight at a time.
 @Table(name = "certificate_status_poll",
         uniqueConstraints = @UniqueConstraint(name = "uq_certificate_status_poll_certificate",
                 columnNames = "certificate_uuid"))
@@ -48,10 +40,7 @@ public class CertificateStatusPoll extends UniquelyIdentified {
     @Column(name = "next_poll_at", nullable = false)
     private OffsetDateTime nextPollAt;
 
-    // Populated by the DB default (the row is inserted via the native scheduleIfAbsent query, not a JPA
-    // persist), so this is a read-only mapping — JPA never writes it. The columnDefinition carries the
-    // DEFAULT now() into the Hibernate-generated schema (used when Flyway is disabled): the native insert
-    // omits this column entirely, so without the default the NOT NULL would be violated.
+    // Set by the database on insert, never written by the application — hence a read-only mapping.
     @Column(name = "i_cre", nullable = false, insertable = false, updatable = false,
             columnDefinition = "timestamptz not null default now()")
     private OffsetDateTime created;

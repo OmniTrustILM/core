@@ -204,12 +204,14 @@ public class V3CancelITest extends BaseSpringBootTest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("[\"Issuance is past the point of no return\"]")));
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(fixture.authority().getUuid());
+        SecuredUUID raProfileUuid = fixture.raProfile().getSecuredUuid();
+        String certUuid = cert.getUuid().toString();
+        CancelPendingCertificateRequestDto request = new CancelPendingCertificateRequestDto();
+
         Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
-                        fixture.raProfile().getSecuredUuid(),
-                        cert.getUuid().toString(),
-                        new CancelPendingCertificateRequestDto()),
+                        clientOperationService.cancelPendingCertificateOperation(
+                                authorityUuid, raProfileUuid, certUuid, request),
                 "Operator cancel with connector 422 must throw ValidationException (hard refusal)");
 
         Certificate after = reloadCert(cert.getUuid());
