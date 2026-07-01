@@ -5,7 +5,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
-import com.otilm.core.service.v2.OAuth2LoginService;
+import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 
@@ -15,7 +15,7 @@ public final class OAuth2LoginFlowHelper {
         // Utility class.
     }
 
-    public static OAuth2ProviderSettingsDto resolveProviderOrThrow(String provider, HttpServletRequest request, OAuth2LoginService oauth2LoginService, AuditLogInternalService auditLogService) {
+    public static OAuth2ProviderSettingsDto resolveProviderOrThrow(String provider, HttpServletRequest request, OAuth2LoginInternalService oauth2LoginService, AuditLogInternalService auditLogService) {
         OAuth2ProviderSettingsDto providerSettings = oauth2LoginService.getOAuth2ProviderSettings(provider);
         if (providerSettings == null) {
             String accessToken;

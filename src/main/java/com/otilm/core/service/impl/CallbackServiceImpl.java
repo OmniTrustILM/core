@@ -28,7 +28,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.*;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +47,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CallbackServiceImpl.class);
 
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private ConnectorApiFactory connectorApiFactory;
     private CoreCallbackService coreCallbackService;
     private CredentialInternalService credentialService;
@@ -63,8 +65,13 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -216,7 +223,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                 )
                         );
                 connector = authorityInstance.getConnector();
-                ApiClientConnectorInfo raProfileConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
+                ApiClientConnectorInfo raProfileConnectorDto = connectorInternalService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getAuthorityInstanceApiClient(raProfileConnectorDto).listRAProfileAttributes(
                         raProfileConnectorDto,
                         authorityInstance.getAuthorityInstanceUuid()
@@ -248,7 +255,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
                                 )
                         );
                 connector = entityInstance.getConnector();
-                ApiClientConnectorInfo locationConnectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
+                ApiClientConnectorInfo locationConnectorDto = connectorInternalService.getConnectorForApiClient(connector.getUuid());
                 definitions = connectorApiFactory.getEntityInstanceApiClient(locationConnectorDto).listLocationAttributes(locationConnectorDto, entityInstance.getEntityInstanceUuid());
                 break;
 

@@ -10,7 +10,8 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -32,7 +33,10 @@ import java.util.concurrent.atomic.AtomicReference;
 class ConnectorApiClientCacheTest extends BaseSpringBootTest {
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+
+    @Autowired
+    private ConnectorInternalService connectorInternalService;
 
     @Autowired
     private ConnectorRepository connectorRepository;
@@ -83,7 +87,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
         Connector c = persistConnector(ConnectorVersion.V2, "http://test/v2");
         Assertions.assertNull(cache.get(c.getUuid()), "cache should be cold");
 
-        ApiClientConnectorInfo info = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo info = connectorInternalService.getConnectorForApiClient(c.getUuid());
 
         Assertions.assertNotNull(info);
         Assertions.assertNotNull(cache.get(c.getUuid()), "cache entry should be present");
@@ -94,8 +98,8 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     void secondLookupReturnsSameInstance() throws NotFoundException {
         Connector c = persistConnector(ConnectorVersion.V2, "http://test/v2");
 
-        ApiClientConnectorInfo first = connectorService.getConnectorForApiClient(c.getUuid());
-        ApiClientConnectorInfo second = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo first = connectorInternalService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo second = connectorInternalService.getConnectorForApiClient(c.getUuid());
 
         Assertions.assertSame(first, second, "second lookup must return the cached object");
     }
@@ -104,7 +108,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     void v1ConnectorFieldsArePopulated() throws NotFoundException {
         Connector c = persistConnector(ConnectorVersion.V1, "http://test/v1");
 
-        ApiClientConnectorInfo info = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo info = connectorInternalService.getConnectorForApiClient(c.getUuid());
 
         Assertions.assertEquals(c.getUuid().toString(), info.getUuid());
         Assertions.assertEquals(c.getName(), info.getName());
@@ -116,7 +120,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     void v2ConnectorFieldsArePopulated() throws NotFoundException {
         Connector c = persistConnector(ConnectorVersion.V2, "http://test/v2");
 
-        ApiClientConnectorInfo info = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo info = connectorInternalService.getConnectorForApiClient(c.getUuid());
 
         Assertions.assertEquals(c.getUuid().toString(), info.getUuid());
         Assertions.assertEquals(c.getName(), info.getName());
@@ -128,7 +132,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     void cachedInstanceExposesNoSetters() throws NotFoundException {
         Connector c = persistConnector(ConnectorVersion.V2, "http://test/v2");
 
-        ApiClientConnectorInfo info = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo info = connectorInternalService.getConnectorForApiClient(c.getUuid());
 
         for (var m : info.getClass().getMethods()) {
             Assertions.assertFalse(m.getName().startsWith("set"),
@@ -139,14 +143,14 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     @Test
     void missingConnectorThrowsNotFound() {
         Assertions.assertThrows(NotFoundException.class,
-                () -> connectorService.getConnectorForApiClient(UUID.randomUUID()));
+                () -> connectorInternalService.getConnectorForApiClient(UUID.randomUUID()));
     }
 
     @Test
     void cacheIsEvictedAfterEditConnector() throws NotFoundException, ConnectorException, AttributeException {
         String mockUrl = startMockServer();
         Connector c = persistConnector(ConnectorVersion.V1, mockUrl);
-        ApiClientConnectorInfo warmed = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo warmed = connectorInternalService.getConnectorForApiClient(c.getUuid());
         Assertions.assertNotNull(cache.get(c.getUuid()));
 
         ConnectorUpdateRequestDto request = new ConnectorUpdateRequestDto();
@@ -157,7 +161,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
         Assertions.assertNull(cache.get(c.getUuid()),
                 "editConnector must register an afterCommit eviction");
 
-        ApiClientConnectorInfo reloaded = connectorService.getConnectorForApiClient(c.getUuid());
+        ApiClientConnectorInfo reloaded = connectorInternalService.getConnectorForApiClient(c.getUuid());
         Assertions.assertNotSame(warmed, reloaded,
                 "post-eviction lookup must materialise a fresh instance");
     }
@@ -166,7 +170,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
     void cacheIsEvictedAfterDelete() throws NotFoundException {
         Connector c = persistConnector(ConnectorVersion.V2, "http://test/del");
         UUID uuid = c.getUuid();
-        connectorService.getConnectorForApiClient(uuid);
+        connectorInternalService.getConnectorForApiClient(uuid);
         Assertions.assertNotNull(cache.get(uuid));
 
         connectorService.deleteConnector(c.getSecuredUuid());
@@ -174,7 +178,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
         Assertions.assertNull(cache.get(uuid),
                 "deleteConnector must register an afterCommit eviction");
         Assertions.assertThrows(NotFoundException.class,
-                () -> connectorService.getConnectorForApiClient(uuid));
+                () -> connectorInternalService.getConnectorForApiClient(uuid));
     }
 
     @Test
@@ -194,7 +198,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
                 try {
                     ready.countDown();
                     go.await();
-                    ref1.set(connectorService.getConnectorForApiClient(c.getUuid()));
+                    ref1.set(connectorInternalService.getConnectorForApiClient(c.getUuid()));
                 } catch (Throwable t) {
                     failure.set(t);
                 }
@@ -203,7 +207,7 @@ class ConnectorApiClientCacheTest extends BaseSpringBootTest {
                 try {
                     ready.countDown();
                     go.await();
-                    ref2.set(connectorService.getConnectorForApiClient(c.getUuid()));
+                    ref2.set(connectorInternalService.getConnectorForApiClient(c.getUuid()));
                 } catch (Throwable t) {
                     failure.set(t);
                 }

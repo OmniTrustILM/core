@@ -12,7 +12,7 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 
 import java.util.List;
 
@@ -28,11 +28,11 @@ import java.util.List;
  */
 public abstract class AbstractAuthorityProviderAdapter implements AuthorityProviderAdapter {
 
-    protected final ConnectorService connectorService;
+    protected final ConnectorInternalService connectorService;
     protected final ConnectorApiFactory connectorApiFactory;
     protected final AttributeEngine attributeEngine;
 
-    protected AbstractAuthorityProviderAdapter(ConnectorService connectorService,
+    protected AbstractAuthorityProviderAdapter(ConnectorInternalService connectorService,
                                                ConnectorApiFactory connectorApiFactory,
                                                AttributeEngine attributeEngine) {
         this.connectorService = connectorService;

@@ -38,7 +38,7 @@ import java.util.*;
 class ConnectorServiceComplexTest extends BaseSpringBootTest {
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
     @Autowired
     private ConnectorRepository connectorRepository;
     @Autowired

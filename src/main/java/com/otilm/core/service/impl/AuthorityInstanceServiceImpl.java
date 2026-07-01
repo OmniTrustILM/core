@@ -57,7 +57,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     private static final Logger logger = LoggerFactory.getLogger(AuthorityInstanceServiceImpl.class);
 
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private RaProfileInternalService raProfileService;
@@ -77,8 +78,13 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -145,7 +151,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
             return authorityInstanceDto;
         }
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstanceReference.getConnectorUuid());
         AuthorityProviderInstanceDto authorityProviderInstanceDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getAuthorityInstance(connectorDto,
                 authorityInstanceReference.getAuthorityInstanceUuid());
 
@@ -280,7 +286,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
         if (isV3(authorityInstanceRef.getConnectorInterface())) {
             return List.of(); // v3 authorities do not use the EJBCA end-entity-profile model
         }
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listEndEntityProfiles(connectorDto,
                 authorityInstanceRef.getAuthorityInstanceUuid());
@@ -293,7 +299,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
         if (isV3(authorityInstanceRef.getConnectorInterface())) {
             return List.of();
         }
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listCertificateProfiles(connectorDto,
                 authorityInstanceRef.getAuthorityInstanceUuid(), endEntityProfileId);
@@ -306,7 +312,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
         if (isV3(authorityInstanceRef.getConnectorInterface())) {
             return List.of();
         }
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listCAsInProfile(connectorDto,
                 authorityInstanceRef.getAuthorityInstanceUuid(), endEntityProfileId);
@@ -332,7 +338,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
                     attributes != null ? attributes : List.of());
             return true;
         }
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstance.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstance.getConnectorUuid());
 
         return connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstance.getAuthorityInstanceUuid(),
                 attributes);
@@ -458,7 +464,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
             List<BaseAttribute> definitions = adapterFactory.forAuthority(authorityRef).listAuthorityInstanceAttributes(authorityRef);
             attributeEngine.validateUpdateDataAttributes(authorityRef.getConnectorUuid(), null, definitions, attrs);
         } else {
-            connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(authorityRef.getConnectorUuid()),
+            connectorInternalService.mergeAndValidateAttributes(SecuredUUID.fromUUID(authorityRef.getConnectorUuid()),
                     codeToSearch, attributes, kind);
         }
     }
@@ -527,7 +533,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
         }
         if (authorityInstanceRef.getConnector() != null && !isV3(authorityInstanceRef.getConnectorInterface())) {
             try {
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
+                ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
                 connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).removeAuthorityInstance(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
             } catch (ConnectorEntityNotFoundException notFoundException) {
                 logger.warn("Authority is already deleted in the connector. Proceeding to remove it from the core");

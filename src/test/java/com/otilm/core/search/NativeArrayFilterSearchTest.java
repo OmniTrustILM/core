@@ -20,7 +20,7 @@ import com.otilm.core.dao.repository.CustomOidEntryRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CustomOidEntryExternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -300,7 +300,7 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
         static final String NAME_NO_FLAG = "test-no-flag";
 
         @Autowired
-        private ConnectorService connectorService;
+        private ConnectorExternalService connectorService;
 
         @Autowired
         private ConnectorRepository connectorRepository;

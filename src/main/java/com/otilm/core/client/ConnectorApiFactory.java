@@ -38,7 +38,7 @@ import com.otilm.api.interfaces.client.v1.TokenInstanceSyncApiClient;
 import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.proxy.ProxyDto;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -127,10 +127,10 @@ public class ConnectorApiFactory {
     private final Optional<com.otilm.api.clients.mq.secret.VaultApiClient> mqVaultApiClient;
     private final com.otilm.api.clients.secret.SecretApiClient restSecretApiClient;
 
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
 
     @Autowired
-    public void setConnectorService(@Lazy ConnectorService connectorService) {
+    public void setConnectorService(@Lazy ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

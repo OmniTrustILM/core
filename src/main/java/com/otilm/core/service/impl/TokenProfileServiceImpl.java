@@ -29,7 +29,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +54,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     // --------------------------------------------------------------------------------
     private PermissionEvaluator permissionEvaluator;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private AttributeEngine attributeEngine;
     // --------------------------------------------------------------------------------
     // Repositories
@@ -83,7 +83,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

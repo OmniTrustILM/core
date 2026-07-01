@@ -33,7 +33,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,7 +56,7 @@ import static org.mockito.Mockito.*;
 class AuthorityProviderV3AdapterTest {
 
     @Mock
-    ConnectorService connectorService;
+    ConnectorInternalService connectorService;
     @Mock
     ConnectorApiFactory connectorApiFactory;
     @Mock

@@ -36,7 +36,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.EntityInstanceExternalService;
 import com.otilm.core.service.EntityInstanceInternalService;
@@ -68,7 +69,8 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
 
     private static final Logger logger = LoggerFactory.getLogger(EntityInstanceServiceImpl.class);
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -90,8 +92,13 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -142,7 +149,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
             return entityInstanceDto;
         }
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(entityInstanceReference.getConnectorUuid());
         com.otilm.api.model.connector.entity.EntityInstanceDto entityProviderInstanceDto = connectorApiFactory.getEntityInstanceApiClient(connectorDto).getEntityInstance(connectorDto,
                 entityInstanceReference.getEntityInstanceUuid());
 
@@ -177,7 +184,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
 
         FunctionGroupCode codeToSearch = FunctionGroupCode.ENTITY_PROVIDER;
         attributeEngine.validateCustomAttributesContent(Resource.ENTITY, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connectorUuid), codeToSearch, request.getAttributes(), request.getKind());
+        connectorInternalService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connectorUuid), codeToSearch, request.getAttributes(), request.getKind());
 
         // Load complete credential and resource data
         var dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, request.getAttributes());
@@ -218,7 +225,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
 
         FunctionGroupCode codeToSearch = FunctionGroupCode.ENTITY_PROVIDER;
         attributeEngine.validateCustomAttributesContent(Resource.ENTITY, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(connector.getSecuredUuid(), codeToSearch, request.getAttributes(), ref.getKind());
+        connectorInternalService.mergeAndValidateAttributes(connector.getSecuredUuid(), codeToSearch, request.getAttributes(), ref.getKind());
 
         // Load complete credential data
         var dataAttributes = attributeEngine.getDataAttributesByContent(connector.getUuid(), request.getAttributes());
@@ -229,7 +236,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
         entityInstanceDto.setAttributes(AttributeDefinitionUtils.getClientAttributes(dataAttributes));
         entityInstanceDto.setKind(entityInstanceRef.getKind());
         entityInstanceDto.setName(entityInstanceRef.getName());
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connector.getUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(connector.getUuid());
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).updateEntityInstance(connectorDto, entityInstanceRef.getEntityInstanceUuid(), entityInstanceDto);
         entityInstanceReferenceRepository.save(entityInstanceRef);
 
@@ -255,7 +262,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
             throw new ValidationException("Could not delete Entity instance", errors);
         }
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstanceRef.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(entityInstanceRef.getConnectorUuid());
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).removeEntityInstance(connectorDto, entityInstanceRef.getEntityInstanceUuid());
         attributeEngine.deleteObjectAttributeContent(Resource.ENTITY, entityInstanceRef.getUuid());
         entityInstanceReferenceRepository.delete(entityInstanceRef);
@@ -267,7 +274,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     @ExternalAuthorization(resource = Resource.ENTITY, action = ResourceAction.ANY)
     public List<BaseAttribute> listLocationAttributes(SecuredUUID entityUuid) throws ConnectorException, NotFoundException {
         final EntityInstanceReference entityInstance = getEntityInstanceReferenceEntity(entityUuid);
-        final ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstance.getConnectorUuid());
+        final ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(entityInstance.getConnectorUuid());
         return connectorApiFactory.getEntityInstanceApiClient(connectorDto).listLocationAttributes(connectorDto, entityInstance.getEntityInstanceUuid());
     }
 
@@ -276,7 +283,7 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     public void validateLocationAttributes(SecuredUUID entityUuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
         EntityInstanceReference entityInstance = getEntityInstanceReferenceEntity(entityUuid);
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(entityInstance.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(entityInstance.getConnectorUuid());
 
         connectorApiFactory.getEntityInstanceApiClient(connectorDto).validateLocationAttributes(connectorDto, entityInstance.getEntityInstanceUuid(),
                 attributes);
