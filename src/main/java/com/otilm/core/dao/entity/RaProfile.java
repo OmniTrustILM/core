@@ -65,6 +65,10 @@ public class RaProfile extends UniquelyIdentifiedAndAudited implements Serializa
     @ToString.Exclude
     private RaProfileProtocolAttribute protocolAttribute;
 
+    @OneToOne(mappedBy = "raProfile", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private RaProfileCertificateRequestAttribute requestAttribute;
+
     /**
      * Acme related objects for RA Profile
      */
@@ -269,6 +273,13 @@ public class RaProfile extends UniquelyIdentifiedAndAudited implements Serializa
             return new RaProfileProtocolAttribute();
         }
         return protocolAttribute;
+    }
+
+    public RaProfileCertificateRequestAttribute getRequestAttribute() {
+        if (requestAttribute == null) {
+            return new RaProfileCertificateRequestAttribute();
+        }
+        return requestAttribute;
     }
 
     @Override
