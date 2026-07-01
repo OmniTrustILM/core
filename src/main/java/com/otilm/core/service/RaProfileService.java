@@ -9,6 +9,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -207,4 +208,14 @@ public interface RaProfileService extends ResourceExtensionService {
      * @return Edited RA Profile
      */
     RaProfileDto updateRaProfileValidationConfiguration(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, RaProfileCertificateValidationSettingsUpdateDto request) throws NotFoundException;
+
+    /**
+     * Update the static request-attribute configuration (definitions, merge mode, value-source bindings, strictness) of the RA Profile.
+     *
+     * @param authorityUuid UUID of the authority associated with the RA profile
+     * @param raProfileUuid UUID of the RA Profile
+     * @param request Request-attribute configuration request
+     * @return Edited RA Profile
+     */
+    RaProfileDto updateRaProfileRequestAttributesConfiguration(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, RaProfileCertificateRequestAttributesUpdateDto request) throws NotFoundException;
 }

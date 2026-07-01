@@ -17,8 +17,13 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
+import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
+import com.otilm.api.model.core.raprofile.ValueSourceBindingDto;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
@@ -249,6 +254,42 @@ class RaProfileServiceTest extends ApprovalProfileData {
         Assertions.assertNull(raProfileDto.getCertificateValidationSettings().getExpiringThreshold());
 
 
+    }
+
+    @Test
+    void testUpdateRaProfileRequestAttributes() throws NotFoundException {
+        DataAttributeV3 definition = new DataAttributeV3();
+        definition.setUuid("ra-attr-1");
+        definition.setName("server");
+        definition.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setLabel("Server");
+        definition.setProperties(properties);
+
+        ValueSourceBindingDto binding = new ValueSourceBindingDto();
+        binding.setAttributeUuid("ra-attr-1");
+        binding.setValueSourceType(ValueSourceType.STATIC_LIST);
+        binding.setCollectionRef("cmdb.servers");
+
+        RaProfileCertificateRequestAttributesUpdateDto updateDto = new RaProfileCertificateRequestAttributesUpdateDto();
+        updateDto.setRequestAttributes(List.of(definition));
+        updateDto.setMergeMode(AttributeSetMergeMode.MERGE);
+        updateDto.setExternalCsrValidationStrict(Boolean.TRUE);
+        updateDto.setValueSourceBindings(List.of(binding));
+
+        RaProfileDto updated = raProfileService.updateRaProfileRequestAttributesConfiguration(
+                raProfile.getAuthorityInstanceReference().getSecuredParentUuid(), raProfile.getSecuredUuid(), updateDto);
+
+        Assertions.assertNotNull(updated.getCertificateRequestAttributes());
+        Assertions.assertEquals(1, updated.getCertificateRequestAttributes().getRequestAttributes().size());
+        Assertions.assertEquals(AttributeSetMergeMode.MERGE, updated.getCertificateRequestAttributes().getMergeMode());
+        Assertions.assertEquals(Boolean.TRUE, updated.getCertificateRequestAttributes().getExternalCsrValidationStrict());
+        Assertions.assertEquals(1, updated.getCertificateRequestAttributes().getValueSourceBindings().size());
+
+        // the configuration is embedded on the detail view too
+        RaProfileDto detail = raProfileService.getRaProfile(raProfile.getSecuredUuid());
+        Assertions.assertEquals(1, detail.getCertificateRequestAttributes().getRequestAttributes().size());
+        Assertions.assertEquals("server", detail.getCertificateRequestAttributes().getRequestAttributes().get(0).getName());
     }
 
     @Test

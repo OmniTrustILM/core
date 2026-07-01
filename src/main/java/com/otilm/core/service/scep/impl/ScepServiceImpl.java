@@ -43,7 +43,7 @@ import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.service.scep.message.ScepResponse;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CertificateEligibilityUtil;
@@ -108,7 +108,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private RaProfileRepository raProfileRepository;
     private ScepProfileRepository scepProfileRepository;
     private ScepTransactionRepository scepTransactionRepository;
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
     private CertificateService certificateService;
     private CryptographicKeyService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
@@ -140,7 +140,7 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

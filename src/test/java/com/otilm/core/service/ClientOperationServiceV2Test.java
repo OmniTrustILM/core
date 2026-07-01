@@ -34,7 +34,8 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -100,7 +101,10 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
             """;
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
+
+    @Autowired
+    private ClientOperationInternalService clientOperationInternalService;
 
     @Autowired
     private CertificateService certificateService;
@@ -298,10 +302,10 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         UUID certificateUuid = certificate.getUuid();
         certificate.setArchived(true);
         certificateRepository.save(certificate);
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.renewCertificateAction(certificateUuid, request, true));
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationInternalService.renewCertificateAction(certificateUuid, request, true));
         certificate.setArchived(false);
         certificateRepository.save(certificate);
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.renewCertificateAction(certificateUuid, request, true));
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationInternalService.renewCertificateAction(certificateUuid, request, true));
     }
 
     @Test
@@ -363,7 +367,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
-        Assertions.assertDoesNotThrow(() -> clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true));
+        Assertions.assertDoesNotThrow(() -> clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
     }
 
     @Test
@@ -389,7 +393,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAltKeyUuid(altKey.getUuid());
         request.setAltTokenProfileUuid(altKey.getTokenProfileUuid());
         request.setAltSignatureAttributes(List.of());
-        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
+        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
         SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
         SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
         String certificateUuid = String.valueOf(certificate.getUuid());
@@ -915,7 +919,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
     @Test
     void testRevokeCertificate_validationFail() {
-        Assertions.assertThrows(NotFoundException.class, () -> clientOperationService.revokeCertificateAction(UUID.randomUUID(), null, true));
+        Assertions.assertThrows(NotFoundException.class, () -> clientOperationInternalService.revokeCertificateAction(UUID.randomUUID(), null, true));
     }
 
     @Test
@@ -923,9 +927,9 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate.setArchived(true);
         certificateRepository.save(certificate);
         UUID certificateUuid = certificate.getUuid();
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueCertificateAction(certificateUuid, true));
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationInternalService.issueCertificateAction(certificateUuid, true));
         ClientCertificateRenewRequestDto renewRequest = new ClientCertificateRenewRequestDto();
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.renewCertificateAction(certificateUuid, renewRequest, true));
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationInternalService.renewCertificateAction(certificateUuid, renewRequest, true));
 
     }
 
@@ -940,7 +944,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         relation.setRelationType(CertificateRelationType.PENDING);
         certificateRelationRepository.save(relation);
         UUID certificateUuid = certificate.getUuid();
-        clientOperationService.issueCertificateRejectedAction(certificateUuid);
+        clientOperationInternalService.issueCertificateRejectedAction(certificateUuid);
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
@@ -958,7 +962,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate.setCertificateRequest(certificateRequest);
         certificate.setCertificateRequestUuid(certificateRequest.getUuid());
         certificateRepository.save(certificate);
-        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationService.issueCertificateAction(certificateUuid, true));
+        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationInternalService.issueCertificateAction(certificateUuid, true));
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, certificate.getState());
@@ -968,14 +972,14 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate.setState(CertificateState.REQUESTED);
         certificateRepository.save(certificate);
         ClientCertificateRekeyRequestDto rekeyRequest = new ClientCertificateRekeyRequestDto();
-        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationService.rekeyCertificateAction(certificateUuid, rekeyRequest, true));
+        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationInternalService.rekeyCertificateAction(certificateUuid, rekeyRequest, true));
 
         stubAuthorityProviderAttributesEndpoints();
         certificateRelationRepository.save(relation);
         certificate.setState(CertificateState.REQUESTED);
         certificateRepository.save(certificate);
         ClientCertificateRenewRequestDto renewRequest = new ClientCertificateRenewRequestDto();
-        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationService.renewCertificateAction(certificateUuid, renewRequest, true));
+        Assertions.assertThrows(CertificateOperationException.class, () -> clientOperationInternalService.renewCertificateAction(certificateUuid, renewRequest, true));
 
 
 
@@ -1009,7 +1013,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         UUID certificateUuid = certificate.getUuid();
 
         // when
-        clientOperationService.issueCertificateRejectedAction(certificateUuid);
+        clientOperationInternalService.issueCertificateRejectedAction(certificateUuid);
 
         // then: every location the certificate sat on is told to drop it via its entity-provider connector
         mockServer.verify(WireMock.moreThanOrExactly(1),
@@ -1027,7 +1031,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate = certificateRepository.save(certificate);
         UUID rejectedUuid = certificate.getUuid();
 
-        Assertions.assertDoesNotThrow(() -> clientOperationService.issueCertificateRejectedAction(rejectedUuid));
+        Assertions.assertDoesNotThrow(() -> clientOperationInternalService.issueCertificateRejectedAction(rejectedUuid));
 
         certificate = certificateRepository.findByUuid(rejectedUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
@@ -1039,7 +1043,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate = certificateRepository.save(certificate);
         UUID certificateUuid = certificate.getUuid();
 
-        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+        clientOperationInternalService.revokeCertificateRejectedAction(certificateUuid);
 
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, certificate.getState());
@@ -1058,7 +1062,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         certificate = certificateRepository.save(certificate);
         UUID certificateUuid = certificate.getUuid();
 
-        clientOperationService.revokeCertificateRejectedAction(certificateUuid);
+        clientOperationInternalService.revokeCertificateRejectedAction(certificateUuid);
 
         certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, certificate.getState());
@@ -1085,7 +1089,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
-        Assertions.assertDoesNotThrow(() -> clientOperationService.issueCertificateAction(certUuid, true));
+        Assertions.assertDoesNotThrow(() -> clientOperationInternalService.issueCertificateAction(certUuid, true));
 
         Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
@@ -1116,7 +1120,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                                 }
                                 """)));
 
-        clientOperationService.issueCertificateAction(certUuid, true);
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
 
         Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState());
@@ -1137,7 +1141,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
-        clientOperationService.issueCertificateAction(certUuid, true);
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
 
         // The state transition to PENDING_ISSUE should produce an ISSUE event in the cert history.
         Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
@@ -1159,7 +1163,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
         request.setDestroyKey(true);
 
-        clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REVOKE, fetched.getState());
@@ -1182,7 +1186,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
 
         Assertions.assertDoesNotThrow(() ->
-                clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true));
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
@@ -1203,7 +1207,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
 
         Assertions.assertDoesNotThrow(() ->
-                clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true));
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
@@ -1223,7 +1227,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
 
         Assertions.assertDoesNotThrow(() ->
-                clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true));
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
@@ -1248,7 +1252,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
 
         Assertions.assertDoesNotThrow(() ->
-                clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true));
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.REVOKED, fetched.getState());
@@ -1264,7 +1268,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAttributes(List.of());
         request.setDestroyKey(false);
 
-        clientOperationService.revokeCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true);
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
@@ -1320,7 +1324,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        clientOperationService.renewCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.renewCertificateAction(certificate.getUuid(), request, true);
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, newCert.getState());
@@ -1355,7 +1359,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                                 """)));
 
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        clientOperationService.renewCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.renewCertificateAction(certificate.getUuid(), request, true);
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, newCert.getState());
@@ -1377,7 +1381,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        clientOperationService.renewCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.renewCertificateAction(certificate.getUuid(), request, true);
 
         Certificate predCert = certificateRepository.findByUuid(predUuid).orElseThrow();
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(predCert);
@@ -1396,7 +1400,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
-        clientOperationService.rekeyCertificateAction(certificate.getUuid(), request, true);
+        clientOperationInternalService.rekeyCertificateAction(certificate.getUuid(), request, true);
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, newCert.getState());
@@ -1967,7 +1971,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
-        clientOperationService.issueCertificateAction(certificate.getUuid(), true);
+        clientOperationInternalService.issueCertificateAction(certificate.getUuid(), true);
 
         Certificate afterIssue = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, afterIssue.getState(),
@@ -2004,7 +2008,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
-        clientOperationService.issueCertificateAction(certificate.getUuid(), true);
+        clientOperationInternalService.issueCertificateAction(certificate.getUuid(), true);
 
         // associate the pending certificate with a location on a connected entity
         EntityInstanceReference entityInstanceReference = new EntityInstanceReference();
@@ -2064,7 +2068,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         revokeReq.setDestroyKey(false);
 
         Assertions.assertDoesNotThrow(() ->
-                clientOperationService.revokeCertificateAction(certificate.getUuid(), revokeReq, true));
+                clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), revokeReq, true));
 
         Certificate afterRevoke = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REVOKE, afterRevoke.getState(),
@@ -2097,7 +2101,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
-        clientOperationService.issueCertificateAction(certificate.getUuid(), true);
+        clientOperationInternalService.issueCertificateAction(certificate.getUuid(), true);
         Assertions.assertEquals(CertificateState.PENDING_ISSUE,
                 certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState());
 
@@ -2128,7 +2132,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.aResponse().withStatus(202)));
 
-        clientOperationService.issueCertificateAction(certificate.getUuid(), true);
+        clientOperationInternalService.issueCertificateAction(certificate.getUuid(), true);
         Assertions.assertEquals(CertificateState.PENDING_ISSUE,
                 certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState());
 

@@ -29,10 +29,11 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.ClientOperationService;
+import com.otilm.core.service.ClientOperationExternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import jakarta.transaction.Transactional;
@@ -48,7 +49,7 @@ import java.util.List;
 
 @Service
 @Transactional
-public class ClientOperationServiceImpl implements ClientOperationService {
+public class ClientOperationServiceImpl implements ClientOperationExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 
@@ -174,6 +175,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public ClientEndEntityDto getEndEntity(String raProfileName, String username) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
@@ -271,7 +273,7 @@ public class ClientOperationServiceImpl implements ClientOperationService {
         RaProfile raProfile = raProfileRepository.findByNameAndEnabledIsTrue(raProfileName)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileName));
 
-        ((ClientOperationService) AopContext.currentProxy()).checkAccessPermissions(raProfile.getSecuredUuid(), SecuredParentUUID.fromString(raProfile.getAuthorityInstanceReferenceUuid().toString()));
+        ((ClientOperationExternalService) AopContext.currentProxy()).checkAccessPermissions(raProfile.getSecuredUuid(), SecuredParentUUID.fromString(raProfile.getAuthorityInstanceReferenceUuid().toString()));
 
         return raProfile;
     }

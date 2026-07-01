@@ -36,7 +36,7 @@ import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ComplianceExternalService;
 import com.otilm.core.service.ComplianceInternalService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.Assertions;
@@ -82,7 +82,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
     private SecretVersionRepository secretVersionRepository;
 
     @Autowired
-    ClientOperationService clientOperationService;
+    ClientOperationExternalService clientOperationService;
 
     @Test
     void testCheckCompliance() throws Exception {

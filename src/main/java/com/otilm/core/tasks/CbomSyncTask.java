@@ -5,7 +5,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.model.ScheduledTaskResult;
-import com.otilm.core.service.CbomService;
+import com.otilm.core.service.CbomInternalService;
 import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,10 +23,10 @@ public class CbomSyncTask implements ScheduledJobTask {
     private static final String CRON_EXPRESSION = "0 0 * ? * *";
     private static final Logger logger = LoggerFactory.getLogger(CbomSyncTask.class);
 
-    private CbomService cbomService;
+    private CbomInternalService cbomService;
 
     @Autowired
-    public void setCbomService(CbomService cbomService) {
+    public void setCbomService(CbomInternalService cbomService) {
         this.cbomService = cbomService;
     }
 

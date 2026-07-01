@@ -2,7 +2,7 @@ package com.otilm.core.security.oauth2;
 
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
-import com.otilm.core.service.SettingService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +15,7 @@ class PlatformClientRegistrationRepositoryTest extends BaseSpringBootTest {
     private PlatformClientRegistrationRepository clientRegistrationRepository;
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @BeforeEach
     void setUp() {

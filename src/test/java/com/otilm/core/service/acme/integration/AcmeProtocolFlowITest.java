@@ -38,7 +38,7 @@ import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.RaProfileService;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -89,7 +89,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
  * Challenge HTTP validation is simulated by directly setting the entity state in the database,
  * which is appropriate for a service-layer integration test.
  * Certificate issuance via the connector is driven through the real
- * {@link com.otilm.core.service.v2.ClientOperationService} code path: the
+ * {@link com.otilm.core.service.v2.ClientOperationInternalService} code path: the
  * {@link ActionProducer} is spied on so that each {@code ActionMessage} is dispatched
  * synchronously to {@code issueCertificateAction} instead of being sent over RabbitMQ.
  */
@@ -104,7 +104,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private AcmeExternalService acmeService;
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     @MockitoSpyBean
     private ActionProducer actionProducer;

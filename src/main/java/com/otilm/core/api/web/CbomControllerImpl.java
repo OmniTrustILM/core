@@ -25,15 +25,15 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CbomService;
+import com.otilm.core.service.CbomExternalService;
 
 @RestController
 public class CbomControllerImpl implements CbomController {
 
-    private CbomService cbomService;
+    private CbomExternalService cbomService;
 
     @Autowired
-    public void setCbomService(CbomService cbomService) {
+    public void setCbomService(CbomExternalService cbomService) {
         this.cbomService = cbomService;
     }
 
