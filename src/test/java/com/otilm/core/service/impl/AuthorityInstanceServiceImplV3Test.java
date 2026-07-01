@@ -22,6 +22,7 @@ import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.events.transaction.TransactionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +36,7 @@ import org.mockito.quality.Strictness;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,12 +49,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for the v3-specific branch in
- * {@link AuthorityInstanceServiceImpl#createAuthorityInstance}.
- *
- * <p>The v3 path skips the legacy {@code createAuthorityInstance} connector call and instead
- * validates connectivity via {@link AuthorityProviderAdapter#checkAuthorityConnection}. These
- * tests verify the branch logic without a Spring application context.</p>
+ * Unit tests for the v3-specific branches in {@link AuthorityInstanceServiceImpl} —
+ * {@code createAuthorityInstance} / {@code editAuthorityInstance} (skip the legacy connector
+ * lifecycle call and validate connectivity via
+ * {@link AuthorityProviderAdapter#checkAuthorityConnection}), {@code validateRAProfileAttributes},
+ * and {@code listAuthorityInstanceAttributes}. These tests verify the branch logic without a
+ * Spring application context.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -68,6 +70,7 @@ class AuthorityInstanceServiceImplV3Test {
     @Mock private ConnectorRepository connectorRepository;
     @Mock private AuthorityProviderAdapterFactory adapterFactory;
     @Mock private AuthorityProviderAdapter v3Adapter;
+    @Mock private TransactionHandler transactionHandler;
 
     @InjectMocks
     private AuthorityInstanceServiceImpl service;
@@ -100,6 +103,8 @@ class AuthorityInstanceServiceImplV3Test {
         when(attributeEngine.getDataAttributesByContent(any(), any())).thenReturn(List.of());
         when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(connectorEntity));
         when(adapterFactory.forAuthority(any())).thenReturn(v3Adapter);
+        // runInTransaction executes the supplier inline (no real tx in unit tests)
+        when(transactionHandler.runInTransaction(any())).thenAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get());
 
         // save returns the passed entity after assigning a UUID (simulates @PrePersist)
         when(authorityInstanceReferenceRepository.save(any())).thenAnswer(inv -> {
@@ -338,7 +343,7 @@ class AuthorityInstanceServiceImplV3Test {
         List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
         when(v3Adapter.listAuthorityInstanceAttributes(any())).thenReturn(definitions);
 
-        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(connectorUuid, null);
+        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null);
 
         assertThat(result).isSameAs(definitions);
         // definitions are persisted so later validation / content preparation can resolve them
@@ -355,9 +360,20 @@ class AuthorityInstanceServiceImplV3Test {
         v2Connector.getInterfaces().add(v2Iface);
         when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(v2Connector));
 
-        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(connectorUuid, null))
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("stateless (v3)");
+                .hasMessageContaining("v1/v2 AUTHORITY interface");
+        verify(v3Adapter, never()).listAuthorityInstanceAttributes(any());
+    }
+
+    @Test
+    void listAuthorityInstanceAttributesRejectsConnectorWithNoAuthorityInterface() throws Exception {
+        Connector plainConnector = new Connector(); // no AUTHORITY interface at all
+        when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(plainConnector));
+
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("no AUTHORITY interface");
         verify(v3Adapter, never()).listAuthorityInstanceAttributes(any());
     }
 
@@ -369,7 +385,7 @@ class AuthorityInstanceServiceImplV3Test {
         secondIface.setConnectorUuid(connectorUuid);
         connectorEntity.getInterfaces().add(secondIface);
 
-        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(connectorUuid, null))
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("multiple AUTHORITY interfaces");
     }
@@ -388,9 +404,14 @@ class AuthorityInstanceServiceImplV3Test {
         List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
         when(v3Adapter.listAuthorityInstanceAttributes(any())).thenReturn(definitions);
 
-        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(connectorUuid, ifaceUuid);
+        List<BaseAttribute> result = service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), ifaceUuid);
 
         assertThat(result).isSameAs(definitions);
+        // the explicitly-selected v3 interface (not the v2 one) is the one bound on the probe ref
+        ArgumentCaptor<AuthorityInstanceReference> captor = ArgumentCaptor.forClass(AuthorityInstanceReference.class);
+        verify(v3Adapter).listAuthorityInstanceAttributes(captor.capture());
+        assertThat(captor.getValue().getConnectorInterface()).isSameAs(v3Iface);
+        verify(attributeEngine).updateDataAttributeDefinitions(eq(connectorUuid), any(), eq(definitions));
     }
 
     // ---- helpers ----
