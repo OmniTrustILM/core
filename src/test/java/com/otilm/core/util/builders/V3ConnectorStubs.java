@@ -87,7 +87,8 @@ public final class V3ConnectorStubs {
      *
      * <ul>
      *   <li>State {@code STARTED} → returns {@code IN_PROGRESS}; transitions to {@code COMPLETED}.</li>
-     *   <li>State {@code COMPLETED} → returns {@code COMPLETED} with the supplied cert data.</li>
+     *   <li>State {@code COMPLETED} → returns {@code COMPLETED} with {@code certificateData: null}
+     *       (this stub carries no certificate content).</li>
      * </ul>
      *
      * @param wm           the WireMock server to register the stub on
@@ -158,13 +159,9 @@ public final class V3ConnectorStubs {
     // ---- Attribute list + validate (required by mergeAndValidateAttributes) ----
 
     /**
-     * Stubs the v3 attribute-list endpoints (issue/revoke/register attributes + validate) so that
-     * service-layer calls to {@code mergeAndValidateAttributes} succeed without any data. These
-     * stubs are required whenever the service validates RA-profile attributes before any connector
-     * operation.
-     *
-     * <p>Also stubs the v1 RA-profile attribute endpoints (list + validate) because
-     * {@code RaProfileService.addRaProfile} calls them during profile setup.</p>
+     * Stubs the v3 attribute-list and validate endpoints (issue/revoke/register attributes, authority
+     * attributes, and RA-profile attributes) to return empty lists / {@code true}, so service-layer
+     * calls to {@code mergeAndValidateAttributes} succeed without any real attribute data.
      *
      * @param wm the WireMock server to register the stubs on
      */
