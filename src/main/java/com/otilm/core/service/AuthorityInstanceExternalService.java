@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface AuthorityInstanceExternalService {
     List<AuthorityInstanceDto> listAuthorityInstances(SecurityFilter filter);
@@ -29,6 +30,8 @@ public interface AuthorityInstanceExternalService {
     List<NameAndIdDto> listCertificateProfiles(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException;
 
     List<NameAndIdDto> listCAsInProfile(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException;
+
+    List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException;
 
     List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
 

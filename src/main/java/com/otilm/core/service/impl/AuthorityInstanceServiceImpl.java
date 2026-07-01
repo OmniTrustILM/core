@@ -314,6 +314,28 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
+    public List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException {
+        ConnectorDto connector = connectorService.getConnector(connectorUuid);
+        ConnectorInterfaceEntity iface = resolveAuthorityInterface(connectorUuid.getValue(), interfaceUuid);
+        if (!isV3(iface)) {
+            // Only stateless v3 authority connectors list attributes without a bound instance. Legacy
+            // v1/v2 connectors resolve their attributes by function group + kind through the connector
+            // attributes endpoint; direct callers there rather than guess a kind here.
+            throw new ValidationException(
+                    "Connector " + connectorUuid.getValue() + " has no stateless (v3) AUTHORITY interface; "
+                            + "list attributes for v1/v2 authority connectors via the connector attributes endpoint (function group and kind).");
+        }
+        // v3 is stateless and kind-less: definitions come from GET /v3/authorityProvider/authorities/attributes.
+        AuthorityInstanceReference probeRef = transientAuthorityRef(connectorUuid, connector, iface, null);
+        List<BaseAttribute> attributes = adapterFactory.forAuthority(probeRef).listAuthorityInstanceAttributes(probeRef);
+        // Persist the definitions so later validation and content preparation can resolve them, mirroring
+        // VaultInstanceServiceImpl.listVaultInstanceAttributes for the stateless secret-provider flow.
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid.getValue(), null, attributes);
+        return attributes;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
     public List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         AuthorityInstanceReference authorityInstance = getAuthorityInstanceReferenceEntity(uuid);
         return adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
