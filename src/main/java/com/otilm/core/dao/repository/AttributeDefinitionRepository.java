@@ -20,6 +20,7 @@ public interface AttributeDefinitionRepository extends SecurityFilterRepository<
     Optional<AttributeDefinition> findByUuidAndTypeAndGlobalTrue(UUID uuid, AttributeType type);
     Optional<AttributeDefinition> findByAttributeUuid(UUID uuid);
     List<AttributeDefinition> findByTypeAndConnectorUuidAndAttributeUuidInAndNameIn(AttributeType type, UUID connectorUuid, List<UUID> uuids, List<String> names);
+    List<AttributeDefinition> findAllByTypeAndConnectorUuidAndName(AttributeType type, UUID connectorUuid, String attributeName);
     List<AttributeDefinition> findByTypeAndGlobal(AttributeType type, boolean global);
     List<AttributeDefinition> findByConnectorUuidAndTypeAndGlobal(UUID connectorUuid, AttributeType type, boolean global);
     Optional<AttributeDefinition> findByTypeAndNameAndGlobal(AttributeType attributeType, String attributeName, boolean global);

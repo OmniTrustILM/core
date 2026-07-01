@@ -135,6 +135,11 @@ public class ApplicationConfig {
     }
 
     @Bean
+    public com.otilm.api.clients.v2.AttributesApiClient attributesApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
+        return new com.otilm.api.clients.v2.AttributesApiClient(webClient, defaultTrustManagers);
+    }
+
+    @Bean
     public com.otilm.api.clients.v2.CertificateApiClient certificateApiClientV2(WebClient webClient, TrustManager[] defaultTrustManagers) {
         return new com.otilm.api.clients.v2.CertificateApiClient(webClient, defaultTrustManagers);
     }

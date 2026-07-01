@@ -42,6 +42,13 @@ public interface PermissionEvaluator {
     void authorityInstance(SecuredUUID uuid) throws NotFoundException;
 
     /**
+     * Function to evaluate RA_PROFILE:DETAIL permission for an RA Profile (NG callback scope-chain authorization).
+     * @param uuid UUID of the RA profile
+     * @throws NotFoundException when the RA profile with the requested UUID is not found
+     */
+    void raProfile(SecuredUUID uuid) throws NotFoundException;
+
+    /**
      * Function to evaluate ENTITY:DETAIL permission for an Entity Instance.
      * @param uuid UUID of the entity instance
      * @throws NotFoundException when the entity instance with the requested UUID is not found
