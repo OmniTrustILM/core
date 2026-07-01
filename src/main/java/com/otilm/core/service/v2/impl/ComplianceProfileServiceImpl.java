@@ -32,7 +32,8 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.ComplianceProfileRuleHandler;
-import com.otilm.core.service.v2.ComplianceProfileService;
+import com.otilm.core.service.v2.ComplianceProfileExternalService;
+import com.otilm.core.service.v2.ComplianceProfileInternalService;
 import com.otilm.core.util.NullUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,7 @@ import java.util.*;
 
 @Service(Resource.Codes.COMPLIANCE_PROFILE)
 @Transactional
-public class ComplianceProfileServiceImpl implements ComplianceProfileService {
+public class ComplianceProfileServiceImpl implements ComplianceProfileExternalService, ComplianceProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ComplianceProfileServiceImpl.class);
 

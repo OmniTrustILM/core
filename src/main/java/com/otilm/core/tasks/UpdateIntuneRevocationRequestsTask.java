@@ -19,7 +19,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.PlatformX500NameStyle;
 import lombok.NoArgsConstructor;
@@ -57,7 +57,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
 
     private CertificateService certificateService;
 
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     private AuthHelper authHelper;
 
@@ -82,7 +82,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

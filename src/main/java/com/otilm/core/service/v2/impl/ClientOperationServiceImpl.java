@@ -74,7 +74,8 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.*;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
@@ -107,7 +108,7 @@ import java.util.function.BooleanSupplier;
 
 @Service("clientOperationServiceImplV2")
 @Transactional
-public class ClientOperationServiceImpl implements ClientOperationService {
+public class ClientOperationServiceImpl implements ClientOperationExternalService, ClientOperationInternalService {
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 
     /**

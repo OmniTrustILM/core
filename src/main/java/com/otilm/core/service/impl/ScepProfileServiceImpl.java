@@ -49,7 +49,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
 
     private static final Logger logger = LoggerFactory.getLogger(ScepProfileServiceImpl.class);
     private final ScepProfileRepository scepProfileRepository;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private ExtendedAttributeService extendedAttributeService;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
@@ -71,7 +71,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileRepository) {
+    public void setRaProfileService(RaProfileInternalService raProfileRepository) {
         this.raProfileService = raProfileRepository;
     }
 

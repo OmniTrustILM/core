@@ -60,7 +60,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     private ConnectorService connectorService;
     private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
@@ -92,7 +92,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileInternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 

@@ -17,7 +17,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ConnectorService;
 import com.otilm.core.service.CredentialInternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -62,7 +62,7 @@ class AuthorityInstanceServiceImplV3Test {
     @Mock private ConnectorService connectorService;
     @Mock private CredentialInternalService credentialService;
     @Mock private ConnectorApiFactory connectorApiFactory;
-    @Mock private RaProfileService raProfileService;
+    @Mock private RaProfileInternalService raProfileService;
     @Mock private AttributeEngine attributeEngine;
     @Mock private ResourceInternalService resourceService;
     @Mock private ConnectorRepository connectorRepository;

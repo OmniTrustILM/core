@@ -17,7 +17,7 @@ import java.security.cert.CertificateException;
 import java.util.List;
 
 // TODO AUTH - Use UUID instead of string name
-public interface ClientOperationService {
+public interface ClientOperationExternalService {
 
     ClientCertificateSignResponseDto issueCertificate(String raProfileName, LegacyClientCertificateSignRequestDto request) throws NotFoundException, AlreadyExistException, CertificateException, ConnectorException, NoSuchAlgorithmException;
 

@@ -17,7 +17,7 @@ import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
 import com.otilm.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
@@ -65,7 +65,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     // that the revoke call completes successfully so execution reaches the PollFeature
     // gate — short-circuit with a no-op mock.
     @MockitoBean
-    private ClientOperationService clientOperationService;
+    private ClientOperationServiceImpl clientOperationService;
 
     private RevocationMessageHandler testedHandler;
     private CmpProfile cmpProfileSigPrt;
@@ -88,8 +88,8 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         testedHandler.setCmpTransactionService(cmpTransactionService);
         testedHandler.setCertificateRepository(certificateRepository);
         testedHandler.setPollFeature(pollFeature);
-        // Wire the real Spring-managed ClientOperationService so revokeCertificate can
-        // reach the connector revoke call (stubbed via WireMock per-test). Without this,
+        // Wire the mocked operation service so the revoke call returns normally (without
+        // hitting the connector) and execution reaches the PollFeature gate. Without this,
         // the field stays null and revokeCertificate trips an NPE that the per-cert
         // catch swallows — masking the asynchronous-acceptance branch under test.
         testedHandler.setClientOperationService(clientOperationService);
@@ -315,7 +315,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         revokedCertificate.setRaProfileUuid(raProfile.getUuid());
         certificateRepository.save(revokedCertificate);
 
-        // ClientOperationService is mocked at the bean level; the revoke call returns
+        // ClientOperationInternalService is mocked at the bean level; the revoke call returns
         // normally without hitting the connector. No WireMock stub needed.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willReturn(new PollResult.StillPending(CertificateState.PENDING_REVOKE));

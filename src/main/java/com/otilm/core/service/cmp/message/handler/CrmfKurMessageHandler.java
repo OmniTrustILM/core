@@ -17,7 +17,7 @@ import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.*;
@@ -58,10 +58,10 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
         this.certificateRepository = certificateRepository;
     }
 
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

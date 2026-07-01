@@ -18,6 +18,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -30,15 +31,18 @@ import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalProfileExternalService;
-import com.otilm.core.service.v2.ComplianceProfileService;
+import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileExternalService;
+import com.otilm.core.service.RaProfileInternalService;
+import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -51,6 +55,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -60,7 +65,7 @@ import java.util.*;
 
 @Service(Resource.Codes.RA_PROFILE)
 @Transactional
-public class RaProfileServiceImpl implements RaProfileService {
+public class RaProfileServiceImpl implements RaProfileExternalService, RaProfileInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(RaProfileServiceImpl.class);
 
@@ -72,10 +77,11 @@ public class RaProfileServiceImpl implements RaProfileService {
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
     private ComplianceInternalService complianceService;
-    private ComplianceProfileService complianceProfileService;
+    private ComplianceProfileExternalService complianceProfileService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
     private RaProfileProtocolAttributeRepository raProfileProtocolAttributeRepository;
+    private RaProfileCertificateRequestAttributeService requestAttributeService;
     private ScepProfileRepository scepProfileRepository;
     private CmpProfileRepository cmpProfileRepository;
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
@@ -134,6 +140,7 @@ public class RaProfileServiceImpl implements RaProfileService {
             dto.setAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
         }
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.RA_PROFILE, raProfile.getUuid()));
+        dto.setCertificateRequestAttributes(requestAttributeService.getConfiguration(raProfile));
         return dto;
     }
 
@@ -148,6 +155,7 @@ public class RaProfileServiceImpl implements RaProfileService {
             dto.setAttributes(attributeEngine.getObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
         }
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.RA_PROFILE, raProfile.getUuid()));
+        dto.setCertificateRequestAttributes(requestAttributeService.getConfiguration(raProfile));
         return dto;
     }
 
@@ -187,6 +195,16 @@ public class RaProfileServiceImpl implements RaProfileService {
         }
         raProfileRepository.save(raProfile);
         return raProfile.mapToDto();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public RaProfileDto updateRaProfileRequestAttributesConfiguration(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, RaProfileCertificateRequestAttributesUpdateDto request) throws NotFoundException {
+        RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requestAttributeService.updateConfiguration(raProfile, request);
+        RaProfileDto dto = raProfile.mapToDto();
+        dto.setCertificateRequestAttributes(requestAttributeService.getConfiguration(raProfile));
+        return dto;
     }
 
     @Override
@@ -512,7 +530,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.LIST)
     public List<SimplifiedComplianceProfileDto> getComplianceProfiles(String authorityUuid, String raProfileUuid, SecurityFilter filter) throws NotFoundException {
         //Evaluate RA profile permissions
-        ((RaProfileService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid));
+        ((RaProfileExternalService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid));
         return complianceProfileService.getAssociatedComplianceProfiles(Resource.RA_PROFILE, UUID.fromString(raProfileUuid)).stream().map(cp -> {
             SimplifiedComplianceProfileDto dto = new SimplifiedComplianceProfileDto();
             dto.setUuid(cp.getUuid().toString());
@@ -534,6 +552,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public RaProfileScepDetailResponseDto getScepForRaProfile(SecuredParentUUID authorityInstanceUuid, SecuredUUID raProfileUuid) throws NotFoundException {
         return getRaProfileEntity(raProfileUuid).mapToScepDto();
     }
@@ -583,7 +602,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     @ExternalAuthorization(resource = Resource.APPROVAL_PROFILE, action = ResourceAction.LIST)
     public List<ApprovalProfileDto> getAssociatedApprovalProfiles(final String authorityInstanceUuid, final String raProfileUuid, final SecurityFilter securityFilter) throws NotFoundException {
         //Evaluate RA profile permissions
-        ((RaProfileService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
+        ((RaProfileExternalService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
         return approvalProfileService.getAssociatedApprovalProfiles(Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
     }
 
@@ -591,7 +610,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     @ExternalAuthorization(resource = Resource.APPROVAL_PROFILE, action = ResourceAction.DETAIL)
     public ApprovalProfileRelationDto associateApprovalProfile(String authorityInstanceUuid, String raProfileUuid, SecuredUUID approvalProfileUuid) throws NotFoundException {
         //Evaluate RA profile permissions
-        ((RaProfileService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
+        ((RaProfileExternalService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
         try {
             approvalProfileService.associateApprovalProfile(approvalProfileUuid, Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
         } catch (AlreadyExistException e) {
@@ -607,7 +626,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     @ExternalAuthorization(resource = Resource.APPROVAL_PROFILE, action = ResourceAction.DETAIL)
     public void disassociateApprovalProfile(String authorityInstanceUuid, String raProfileUuid, SecuredUUID approvalProfileUuid) throws NotFoundException {
         //Evaluate RA profile permissions
-        ((RaProfileService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
+        ((RaProfileExternalService) AopContext.currentProxy()).getRaProfile(SecuredParentUUID.fromString(authorityInstanceUuid), SecuredUUID.fromString(raProfileUuid));
         approvalProfileService.disassociateApprovalProfile(approvalProfileUuid, Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
     }
 
@@ -774,7 +793,7 @@ public class RaProfileServiceImpl implements RaProfileService {
     }
 
     @Autowired
-    public void setComplianceProfileService(ComplianceProfileService complianceProfileService) {
+    public void setComplianceProfileService(ComplianceProfileExternalService complianceProfileService) {
         this.complianceProfileService = complianceProfileService;
     }
 
@@ -816,5 +835,10 @@ public class RaProfileServiceImpl implements RaProfileService {
     @Autowired
     public void setApprovalProfileService(ApprovalProfileExternalService approvalProfileService) {
         this.approvalProfileService = approvalProfileService;
+    }
+
+    @Autowired
+    public void setRequestAttributeService(@Lazy RaProfileCertificateRequestAttributeService requestAttributeService) {
+        this.requestAttributeService = requestAttributeService;
     }
 }

@@ -31,7 +31,7 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -78,7 +78,7 @@ class LocationServiceTest extends BaseSpringBootTest {
     @Autowired
     private CertificateLocationRepository certificateLocationRepository;
     @MockitoBean
-    private ClientOperationService clientOperationService;
+    private ClientOperationServiceImpl clientOperationService;
 
     private DataAttributeV2 testAttribute;
     private DataAttributeV2 testAttribute2;

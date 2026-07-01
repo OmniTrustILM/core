@@ -5,7 +5,7 @@ import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,13 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Unit tests for the controller-level delegations on {@link ClientOperationControllerImpl}.
  * The controller methods do nothing more than convert URL string parameters into the
- * appropriate {@code Secured*UUID} types and delegate to {@link ClientOperationService},
+ * appropriate {@code Secured*UUID} types and delegate to {@link ClientOperationExternalService},
  * but pinning that delegation prevents accidental drift in the routing layer (e.g. swapping
  * authorityUuid and raProfileUuid in the call).
  */
 class ClientOperationControllerImplTest {
 
-    private ClientOperationService service;
+    private ClientOperationExternalService service;
     private ClientOperationControllerImpl controller;
 
     private final String authorityUuid = UUID.randomUUID().toString();
@@ -33,7 +33,7 @@ class ClientOperationControllerImplTest {
 
     @BeforeEach
     void setUp() {
-        service = Mockito.mock(ClientOperationService.class);
+        service = Mockito.mock(ClientOperationExternalService.class);
         controller = new ClientOperationControllerImpl();
         controller.setClientOperationService(service);
     }
