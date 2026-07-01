@@ -77,13 +77,8 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     private ResourceInternalService resourceService;
 
     @Autowired
-    public void setResourceService(ResourceInternalService resourceService) {
-        this.resourceService = resourceService;
-    }
-
-    @Autowired
-    public void setAttributeEngine(AttributeEngine attributeEngine) {
-        this.attributeEngine = attributeEngine;
+    public void setConnectorService(ConnectorExternalService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -92,18 +87,23 @@ public class EntityInstanceServiceImpl implements EntityInstanceExternalService,
     }
 
     @Autowired
-    public void setConnectorService(ConnectorExternalService connectorService) {
-        this.connectorService = connectorService;
-    }
-
-    @Autowired
     public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
         this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
+    }
+
+    @Autowired
     public void setCredentialService(CredentialInternalService credentialService) {
         this.credentialService = credentialService;
+    }
+
+    @Autowired
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
     }
 
     @Autowired

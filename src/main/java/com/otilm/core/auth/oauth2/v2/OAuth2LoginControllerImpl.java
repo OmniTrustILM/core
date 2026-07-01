@@ -32,13 +32,13 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
     private OAuth2LoginInternalService oauth2LoginInternalService;
 
     @Autowired
-    public void setAuditLogService(AuditLogInternalService auditLogService) {
-        this.auditLogService = auditLogService;
+    public void setOauth2LoginService(OAuth2LoginExternalService oauth2LoginService) {
+        this.oauth2LoginService = oauth2LoginService;
     }
 
     @Autowired
-    public void setOauth2LoginService(OAuth2LoginExternalService oauth2LoginService) {
-        this.oauth2LoginService = oauth2LoginService;
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
+        this.auditLogService = auditLogService;
     }
 
     @Autowired

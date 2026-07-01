@@ -68,8 +68,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     private AuthorityProviderAdapterFactory adapterFactory;
 
     @Autowired
-    public void setResourceService(ResourceInternalService resourceService) {
-        this.resourceService = resourceService;
+    public void setConnectorService(ConnectorExternalService connectorService) {
+        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -78,23 +78,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setConnectorService(ConnectorExternalService connectorService) {
-        this.connectorService = connectorService;
-    }
-
-    @Autowired
     public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
         this.connectorInternalService = connectorInternalService;
-    }
-
-    @Autowired
-    public void setCredentialService(CredentialInternalService credentialService) {
-        this.credentialService = credentialService;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Autowired
@@ -103,8 +88,23 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setAttributeEngine(AttributeEngine attributeEngine) {
-        this.attributeEngine = attributeEngine;
+    public void setCredentialService(CredentialInternalService credentialService) {
+        this.credentialService = credentialService;
+    }
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
+    }
+
+    @Autowired
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
     }
 
     @Autowired
@@ -113,8 +113,8 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
-        this.adapterFactory = adapterFactory;
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
     }
 
     @Override

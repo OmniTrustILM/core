@@ -62,8 +62,43 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private ResourceInternalService resourceService;
 
     @Autowired
+    public void setConnectorService(ConnectorExternalService connectorService) {
+        this.connectorService = connectorService;
+    }
+
+    @Autowired
     public void setNotificationProfileVersionWriter(NotificationProfileVersionWriter notificationProfileVersionWriter) {
         this.notificationProfileVersionWriter = notificationProfileVersionWriter;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
+    }
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
+    }
+
+    @Autowired
+    public void setCredentialService(CredentialInternalService credentialService) {
+        this.credentialService = credentialService;
+    }
+
+    @Autowired
+    public void setNotificationInstanceMappedAttributeRepository(NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository) {
+        this.notificationInstanceMappedAttributeRepository = notificationInstanceMappedAttributeRepository;
+    }
+
+    @Autowired
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
+        this.notificationProfileVersionRepository = notificationProfileVersionRepository;
     }
 
     @Autowired
@@ -74,41 +109,6 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
-    }
-
-    @Autowired
-    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
-        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
-    }
-
-    @Autowired
-    public void setNotificationInstanceMappedAttributeRepository(NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository) {
-        this.notificationInstanceMappedAttributeRepository = notificationInstanceMappedAttributeRepository;
-    }
-
-    @Autowired
-    public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
-        this.notificationProfileVersionRepository = notificationProfileVersionRepository;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorExternalService connectorService) {
-        this.connectorService = connectorService;
-    }
-
-    @Autowired
-    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
-        this.connectorInternalService = connectorInternalService;
-    }
-
-    @Autowired
-    public void setCredentialService(CredentialInternalService credentialService) {
-        this.credentialService = credentialService;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Override
