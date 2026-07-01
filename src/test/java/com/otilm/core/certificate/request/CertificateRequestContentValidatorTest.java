@@ -166,6 +166,23 @@ class CertificateRequestContentValidatorTest {
             // then
             assertThat(result.isValid()).isTrue();
         }
+
+        @Test
+        void rejectsOtherNameSanOutsideSet_whenWhitelistEnabled() {
+            // given — set maps CN only; CSR carries an unmapped otherName SAN (the whitelist-bypass case)
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var content = content(
+                    List.of(rdn("CN", "host.example.com")),
+                    List.of(san(GeneralNameType.OTHER_NAME, "1.3.6.1.4.1.311.20.2.3=user@example.com")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then — the otherName is no longer invisible to the whitelist
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("otherName"));
+        }
     }
 
     @Nested
@@ -322,6 +339,22 @@ class CertificateRequestContentValidatorTest {
 
             // then
             assertThat(result.getErrors()).noneMatch(e -> e.contains("not allowed"));
+        }
+
+        @Test
+        void doesNotApplyStringConstraintsToDerEncodedExtensionValue() {
+            // given — a mapped extension whose regex the Base64(DER) blob could never satisfy; running the
+            //         constraint against the opaque DER bytes would wrongly reject a valid uploaded CSR
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("eku").required().withRegex("^[0-9]+$")
+                            .mappingExtension("2.5.29.37").build());
+            var content = content(List.of(), List.of(), List.of(ext("2.5.29.37", "MAoGCCsGAQUFBwMB")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then — presence is enforced, but the DER value is not regex-checked, so it stays valid
+            assertThat(result.isValid()).isTrue();
         }
     }
 

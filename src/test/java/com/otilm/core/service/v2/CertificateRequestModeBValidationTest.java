@@ -37,6 +37,8 @@ import java.io.StringWriter;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import com.otilm.api.exception.ValidationException;
+
 import java.security.cert.CertificateException;
 import java.util.Base64;
 import java.util.Date;
@@ -120,9 +122,9 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
         // given — the strict RA profile from @BeforeEach and an uploaded PKCS#10 whose subject has no CommonName
         ClientCertificateRequestDto request = uploadRequest(csrMissingCommonName);
 
-        // when / then — a shaped CertificateException-family failure surfaces
+        // when / then — a policy failure surfaces as a 422 ValidationException carrying the shaped details
         assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
-                .isInstanceOf(CertificateException.class)
+                .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("request-attribute policy");
 
         // and — no row reaches PENDING_ISSUE; nothing beyond the pre-seeded fixtures is persisted

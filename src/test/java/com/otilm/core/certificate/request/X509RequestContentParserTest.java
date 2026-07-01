@@ -1,6 +1,7 @@
 package com.otilm.core.certificate.request;
 
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.model.request.CertificateRequest;
@@ -10,12 +11,14 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
 import org.bouncycastle.asn1.x500.style.BCStyle;
+import org.bouncycastle.asn1.x509.OtherName;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
@@ -94,6 +97,37 @@ class X509RequestContentParserTest {
             // then
             assertThat(content.getSubject()).isEmpty();
         }
+
+        @Test
+        void splitsMultiValuedRdn_intoSeparateEntries() throws Exception {
+            // given — a single multi-valued RDN packing CN and O together (RFC 4514 "CN=...+O=...")
+            X500Name subject = new X500NameBuilder()
+                    .addMultiValuedRDN(new ASN1ObjectIdentifier[]{BCStyle.CN, BCStyle.O},
+                            new String[]{"host.example.com", "Acme"})
+                    .build();
+            var request = pkcs10(subject);
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request);
+
+            // then — each component is its own entry, so neither can escape whitelist/required checks
+            assertThat(content.getSubject()).extracting("type").contains("CN", "O");
+            assertThat(content.getSubject())
+                    .anySatisfy(e -> assertThat(e.getValue()).isEqualTo("host.example.com"))
+                    .anySatisfy(e -> assertThat(e.getValue()).isEqualTo("Acme"));
+        }
+
+        @Test
+        void setsX509CertificateType_onParsedContent() throws Exception {
+            // given
+            var request = pkcs10("CN=host.example.com", false);
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request);
+
+            // then — the REQUIRED discriminator is populated
+            assertThat(content.getCertificateType()).isEqualTo(CertificateType.X509);
+        }
     }
 
     @Nested
@@ -136,19 +170,23 @@ class X509RequestContentParserTest {
         }
 
         @Test
-        void skipsOtherNameSan_whenEncodingCannotBeRecovered() throws Exception {
-            // given
-            var otherName = new org.bouncycastle.asn1.x509.OtherName(
-                    new org.bouncycastle.asn1.ASN1ObjectIdentifier("1.3.6.1.4.1.311.20.2.3"),
-                    new org.bouncycastle.asn1.DERUTF8String("user@example.com"));
+        void parsesOtherNameSan_asOtherNameType_soWhitelistCanSeeIt() throws Exception {
+            // given — a UPN otherName SAN
+            var otherName = new OtherName(
+                    new ASN1ObjectIdentifier("1.3.6.1.4.1.311.20.2.3"),
+                    new DERUTF8String("user@example.com"));
             var request = pkcs10WithSan(new GeneralName(GeneralName.otherName, otherName.toASN1Primitive()));
 
             // when
             X509RequestContent content = X509RequestContentParser.parse(request);
 
-            // then
+            // then — represented as OTHER_NAME carrying its OID, so a strict whitelist can reject it
             assertThat(content.getSubjectAltNames())
-                    .noneSatisfy(s -> assertThat(s.getType()).isEqualTo(GeneralNameType.OTHER_NAME));
+                    .anySatisfy(s -> {
+                        assertThat(s.getType()).isEqualTo(GeneralNameType.OTHER_NAME);
+                        assertThat(s.getOtherNameOid()).isEqualTo("1.3.6.1.4.1.311.20.2.3");
+                        assertThat(s.getValue()).isEqualTo("user@example.com");
+                    });
         }
     }
 

@@ -1797,11 +1797,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             definitions = requestAttributeService.resolveIssueAttributeSet(raProfile);
         } catch (ConnectorException | NotFoundException e) {
             if (resolveExternalCsrValidationStrict(raProfile)) {
-                logger.warn("Could not resolve request-attribute set for Mode B validation; strict RA profile {} rejects issuance during the connector outage",
-                        raProfile.getName(), e);
+                String reason = e instanceof NotFoundException
+                        ? "the request-attribute set is not configured on the authority connector"
+                        : "the authority connector is unavailable";
+                logger.warn("Could not resolve request-attribute set for Mode B validation; strict RA profile {} rejects issuance ({})",
+                        raProfile.getName(), reason, e);
                 throw new CertificateException(
-                        "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request"
-                                .formatted(raProfile.getName()), e);
+                        "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request (%s)"
+                                .formatted(raProfile.getName(), reason), e);
             }
             // Lenient policy tolerates an availability failure and proceeds unvalidated.
             logger.warn("Could not resolve request-attribute set for Mode B validation (RA profile {}); lenient validation skipped",
@@ -1836,7 +1839,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
             throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
         } catch (CertificateRequestValidationException e) {
-            throw new CertificateException(e.getMessage(), e);
+            // A policy violation is a client error (the uploaded CSR is invalid).
+            List<ValidationError> errors = e.getDetails().stream().map(ValidationError::create).toList();
+            throw new ValidationException(e.getMessage(), errors);
         }
     }
 

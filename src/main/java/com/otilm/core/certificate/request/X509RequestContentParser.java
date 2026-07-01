@@ -4,6 +4,7 @@ import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.connector.v3.certificate.RdnEntry;
 import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.core.model.request.CertificateRequest;
@@ -27,6 +28,9 @@ import java.util.Map;
 
 /**
  * Parses a supplied {@link CertificateRequest} (PKCS#10 or CRMF) into the typed {@link X509RequestContent}.
+ *
+ * <p>SAN kinds that {@link GeneralNameType} cannot model ({@code x400Address}, {@code ediPartyName}) have no representation and are
+ * skipped with a warning.</p>
  */
 @Slf4j
 public final class X509RequestContentParser {
@@ -36,6 +40,9 @@ public final class X509RequestContentParser {
 
     public static X509RequestContent parse(CertificateRequest request) {
         X509RequestContent x509 = new X509RequestContent();
+        // X509RequestContent's base class declares certificateType as the REQUIRED @JsonTypeInfo discriminator;
+        // set it so the parsed object honours its own contract (mirrors CertificateRequestAttributeProjector).
+        x509.setCertificateType(CertificateType.X509);
         x509.setSubject(parseSubject(request));
         x509.setSubjectAltNames(parseSans(request));
         x509.setExtensions(parseExtensions(request));
@@ -50,9 +57,12 @@ public final class X509RequestContentParser {
         }
         String dn = PlatformX500NameStyle.DEFAULT.toString(subject);
         for (String rdn : splitOnUnescaped(dn, ',')) {
-            RdnEntry entry = toRdnEntry(rdn);
-            if (entry != null) {
-                result.add(entry);
+            // A multi-valued RDN (RFC 4514) joins its components with '+', e.g. "CN=host+O=Acme".
+            for (String component : splitOnUnescaped(rdn, '+')) {
+                RdnEntry entry = toRdnEntry(component);
+                if (entry != null) {
+                    result.add(entry);
+                }
             }
         }
         // Reverse because PlatformX500NameStyle.DEFAULT reverses RDN order for display
@@ -88,14 +98,13 @@ public final class X509RequestContentParser {
         return result;
     }
 
-    /** Maps one flattened SAN bucket to typed entries, skipping empty, otherName, and unknown-type buckets. */
+    /** Maps one flattened SAN bucket to typed entries, skipping empty and unknown-type buckets. */
     private static List<GeneralNameEntry> toGeneralNameEntries(String sanTypeKey, List<String> values) {
         if (values == null || values.isEmpty()) {
             return List.of();
         }
         if ("otherName".equals(sanTypeKey)) {
-            log.warn("Skipping otherName SAN in CSR: ASN.1 encoding cannot be recovered from the flattened representation");
-            return List.of();
+            return toOtherNameEntries(values);
         }
         GeneralNameType type;
         try {
@@ -109,6 +118,32 @@ public final class X509RequestContentParser {
             GeneralNameEntry entry = new GeneralNameEntry();
             entry.setType(type);
             entry.setValue(value);
+            entries.add(entry);
+        }
+        return entries;
+    }
+
+    /**
+     * Recovers {@code otherName} SANs as {@link GeneralNameType#OTHER_NAME} entries.
+     * {@code CertificateUtil.getSAN} flattens each {@code otherName} to {@code "<oid>=<value>"}; we split on the
+     * first {@code '='} into {@code otherNameOid} + value so the entry reaches the required-field and whitelist
+     * checks. The ASN.1 value type is not preserved by the flattened form, so {@code valueEncoding} is a best-effort
+     * {@link ExtensionValueEncoding#UTF8_STRING} (the common UPN case); this content is used only for in-memory
+     * policy validation in Mode B (the uploaded CSR itself is forwarded verbatim), never re-serialized.
+     */
+    private static List<GeneralNameEntry> toOtherNameEntries(List<String> values) {
+        List<GeneralNameEntry> entries = new ArrayList<>(values.size());
+        for (String flattened : values) {
+            int eq = flattened.indexOf('=');
+            GeneralNameEntry entry = new GeneralNameEntry();
+            entry.setType(GeneralNameType.OTHER_NAME);
+            if (eq > 0) {
+                entry.setOtherNameOid(flattened.substring(0, eq).trim());
+                entry.setValue(flattened.substring(eq + 1));
+            } else {
+                entry.setValue(flattened);
+            }
+            entry.setValueEncoding(ExtensionValueEncoding.UTF8_STRING);
             entries.add(entry);
         }
         return entries;

@@ -52,6 +52,20 @@ public class CertificateRequestContentValidator {
         }
     }
 
+    /**
+     * Validates parsed CSR {@code content} against the resolved request-attribute {@code definitions}.
+     *
+     * For every X.509-mapped definition it:
+     * <ol>
+     *     <li>records a violation when a {@code required} mapped field has no matching target,</li>
+     *     <li>runs the definition's constraints against matched RDN/SAN values, and</li>
+     *     <li>when {@code policy.whitelist()} — records a violation for any RDN code / SAN type / extension OID present in the content but not mapped by the set</li>
+     * </ol>
+     *
+     * Violations are routed by {@link RequestAttributePolicy#strict()}: errors in strict mode, warnings in lenient.
+     * As a side effect it accumulates the mapped RDN/SAN/extension identifiers used by the whitelist pass.
+     * Extension values are DER-encoded opaque blobs, so string constraints are not applied to them (see the loop).
+     */
     public static RequestAttributeValidationResult validate(List<? extends BaseAttribute> definitions,
                                                             X509RequestContent content,
                                                             RequestAttributePolicy policy) {
@@ -82,7 +96,10 @@ public class CertificateRequestContentValidator {
                     recordViolation(result, policy, "Missing required mapped field for attribute '%s' (%s)"
                             .formatted(label(v3), describe(field)));
                 }
-                if (!matchedValues.isEmpty()) {
+                // Extension values are stored as Base64(DER) by X509RequestContentParser; running the definition's
+                // REGEXP/RANGE constraints against that opaque blob would reject valid CSRs, so only RDN/SAN
+                // (logical string) values are constraint-checked. Extension presence is still enforced above.
+                if (!matchedValues.isEmpty() && !(field instanceof ExtensionMappedField)) {
                     validateConstraints(v3, matchedValues, policy, result);
                 }
             }
@@ -237,8 +254,6 @@ public class CertificateRequestContentValidator {
             case URI -> "uniformResourceIdentifier";
             case IP -> "iPAddress";
             case REGISTERED_ID -> "registeredID";
-            // Unreachable in practice: X509RequestContentParser filters otherName SANs before they
-            // reach the validator. Retained for switch exhaustiveness over GeneralNameType.
             case OTHER_NAME -> "otherName";
         };
     }
