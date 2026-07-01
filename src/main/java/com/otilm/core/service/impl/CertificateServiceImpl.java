@@ -75,6 +75,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
+import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.v2.ConnectorService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -185,6 +186,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
+    private CertificateStateMachine stateMachine;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -394,6 +396,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
         this.authenticationCache = authenticationCache;
+    }
+
+    @Autowired
+    public void setStateMachine(CertificateStateMachine stateMachine) {
+        this.stateMachine = stateMachine;
     }
 
     @Override
@@ -1813,7 +1820,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }
         Certificate certificate = certificateRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
-        CertificateUtil.prepareIssuedCertificate(certificate, x509Cert);
+        CertificateUtil.stampIssuedFields(certificate, x509Cert);
         CertificateContent certificateContent = checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(x509Cert));
         certificate.setFingerprint(fingerprint);
         certificate.setCertificateContent(certificateContent);
@@ -1829,7 +1836,9 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             uploadCertificateKey(null, certificate, x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
         }
 
-        certificate = certificateRepository.save(certificate);
+        // PENDING_ISSUE -> ISSUED: SM validates, sets state, saves, and writes the ISSUE/SUCCESS audit
+        stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,
+                "Issued using RA Profile " + certificate.getRaProfile().getName());
 
         for (CertificateRelation relation : certificate.getPredecessorRelations()) {
             relation.setRelationType(determineRelationType(certificate, relation.getPredecessorCertificate()));
@@ -1840,7 +1849,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         UUID connectorUuid = certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid();
 
         attributeEngine.updateMetadataAttributes(meta, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
-        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.SUCCESS, "Issued using RA Profile " + certificate.getRaProfile().getName(), "");
 
         log.info("Certificate was successfully issued. {}", certificate.getUuid());
 

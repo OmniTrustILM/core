@@ -60,6 +60,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
 import org.jspecify.annotations.NonNull;
+import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -1621,7 +1622,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             cache.clear();
 
             // Create a Certificate entity with no content but with RA profile (required by issueRequestedCertificate)
-            Certificate notIssued = aCertificate().withRaProfile(raProfile).build();
+            Certificate notIssued = aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build();
             notIssued = certificateRepository.save(notIssued);
             UUID uuid = notIssued.getUuid();
             String certKey = uuid + "_true";
@@ -1890,7 +1891,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
                     aCertificateContent().withContent(CA_BASE64_CONTENT).build()));
             certificateRepository.save(commonIssuer);
 
-            Certificate notIssued = certificateRepository.save(aCertificate().withRaProfile(raProfile).build());
+            Certificate notIssued = certificateRepository.save(aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
             certificate.setIssuerSerialNumber(commonIssuer.getSerialNumber());
             certificate.setSubjectDnNormalized("2.5.4.3=hybrid-with-csr2");
             certificate.setIssuerDnNormalized(commonIssuer.getSubjectDnNormalized());
@@ -1905,6 +1906,56 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificateRepository.save(notIssued);
             certificateRepository.save(certificate);
             return notIssued;
+        }
+    }
+
+    // ── IssueRequestedCertificate SM ─────────────────────────────────────────
+    @Nested
+    class IssueRequestedCertificateSM {
+
+        @Test
+        void issueRequestedCertificate_pendingIssue_transitionsToIssuedViaStateMachine() throws Exception {
+            // given — a PENDING_ISSUE cert with an RA profile
+            Certificate cert = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
+
+            // generate a unique cert so its fingerprint is not already in DB
+            KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=SMTest-Root");
+            KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=SMTest-EE", null);
+            String pemCert = X509ObjectToString.toPem(eeX509);
+
+            // when
+            certificateService.issueRequestedCertificate(cert.getUuid(), pemCert, null);
+
+            // then
+            Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.ISSUED);
+
+            // ISSUE/SUCCESS audit row written by the SM
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("SM must write an ISSUE/SUCCESS audit row")
+                    .anyMatch(h -> h.getEvent() == CertificateEvent.ISSUE
+                            && h.getStatus() == CertificateEventStatus.SUCCESS);
+        }
+
+        @Test
+        void issueRequestedCertificate_illegalFromState_throwsInvalidTransition() throws Exception {
+            // given — a cert in REVOKED state (not a valid predecessor for ISSUED)
+            Certificate cert = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.REVOKED).build());
+
+            // generate a unique cert data (fingerprint collision check runs before SM)
+            KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=SMBad-Root");
+            KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=SMBad-EE", null);
+            String pemCert = X509ObjectToString.toPem(eeX509);
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.issueRequestedCertificate(cert.getUuid(), pemCert, null))
+                    .isInstanceOf(InvalidTransitionException.class);
         }
     }
 
