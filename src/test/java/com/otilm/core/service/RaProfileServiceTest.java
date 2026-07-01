@@ -51,7 +51,10 @@ class RaProfileServiceTest extends ApprovalProfileData {
     private static final String RA_PROFILE_NAME = "testRaProfile1";
 
     @Autowired
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
+
+    @Autowired
+    private RaProfileInternalService raProfileInternalService;
 
     @Autowired
     private ApprovalProfileExternalService approvalProfileService;
@@ -346,7 +349,7 @@ class RaProfileServiceTest extends ApprovalProfileData {
 
     @Test
     void testGetObjectsForResource() {
-        List<NameAndUuidDto> dtos = raProfileService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = raProfileInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertEquals(1, dtos.size());
     }
 

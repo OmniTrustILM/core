@@ -20,7 +20,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,10 +33,10 @@ import java.util.Optional;
 @RestController
 public class RAProfileManagementControllerImpl implements RAProfileManagementController {
 
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileExternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 

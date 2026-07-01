@@ -10,28 +10,22 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
-import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
 import java.util.Optional;
 
-public interface RaProfileService extends ResourceExtensionService {
+public interface RaProfileExternalService {
 
     List<RaProfileDto> listRaProfiles(SecurityFilter filter, Optional<Boolean> enabled);
-
-    SecuredList<RaProfile> listRaProfilesAssociatedWithAcmeProfile(String acmeProfileUuid, SecurityFilter filter);
 
     RaProfileDto addRaProfile(SecuredParentUUID authorityUuid, AddRaProfileRequestDto dto) throws AlreadyExistException, ValidationException, ConnectorException, AttributeException, NotFoundException;
 
     RaProfileDto getRaProfile(SecuredUUID uuid) throws NotFoundException;
 
     RaProfileDto getRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException;
-
-    RaProfile getRaProfileEntity(SecuredUUID uuid) throws NotFoundException;
 
     RaProfileDto editRaProfile(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, EditRaProfileRequestDto dto) throws ConnectorException, AttributeException, NotFoundException;
 
@@ -48,10 +42,6 @@ public interface RaProfileService extends ResourceExtensionService {
     void bulkDisableRaProfile(List<SecuredUUID> uuids);
 
     void bulkEnableRaProfile(List<SecuredUUID> uuids);
-
-    void bulkRemoveAssociatedAcmeProfile(List<SecuredUUID> uuids);
-
-    void bulkRemoveAssociatedScepProfile(List<SecuredUUID> uuids);
 
     RaProfileAcmeDetailResponseDto getAcmeForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException;
 
@@ -113,33 +103,9 @@ public interface RaProfileService extends ResourceExtensionService {
             SecuredUUID uuid
     ) throws NotFoundException;
 
-    /**
-     * Function to list the RA Profiles associated with the CMP Profiles
-     * @param cmpProfileUuid UUID of the CMP Profile
-     * @param filter Security filter
-     * @return List of RA Profiles associated with the CMP Profiles
-     */
-    SecuredList<RaProfile> listRaProfilesAssociatedWithCmpProfile(String cmpProfileUuid, SecurityFilter filter);
-
-
-    /**
-     * Remove CMP Profiles from the RA Profiles
-     *
-     * @param uuids List of RA Profile UUIDs
-     */
-    void bulkRemoveAssociatedCmpProfile(List<SecuredUUID> uuids);
-
     List<BaseAttribute> listRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws ConnectorException, NotFoundException;
 
     List<BaseAttribute> listIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws ConnectorException, NotFoundException;
-
-    /**
-     * Save the RA Profile entity to the database
-     *
-     * @param raProfile RA profile entity
-     * @return RA Profile Entity
-     */
-    RaProfile updateRaProfileEntity(RaProfile raProfile);
 
     /**
      * Check the compliance for all the certificates associated with the RA Profile
@@ -149,13 +115,6 @@ public interface RaProfileService extends ResourceExtensionService {
     void checkCompliance(List<SecuredUUID> uuids);
 
     /**
-     * Get the number of ra profiles per user for dashboard
-     *
-     * @return Number of raprofiles
-     */
-    Long statisticsRaProfilesCount(SecurityFilter filter);
-
-    /**
      * Function to get the list of RA Compliance Profiles from RA Profiles
      *
      * @param authorityUuid UUID of the authority
@@ -163,22 +122,6 @@ public interface RaProfileService extends ResourceExtensionService {
      * @return
      */
     List<SimplifiedComplianceProfileDto> getComplianceProfiles(String authorityUuid, String raProfileUuid, SecurityFilter filter) throws NotFoundException;
-
-    /**
-     * Function to check if an user has RA profile Access for member certificates
-     *
-     * @param certificateUuid UUID of the certificate
-     * @param raProfileUuid UUID of the RA Profile
-     */
-    void evaluateCertificateRaProfilePermissions(SecuredUUID certificateUuid, SecuredParentUUID raProfileUuid);
-
-    /**
-     * Function to list the RA Profiles associated with the SCEP Profiles
-     * @param scepProfileUuid UUID of the SCEP Profile
-     * @param filter Security filter
-     * @return List of RA Profiles associated with the SCEP Profiles
-     */
-    SecuredList<RaProfile> listRaProfilesAssociatedWithScepProfile(String scepProfileUuid, SecurityFilter filter);
 
     RaProfileScepDetailResponseDto getScepForRaProfile(SecuredParentUUID authorityInstanceUuid, SecuredUUID raProfileUuid) throws NotFoundException;
 

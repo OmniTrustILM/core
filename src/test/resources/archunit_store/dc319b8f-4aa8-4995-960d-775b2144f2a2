@@ -9,3 +9,4 @@ Method <com.otilm.core.service.impl.DiscoveryServiceImpl.getSearchableFieldInfor
 Method <com.otilm.core.service.impl.LocationServiceImpl.getSearchableFieldInformationByGroup()> is annotated with @ExternalAuthorizationMissing in (LocationServiceImpl.java:1140)
 Method <com.otilm.core.service.impl.CbomServiceImpl.getSearchableFieldInformationByGroup()> is annotated with @ExternalAuthorizationMissing in (CbomServiceImpl.java:333)
 Method <com.otilm.core.service.impl.ClientOperationServiceImpl.getEndEntity(java.lang.String, java.lang.String)> is annotated with @ExternalAuthorizationMissing in (ClientOperationServiceImpl.java:180)
+Method <com.otilm.core.service.impl.RaProfileServiceImpl.getScepForRaProfile(com.otilm.core.security.authz.SecuredParentUUID, com.otilm.core.security.authz.SecuredUUID)> is annotated with @ExternalAuthorizationMissing in (RaProfileServiceImpl.java:557)
