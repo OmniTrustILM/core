@@ -1959,6 +1959,66 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
     }
 
+    // ── RevokeCertificateBySN SM ──────────────────────────────────────────────
+    @Nested
+    class RevokeCertificateBySN_SM {
+
+        @Test
+        void revokeCertificateBySerial_issued_transitionsToRevokedAndAudits() {
+            // given — seed an ISSUED cert with a unique serial number
+            Certificate cert = aCertificate()
+                    .withSerialNumber("smc3-issued-" + UUID.randomUUID())
+                    .withState(CertificateState.ISSUED)
+                    .withValidationStatus(CertificateValidationStatus.VALID)
+                    .build();
+            cert = certificateRepository.save(cert);
+            final String serial = cert.getSerialNumber();
+            final UUID certUuid = cert.getUuid();
+
+            // when
+            certificateService.revokeCertificate(serial);
+
+            // then — state is REVOKED
+            Certificate reloaded = certificateRepository.findByUuid(certUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.REVOKED);
+
+            // SM wrote a REVOKE/SUCCESS audit row
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("SM must write a REVOKE/SUCCESS audit row")
+                    .anyMatch(h -> h.getEvent() == CertificateEvent.REVOKE
+                            && h.getStatus() == CertificateEventStatus.SUCCESS);
+        }
+
+        @Test
+        void revokeCertificateBySerial_illegalFromState_throwsInvalidTransition() {
+            // given — seed a cert in a non-revocable state (REQUESTED has no ISSUED->REVOKED arc)
+            Certificate cert = aCertificate()
+                    .withSerialNumber("smc3-requested-" + UUID.randomUUID())
+                    .withState(CertificateState.REQUESTED)
+                    .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                    .build();
+            cert = certificateRepository.save(cert);
+            final String serial = cert.getSerialNumber();
+            final UUID certUuid = cert.getUuid();
+
+            // when / then — SM throws; state must remain REQUESTED
+            assertThatThrownBy(() -> certificateService.revokeCertificate(serial))
+                    .isInstanceOf(InvalidTransitionException.class);
+
+            Certificate reloaded = certificateRepository.findByUuid(certUuid).orElseThrow();
+            assertThat(reloaded.getState())
+                    .as("illegal revoke must leave state unchanged")
+                    .isEqualTo(CertificateState.REQUESTED);
+        }
+
+        @Test
+        void revokeCertificateBySerial_notFound_warnsAndReturns() {
+            // when / then — unknown serial triggers the NotFoundException path (warn + return)
+            assertThatCode(() -> certificateService.revokeCertificate("deadbeef-not-a-real-serial"))
+                    .doesNotThrowAnyException();
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private @NonNull RequestAttributeV3 getAttribute() throws AlreadyExistException, AttributeException {
