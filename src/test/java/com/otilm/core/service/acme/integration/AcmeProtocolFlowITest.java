@@ -1,7 +1,6 @@
 package com.otilm.core.service.acme.integration;
 
 import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
-import com.otilm.api.model.client.authority.AuthorityInstanceRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
 import com.otilm.api.model.core.acme.Account;
@@ -12,24 +11,20 @@ import com.otilm.api.model.core.acme.Challenge;
 import com.otilm.api.model.core.acme.ChallengeStatus;
 import com.otilm.api.model.core.acme.ChallengeType;
 import com.otilm.api.model.core.acme.OrderStatus;
-import com.otilm.api.model.core.authority.AuthorityInstanceDto;
-import com.otilm.api.model.core.connector.ConnectorStatus;
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
-import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.Connector;
-import com.otilm.core.dao.entity.Connector2FunctionGroup;
-import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
+import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.AcmeAuthorizationRepository;
 import com.otilm.core.dao.repository.acme.AcmeChallengeRepository;
 import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
@@ -40,13 +35,12 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.AcmeProfileExternalService;
-import com.otilm.core.service.AuthorityInstanceExternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.builders.AuthorityFixtures;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -74,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
@@ -104,9 +99,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     // ── Spring beans ──────────────────────────────────────────────────────────
 
     @Autowired
-    private AuthorityInstanceExternalService authorityInstanceService;
-    @Autowired
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
     @Autowired
     private AcmeProfileExternalService acmeProfileService;
     @Autowired
@@ -126,6 +119,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
+    private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private RaProfileRepository raProfileRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
     private AcmeNonceRepository acmeNonceRepository;
     @Autowired
     private AcmeOrderRepository acmeOrderRepository;
@@ -139,11 +138,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     // ── Test constants ────────────────────────────────────────────────────────
 
     private static final String ACME_PROFILE_NAME = "testAcmeProfile";
-    private static final String AUTHORITY_UUID = UUID.randomUUID().toString();
-    private static final String CONNECTOR_NAME = "testConnector";
     private static final String DOMAIN_NAME = "localhost"; // Localhost is required for HTTP-01 challenge simulation.
     private static final String KIND_NAME = "MOCK_EJBCA";
-    private static final String RA_PROFILE_NAME = "testRaProfile";
     private static final String RA_PROFILE_NAME_2 = "testRaProfile2";
 
     // ── Per-test state ────────────────────────────────────────────────────────
@@ -160,6 +156,23 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         wireMockServer = new WireMockServer(0);
         wireMockServer.start();
         WireMock.configureFor("localhost", wireMockServer.port());
+
+        // Stubs for raProfileService.addRaProfile (mergeAndValidateAttributes calls v1 RA-profile attribute
+        // endpoints to validate and list attributes before saving the RA profile).
+        wireMockServer.stubFor(get(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes"))
+                .willReturn(okJson("[]")));
+        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                .willReturn(okJson("true")));
+        // Stubs for raProfileService.activateAcmeForRaProfile (mergeAndValidateIssueAttributes /
+        // mergeAndValidateRevokeAttributes call the connector to validate and list certificate attributes).
+        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                .willReturn(okJson("[]")));
+        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                .willReturn(okJson("[]")));
+        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                .willReturn(okJson("true")));
+        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes/validate"))
+                .willReturn(okJson("true")));
 
         keyPairGenerator = KeyPairGenerator.getInstance("RSA");
         keyPairGenerator.initialize(2048);
@@ -190,10 +203,9 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     public void acmeFullCertificateLifecycleFlow() throws Exception {
 
         // ── Step 1: Infrastructure ────────────────────────────────────────────
-        Connector connector = createConnector();
-        AuthorityInstanceDto authorityInstance = createAuthorityInstance(connector);
-        RaProfileDto raProfile = createRaProfile(authorityInstance);
-        createAcmeProfile(raProfile, authorityInstance);
+        AuthorityFixtures.Fixture fixture = createAuthorityFixture();
+        RaProfileDto raProfile = fixture.raProfile().mapToDtoSimple();
+        createAcmeProfile(raProfile, fixture);
 
         // ── Step 2: Account creation ──────────────────────────────────────────
         String acmeAccountId = createAcmeAccount();
@@ -211,6 +223,12 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         // finalizeOrder triggers an @Async task that calls issueCertificateAction
         // via the ActionProducer doAnswer; poll until the order reaches VALID.
         awaitOrderStatus(order.orderId, OrderStatus.VALID);
+
+        // Verify the issue call was routed to the exact authority instance (not just any authority).
+        wireMockServer.verify(postRequestedFor(urlMatching(
+                "/v2/authorityProvider/authorities/"
+                        + Pattern.quote(fixture.authority().getAuthorityInstanceUuid())
+                        + "/certificates/issue")));
 
         // ── Step 7: Verify order status ───────────────────────────────────────
         ResponseEntity<com.otilm.api.model.core.acme.Order> orderResponse = acmeService.getOrder(
@@ -238,17 +256,16 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
      * so that subsequent certificate operations are issued under the new RA Profile.
      *
      * <p>This test verifies that after switching the ACME Profile from
-     * {@value #RA_PROFILE_NAME} to {@value #RA_PROFILE_NAME_2}, a new order finalized on the
-     * existing account results in a certificate associated with {@value #RA_PROFILE_NAME_2}.
+     * a second RA profile ({@value #RA_PROFILE_NAME_2}), a new order finalized on the
+     * existing account results in a certificate associated with that updated RA profile.
      */
     @Test
     public void acmeRaProfileChangeReflectedInExistingAccount() throws Exception {
 
         // ── Step 1: Infrastructure with raProfile1 ────────────────────────────
-        Connector connector = createConnector();
-        AuthorityInstanceDto authorityInstance = createAuthorityInstance(connector);
-        RaProfileDto raProfile1 = createRaProfile(authorityInstance);
-        AcmeProfileDto acmeProfile = createAcmeProfile(raProfile1, authorityInstance);
+        AuthorityFixtures.Fixture fixture = createAuthorityFixture();
+        RaProfileDto raProfile1 = fixture.raProfile().mapToDtoSimple();
+        AcmeProfileDto acmeProfile = createAcmeProfile(raProfile1, fixture);
 
         // ── Step 2: Create an ACME account – raProfile1 is snapshotted ──────────
         String acmeAccountId = createAcmeAccount();
@@ -262,7 +279,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         awaitOrderStatus(order1.orderId, OrderStatus.VALID);
 
         // ── Step 5: Create raProfile2 and update the ACME Profile to use it ──
-        RaProfileDto raProfile2 = createSecondRaProfile(authorityInstance);
+        RaProfileDto raProfile2 = createSecondRaProfile(fixture);
         acmeProfileService.updateRaProfile(
                 SecuredUUID.fromString(acmeProfile.getUuid()),
                 raProfile2.getUuid());
@@ -294,74 +311,17 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     // ── Infrastructure setup helpers ──────────────────────────────────────────
 
     /**
-     * Registers a WireMock-backed Authority Provider connector and its function group.
+     * Creates the authority fixture (connector + authority reference + RA profile) via
+     * {@link AuthorityFixtures}, bypassing the service layer for faster, stub-free setup.
      */
-    private Connector createConnector() {
-        wireMockServer.stubFor(get(urlMatching("/v1/authorityProvider/" + KIND_NAME + "/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(get(urlMatching("/v1/authorityProvider/authorities/" + AUTHORITY_UUID + "/raProfile/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/" + AUTHORITY_UUID + "/certificates/issue/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(get(urlMatching("/v2/authorityProvider/authorities/" + AUTHORITY_UUID + "/certificates/revoke/attributes"))
-                .willReturn(okJson("[]")));
-        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/authorities"))
-                .willReturn(okJson("{ \"uuid\": \"" + AUTHORITY_UUID + "\" }")));
-        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/authorities/" + AUTHORITY_UUID + "/caCertificates"))
-                .willReturn(okJson("{ \"certificates\": [] }")));
-        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/" + KIND_NAME + "/attributes/validate"))
-                .willReturn(okJson("true")));
-        wireMockServer.stubFor(post(urlMatching("/v1/authorityProvider/authorities/" + AUTHORITY_UUID + "/raProfile/attributes/validate"))
-                .willReturn(okJson("true")));
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/" + AUTHORITY_UUID + "/certificates/issue/attributes/validate"))
-                .willReturn(okJson("true")));
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/" + AUTHORITY_UUID + "/certificates/revoke/attributes/validate"))
-                .willReturn(okJson("true")));
-
-        Connector connector = new Connector();
-        connector.setName(CONNECTOR_NAME);
-        connector.setUrl("http://localhost:" + wireMockServer.port());
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector.setVersion(ConnectorVersion.V2);
-        connector = connectorRepository.save(connector);
-
-        FunctionGroup functionGroup = new FunctionGroup();
-        functionGroup.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);
-        functionGroup.setName(FunctionGroupCode.AUTHORITY_PROVIDER.getCode());
-        functionGroupRepository.save(functionGroup);
-
-        Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
-        c2fg.setConnector(connector);
-        c2fg.setFunctionGroup(functionGroup);
-        c2fg.setKinds(MetaDefinitions.serializeArrayString(List.of(KIND_NAME)));
-        connector2FunctionGroupRepository.save(c2fg);
-
-        connector.getFunctionGroups().add(c2fg);
-        return connectorRepository.save(connector);
+    private AuthorityFixtures.Fixture createAuthorityFixture() {
+        AuthorityFixtures.Repos repos = new AuthorityFixtures.Repos(
+                connectorRepository, functionGroupRepository, connector2FunctionGroupRepository,
+                authorityInstanceReferenceRepository, raProfileRepository, connectorInterfaceRepository);
+        return AuthorityFixtures.v2Authority(repos, wireMockServer, KIND_NAME);
     }
 
-    private AuthorityInstanceDto createAuthorityInstance(Connector connector) throws Exception {
-        AuthorityInstanceRequestDto request = new AuthorityInstanceRequestDto();
-        request.setName("testAuthority");
-        request.setConnectorUuid(connector.getUuid().toString());
-        request.setKind(KIND_NAME);
-        request.setAttributes(List.of());
-        return authorityInstanceService.createAuthorityInstance(request);
-    }
-
-    private RaProfileDto createRaProfile(AuthorityInstanceDto authorityInstance) throws Exception {
-        AddRaProfileRequestDto request = new AddRaProfileRequestDto();
-        request.setName(RA_PROFILE_NAME);
-        request.setAttributes(List.of());
-        RaProfileDto raProfile = raProfileService.addRaProfile(
-                SecuredParentUUID.fromString(authorityInstance.getUuid()), request);
-        raProfileService.enableRaProfile(
-                SecuredParentUUID.fromString(authorityInstance.getUuid()),
-                SecuredUUID.fromString(raProfile.getUuid()));
-        return raProfile;
-    }
-
-    private AcmeProfileDto createAcmeProfile(RaProfileDto raProfile, AuthorityInstanceDto authorityInstance) throws Exception {
+    private AcmeProfileDto createAcmeProfile(RaProfileDto raProfile, AuthorityFixtures.Fixture fixture) throws Exception {
         AcmeProfileRequestDto request = new AcmeProfileRequestDto();
         request.setName(ACME_PROFILE_NAME);
         request.setRaProfileUuid(raProfile.getUuid());
@@ -375,7 +335,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         activateRequest.setIssueCertificateAttributes(List.of());
         activateRequest.setRevokeCertificateAttributes(List.of());
         raProfileService.activateAcmeForRaProfile(
-                SecuredParentUUID.fromString(authorityInstance.getUuid()),
+                SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
                 SecuredUUID.fromString(raProfile.getUuid()),
                 SecuredUUID.fromString(acmeProfileDto.getUuid()),
                 activateRequest);
@@ -383,14 +343,14 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         return acmeProfileDto;
     }
 
-    private RaProfileDto createSecondRaProfile(AuthorityInstanceDto authorityInstance) throws Exception {
+    private RaProfileDto createSecondRaProfile(AuthorityFixtures.Fixture fixture) throws Exception {
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName(RA_PROFILE_NAME_2);
         request.setAttributes(List.of());
         RaProfileDto raProfile = raProfileService.addRaProfile(
-                SecuredParentUUID.fromString(authorityInstance.getUuid()), request);
+                SecuredParentUUID.fromUUID(fixture.authority().getUuid()), request);
         raProfileService.enableRaProfile(
-                SecuredParentUUID.fromString(authorityInstance.getUuid()),
+                SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
                 SecuredUUID.fromString(raProfile.getUuid()));
         return raProfile;
     }
@@ -497,7 +457,7 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         X509Certificate testCert = AcmeTestUtil.createTestCertificate(csrKeyPair, DOMAIN_NAME);
         String certData = Base64.getEncoder().encodeToString(testCert.getEncoded());
         // Mock the actual certificate issuance.
-        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/" + AUTHORITY_UUID + "/certificates/issue"))
+        wireMockServer.stubFor(post(urlMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(okJson("{ \"certificateData\": \"" + certData + "\" }")));
 
         PKCS10CertificationRequest csr = AcmeTestUtil.createCsr(csrKeyPair, DOMAIN_NAME);

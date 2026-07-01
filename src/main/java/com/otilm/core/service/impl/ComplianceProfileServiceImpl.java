@@ -28,7 +28,6 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
 import com.otilm.core.service.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceProfileInternalService;
-import com.otilm.core.service.v2.ComplianceProfileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,7 +40,8 @@ import java.util.UUID;
 @Transactional
 public class ComplianceProfileServiceImpl implements ComplianceProfileExternalService, ComplianceProfileInternalService {
 
-    private ComplianceProfileService complianceProfileServiceV2;
+    private com.otilm.core.service.v2.ComplianceProfileExternalService complianceProfileServiceV2;
+    private com.otilm.core.service.v2.ComplianceProfileInternalService complianceProfileServiceV2Internal;
 
     private ConnectorRepository connectorRepository;
     private RaProfileRepository raProfileRepository;
@@ -68,8 +68,13 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
     }
 
     @Autowired
-    public void setComplianceProfileServiceV2(ComplianceProfileService complianceProfileServiceV2) {
+    public void setComplianceProfileServiceV2(com.otilm.core.service.v2.ComplianceProfileExternalService complianceProfileServiceV2) {
         this.complianceProfileServiceV2 = complianceProfileServiceV2;
+    }
+
+    @Autowired
+    public void setComplianceProfileServiceV2Internal(com.otilm.core.service.v2.ComplianceProfileInternalService complianceProfileServiceV2Internal) {
+        this.complianceProfileServiceV2Internal = complianceProfileServiceV2Internal;
     }
 
     @Autowired
@@ -437,22 +442,22 @@ public class ComplianceProfileServiceImpl implements ComplianceProfileExternalSe
 
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
-        return complianceProfileServiceV2.getResourceObjectInternal(objectUuid);
+        return complianceProfileServiceV2Internal.getResourceObjectInternal(objectUuid);
     }
 
     @Override
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
-        return complianceProfileServiceV2.getResourceObjectExternal(objectUuid);
+        return complianceProfileServiceV2Internal.getResourceObjectExternal(objectUuid);
     }
 
     @Override
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
-        return complianceProfileServiceV2.listResourceObjects(filter, filters, pagination);
+        return complianceProfileServiceV2Internal.listResourceObjects(filter, filters, pagination);
     }
 
     @Override
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
-        complianceProfileServiceV2.evaluatePermissionChain(uuid);
+        complianceProfileServiceV2Internal.evaluatePermissionChain(uuid);
     }
 
     public ConnectorDto getValidatedComplianceProvider(UUID connectorUuid, String kind) throws ValidationException, NotFoundException {

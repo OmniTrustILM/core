@@ -31,7 +31,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CmpProfileExternalService;
 import com.otilm.core.service.CmpProfileInternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.CertificateEligibilityUtil;
@@ -59,7 +59,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     // -----------------------------------------------------------------------------------------------------------------
 
     private CmpProfileRepository cmpProfileRepository;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private ExtendedAttributeService extendedAttributeService;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
@@ -81,7 +81,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileRepository) {
+    public void setRaProfileService(RaProfileInternalService raProfileRepository) {
         this.raProfileService = raProfileRepository;
     }
 

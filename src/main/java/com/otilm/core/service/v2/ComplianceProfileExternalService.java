@@ -11,12 +11,11 @@ import com.otilm.api.model.core.compliance.v2.ComplianceRuleListDto;
 import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ResourceExtensionService;
 
 import java.util.List;
 import java.util.UUID;
 
-public interface ComplianceProfileService extends ResourceExtensionService {
+public interface ComplianceProfileExternalService {
     /**
      * List of all Compliance Profiles available in the system
      *
