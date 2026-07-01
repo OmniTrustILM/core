@@ -89,6 +89,15 @@
       "arguments": {
         "x-queue-type": "classic"
       }
+    },
+    {
+      "name": "provider.status-poll",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
     }
   ],
   "exchanges": [
@@ -190,6 +199,14 @@
       "destination": "time-quality.results",
       "destination_type": "queue",
       "routing_key": "time-quality.results",
+      "arguments": {}
+    },
+    {
+      "source": "ilm",
+      "vhost": "/",
+      "destination": "provider.status-poll",
+      "destination_type": "queue",
+      "routing_key": "provider.status-poll",
       "arguments": {}
     }
   ]

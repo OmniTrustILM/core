@@ -5,7 +5,6 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.NameAndIdDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -21,8 +20,8 @@ import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
@@ -129,6 +128,12 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     @Autowired
     private ConnectorRepository connectorRepository;
     @Autowired
+    private FunctionGroupRepository functionGroupRepository;
+    @Autowired
+    private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
@@ -169,16 +174,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
 
         WireMock.configureFor("localhost", mockServer.port());
 
-        connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
-        connector.setVersion(ConnectorVersion.V1);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector = connectorRepository.save(connector);
-
-        authorityInstanceReference = new AuthorityInstanceReference();
-        authorityInstanceReference.setAuthorityInstanceUuid("1l");
-        authorityInstanceReference.setConnector(connector);
-        authorityInstanceReference = authorityInstanceReferenceRepository.save(authorityInstanceReference);
+        AuthorityFixtures.Repos fixtureRepos = new AuthorityFixtures.Repos(
+                connectorRepository, functionGroupRepository, connector2FunctionGroupRepository,
+                authorityInstanceReferenceRepository, raProfileRepository, connectorInterfaceRepository);
+        AuthorityFixtures.Fixture fixture = AuthorityFixtures.v2Authority(fixtureRepos, mockServer, null);
+        connector = fixture.connector();
+        authorityInstanceReference = fixture.authority();
+        raProfile = fixture.raProfile();
 
         // prepare attribute
         DataAttributeV2 attribute = new DataAttributeV2();
@@ -195,13 +197,6 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         attribute.setProperties(properties);
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(attribute));
 
-        raProfile = new RaProfile();
-        raProfile.setName(RA_PROFILE_NAME);
-        raProfile.setAuthorityInstanceReference(authorityInstanceReference);
-        raProfile.setAuthorityInstanceReferenceUuid(authorityInstanceReference.getUuid());
-        raProfile.setEnabled(true);
-
-        raProfile = raProfileRepository.save(raProfile);
         List<RequestAttribute> requestAttributes = new ArrayList<>();
         requestAttributes.add(new RequestAttributeV2(UUID.fromString(attribute.getUuid()), "endEntityProfile", AttributeContentType.OBJECT, List.of(new ObjectAttributeContentV2(new NameAndIdDto(1, "profile")))));
         attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(connector.getUuid()).build(), requestAttributes);
