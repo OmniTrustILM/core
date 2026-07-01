@@ -376,7 +376,11 @@ public class CertificateUtil {
     }
 
     public static void prepareIssuedCertificate(Certificate modal, X509Certificate certificate) {
+        stampIssuedFields(modal, certificate);
         modal.setState(CertificateState.ISSUED);
+    }
+
+    public static void stampIssuedFields(Certificate modal, X509Certificate certificate) {
         modal.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         modal.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
 
