@@ -1990,8 +1990,8 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void revokeCertificateBySerial_illegalFromState_throwsInvalidTransition() {
-            // given — seed a cert in a non-revocable state (REQUESTED has no ->REVOKED arc; revoke requires ISSUED)
+        void revokeCertificateBySerial_illegalFromState_isNoOp() {
+            // given — seed a cert in a non-revocable state (REQUESTED has no ->REVOKED arc)
             Certificate cert = aCertificate()
                     .withSerialNumber("smc3-requested-" + UUID.randomUUID())
                     .withState(CertificateState.REQUESTED)
@@ -2001,14 +2001,18 @@ class CertificateServiceTest extends BaseSpringBootTest {
             final String serial = cert.getSerialNumber();
             final UUID certUuid = cert.getUuid();
 
-            // when / then — SM throws; state must remain REQUESTED
-            assertThatThrownBy(() -> certificateService.revokeCertificate(serial))
-                    .isInstanceOf(InvalidTransitionException.class);
+            // when / then — lenient guard: no exception, state unchanged, no REVOKE audit row
+            assertThatCode(() -> certificateService.revokeCertificate(serial))
+                    .doesNotThrowAnyException();
 
             Certificate reloaded = certificateRepository.findByUuid(certUuid).orElseThrow();
             assertThat(reloaded.getState())
-                    .as("illegal revoke must leave state unchanged")
+                    .as("non-revocable state must be left unchanged by the lenient guard")
                     .isEqualTo(CertificateState.REQUESTED);
+
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("no-op revoke must not write a REVOKE audit row")
+                    .noneMatch(h -> h.getEvent() == CertificateEvent.REVOKE);
         }
 
         @Test

@@ -1303,6 +1303,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         try {
             certificate = certificateRepository.findBySerialNumberIgnoreCase(serialNumber).orElseThrow(() -> new NotFoundException(Certificate.class, serialNumber));
             oldStatus = certificate.getValidationStatus();
+            if (!stateMachine.canTransition(certificate.getState(), CertificateState.REVOKED)) {
+                log.warn("Certificate {} is in state {}; skipping revoke transition (already revoked or not revocable)",
+                        certificate.getUuid(), certificate.getState());
+                return;
+            }
             stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE, "Revoked");
         } catch (NotFoundException e) {
             log.warn("Unable to find the certificate with serialNumber {}", serialNumber);
