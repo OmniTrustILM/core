@@ -165,8 +165,8 @@ public class SigningRecordOutboxDrainer {
             return true;
         } catch (RuntimeException drainError) {
             metrics.persistFailed(SigningRecordPersistenceMode.DEFERRED_DURABLE.name()).increment();
-            log.warn("Failed to drain outbox row {}", signingRecord.uuid, drainError);
-            recordFailure(signingRecord.uuid, drainError.toString());
+            log.warn("Failed to drain outbox row {}", signingRecord.getUuid(), drainError);
+            recordFailure(signingRecord.getUuid(), drainError.toString());
             return false;
         }
     }
