@@ -51,7 +51,7 @@ public class ClientOperationServiceV1Test extends BaseSpringBootTest {
     public static final String RA_PROFILE_NAME = "testRaProfile1";
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationExternalService clientOperationService;
 
     @Autowired
     private RaProfileRepository raProfileRepository;

@@ -3,6 +3,9 @@ package com.otilm.core.service;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.core.settings.*;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
@@ -34,7 +37,7 @@ class SettingServiceTest extends BaseSpringBootTest {
     private static final String TEST_TRIGGER_UUID = "3a1db3f5-f9eb-4fbf-92c9-c4c1499bfca7";
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private SettingRepository settingRepository;
@@ -80,6 +83,40 @@ class SettingServiceTest extends BaseSpringBootTest {
         Assertions.assertEquals(utilsServiceUrl, platformSettings.getUtils().getUtilsServiceUrl());
         Assertions.assertEquals(cbomRepositoryUrl, platformSettings.getUtils().getCbomRepositoryUrl());
         Assertions.assertEquals(5, platformSettings.getCertificates().getValidation().getFrequency());
+    }
+
+    @Test
+    void platformRequestAttributesDefaultSetIsSeededAndEditable() {
+        // given: a fresh platform has no stored default set -> getPlatformSettings seeds it from CsrAttributes
+        PlatformSettingsDto seeded = settingService.getPlatformSettings();
+        Assertions.assertNotNull(seeded.getCertificates().getRequestAttributes());
+        Assertions.assertFalse(seeded.getCertificates().getRequestAttributes().getRequestAttributes().isEmpty());
+        Assertions.assertNull(seeded.getCertificates().getRequestAttributes().getExternalCsrValidationStrict());
+
+        // when: the operator edits the default set (one definition + strict flag)
+        DataAttributeV3 definition = new DataAttributeV3();
+        definition.setUuid("default-1");
+        definition.setName("commonName");
+        definition.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setLabel("Common Name");
+        definition.setProperties(properties);
+
+        CertificateRequestAttributesSettingsUpdateDto requestAttributes = new CertificateRequestAttributesSettingsUpdateDto();
+        requestAttributes.setRequestAttributes(List.of(definition));
+        requestAttributes.setExternalCsrValidationStrict(Boolean.TRUE);
+        CertificateSettingsUpdateDto certificateSettings = new CertificateSettingsUpdateDto();
+        certificateSettings.setRequestAttributes(requestAttributes);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificateSettings);
+        settingService.updatePlatformSettings(update);
+
+        // then: the edited set is read back, and validation settings are unaffected by a request-attributes-only update
+        PlatformSettingsDto edited = settingService.getPlatformSettings();
+        Assertions.assertEquals(1, edited.getCertificates().getRequestAttributes().getRequestAttributes().size());
+        Assertions.assertEquals("commonName", edited.getCertificates().getRequestAttributes().getRequestAttributes().get(0).getName());
+        Assertions.assertEquals(Boolean.TRUE, edited.getCertificates().getRequestAttributes().getExternalCsrValidationStrict());
+        Assertions.assertNotNull(edited.getCertificates().getValidation());
     }
 
     @Test

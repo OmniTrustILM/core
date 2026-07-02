@@ -17,7 +17,7 @@ import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
 import com.otilm.core.service.cmp.message.CertificateKeyService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
@@ -47,7 +47,7 @@ public class KurMessageHandlerTest {
     private CrmfKurMessageHandler tested;
 
     @Mock private CertificateRepository certificateRepository;
-    @Mock private ClientOperationService clientOperationService;
+    @Mock private ClientOperationInternalService clientOperationService;
     @Mock private CertificateKeyService certificateKeyService;
     @Mock private RaProfileRepository raProfileRepository;
 

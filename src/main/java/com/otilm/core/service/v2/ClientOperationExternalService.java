@@ -16,9 +16,8 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.util.List;
-import java.util.UUID;
 
-public interface ClientOperationService {
+public interface ClientOperationExternalService {
 
     List<BaseAttribute> listIssueCertificateAttributes(
             SecuredParentUUID authorityUuid,
@@ -35,11 +34,12 @@ public interface ClientOperationService {
             ClientCertificateRequestDto request, CertificateProtocolInfo protocolInfo
     ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException;
 
-    ClientCertificateDataResponseDto issueRequestedCertificate(
+    ClientCertificateDataResponseDto issueExistingCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
-            String certificateUuid
-    ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException;
+            String certificateUuid,
+            ClientCertificateSignRequestDto request
+    ) throws NotFoundException;
 
     ClientCertificateDataResponseDto issueCertificate(
             SecuredParentUUID authorityUuid,
@@ -48,27 +48,12 @@ public interface ClientOperationService {
             CertificateProtocolInfo protocolInfo
     ) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 
-    void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
-
-    void issueCertificateAction(
-            final UUID certificateUuid,
-            boolean isApproved
-    ) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, CertificateOperationException, NotFoundException;
-
-    void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
-
     ClientCertificateDataResponseDto renewCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             String certificateUuid,
             ClientCertificateRenewRequestDto request
     ) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
-
-    void renewCertificateAction(
-            final UUID certificateUuid,
-            ClientCertificateRenewRequestDto request,
-            boolean isApproved
-    ) throws NotFoundException, CertificateOperationException;
 
     ClientCertificateDataResponseDto rekeyCertificate(
             SecuredParentUUID authorityUuid,
@@ -77,26 +62,12 @@ public interface ClientOperationService {
             ClientCertificateRekeyRequestDto request
     ) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 
-    void rekeyCertificateAction(
-            final UUID certificateUuid,
-            ClientCertificateRekeyRequestDto request,
-            boolean isApproved
-    ) throws NotFoundException, CertificateOperationException;
-
     void revokeCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             String certificateUuid,
             ClientCertificateRevocationDto request
     ) throws ConnectorException, AttributeException, NotFoundException;
-
-    void revokeCertificateAction(
-            final UUID certificateUuid,
-            ClientCertificateRevocationDto request,
-            boolean isApproved
-    ) throws NotFoundException, CertificateOperationException;
-
-    void revokeCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
 
     List<BaseAttribute> listRevokeCertificateAttributes(
             SecuredParentUUID authorityUuid,
@@ -126,5 +97,16 @@ public interface ClientOperationService {
             SecuredUUID raProfileUuid,
             String certificateUuid,
             CancelPendingCertificateRequestDto request
+    ) throws NotFoundException;
+
+    ClientCertificateDataResponseDto registerCertificate(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid,
+            ClientCertificateRegistrationDto request
+    ) throws NotFoundException, ConnectorException;
+
+    AvailableOperationsDto listAvailableOperations(
+            SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid
     ) throws NotFoundException;
 }

@@ -7,7 +7,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.service.handler.CertificateHandler;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -37,7 +37,7 @@ import static org.awaitility.Awaitility.await;
 class RevokeDuringComplianceCheckTest extends BaseComplianceTest {
 
     @Autowired
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     @Autowired
     private CertificateHandler certificateHandler;

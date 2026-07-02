@@ -14,7 +14,7 @@ import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.ApprovalInternalService;
 import com.otilm.core.service.SecretInternalService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AuthHelper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +47,7 @@ class ActionsListenerTest {
     @Mock
     private ApprovalInternalService approvalInternalService;
     @Mock
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
     @Mock
     private SecretInternalService secretService;
     @Mock

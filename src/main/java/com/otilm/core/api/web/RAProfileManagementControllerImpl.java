@@ -13,13 +13,14 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
+import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,10 +33,10 @@ import java.util.Optional;
 @RestController
 public class RAProfileManagementControllerImpl implements RAProfileManagementController {
 
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileExternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 
@@ -81,6 +82,12 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY, operation = Operation.UPDATE)
     public RaProfileDto updateRaProfileValidationConfiguration(String authorityUuid, String raProfileUuid, RaProfileCertificateValidationSettingsUpdateDto request) throws NotFoundException {
         return raProfileService.updateRaProfileValidationConfiguration(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY, operation = Operation.UPDATE)
+    public RaProfileDto updateRaProfileRequestAttributesConfiguration(String authorityUuid, String raProfileUuid, RaProfileCertificateRequestAttributesUpdateDto request) throws NotFoundException {
+        return raProfileService.updateRaProfileRequestAttributesConfiguration(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), request);
     }
 
     @Override

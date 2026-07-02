@@ -52,7 +52,7 @@ class AuditLogServiceTest extends BaseSpringBootTest {
     private SettingController settingController;
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private AuditLogController auditLogController;

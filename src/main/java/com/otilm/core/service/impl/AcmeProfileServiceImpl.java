@@ -29,7 +29,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AcmeProfileInternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.ValidatorUtil;
@@ -52,7 +52,7 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
     private static final Logger logger = LoggerFactory.getLogger(AcmeProfileServiceImpl.class);
     private final AcmeProfileRepository acmeProfileRepository;
     private AcmeAccountRepository acmeAccountRepository;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private ExtendedAttributeService extendedAttributeService;
     private AttributeEngine attributeEngine;
     private ProtocolCertificateAssociationsRepository certificateAssociationRepository;
@@ -78,7 +78,7 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileRepository) {
+    public void setRaProfileService(RaProfileInternalService raProfileRepository) {
         this.raProfileService = raProfileRepository;
     }
 

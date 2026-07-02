@@ -82,7 +82,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ConnectorService;
 import com.otilm.core.service.CryptographicOperationInternalService;
-import com.otilm.core.service.RaProfileService;
+import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.SigningProfileService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
@@ -127,7 +127,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     private CertificateService certificateService;
     private ConnectorService connectorService;
     private TokenProfileInternalService tokenProfileService;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private SigningRecordExternalService signingRecordService;
     private SigningRecordInternalService signingRecordInternalService;
 
@@ -990,7 +990,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileInternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 

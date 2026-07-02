@@ -11,6 +11,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import org.bouncycastle.asn1.x509.Extensions;
 
 import javax.security.auth.x500.X500Principal;
 import java.io.IOException;
@@ -61,6 +62,7 @@ public interface CryptographicOperationInternalService {
      * @param keyUuid             UUID of the cryptographic key
      * @param tokenProfileUuid    UUID of the token profile
      * @param principal           X500 Principal
+     * @param extensions          Extensions
      * @param signatureAttributes Signature attributes
      * @return Base64 encoded CSR string
      * @throws NotFoundException        When the key or token profile is not found
@@ -72,6 +74,7 @@ public interface CryptographicOperationInternalService {
             UUID keyUuid,
             UUID tokenProfileUuid,
             X500Principal principal,
+            Extensions extensions,
             List<RequestAttribute> signatureAttributes,
             UUID altKeyUUid,
             UUID altTokenProfileUuid,

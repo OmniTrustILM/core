@@ -41,7 +41,7 @@ class AcmeAccountServiceTest extends BaseSpringBootTest {
     private static final String RA_PROFILE_NAME = "testRaProfile1";
 
     @Autowired
-    private RaProfileService raProfileService;
+    private RaProfileExternalService raProfileService;
 
     @Autowired
     private RaProfileRepository raProfileRepository;

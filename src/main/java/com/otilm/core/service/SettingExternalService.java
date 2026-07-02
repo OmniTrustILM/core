@@ -6,7 +6,7 @@ import com.otilm.api.model.core.settings.*;
 import com.otilm.api.model.core.settings.authentication.*;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 
-public interface SettingService {
+public interface SettingExternalService {
 
     /**
      * Get platform settings
@@ -40,10 +40,5 @@ public interface SettingService {
     LoggingSettingsDto getLoggingSettings();
 
     void updateLoggingSettings(LoggingSettingsDto loggingSettingsDto);
-
-    /**
-     * Re-seed the in-memory settings cache from the database. Used by tests to truncate and reset state.
-     */
-    void refreshCache();
 
 }

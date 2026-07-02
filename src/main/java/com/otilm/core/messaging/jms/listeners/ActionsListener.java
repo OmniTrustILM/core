@@ -16,7 +16,7 @@ import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.service.ApprovalInternalService;
 import com.otilm.core.service.SecretInternalService;
-import com.otilm.core.service.v2.ClientOperationService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,7 +40,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
     private ApprovalInternalService approvalService;
 
-    private ClientOperationService clientOperationService;
+    private ClientOperationInternalService clientOperationService;
 
     private SecretInternalService secretService;
 
@@ -156,7 +156,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     }
 
     @Autowired
-    public void setClientOperationService(ClientOperationService clientOperationService) {
+    public void setClientOperationService(ClientOperationInternalService clientOperationService) {
         this.clientOperationService = clientOperationService;
     }
 

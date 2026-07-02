@@ -27,6 +27,7 @@ import com.otilm.api.model.core.connector.FunctionGroupDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
@@ -44,6 +45,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -60,11 +62,12 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     private ConnectorService connectorService;
     private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
-    private RaProfileService raProfileService;
+    private RaProfileInternalService raProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
     private ConnectorRepository connectorRepository;
     private AuthorityProviderAdapterFactory adapterFactory;
+    private TransactionHandler transactionHandler;
 
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
@@ -92,7 +95,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Autowired
-    public void setRaProfileService(RaProfileService raProfileService) {
+    public void setRaProfileService(RaProfileInternalService raProfileService) {
         this.raProfileService = raProfileService;
     }
 
@@ -109,6 +112,11 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     @Autowired
     public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
         this.adapterFactory = adapterFactory;
+    }
+
+    @Autowired
+    public void setTransactionHandler(TransactionHandler transactionHandler) {
+        this.transactionHandler = transactionHandler;
     }
 
     @Override
@@ -310,6 +318,31 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
 
         return connectorApiFactory.getEndEntityProfileApiClient(connectorDto).listCAsInProfile(connectorDto,
                 authorityInstanceRef.getAuthorityInstanceUuid(), endEntityProfileId);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.ANY)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException {
+        ConnectorDto connector = connectorService.getConnector(connectorUuid);
+        // resolveAuthorityInterface reads the connector's LAZY interfaces collection, so it must run
+        // inside a transaction.
+        ConnectorInterfaceEntity iface = transactionHandler.runInTransaction(
+                () -> resolveAuthorityInterface(connectorUuid.getValue(), interfaceUuid));
+        if (iface == null) {
+            throw new ValidationException(
+                    "Connector " + connectorUuid.getValue() + " has no AUTHORITY interface; it is not an authority connector.");
+        }
+        if (!isV3(iface)) {
+            throw new ValidationException(
+                    "Connector " + connectorUuid.getValue() + " has a v1/v2 AUTHORITY interface; "
+                            + "list its attributes via the connector attributes endpoint (function group and kind).");
+        }
+        // v3 is stateless and kind-less: definitions come from GET /v3/authorityProvider/authorities/attributes.
+        AuthorityInstanceReference probeRef = transientAuthorityRef(connectorUuid, connector, iface, null);
+        List<BaseAttribute> attributes = adapterFactory.forAuthority(probeRef).listAuthorityInstanceAttributes(probeRef);
+        attributeEngine.updateDataAttributeDefinitions(connectorUuid.getValue(), null, attributes);
+        return attributes;
     }
 
     @Override

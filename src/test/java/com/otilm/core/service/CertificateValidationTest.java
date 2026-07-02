@@ -93,7 +93,7 @@ public class CertificateValidationTest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
 
     @Autowired
-    private SettingService settingService;
+    private SettingExternalService settingService;
 
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;

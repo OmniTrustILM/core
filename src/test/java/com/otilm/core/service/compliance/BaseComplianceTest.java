@@ -14,7 +14,8 @@ import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
-import com.otilm.core.service.v2.ComplianceProfileService;
+import com.otilm.core.service.v2.ComplianceProfileExternalService;
+import com.otilm.core.service.v2.ComplianceProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -36,7 +37,10 @@ class BaseComplianceTest extends BaseSpringBootTest {
     protected ComplianceProfileRepository complianceProfileRepository;
 
     @Autowired
-    protected ComplianceProfileService complianceProfileService;
+    protected ComplianceProfileExternalService complianceProfileService;
+
+    @Autowired
+    protected ComplianceProfileInternalService complianceProfileInternalService;
 
     @Autowired
     protected ComplianceProfileRuleRepository complianceProfileRuleRepository;

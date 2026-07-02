@@ -12,6 +12,8 @@ import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.LocationDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
@@ -52,6 +54,21 @@ public interface CertificateService extends ResourceExtensionService {
     void deleteCertificate(SecuredUUID uuid) throws NotFoundException;
 
     Certificate createCertificateEntity(X509Certificate certificate);
+
+    /**
+     * Creates a no-CSR placeholder certificate for a v3 authority registration: an identity-only
+     * record (subject taken from the registration request) in state REQUESTED, created before any
+     * CSR exists. A later CSR-driven issuance completes the certificate against this placeholder.
+     */
+    Certificate createRegistrationPlaceholder(RaProfile raProfile, ClientCertificateRegistrationDto request);
+
+    /**
+     * Attaches an operator-supplied CSR to an existing certificate (a REGISTERED placeholder), preparing it
+     * for issuance. The registration identity already on the row (subject DN / SAN) is preserved; the issued
+     * certificate's identity is written from the CA response at issuance.
+     */
+    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateSignRequestDto signRequest)
+            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException;
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate) throws NotFoundException;
 

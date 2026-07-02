@@ -17,7 +17,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.v2.ComplianceProfileService;
+import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -30,10 +30,10 @@ import java.util.UUID;
 @RestController("complianceProfileControllerV2")
 public class ComplianceProfileControllerImpl implements ComplianceProfileController {
 
-    private ComplianceProfileService complianceProfileService;
+    private ComplianceProfileExternalService complianceProfileService;
 
     @Autowired
-    public void setComplianceProfileService(ComplianceProfileService complianceProfileService) {
+    public void setComplianceProfileService(ComplianceProfileExternalService complianceProfileService) {
         this.complianceProfileService = complianceProfileService;
     }
 
