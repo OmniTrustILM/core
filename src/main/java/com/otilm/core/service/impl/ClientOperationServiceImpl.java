@@ -34,7 +34,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ClientOperationExternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
@@ -57,7 +57,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ConnectorApiFactory connectorApiFactory;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
 
     @Autowired
     public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
@@ -80,7 +80,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

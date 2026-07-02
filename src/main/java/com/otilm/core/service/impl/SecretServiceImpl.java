@@ -43,7 +43,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,7 +92,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private UserManagementApiClient userManagementApiClient;
 
     private ResourceObjectAssociationService objectAssociationService;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
     private VaultInstanceInternalService vaultInstanceService;
 
     private ConnectorApiFactory connectorApiFactory;
@@ -132,7 +132,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
     }
 

@@ -1,6 +1,5 @@
 package com.otilm.core.service;
 
-import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.connector.ConnectDto;
@@ -13,24 +12,20 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
-import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface ConnectorService extends ResourceExtensionService {
+public interface ConnectorExternalService {
 
     Map<FunctionGroupCode, Map<String, List<BaseAttribute>>> getAllAttributesOfConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException;
 
     List<ConnectorDto> listConnectors(SecurityFilter filter, Optional<FunctionGroupCode> functionGroup, Optional<String> kind, Optional<ConnectorStatus> status) throws NotFoundException;
 
     ConnectorDto getConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException;
-
-    Connector getConnectorEntity(SecuredUUID uuid) throws NotFoundException;
 
     ConnectorDto createConnector(ConnectorRequestDto request) throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException;
 
@@ -54,11 +49,7 @@ public interface ConnectorService extends ResourceExtensionService {
 
     void validateAttributes(SecuredUUID uuid, FunctionGroupCode functionGroup, List<RequestAttribute> attributes, String functionGroupType) throws ValidationException, ConnectorException, NotFoundException;
 
-    void mergeAndValidateAttributes(SecuredUUID uuid, FunctionGroupCode functionGroup, List<RequestAttribute> attributes, String functionGroupType) throws ConnectorException, AttributeException, NotFoundException;
-
     List<BulkActionMessageDto> bulkDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
 
     List<BulkActionMessageDto> forceDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException;
-
-    ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException;
 }

@@ -13,7 +13,8 @@ import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,7 +39,10 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
     private static final String CONNECTOR_NAME = "testConnectorV2";
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+
+    @Autowired
+    private ConnectorInternalService connectorInternalService;
 
     @Autowired
     private ConnectorRepository connectorRepository;
@@ -398,7 +402,7 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
 
     @Test
     void testListResourceObjects() {
-        List<NameAndUuidDto> dtos = connectorService.listResourceObjects(SecurityFilter.create(), null, null);
+        List<NameAndUuidDto> dtos = connectorInternalService.listResourceObjects(SecurityFilter.create(), null, null);
         Assertions.assertFalse(dtos.isEmpty());
         Assertions.assertTrue(dtos.stream().anyMatch(dto -> dto.getName().equals(CONNECTOR_NAME)));
     }
@@ -441,12 +445,12 @@ class ConnectorServiceV2Test extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto dto = connectorService.getResourceObjectInternal(connector.getUuid());
+        NameAndUuidDto dto = connectorInternalService.getResourceObjectInternal(connector.getUuid());
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(connector.getName(), dto.getName());
         Assertions.assertEquals(connector.getUuid().toString(), dto.getUuid());
 
-        NameAndUuidDto nameAndUuidDto = connectorService.getResourceObjectExternal(connector.getSecuredUuid());
+        NameAndUuidDto nameAndUuidDto = connectorInternalService.getResourceObjectExternal(connector.getSecuredUuid());
         Assertions.assertEquals(connector.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(connector.getName(), nameAndUuidDto.getName());
     }

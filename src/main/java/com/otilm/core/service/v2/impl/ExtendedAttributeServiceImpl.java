@@ -12,7 +12,7 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -37,10 +37,10 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         this.connectorRepository = connectorRepository;
     }
 
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 
