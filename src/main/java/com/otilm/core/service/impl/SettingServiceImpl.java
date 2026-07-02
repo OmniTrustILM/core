@@ -104,6 +104,15 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     @Override
     @ExternalAuthorization(resource = Resource.SETTINGS, action = ResourceAction.LIST)
     public PlatformSettingsDto getPlatformSettings() {
+        return buildPlatformSettings();
+    }
+
+    @Override
+    public PlatformSettingsDto getPlatformSettingsInternal() {
+        return buildPlatformSettings();
+    }
+
+    private PlatformSettingsDto buildPlatformSettings() {
         List<Setting> settings = settingRepository.findBySection(SettingsSection.PLATFORM);
         Map<String, Map<String, Setting>> mappedSettings = mapSettingsByCategory(settings);
 
