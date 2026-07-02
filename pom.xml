@@ -472,10 +472,13 @@
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
                             <includes>
-                                <include>**/service/**/*Test.java</include>
-                                <include>**/service/**/*Tests.java</include>
-                                <include>**/service/**/*ITest.java</include>
+                                <include>com/otilm/core/service/**/*Test.java</include>
+                                <include>com/otilm/core/service/**/*Tests.java</include>
+                                <include>com/otilm/core/service/**/*ITest.java</include>
                             </includes>
+                            <excludes>
+                                <exclude>com/otilm/core/integration/**/*ITest.java</exclude>
+                            </excludes>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -492,9 +495,10 @@
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
                             <excludes>
-                                <exclude>**/service/**/*Test.java</exclude>
-                                <exclude>**/service/**/*Tests.java</exclude>
-                                <exclude>**/service/**/*ITest.java</exclude>
+                                <exclude>com/otilm/core/service/**/*Test.java</exclude>
+                                <exclude>com/otilm/core/service/**/*Tests.java</exclude>
+                                <exclude>com/otilm/core/service/**/*ITest.java</exclude>
+                                <exclude>com/otilm/core/integration/**/*ITest.java</exclude>
                             </excludes>
                         </configuration>
                     </plugin>
@@ -502,7 +506,25 @@
             </build>
         </profile>
 
-        <!-- Merge partial jacoco .exec files produced by the two test jobs, then report.
+        <!-- Run only integration tests (used by CI test-integration job) -->
+        <profile>
+            <id>test-integration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>com/otilm/core/integration/**/*ITest.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Merge partial jacoco .exec files produced by the three test jobs, then report.
              Place partial files in jacoco-partial/ before invoking this profile.
              The parent BOM's jacoco:report execution (bound to package phase) picks up
              the merged target/jacoco.exec automatically. -->

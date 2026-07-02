@@ -1,4 +1,4 @@
-package com.otilm.core.service.v3.integration;
+package com.otilm.core.integration.service.v3;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
