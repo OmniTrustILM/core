@@ -1801,14 +1801,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 String reason = e instanceof NotFoundException
                         ? "the request-attribute set is not configured on the authority connector"
                         : "the authority connector is unavailable";
-                logger.warn("Could not resolve request-attribute set for Mode B validation; strict RA profile {} rejects issuance ({})",
+                logger.warn("Could not resolve request-attribute set for uploaded-CSR validation; strict RA profile {} rejects issuance ({})",
                         raProfile.getName(), reason, e);
                 throw new CertificateException(
                         "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request (%s)"
                                 .formatted(raProfile.getName(), reason), e);
             }
             // Lenient policy tolerates an availability failure and proceeds unvalidated.
-            logger.warn("Could not resolve request-attribute set for Mode B validation (RA profile {}); lenient validation skipped",
+            logger.warn("Could not resolve request-attribute set for uploaded-CSR validation (RA profile {}); lenient validation skipped",
                     raProfile.getName(), e);
             return;
         }

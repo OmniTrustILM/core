@@ -59,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * A strict RA Profile whose resolved set requires a CN rejects an uploaded CSR missing CN; a lenient profile accepts the same CSR.
  */
-class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
+class UploadedCsrValidationTest extends BaseSpringBootTest {
 
     @Autowired
     private ClientOperationExternalService clientOperationService;
@@ -97,12 +97,12 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
         connector = connectorRepository.save(connector);
 
         AuthorityInstanceReference authorityInstanceReference = new AuthorityInstanceReference();
-        authorityInstanceReference.setAuthorityInstanceUuid("modeb-authority-1");
+        authorityInstanceReference.setAuthorityInstanceUuid("uploaded-csr-authority-1");
         authorityInstanceReference.setConnector(connector);
         authorityInstanceReference = authorityInstanceReferenceRepository.save(authorityInstanceReference);
 
         raProfile = new RaProfile();
-        raProfile.setName("modeBTestRaProfile");
+        raProfile.setName("uploadedCsrTestRaProfile");
         raProfile.setAuthorityInstanceReference(authorityInstanceReference);
         raProfile.setAuthorityInstanceReferenceUuid(authorityInstanceReference.getUuid());
         raProfile.setEnabled(true);
@@ -217,7 +217,7 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair issuerKeyPair = kpg.generateKeyPair();
-        X500Name issuerDn = new X500Name("CN=Mode B Test CA");
+        X500Name issuerDn = new X500Name("CN=Test CA");
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(issuerKeyPair.getPrivate());
         JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
                 issuerDn, BigInteger.valueOf(System.currentTimeMillis()),
@@ -235,7 +235,7 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
     /**
      * Hand-assembles a PKCS#10 whose {@code extensionRequest} attribute has an empty value set —
      * legal ASN.1 that no BC builder produces, and that fails extension extraction with an unchecked
-     * exception. The signature is a placeholder: Mode B validation runs before any signature check.
+     * exception. The signature is a placeholder: request-attribute validation runs before any signature check.
      */
     private static String pemEncodedCsrWithEmptyExtensionRequest() throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");

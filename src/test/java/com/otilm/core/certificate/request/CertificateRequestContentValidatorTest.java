@@ -104,7 +104,7 @@ class CertificateRequestContentValidatorTest {
         @Test
         void requiresEveryMappedTarget_ofOneToManyMapping() {
             // A required attribute mapped 1-to-many (FQDN -> CN + dNSName) demands every target:
-            // Mode B is the reverse of the Mode A projection, which emits the value into all of them.
+            // validating an uploaded CSR is the reverse of the renderer, which projects the value into all mapped targets.
             List<BaseAttribute> definitions = List.of(
                     aMappedDataAttribute().withName("fqdn").required()
                             .mappingRdn("CN").mappingSan(GeneralNameType.DNS).build());
