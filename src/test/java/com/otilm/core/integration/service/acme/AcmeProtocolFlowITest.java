@@ -1,4 +1,4 @@
-package com.otilm.core.service.acme.integration;
+package com.otilm.core.integration.service.acme;
 
 import com.otilm.api.model.client.acme.AcmeProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;

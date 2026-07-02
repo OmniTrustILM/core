@@ -1,4 +1,4 @@
-package com.otilm.core.api.tsp.integration;
+package com.otilm.core.integration.api.tsp;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
@@ -6,7 +6,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
-import com.otilm.core.api.tsp.TspControllerImpl;
+import com.otilm.core.api.tsp.TspSigningProfileControllerImpl;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
@@ -18,15 +18,14 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
+import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
 import org.bouncycastle.tsp.TSPAlgorithms;
-import org.bouncycastle.tsp.TimeStampRequest;
 import org.bouncycastle.tsp.TimeStampResponse;
-import org.bouncycastle.tsp.TimeStampToken;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,12 +36,12 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
-import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.ECGenParameterSpec;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.EnumMap;
 import java.util.List;
@@ -63,16 +62,23 @@ import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenP
 import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfileRequest;
 
 /**
- * End-to-end integration test for the RFC 3161 Timestamp Protocol implementation.
+ * End-to-end integration test for the RFC 3161 timestamp path that resolves by <em>signing profile</em> name,
+ * via {@link TspSigningProfileControllerImpl#timestamp}.
  *
- * <p>Exercises the full timestamp-token production path via {@link TspControllerImpl#timestamp}:
- * infrastructure is created through the real service layer (connectors, token instance/profile, keys,
- * TSA certificates, signing and TSP profiles), the cryptography-provider mock signs each request's DTBS
- * with a real per-algorithm private key, and the timestamping-formatting mock assembles a genuine
- * {@code TimeStampToken} from that live signature — so the {@code withSignatureValidation} variant
- * performs a real cryptographic verify.
+ * <p>The shared downstream of profile resolution — request validation, the managed timestamp engine, token
+ * assembly, and the real cryptographic signature verify — is exhaustively covered (per-algorithm matrix,
+ * policy override, imprint algorithms, certReq handling, nonce echo, signature-mismatch rejection) by
+ * {@link TspControllerITest}. This test therefore proves only what is specific to the
+ * signing-profile entry point: that a request resolves end-to-end through {@code processTspRequestForSigningProfile}
+ * to a real granted token, and the branch unique to this path — a signing profile without the TSP protocol
+ * activated must be rejected.
+ *
+ * <p>Infrastructure setup (connectors, token instance/profile, keys, TSA certificates, signing profiles) is
+ * built through the real service layer; the cryptography-provider mock signs each request's DTBS with a real
+ * per-algorithm private key, and the timestamping-formatting mock assembles a genuine {@code TimeStampToken}
+ * from that live signature — so the {@code withSignatureValidation} variant performs a real verify.
  */
-public class TspControllerIntegrationTest extends BaseSpringBootTest {
+public class TspSigningProfileControllerITest extends BaseSpringBootTest {
 
     private static final String BASE_URL = "http://localhost";
     private static final String TSP_IMPRINT_INPUT = "Hello, Timestamp!";
@@ -86,7 +92,7 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private TspControllerImpl tspController;
+    private TspSigningProfileControllerImpl tspSigningProfileController;
     @Autowired
     private SigningProfileService signingProfileService;
     @Autowired
@@ -135,9 +141,10 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
      * Uploaded TSA certificate entities indexed by algorithm — populated in {@link #setUp()}.
      */
     private final Map<KeyAlgorithm, Certificate> tsaCertificates = new EnumMap<>(KeyAlgorithm.class);
+
     /**
-     * Connector-side private-key reference UUIDs indexed by algorithm — populated in {@link #setUp()};
-     * lets a test re-register a different private key for an algorithm's runtime signer.
+     * Private-key reference UUIDs indexed by algorithm — populated in {@link #setUp()}. Lets a test
+     * re-register the signer mock with a different key to drive the signature-mismatch rejection path.
      */
     private final Map<KeyAlgorithm, UUID> privateKeyReferenceUuids = new EnumMap<>(KeyAlgorithm.class);
 
@@ -159,27 +166,27 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
 
         ConnectorDetailDto cryptographyProviderConnector = connectorService.createConnector(
                 aV1ConnectorRequest()
-                        .withName("tsp-cryptography-provider")
+                        .withName("tsp-sp-cryptography-provider")
                         .withUrl(cryptographyProviderMock.getUrl())
                         .build());
         formattingConnector = connectorService.createConnector(
                 aV2ConnectorRequest()
-                        .withName("tsp-timestamping-formatting")
+                        .withName("tsp-sp-timestamping-formatting")
                         .withUrl(timestampingFormattingMock.getUrl())
                         .build());
 
         TokenInstanceDetailDto tokenInstance = tokenInstanceService.createTokenInstance(
                 aTokenInstanceRequest()
-                        .withName("tsp-token-instance")
+                        .withName("tsp-sp-token-instance")
                         .withConnector(cryptographyProviderConnector.getUuid())
                         .build());
         TokenProfileDetailDto tokenProfile = tokenProfileService.createTokenProfile(
                 SecuredParentUUID.fromString(tokenInstance.getUuid()),
                 aTokenProfileRequest()
-                        .withName("tsp-token-profile")
+                        .withName("tsp-sp-token-profile")
                         .build());
 
-        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=TSP Test Root CA");
+        TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=TSP SP Test Root CA");
 
         for (AlgorithmSpec spec : ALGORITHM_SPECS) {
             KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(spec.keyAlgorithm(), spec.keyParameterSpec());
@@ -199,12 +206,12 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
                     SecuredParentUUID.fromString(tokenProfile.getUuid()),
                     KeyRequestType.KEY_PAIR,
                     aKeyPairRequest()
-                            .withName("tsp-key-" + spec.label().toLowerCase())
+                            .withName("tsp-sp-key-" + spec.label().toLowerCase())
                             .build());
 
             // Uploading the leaf associates it (by public-key fingerprint) with the token-backed key
             tsaCertificates.put(spec.keyAlgorithm(),
-                    trustedCa.issueTimestampingCertificate(keyPair, "CN=Test TSA " + spec.label()));
+                    trustedCa.issueTimestampingCertificate(keyPair, "CN=Test SP TSA " + spec.label()));
         }
     }
 
@@ -219,45 +226,45 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
     }
 
     /**
-     * Parameterized end-to-end flow without token signature validation: for each supported signing
-     * algorithm, asserts that the controller returns PKI status GRANTED with a SHA-256 imprint algorithm.
+     * Parameterized happy path without token signature validation: for each supported signing algorithm,
+     * resolving by signing-profile name returns PKI status GRANTED with a SHA-256 imprint algorithm.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("allSigningAlgorithmParameters")
     public void withoutSignatureValidation(String label, KeyAlgorithm keyAlgorithm) throws Exception {
         // given
         boolean validateTokenSignature = false;
-        String tspProfileName = createEnabledProfiles(label, keyAlgorithm, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile(label, keyAlgorithm, validateTokenSignature);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
                 .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
                 .build();
 
         // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithSha256Imprint);
+        ResponseEntity<byte[]> response = tspSigningProfileController.timestamp(signingProfileName, requestWithSha256Imprint);
 
         // then
         assertGrantedSha256Response(response);
     }
 
     /**
-     * Parameterized end-to-end flow with token signature validation enabled: for each supported signing
-     * algorithm, the engine cryptographically verifies the assembled token's signature against the TSA
-     * certificate before granting — a real verify, since the formatting mock embeds the live signature.
+     * Parameterized happy path with token signature validation enabled: the engine cryptographically verifies
+     * the assembled token's signature against the TSA certificate before granting — a real verify, since the
+     * formatting mock embeds the live signature.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("allSigningAlgorithmParameters")
     public void withSignatureValidation(String label, KeyAlgorithm keyAlgorithm) throws Exception {
         // given
         boolean validateTokenSignature = true;
-        String tspProfileName = createEnabledProfiles(label, keyAlgorithm, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile(label, keyAlgorithm, validateTokenSignature);
         byte[] requestWithSha256Imprint = aRawTspRequest()
                 .withCertReq(REQUEST_SIGNER_CERTIFICATE)
                 .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
                 .build();
 
         // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithSha256Imprint);
+        ResponseEntity<byte[]> response = tspSigningProfileController.timestamp(signingProfileName, requestWithSha256Imprint);
 
         // then
         assertGrantedSha256Response(response);
@@ -271,17 +278,68 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
         return ALGORITHM_SPECS.stream().map(s -> Arguments.of(s.label(), s.keyAlgorithm()));
     }
 
-    // ── Edge cases (single algorithm — the per-algorithm matrix is covered above) ─
+    // ── Edge cases specific to the signing-profile entry point ──────────────────
 
     /**
-     * Regression guard for the signature-validation path being a real verify and not a no-op: when the
-     * runtime signer's key does not match the TSA certificate, the engine must reject the response.
+     * Branch unique to the signing-profile path: a signing profile that exists and is enabled but was never
+     * activated for a TSP profile ({@code tspProfileUuid == null}) must be rejected as BAD_REQUEST, not granted.
+     * The TSP-profile entry point cannot reach this state.
+     */
+    @Test
+    public void rejectsBadRequest_whenSigningProfileHasTspProtocolDisabled() throws Exception {
+        // given: an enabled signing profile that was NOT activated for any TSP profile
+        boolean validateTokenSignature = false;
+        String signingProfileName = createEnabledSigningProfileWithoutTspActivation("RSA", KeyAlgorithm.RSA, validateTokenSignature);
+        byte[] requestWithSha256Imprint = aRawTspRequest()
+                .withCertReq(REQUEST_SIGNER_CERTIFICATE)
+                .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
+                .build();
+
+        // when
+        ResponseEntity<byte[]> response = tspSigningProfileController.timestamp(signingProfileName, requestWithSha256Imprint);
+
+        // then
+        TimeStampResponse tsResponse = parseTspResponse(response);
+        assertBadRequestRejection(tsResponse,
+                "Signing profile '%s' does not have the TSP protocol enabled.".formatted(signingProfileName),
+                "A signing profile without the TSP protocol enabled must be rejected");
+    }
+
+    /**
+     * An unknown signing-profile name resolves to a real {@code NotFoundException} in the service layer; the
+     * controller renders it as the generic BAD_REQUEST rejection (enumeration defense — no leak of existence).
+     */
+    @Test
+    public void rejectsBadRequest_whenSigningProfileNameUnknown() throws Exception {
+        // given
+        String unknownSigningProfileName = "no-such-signing-profile";
+        byte[] requestWithSha256Imprint = aRawTspRequest()
+                .withCertReq(REQUEST_SIGNER_CERTIFICATE)
+                .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
+                .build();
+
+        // when
+        ResponseEntity<byte[]> response = tspSigningProfileController.timestamp(unknownSigningProfileName, requestWithSha256Imprint);
+
+        // then
+        TimeStampResponse tsResponse = parseTspResponse(response);
+        assertBadRequestRejection(tsResponse,
+                "Resource not found. See logs for details.",
+                "An unknown signing profile must be rejected");
+    }
+
+    /**
+     * Regression guard for the signature-validation path being a real verify and not a no-op, asserted through
+     * the signing-profile entry point: with {@code validateTokenSignature} enabled, a token whose signer key
+     * does not match the TSA certificate must be rejected. Mirrors
+     * {@code TspControllerITest#withSignatureValidation_rejectsToken_whenSignerKeyDoesNotMatchCertificate}
+     * so this file no longer depends on the sibling to prove the verify discriminates.
      */
     @Test
     public void withSignatureValidation_rejectsToken_whenSignerKeyDoesNotMatchCertificate() throws Exception {
         // given: the signer mock signs with a freshly generated key unrelated to the TSA certificate
         boolean validateTokenSignature = true;
-        String tspProfileName = createEnabledProfiles("RSA", KeyAlgorithm.RSA, validateTokenSignature);
+        String signingProfileName = createEnabledTspSigningProfile("RSA", KeyAlgorithm.RSA, validateTokenSignature);
         KeyPair keyNotMatchingCertificate = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         cryptographyProviderMock.registerSigningKey(
                 privateKeyReferenceUuids.get(KeyAlgorithm.RSA), keyNotMatchingCertificate.getPrivate(), "SHA256withRSA");
@@ -291,7 +349,7 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
                 .build();
 
         // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithSha256Imprint);
+        ResponseEntity<byte[]> response = tspSigningProfileController.timestamp(signingProfileName, requestWithSha256Imprint);
 
         // then
         TimeStampResponse tsResponse = parseTspResponse(response);
@@ -300,106 +358,43 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
         Assertions.assertEquals("Timestamp signature validation failed", tsResponse.getStatusString());
     }
 
-    /**
-     * Full RFC 3161 client-side conformance of a granted response: BouncyCastle's
-     * {@code TimeStampResponse.validate(request)} cross-checks the nonce echo, message imprint,
-     * and certificate-request consistency against the originating request.
-     */
-    @Test
-    public void grantedResponse_passesRfc3161ClientValidation_andEchoesNonce() throws Exception {
-        // given
-        boolean validateTokenSignature = true;
-        BigInteger requestNonce = BigInteger.valueOf(987654321L);
-        String tspProfileName = createEnabledProfiles("RSA", KeyAlgorithm.RSA, validateTokenSignature);
-        byte[] requestWithNonce = aRawTspRequest()
-                .withCertReq(REQUEST_SIGNER_CERTIFICATE)
-                .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
-                .withNonce(requestNonce)
-                .build();
-
-        // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithNonce);
-
-        // then
-        TimeStampResponse tsResponse = assertGrantedResponse(response);
-        tsResponse.validate(new TimeStampRequest(requestWithNonce));
-        Assertions.assertEquals(requestNonce, tsResponse.getTimeStampToken().getTimeStampInfo().getNonce(),
-                "Token must echo the request nonce");
-    }
-
-    @Test
-    public void grantedToken_carriesRequestedPolicy_insteadOfProfileDefault() throws Exception {
-        // given: the request asks for a specific policy (the profile's empty allowed-list permits any)
-        boolean validateTokenSignature = false;
-        String requestedPolicyId = "1.2.3.4.6";
-        String tspProfileName = createEnabledProfiles("RSA", KeyAlgorithm.RSA, validateTokenSignature);
-        byte[] requestWithPolicy = aRawTspRequest()
-                .withCertReq(REQUEST_SIGNER_CERTIFICATE)
-                .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
-                .withPolicyOid(requestedPolicyId)
-                .build();
-
-        // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithPolicy);
-
-        // then
-        TimeStampResponse tsResponse = assertGrantedResponse(response);
-        Assertions.assertEquals(requestedPolicyId,
-                tsResponse.getTimeStampToken().getTimeStampInfo().getPolicy().getId(),
-                "Token policy must be the requested one, not the profile default " + DEFAULT_POLICY_ID);
-    }
-
-    @Test
-    public void grantedToken_omitsCertificates_whenCertReqIsFalse() throws Exception {
-        // given
-        boolean validateTokenSignature = false;
-        boolean doNotRequestSignerCertificate = false;
-        String tspProfileName = createEnabledProfiles("RSA", KeyAlgorithm.RSA, validateTokenSignature);
-        byte[] requestWithoutCertReq = aRawTspRequest()
-                .withCertReq(doNotRequestSignerCertificate)
-                .withHashedMessage(sha256(TSP_IMPRINT_INPUT))
-                .build();
-
-        // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithoutCertReq);
-
-        // then
-        TimeStampToken token = assertGrantedResponse(response).getTimeStampToken();
-        Assertions.assertTrue(token.getCertificates().getMatches(null).isEmpty(),
-                "Token must not embed certificates when the request did not ask for them");
-    }
-
-    @Test
-    public void grantedToken_usesSha512Imprint_forSha512Request() throws Exception {
-        // given: the profile's empty allowed-digest list permits any digest algorithm
-        boolean validateTokenSignature = false;
-        String tspProfileName = createEnabledProfiles("RSA", KeyAlgorithm.RSA, validateTokenSignature);
-        byte[] requestWithSha512Imprint = aRawTspRequest()
-                .withCertReq(REQUEST_SIGNER_CERTIFICATE)
-                .withDigestAlgorithmOid(TSPAlgorithms.SHA512)
-                .withHashedMessage(MessageDigest.getInstance("SHA-512").digest(TSP_IMPRINT_INPUT.getBytes()))
-                .build();
-
-        // when
-        ResponseEntity<byte[]> response = tspController.timestamp(tspProfileName, requestWithSha512Imprint);
-
-        // then
-        TimeStampResponse tsResponse = assertGrantedResponse(response);
-        Assertions.assertEquals(TSPAlgorithms.SHA512.getId(),
-                tsResponse.getTimeStampToken().getTimeStampInfo().getMessageImprintAlgOID().getId(),
-                "Message imprint algorithm must be SHA-512");
-    }
-
     // ── Test helpers ──────────────────────────────────────────────────────────
 
     /**
-     * Creates and enables a signing profile (static-key-managed scheme over the algorithm's TSA
-     * certificate, timestamping workflow) and a TSP profile defaulting to it; returns the TSP profile name.
+     * Creates and enables a signing profile (static-key-managed scheme over the algorithm's TSA certificate,
+     * timestamping workflow), then creates+enables a TSP profile and activates the signing profile for it so
+     * the TSP protocol is reachable by signing-profile name. Returns the signing profile name.
      */
-    private String createEnabledProfiles(String label, KeyAlgorithm keyAlgorithm, boolean validateTokenSignature) throws Exception {
+    private String createEnabledTspSigningProfile(String label, KeyAlgorithm keyAlgorithm, boolean validateTokenSignature) throws Exception {
+        String signingProfileName = "tsp-sp-signing-profile-" + label;
+        UUID signingProfileUuid = createEnabledSigningProfile(signingProfileName, keyAlgorithm, validateTokenSignature);
+
+        String tspProfileName = "tsp-sp-profile-" + label;
+        UUID tspProfileUuid = UUID.fromString(tspProfileService.createTspProfile(
+                aTspProfileRequest()
+                        .withName(tspProfileName)
+                        .withDefaultSigningProfile(signingProfileUuid)
+                        .build(),
+                BASE_URL).getUuid());
+        tspProfileService.enableTspProfile(SecuredUUID.fromUUID(tspProfileUuid));
+        signingProfileService.activateTsp(SecuredUUID.fromUUID(signingProfileUuid), SecuredUUID.fromUUID(tspProfileUuid), BASE_URL);
+        return signingProfileName;
+    }
+
+    /**
+     * Creates and enables a signing profile but does NOT activate it for any TSP profile, leaving
+     * {@code tspProfileUuid == null}. Returns the signing profile name.
+     */
+    private String createEnabledSigningProfileWithoutTspActivation(String label, KeyAlgorithm keyAlgorithm, boolean validateTokenSignature) throws Exception {
+        String signingProfileName = "tsp-sp-inactive-signing-profile-" + label;
+        createEnabledSigningProfile(signingProfileName, keyAlgorithm, validateTokenSignature);
+        return signingProfileName;
+    }
+
+    private UUID createEnabledSigningProfile(String signingProfileName, KeyAlgorithm keyAlgorithm, boolean validateTokenSignature) throws Exception {
         UUID signingProfileUuid = UUID.fromString(signingProfileService.createSigningProfile(
                 aSigningProfileRequest()
-                        .withName("tsp-signing-profile-" + label)
+                        .withName(signingProfileName)
                         .withStaticKeyManagedSigning(tsaCertificates.get(keyAlgorithm).getUuid(), signingAttributesFor(keyAlgorithm))
                         .withTimestamping(aTimestampingWorkflow()
                                 .withSignatureFormattingConnector(UUID.fromString(formattingConnector.getUuid()))
@@ -409,17 +404,7 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
                                 .build())
                         .build()).getUuid());
         signingProfileService.enableSigningProfile(SecuredUUID.fromUUID(signingProfileUuid));
-
-        String tspProfileName = "tsp-profile-" + label;
-        UUID tspProfileUuid = UUID.fromString(tspProfileService.createTspProfile(
-                aTspProfileRequest()
-                        .withName(tspProfileName)
-                        .withDefaultSigningProfile(signingProfileUuid)
-                        .build(),
-                BASE_URL).getUuid());
-        tspProfileService.enableTspProfile(SecuredUUID.fromUUID(tspProfileUuid));
-        signingProfileService.activateTsp(SecuredUUID.fromUUID(signingProfileUuid), SecuredUUID.fromUUID(tspProfileUuid), BASE_URL);
-        return tspProfileName;
+        return signingProfileUuid;
     }
 
     private static List<RequestAttribute> signingAttributesFor(KeyAlgorithm keyAlgorithm) {
@@ -431,28 +416,35 @@ public class TspControllerIntegrationTest extends BaseSpringBootTest {
     }
 
     private static byte[] sha256(String input) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(input.getBytes());
+        return MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
      * Asserts HTTP 200, PKIStatus GRANTED, token present, and SHA-256 imprint algorithm.
      */
     private static void assertGrantedSha256Response(ResponseEntity<byte[]> response) throws Exception {
-        TimeStampResponse tsResponse = assertGrantedResponse(response);
+        TimeStampResponse tsResponse = parseTspResponse(response);
+        Assertions.assertEquals(PKIStatus.GRANTED, tsResponse.getStatus(),
+                "Expected PKIStatus GRANTED (0) but got: " + tsResponse.getStatus() + " - " + tsResponse.getStatusString());
+        Assertions.assertNotNull(tsResponse.getTimeStampToken(), "TimeStampToken must be present");
         String imprintAlg = tsResponse.getTimeStampToken().getTimeStampInfo().getMessageImprintAlgOID().getId();
         Assertions.assertEquals(TSPAlgorithms.SHA256.getId(), imprintAlg,
                 "Message imprint algorithm must be SHA-256");
     }
 
     /**
-     * Asserts HTTP 200, PKIStatus GRANTED, and a present token; returns the parsed response.
+     * Asserts an RFC 3161 rejection that carries the BAD_REQUEST failure-info bit (not merely
+     * {@link PKIStatus#REJECTION}) plus the exact {@code statusString}. In RFC 3161 BAD_REQUEST is a
+     * {@code PKIFailureInfo} bit, encoded separately from the {@code PKIStatus} value, so verifying the
+     * decoded bit is what actually proves the BAD_REQUEST classification.
      */
-    private static TimeStampResponse assertGrantedResponse(ResponseEntity<byte[]> response) throws Exception {
-        TimeStampResponse tsResponse = parseTspResponse(response);
-        Assertions.assertEquals(PKIStatus.GRANTED, tsResponse.getStatus(),
-                "Expected PKIStatus GRANTED (0) but got: " + tsResponse.getStatus() + " - " + tsResponse.getStatusString());
-        Assertions.assertNotNull(tsResponse.getTimeStampToken(), "TimeStampToken must be present");
-        return tsResponse;
+    private static void assertBadRequestRejection(TimeStampResponse tsResponse, String expectedStatusString, String rejectionMessage) {
+        Assertions.assertEquals(PKIStatus.REJECTION, tsResponse.getStatus(),
+                rejectionMessage + ", but got status: " + tsResponse.getStatus());
+        Assertions.assertNotNull(tsResponse.getFailInfo(), "Rejection must carry a failure-info field");
+        Assertions.assertEquals(PKIFailureInfo.badRequest, tsResponse.getFailInfo().intValue(),
+                "Rejection must carry the BAD_REQUEST failure-info bit");
+        Assertions.assertEquals(expectedStatusString, tsResponse.getStatusString());
     }
 
     /**
