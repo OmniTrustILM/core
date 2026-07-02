@@ -44,6 +44,7 @@ import com.otilm.core.util.CertificateUtil;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
+import org.bouncycastle.asn1.cmp.PKIHeader;
 import org.bouncycastle.asn1.cmp.PKIMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -317,7 +318,7 @@ public class CmpServiceImpl implements CmpExternalService {
             return buildBadRequest(pkiResponse);
         } catch (Exception e) {
             handleTrxError(tid, e);
-            PKIMessage pkiResponse = PkiMessageError.unprotectedMessage(pkiRequest.getHeader(), e);
+            PKIMessage pkiResponse = safeUnprotectedError(pkiRequest.getHeader(), e);
             if (verbose) {
                 LOG.error("{} | handling failed: \n\n response:\n {}", logPrefix,
                         PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
@@ -396,13 +397,34 @@ public class CmpServiceImpl implements CmpExternalService {
             validateCmpProfile(incomingProfileName);
             validateRaProfile(incomingProfileName);
         } catch (CmpConfigurationException e) {
+            String errorDetails = safeCmpDetail(e, "CMP profile validation failed");
             switch (bodyType) {
                 case PKIBody.TYPE_INIT_REQ, PKIBody.TYPE_CERT_REQ, PKIBody.TYPE_KEY_UPDATE_REQ:
-                    throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure, e.getMessage());
+                    throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure, errorDetails);
                 default:
-                    throw new CmpProcessingException(PKIFailureInfo.systemFailure, e.getMessage());
+                    throw new CmpProcessingException(PKIFailureInfo.systemFailure, errorDetails);
             }
         }
+    }
+
+    /**
+     * Builds an unprotected CMP error response whose wire-visible {@code PKIFreeText} is shaped by
+     * {@link #safeCmpDetail(Exception, String)}.
+     */
+    static PKIMessage safeUnprotectedError(PKIHeader header, Exception e) {
+        return PkiMessageError.unprotectedMessage(header,
+                PkiMessageError.generateBody(PKIFailureInfo.systemFailure,
+                        safeCmpDetail(e, "CMP request handling failed")));
+    }
+
+    /**
+     * Shapes an exception message for the wire-visible {@code PKIFreeText} of a CMP error response.
+     * The message is forwarded to the client only for a {@link CmpBaseException}, otherwise the generic {@code fallback} is used.
+     */
+    static String safeCmpDetail(Exception e, String fallback) {
+        return e instanceof CmpBaseException && e.getMessage() != null
+                ? e.getMessage()
+                : fallback;
     }
 
     private void validateCmpProfile(String incomingProfileName) throws CmpConfigurationException {
@@ -478,5 +500,4 @@ public class CmpServiceImpl implements CmpExternalService {
                     "PN=" + incomingProfileName + " | RA Profile does not contain associated CMP Profile");
         }
     }
-
 }
