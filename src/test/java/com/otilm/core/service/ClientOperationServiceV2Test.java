@@ -1157,7 +1157,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
      * The synchronous (HTTP 200) issue path must now pass through PENDING_ISSUE via the state
      * machine BEFORE the connector call, then finish in ISSUED. The pre-connector transition is the
      * only source of an ISSUE/SUCCESS "Issuance in progress" audit row, so its presence proves the
-     * cert went through PENDING_ISSUE on the way to ISSUED (SMC.2a).
+     * cert went through PENDING_ISSUE on the way to ISSUED.
      */
     @Test
     void issueCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
@@ -1181,6 +1181,37 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                                 && "Issuance in progress".equals(h.getMessage())),
                 "expected the state-machine's PENDING_ISSUE audit row (ISSUE/SUCCESS, "
                         + "\"Issuance in progress\") to precede ISSUED on the sync path");
+    }
+
+    /**
+     * When the connector returns an error (no certificate data) on a synchronous issue call,
+     * the certificate must end in FAILED and the audit history must contain an ISSUE/FAILED row.
+     * The failure-from-state is PENDING_ISSUE (the pre-connector transition already ran), so this
+     * exercises the new PENDING_ISSUE -> FAILED arc introduced by this branch.
+     */
+    @Test
+    void issueCertificateAction_transitionsToFailed_onSyncConnectorError() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        // Connector returns 200 but with an empty body — no certificate data
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertThrows(
+                Exception.class,
+                () -> clientOperationInternalService.issueCertificateAction(certUuid, true),
+                "sync issue with no certificate data must throw");
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.FAILED, fetched.getState(),
+                "cert must end in FAILED after a sync connector error");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "an ISSUE/FAILED audit row must be written after a sync connector error");
     }
 
     @Test

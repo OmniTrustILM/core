@@ -1840,7 +1840,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             uploadCertificateKey(null, certificate, x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
         }
 
-        // PENDING_ISSUE -> ISSUED: SM validates, sets state, saves, and writes the ISSUE/SUCCESS audit
         stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,
                 "Issued using RA Profile " + certificate.getRaProfile().getName());
 

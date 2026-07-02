@@ -637,7 +637,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 OperationResult.SUCCESS,
                 null,
                 List.of(new ResourceObjectIdentity(certificate.getSerialNumber(), certificate.getUuid())),
-                "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_ISSUE");
+                "Connector accepted asynchronously (HTTP 202); certificate is in PENDING_ISSUE, awaiting poll completion");
 
         logger.info("Certificate {} accepted asynchronously by connector; parked in PENDING_ISSUE (originating action: {})",
                 certificate.getUuid(), originatingAction.getCode());
