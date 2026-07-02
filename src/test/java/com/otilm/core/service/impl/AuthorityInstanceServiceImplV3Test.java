@@ -360,7 +360,8 @@ class AuthorityInstanceServiceImplV3Test {
         v2Connector.getInterfaces().add(v2Iface);
         when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(v2Connector));
 
-        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
+        SecuredUUID id = SecuredUUID.fromUUID(connectorUuid);
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(id, null))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("v1/v2 AUTHORITY interface");
         verify(v3Adapter, never()).listAuthorityInstanceAttributes(any());
@@ -371,7 +372,8 @@ class AuthorityInstanceServiceImplV3Test {
         Connector plainConnector = new Connector(); // no AUTHORITY interface at all
         when(connectorRepository.findByUuid(connectorUuid)).thenReturn(Optional.of(plainConnector));
 
-        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
+        SecuredUUID id = SecuredUUID.fromUUID(connectorUuid);
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(id, null))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("no AUTHORITY interface");
         verify(v3Adapter, never()).listAuthorityInstanceAttributes(any());
@@ -385,7 +387,8 @@ class AuthorityInstanceServiceImplV3Test {
         secondIface.setConnectorUuid(connectorUuid);
         connectorEntity.getInterfaces().add(secondIface);
 
-        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(SecuredUUID.fromUUID(connectorUuid), null))
+        SecuredUUID id = SecuredUUID.fromUUID(connectorUuid);
+        assertThatThrownBy(() -> service.listAuthorityInstanceAttributes(id, null))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("multiple AUTHORITY interfaces");
     }
