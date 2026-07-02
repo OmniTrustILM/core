@@ -36,17 +36,9 @@ class CiTestSplitTest {
 
     @Test
     void restExcludesMustEqualUnionOfServiceAndIntegrationIncludes() throws Exception {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(false);
-        Document pom = dbf.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
-        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
-
-        List<String> serviceIncludes = extractNodes(xpath, pom,
-                "//profile[id='test-services']//plugin[artifactId='maven-surefire-plugin']//include");
-        List<String> integrationIncludes = extractNodes(xpath, pom,
-                "//profile[id='test-integration']//plugin[artifactId='maven-surefire-plugin']//include");
-        List<String> restExcludes = extractNodes(xpath, pom,
-                "//profile[id='test-non-services']//plugin[artifactId='maven-surefire-plugin']//exclude");
+        List<String> serviceIncludes = profilePatterns("test-services", "include");
+        List<String> integrationIncludes = profilePatterns("test-integration", "include");
+        List<String> restExcludes = profilePatterns("test-non-services", "exclude");
 
         List<String> union = new ArrayList<>(serviceIncludes);
         union.addAll(integrationIncludes);
@@ -64,17 +56,9 @@ class CiTestSplitTest {
 
     @Test
     void integrationRootIsIncludedByIntegrationProfileAndExcludedByOthers() throws Exception {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(false);
-        Document pom = dbf.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
-        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
-
-        List<String> integrationIncludes = extractNodes(xpath, pom,
-                "//profile[id='test-integration']//plugin[artifactId='maven-surefire-plugin']//include");
-        List<String> serviceExcludes = extractNodes(xpath, pom,
-                "//profile[id='test-services']//plugin[artifactId='maven-surefire-plugin']//exclude");
-        List<String> restExcludes = extractNodes(xpath, pom,
-                "//profile[id='test-non-services']//plugin[artifactId='maven-surefire-plugin']//exclude");
+        List<String> integrationIncludes = profilePatterns("test-integration", "include");
+        List<String> serviceExcludes = profilePatterns("test-services", "exclude");
+        List<String> restExcludes = profilePatterns("test-non-services", "exclude");
 
         assertThat(integrationIncludes)
                 .describedAs("test-integration must include the single integration root pattern")
@@ -112,8 +96,22 @@ class CiTestSplitTest {
                 .isEmpty();
     }
 
-    private static List<String> extractNodes(XPath xpath, Document doc, String expression) throws Exception {
-        NodeList nodes = (NodeList) xpath.evaluate(expression, doc, XPathConstants.NODESET);
+    /**
+     * The {@code <include>}/{@code <exclude>} pattern texts declared under the given Maven profile's
+     * surefire plugin in pom.xml. Parses pom.xml fresh on each call — these guards are not perf-sensitive.
+     *
+     * @param profileId the {@code <profile>} id, e.g. {@code test-services}
+     * @param tag       {@code include} or {@code exclude}
+     */
+    private static List<String> profilePatterns(String profileId, String tag) throws Exception {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        dbf.setNamespaceAware(false);
+        Document pom = dbf.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
+        XPath xpath = XPathFactory.newDefaultInstance().newXPath();
+
+        String expression = "//profile[id='" + profileId
+                + "']//plugin[artifactId='maven-surefire-plugin']//" + tag;
+        NodeList nodes = (NodeList) xpath.evaluate(expression, pom, XPathConstants.NODESET);
         List<String> result = new ArrayList<>(nodes.getLength());
         for (int i = 0; i < nodes.getLength(); i++) {
             result.add(nodes.item(i).getTextContent().trim());
@@ -171,7 +169,39 @@ class CiTestSplitTest {
         }
         assertThat(violations)
                 .describedAs("Context-loading test classes found outside com.otilm.core.integration "
-                        + "in an already-migrated package. Move them into the integration root, rename *IT.")
+                        + "in an already-migrated package. Move them into the integration root, rename *ITest.")
+                .isEmpty();
+    }
+
+    @Test
+    void migrationAllowlistEntriesMustStillHavePendingMigration() throws IOException {
+        Map<String, String> graph = TestClassTaxonomy.parseExtends(TEST_ROOT);
+        Path corePackage = TEST_ROOT.resolve("com/otilm/core");
+        List<String> staleEntries = new ArrayList<>();
+        for (String segment : MIGRATION_ALLOWLIST) {
+            Path pkgDir = corePackage.resolve(segment);
+            if (!Files.exists(pkgDir)) {
+                staleEntries.add(segment + " (no such package directory)");
+                continue;
+            }
+            boolean hasPending;
+            try (Stream<Path> stream = Files.walk(pkgDir)) {
+                hasPending = stream
+                        .filter(p -> p.toString().endsWith(".java"))
+                        .filter(p -> !p.startsWith(INTEGRATION_ROOT))
+                        .filter(TestClassTaxonomy::isRunnableTest)
+                        .anyMatch(p -> TestClassTaxonomy.loadsContext(p, graph));
+            }
+            if (!hasPending) {
+                staleEntries.add(segment);
+            }
+        }
+        assertThat(staleEntries)
+                .describedAs("""
+                        MIGRATION_ALLOWLIST entries with no remaining pending (runnable, context-loading) test
+                        outside the integration root. Guard (3) is silently suppressed for these packages, so a
+                        context test added there later would go undetected. Remove each listed segment from
+                        MIGRATION_ALLOWLIST — the set must self-prune to empty as packages are migrated.""")
                 .isEmpty();
     }
 

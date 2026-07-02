@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -24,8 +25,10 @@ import java.util.stream.Stream;
  *   {@code @TestConfiguration} is not mistaken for {@code @Test} nor a {@code "abstract class"} string literal for an abstract
  *   declaration.</li>
  *   <li><b>The inheritance graph is keyed by the simple class name.</b> {@link #parseExtends} records {@code simpleName -> superSimpleName},
- *   and {@link #hasContextBearingAncestor} resolves {@code extends} clauses (which use simple names) against it. {@code parseExtends} throws on
- *   a duplicate primary simple name rather than let one entry overwrite the other.</li>
+ *   and {@link #hasContextBearingAncestor} resolves {@code extends} clauses (which use simple names) against it. {@code parseExtends}
+ *   throws only on a duplicate primary simple name with a <em>conflicting</em> supertype — that is the case that would corrupt
+ *   context-ancestry resolution. Two unrelated classes sharing a simple name but mapping to the same supertype (commonly both none)
+ *   coalesce harmlessly.</li>
  *   <li><b>Context detection is limited to {@code @SpringBootTest} and the known context-root base classes.
  *   </b> Spring test-slice / meta-annotations that also start a context ({@code @WebMvcTest}, {@code @DataJpaTest}, {@code @JsonTest}, {@code @ContextConfiguration},
  *   a bare {@code @ExtendWith(SpringExtension.class)}) are intentionally out of scope — none exist in this tree.</li>
@@ -65,12 +68,13 @@ final class TestClassTaxonomy {
                 Matcher m = CLASS_DECL.matcher(code(p));
                 if (m.find()) {
                     String name = m.group(2);
-                    if (graph.containsKey(name)) {
+                    String superName = m.group(3);
+                    if (graph.containsKey(name) && !Objects.equals(graph.get(name), superName)) {
                         throw new IllegalStateException("Duplicate primary test-class simple name '"
-                                + name + "' at " + p + "; the context graph is keyed by simple name, "
-                                + "so a collision would corrupt both files' ancestry. Rename one class.");
+                                + name + "' with conflicting supertypes at " + p + "; the context graph is keyed by "
+                                + "simple name, so this collision would corrupt context-ancestry resolution. Rename one class.");
                     }
-                    graph.put(name, m.group(3)); // name -> superclass (may be null)
+                    graph.put(name, superName); // name -> superclass (may be null)
                 }
             });
         } catch (IOException e) {
