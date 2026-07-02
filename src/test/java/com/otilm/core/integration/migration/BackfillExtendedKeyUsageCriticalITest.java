@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class BackfillExtendedKeyUsageCriticalTest extends BaseMigrationTest {
+class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
 
     @Autowired DataSource dataSource;
     @Autowired CertificateRepository certificateRepository;

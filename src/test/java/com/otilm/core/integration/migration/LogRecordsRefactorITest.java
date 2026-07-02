@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.*;
@@ -25,7 +25,7 @@ import java.util.List;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class LogRecordsRefactorTest extends BaseMigrationTest {
+class LogRecordsRefactorITest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;
