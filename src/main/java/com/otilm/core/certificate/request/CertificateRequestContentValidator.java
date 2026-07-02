@@ -20,6 +20,7 @@ import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -27,12 +28,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 
 /**
  * Validates a parsed {@link X509RequestContent} against the resolved request-attribute definitions.
  */
+@Slf4j
 @Component
 public class CertificateRequestContentValidator {
 
@@ -42,14 +46,38 @@ public class CertificateRequestContentValidator {
      */
     public void validate(CertificateRequest request, List<? extends BaseAttribute> definitions, boolean lenient)
             throws CertificateRequestValidationException {
-        X509RequestContent content = X509RequestContentParser.parse(request);
-        RequestAttributeValidationResult result =
-                validate(definitions, content, new RequestAttributePolicy(!lenient, !lenient));
+        RequestAttributeValidationResult result;
+        try {
+            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
+            result = validate(definitions, parsed, new RequestAttributePolicy(!lenient, !lenient));
+        } catch (RuntimeException e) {
+            // Malformed ASN.1 surfaces as unchecked BC exceptions whose messages may carry internals; log it only.
+            log.warn("Certificate request could not be parsed for request-attribute validation", e);
+            throw new CertificateRequestValidationException(
+                    "Certificate request could not be processed for validation", null);
+        }
         if (result.hasErrors()) {
             throw new CertificateRequestValidationException(
                     "Uploaded certificate request does not satisfy the request-attribute policy",
                     result.getErrors());
         }
+    }
+
+    /**
+     * Validates a full parse result.
+     */
+    public static RequestAttributeValidationResult validate(List<? extends BaseAttribute> definitions,
+                                                            ParsedRequestContent parsed,
+                                                            RequestAttributePolicy policy) {
+        RequestAttributeValidationResult result = validate(definitions, parsed.content(), policy);
+        if (policy.whitelist()) {
+            for (String sanKind : parsed.unsupportedSans()) {
+                recordViolation(result, policy,
+                        "SAN %s cannot be represented for validation and is not allowed by the request-attribute set"
+                                .formatted(sanKind));
+            }
+        }
+        return result;
     }
 
     /**
@@ -75,11 +103,13 @@ public class CertificateRequestContentValidator {
         List<GeneralNameEntry> sans = content.getSubjectAltNames() == null ? List.of() : content.getSubjectAltNames();
         List<RequestedExtension> extensions = content.getExtensions() == null ? List.of() : content.getExtensions();
 
-        // Canonicalize to OID before comparing
-        Map<String, String> codeToOid = OidHandler.getCodeToOidMap();
+        // Canonicalize to OID before comparing; case-insensitive so code casing never matters
+        Map<String, String> codeToOid = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        codeToOid.putAll(OidHandler.getCodeToOidMap());
 
-        Set<String> mappedRdnKeys = new HashSet<>();
+        Set<String> mappedRdnKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         Set<GeneralNameType> mappedSanTypes = new HashSet<>();
+        Set<String> mappedOtherNameOids = new HashSet<>();
         Set<String> mappedExtensionOids = new HashSet<>();
 
         for (BaseAttribute def : definitions) {
@@ -90,7 +120,7 @@ public class CertificateRequestContentValidator {
 
             for (MappedField field : v3.getFieldMapping().getFields()) {
                 List<String> matchedValues = collectMatchedValues(field, subject, sans, extensions,
-                        mappedRdnKeys, mappedSanTypes, mappedExtensionOids, codeToOid);
+                        mappedRdnKeys, mappedSanTypes, mappedOtherNameOids, mappedExtensionOids, codeToOid);
 
                 if (required && matchedValues.isEmpty()) {
                     recordViolation(result, policy, "Missing required mapped field for attribute '%s' (%s)"
@@ -106,8 +136,8 @@ public class CertificateRequestContentValidator {
         }
 
         if (policy.whitelist()) {
-            checkWhitelist(subject, sans, extensions, mappedRdnKeys, mappedSanTypes, mappedExtensionOids,
-                    codeToOid, policy, result);
+            checkWhitelist(subject, sans, extensions, mappedRdnKeys, mappedSanTypes, mappedOtherNameOids,
+                    mappedExtensionOids, codeToOid, policy, result);
         }
         return result;
     }
@@ -120,8 +150,7 @@ public class CertificateRequestContentValidator {
 
     /**
      * Canonicalizes an RDN identifier to its OID form for matching: a dotted OID is returned as-is,
-     * a known short code is resolved via {@code codeToOid}, and an unknown code falls back to itself
-     * (so code-vs-code comparison still works when the OID registry is unseeded).
+     * a known short code is resolved via {@code codeToOid}, and an unknown code falls back to itself.
      */
     private static String canonicalRdnKey(String rdn, Map<String, String> codeToOid) {
         if (rdn == null || rdn.isBlank()) {
@@ -130,12 +159,7 @@ public class CertificateRequestContentValidator {
         if (OidHandler.isOid(rdn)) {
             return rdn;
         }
-        for (Map.Entry<String, String> e : codeToOid.entrySet()) {
-            if (e.getKey().equalsIgnoreCase(rdn)) {
-                return e.getValue();
-            }
-        }
-        return rdn;
+        return codeToOid.getOrDefault(rdn, rdn);
     }
 
     /**
@@ -158,12 +182,18 @@ public class CertificateRequestContentValidator {
                                                      List<RequestedExtension> extensions,
                                                      Set<String> mappedRdnKeys,
                                                      Set<GeneralNameType> mappedSanTypes,
+                                                     Set<String> mappedOtherNameOids,
                                                      Set<String> mappedExtensionOids,
                                                      Map<String, String> codeToOid) {
         return switch (field) {
             case RdnMappedField rdn -> collectMatched(
                     canonicalRdnKey(rdn.getRdn(), codeToOid), mappedRdnKeys, subject,
                     (key, e) -> key.equalsIgnoreCase(canonicalRdnKey(e.getType(), codeToOid)), RdnEntry::getValue);
+            // An otherName mapping claims only its own type-id OID, never the whole OTHER_NAME kind.
+            case SanMappedField san when san.getGeneralNameType() == GeneralNameType.OTHER_NAME -> collectMatched(
+                    san.getOtherNameOid(), mappedOtherNameOids, sans,
+                    (oid, e) -> e.getType() == GeneralNameType.OTHER_NAME && oid.equals(e.getOtherNameOid()),
+                    GeneralNameEntry::getValue);
             case SanMappedField san -> collectMatched(
                     san.getGeneralNameType(), mappedSanTypes, sans,
                     (type, e) -> type == e.getType(), GeneralNameEntry::getValue);
@@ -209,21 +239,22 @@ public class CertificateRequestContentValidator {
                                        List<RequestedExtension> extensions,
                                        Set<String> mappedRdnKeys,
                                        Set<GeneralNameType> mappedSanTypes,
+                                       Set<String> mappedOtherNameOids,
                                        Set<String> mappedExtensionOids,
                                        Map<String, String> codeToOid,
                                        RequestAttributePolicy policy,
                                        RequestAttributeValidationResult result) {
         for (RdnEntry e : subject) {
             String key = canonicalRdnKey(e.getType(), codeToOid);
-            if (mappedRdnKeys.stream().noneMatch(c -> c.equalsIgnoreCase(key))) {
+            if (key == null || !mappedRdnKeys.contains(key)) {
                 recordViolation(result, policy,
                         "Subject RDN '%s' is not allowed by the request-attribute set".formatted(e.getType()));
             }
         }
         for (GeneralNameEntry e : sans) {
-            if (!mappedSanTypes.contains(e.getType())) {
+            if (!isWhitelistedSan(e, mappedSanTypes, mappedOtherNameOids)) {
                 recordViolation(result, policy, "SAN %s '%s' is not allowed by the request-attribute set"
-                        .formatted(asn1FieldName(e.getType()), e.getValue()));
+                        .formatted(describeSan(e), e.getValue()));
             }
         }
         for (RequestedExtension e : extensions) {
@@ -232,6 +263,23 @@ public class CertificateRequestContentValidator {
                         "Extension '%s' is not allowed by the request-attribute set".formatted(e.getOid()));
             }
         }
+    }
+
+    /** An otherName is allowed only when its own type-id OID is mapped; other kinds are allowed by type. */
+    private static boolean isWhitelistedSan(GeneralNameEntry entry,
+                                            Set<GeneralNameType> mappedSanTypes,
+                                            Set<String> mappedOtherNameOids) {
+        if (entry.getType() == GeneralNameType.OTHER_NAME) {
+            return entry.getOtherNameOid() != null && mappedOtherNameOids.contains(entry.getOtherNameOid());
+        }
+        return mappedSanTypes.contains(entry.getType());
+    }
+
+    private static String describeSan(GeneralNameEntry entry) {
+        if (entry.getType() == GeneralNameType.OTHER_NAME && entry.getOtherNameOid() != null) {
+            return "otherName (type-id %s)".formatted(entry.getOtherNameOid());
+        }
+        return asn1FieldName(entry.getType());
     }
 
     private static String label(DataAttributeV3 def) {

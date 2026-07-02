@@ -11,6 +11,8 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -79,7 +81,7 @@ class X509RequestContentParserTest {
             var request = pkcs10("CN=host.example.com,O=Example", false);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then — DEFAULT style preserves CN, O order with short codes
             assertThat(content.getSubject()).extracting("type").containsExactly("CN", "O");
@@ -92,7 +94,7 @@ class X509RequestContentParserTest {
             var request = pkcs10("", false);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getSubject()).isEmpty();
@@ -108,7 +110,7 @@ class X509RequestContentParserTest {
             var request = pkcs10(subject);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then — each component is its own entry, so neither can escape whitelist/required checks
             assertThat(content.getSubject()).extracting("type").contains("CN", "O");
@@ -118,12 +120,30 @@ class X509RequestContentParserTest {
         }
 
         @Test
+        void preservesRfc4514SpecialCharacters_inRdnValues() throws Exception {
+            // given — values with unescaped ',', '+', '=' that a rendered-DN round-trip would mis-split
+            X500Name subject = new X500NameBuilder()
+                    .addRDN(BCStyle.O, "Acme, Inc. + Co")
+                    .addRDN(BCStyle.CN, "key=value")
+                    .build();
+            var request = pkcs10(subject);
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
+
+            // then — decoded from the ASN.1 objects directly, so the values survive verbatim
+            assertThat(content.getSubject()).hasSize(2)
+                    .anySatisfy(e -> assertThat(e.getValue()).isEqualTo("Acme, Inc. + Co"))
+                    .anySatisfy(e -> assertThat(e.getValue()).isEqualTo("key=value"));
+        }
+
+        @Test
         void setsX509CertificateType_onParsedContent() throws Exception {
             // given
             var request = pkcs10("CN=host.example.com", false);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then — the REQUIRED discriminator is populated
             assertThat(content.getCertificateType()).isEqualTo(CertificateType.X509);
@@ -139,7 +159,7 @@ class X509RequestContentParserTest {
             var request = pkcs10("CN=host.example.com", true);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getSubjectAltNames())
@@ -159,7 +179,7 @@ class X509RequestContentParserTest {
             var request = pkcs10WithSan(new GeneralName(GeneralName.registeredID, "1.2.3.4.5"));
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getSubjectAltNames())
@@ -167,6 +187,80 @@ class X509RequestContentParserTest {
                         assertThat(s.getType()).isEqualTo(GeneralNameType.REGISTERED_ID);
                         assertThat(s.getValue()).isEqualTo("1.2.3.4.5");
                     });
+        }
+
+        @Test
+        void decodesIpv4San_toDottedForm() throws Exception {
+            // given — iPAddress SANs are DER octet strings; policy rules expect the textual form
+            var request = pkcs10WithSan(new GeneralName(GeneralName.iPAddress, "10.0.0.1"));
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
+
+            // then
+            assertThat(content.getSubjectAltNames())
+                    .anySatisfy(s -> {
+                        assertThat(s.getType()).isEqualTo(GeneralNameType.IP);
+                        assertThat(s.getValue()).isEqualTo("10.0.0.1");
+                    });
+        }
+
+        @Test
+        void decodesIpv6San_toColonForm() throws Exception {
+            // given
+            var request = pkcs10WithSan(new GeneralName(GeneralName.iPAddress, "2001:db8::1"));
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
+
+            // then — canonical Java textual form of the 16-octet address
+            assertThat(content.getSubjectAltNames())
+                    .anySatisfy(s -> {
+                        assertThat(s.getType()).isEqualTo(GeneralNameType.IP);
+                        assertThat(s.getValue()).isEqualTo("2001:db8:0:0:0:0:0:1");
+                    });
+        }
+
+        @Test
+        void parsesDirectoryNameSan_asDnString() throws Exception {
+            // given
+            var request = pkcs10WithSan(new GeneralName(GeneralName.directoryName, new X500Name("CN=dir.example.com")));
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
+
+            // then
+            assertThat(content.getSubjectAltNames())
+                    .anySatisfy(s -> {
+                        assertThat(s.getType()).isEqualTo(GeneralNameType.DIRECTORY_NAME);
+                        assertThat(s.getValue()).contains("dir.example.com");
+                    });
+        }
+
+        @Test
+        void reportsUndecodableIpAddressSan_insteadOfSilentlyDropping() throws Exception {
+            // given — a 3-octet iPAddress is neither IPv4 nor IPv6
+            var request = pkcs10WithSan(new GeneralName(GeneralName.iPAddress, new DEROctetString(new byte[]{1, 2, 3})));
+
+            // when
+            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
+
+            // then — surfaced for fail-closed whitelist enforcement
+            assertThat(parsed.content().getSubjectAltNames()).isEmpty();
+            assertThat(parsed.unsupportedSans()).containsExactly("iPAddress");
+        }
+
+        @Test
+        void reportsUnrepresentableSanKind_insteadOfSilentlyDropping() throws Exception {
+            // given — an x400Address SAN, which GeneralNameType cannot model
+            var request = pkcs10WithSan(new GeneralName(GeneralName.x400Address, new DERSequence()));
+
+            // when
+            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
+
+            // then — surfaced for fail-closed whitelist enforcement, not dropped
+            assertThat(parsed.content().getSubjectAltNames()).isEmpty();
+            assertThat(parsed.unsupportedSans()).containsExactly("x400Address");
         }
 
         @Test
@@ -178,7 +272,7 @@ class X509RequestContentParserTest {
             var request = pkcs10WithSan(new GeneralName(GeneralName.otherName, otherName.toASN1Primitive()));
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then — represented as OTHER_NAME carrying its OID, so a strict whitelist can reject it
             assertThat(content.getSubjectAltNames())
@@ -199,7 +293,7 @@ class X509RequestContentParserTest {
             var request = pkcs10("CN=host.example.com", true);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getExtensions()).extracting("oid")
@@ -213,7 +307,7 @@ class X509RequestContentParserTest {
             var request = pkcs10("CN=host.example.com", false);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getExtensions()).isEmpty();
@@ -226,7 +320,7 @@ class X509RequestContentParserTest {
             var request = pkcs10WithRawExtension(new ASN1ObjectIdentifier("1.3.6.1.4.1.99999.1"), new byte[0]);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getExtensions()).extracting("oid").doesNotContain("1.3.6.1.4.1.99999.1");
@@ -247,7 +341,7 @@ class X509RequestContentParserTest {
             var request = pkcs10(subject);
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then — no blank-valued RDN is emitted, and the populated O survives
             assertThat(content.getSubject()).noneMatch(e -> e.getValue() == null || e.getValue().isBlank());
@@ -265,12 +359,37 @@ class X509RequestContentParserTest {
             var request = crmf("CN=host.example.com");
 
             // when
-            X509RequestContent content = X509RequestContentParser.parse(request);
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
 
             // then
             assertThat(content.getSubject()).extracting("type").contains("CN");
             assertThat(content.getSubjectAltNames()).isEmpty();
             assertThat(content.getExtensions()).isEmpty();
+        }
+
+        @Test
+        void parsesSansAndExtensions_fromCertTemplate() throws Exception {
+            // given — a CRMF request whose CertTemplate carries a SAN and an EKU extension
+            var builder = CmpTestUtil.createCrmf(new X500Name("CN=issuer"), new X500Name("CN=host.example.com"));
+            builder.addExtension(Extension.subjectAlternativeName, false, new GeneralNames(new GeneralName[]{
+                    new GeneralName(GeneralName.dNSName, "host.example.com")}));
+            builder.addExtension(Extension.extendedKeyUsage, false,
+                    new ExtendedKeyUsage(KeyPurposeId.id_kp_serverAuth));
+            CertReqMessages certReqMessages = new CertReqMessages(builder.build().toASN1Structure());
+            var request = new CrmfCertificateRequest(certReqMessages.getEncoded());
+
+            // when
+            X509RequestContent content = X509RequestContentParser.parse(request).content();
+
+            // then — SAN typed, EKU in extensions, SAN not duplicated into extensions
+            assertThat(content.getSubjectAltNames())
+                    .anySatisfy(s -> {
+                        assertThat(s.getType()).isEqualTo(GeneralNameType.DNS);
+                        assertThat(s.getValue()).isEqualTo("host.example.com");
+                    });
+            assertThat(content.getExtensions()).extracting("oid")
+                    .contains(Extension.extendedKeyUsage.getId())
+                    .doesNotContain(Extension.subjectAlternativeName.getId());
         }
     }
 

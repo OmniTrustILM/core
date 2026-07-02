@@ -10,12 +10,22 @@ import com.otilm.api.model.connector.v3.certificate.RdnEntry;
 import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import org.bouncycastle.asn1.DERBitString;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.DERSet;
+import org.bouncycastle.asn1.pkcs.Attribute;
+import org.bouncycastle.asn1.pkcs.CertificationRequest;
+import org.bouncycastle.asn1.pkcs.CertificationRequestInfo;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
@@ -89,6 +99,23 @@ class CertificateRequestContentValidatorTest {
             // then
             assertThat(result.isValid()).isFalse();
             assertThat(result.getErrors()).anyMatch(e -> e.toLowerCase().contains("required"));
+        }
+
+        @Test
+        void requiresEveryMappedTarget_ofOneToManyMapping() {
+            // A required attribute mapped 1-to-many (FQDN -> CN + dNSName) demands every target:
+            // Mode B is the reverse of the Mode A projection, which emits the value into all of them.
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("fqdn").required()
+                            .mappingRdn("CN").mappingSan(GeneralNameType.DNS).build());
+            var content = content(List.of(rdn("CN", "host.example.com")), List.of());
+
+            // when — CN present, sibling dNSName target absent
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, false));
+
+            // then
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("Missing required") && e.contains("dNSName"));
         }
 
         @Test
@@ -182,6 +209,90 @@ class CertificateRequestContentValidatorTest {
             // then — the otherName is no longer invisible to the whitelist
             assertThat(result.isValid()).isFalse();
             assertThat(result.getErrors()).anyMatch(e -> e.contains("otherName"));
+        }
+    }
+
+    @Nested
+    class OtherNameOidMatching {
+
+        private static final String UPN_OID = "1.3.6.1.4.1.311.20.2.3";
+
+        @Test
+        void acceptsOtherName_whoseTypeIdOidIsMapped() {
+            // given
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("upn").required().mappingOtherName(UPN_OID).build());
+            var content = content(List.of(), List.of(otherName(UPN_OID, "user@example.com")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then
+            assertThat(result.isValid()).isTrue();
+        }
+
+        @Test
+        void rejectsOtherName_whoseTypeIdOidIsNotMapped() {
+            // given — the set maps UPN only; the CSR carries an otherName of a different type-id
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("upn").mappingOtherName(UPN_OID).build());
+            var content = content(List.of(), List.of(otherName("1.2.3.4", "arbitrary")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, true));
+
+            // then — an otherName mapping whitelists its own OID, not the whole otherName kind
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("otherName") && e.contains("1.2.3.4"));
+        }
+
+        @Test
+        void requiredOtherName_isNotSatisfiedByDifferentTypeIdOid() {
+            // given
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("upn").required().mappingOtherName(UPN_OID).build());
+            var content = content(List.of(), List.of(otherName("1.2.3.4", "arbitrary")));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(true, false));
+
+            // then
+            assertThat(result.getErrors()).anyMatch(e -> e.toLowerCase().contains("required"));
+        }
+    }
+
+    @Nested
+    class UnrepresentableSans {
+
+        @Test
+        void whitelistFailsClosed_onSansTheParserCannotRepresent() {
+            // given — the parser reported an x400Address SAN it could not decode into typed content
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var parsed = new ParsedRequestContent(
+                    content(List.of(rdn("CN", "host.example.com")), List.of()), List.of("x400Address"));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, parsed, new RequestAttributePolicy(true, true));
+
+            // then — the CSR is forwarded verbatim, so an unvalidatable SAN must fail closed
+            assertThat(result.isValid()).isFalse();
+            assertThat(result.getErrors()).anyMatch(e -> e.contains("x400Address"));
+        }
+
+        @Test
+        void ignoresUnrepresentableSans_whenWhitelistDisabled() {
+            // given
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+            var parsed = new ParsedRequestContent(
+                    content(List.of(rdn("CN", "host.example.com")), List.of()), List.of("x400Address"));
+
+            // when
+            var result = CertificateRequestContentValidator.validate(definitions, parsed, new RequestAttributePolicy(true, false));
+
+            // then
+            assertThat(result.isValid()).isTrue();
         }
     }
 
@@ -431,6 +542,22 @@ class CertificateRequestContentValidatorTest {
             assertThatCode(() -> new CertificateRequestContentValidator().validate(request, definitions, true))
                     .doesNotThrowAnyException();
         }
+
+        @Test
+        void shapesUncheckedParseFailure_asValidationException_withoutLeakingInternals() throws Exception {
+            // given — a PKCS#10 whose extensionRequest attribute has an EMPTY value set: structurally
+            // valid ASN.1 that fails extension extraction with an unchecked exception, not a typed one
+            CertificateRequest request = pkcs10WithEmptyExtensionRequest();
+            List<BaseAttribute> definitions = List.of(
+                    aMappedDataAttribute().withName("cn").required().mappingRdn("CN").build());
+
+            // when / then — protocol adapters expose this message on the wire and the global advice
+            // forwards cause messages to clients, so the exception must be platform-authored and causeless
+            assertThatThrownBy(() -> new CertificateRequestContentValidator().validate(request, definitions, false))
+                    .isInstanceOf(CertificateRequestValidationException.class)
+                    .hasMessage("Certificate request could not be processed for validation")
+                    .hasNoCause();
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -443,6 +570,22 @@ class CertificateRequestContentValidatorTest {
                 new JcaPKCS10CertificationRequestBuilder(new X500Name(subjectDn), kp.getPublic());
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(kp.getPrivate());
         return new Pkcs10CertificateRequest(builder.build(signer).getEncoded());
+    }
+
+    /** Hand-assembled PKCS#10 with an empty extensionRequest value set; the placeholder signature is never checked here. */
+    private static CertificateRequest pkcs10WithEmptyExtensionRequest() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        KeyPair kp = kpg.generateKeyPair();
+        Attribute emptyExtensionRequest = new Attribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, new DERSet());
+        CertificationRequestInfo info = new CertificationRequestInfo(
+                new X500Name("CN=host.example.com"),
+                SubjectPublicKeyInfo.getInstance(kp.getPublic().getEncoded()),
+                new DERSet(emptyExtensionRequest));
+        CertificationRequest csr = new CertificationRequest(info,
+                new AlgorithmIdentifier(PKCSObjectIdentifiers.sha256WithRSAEncryption, DERNull.INSTANCE),
+                new DERBitString(new byte[]{0}));
+        return new Pkcs10CertificateRequest(csr.getEncoded());
     }
 
     private static X509RequestContent content(List<RdnEntry> subject, List<GeneralNameEntry> sans) {
@@ -475,6 +618,13 @@ class CertificateRequestContentValidatorTest {
         GeneralNameEntry e = new GeneralNameEntry();
         e.setType(type);
         e.setValue(value);
+        return e;
+    }
+
+    private static GeneralNameEntry otherName(String otherNameOid, String value) {
+        GeneralNameEntry e = san(GeneralNameType.OTHER_NAME, value);
+        e.setOtherNameOid(otherNameOid);
+        e.setValueEncoding(ExtensionValueEncoding.UTF8_STRING);
         return e;
     }
 }

@@ -41,6 +41,7 @@ import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.certificate.request.CertificateRequestContentValidator;
+import com.otilm.core.certificate.request.ParsedRequestContent;
 import com.otilm.core.certificate.request.RequestAttributePolicy;
 import com.otilm.core.certificate.request.RequestAttributeValidationResult;
 import com.otilm.core.certificate.request.X509RequestContentParser;
@@ -1816,10 +1817,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         boolean strict = resolveExternalCsrValidationStrict(raProfile);
         try {
-            CertificateRequest parsed = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
-            X509RequestContent content = X509RequestContentParser.parse(parsed);
+            CertificateRequest request = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
+            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
             RequestAttributeValidationResult result =
-                    CertificateRequestContentValidator.validate(definitions, content, new RequestAttributePolicy(strict, strict /* whitelist: strict mode enforces whitelist */));
+                    CertificateRequestContentValidator.validate(definitions, parsed, new RequestAttributePolicy(strict, strict /* whitelist: strict mode enforces whitelist */));
 
             // Kernel routes violations by policy: strict -> errors (blocking), lenient -> warnings (non-blocking).
             // Lenient mode does NOT run the whitelist check.
@@ -1842,6 +1843,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // A policy violation is a client error (the uploaded CSR is invalid).
             List<ValidationError> errors = e.getDetails().stream().map(ValidationError::create).toList();
             throw new ValidationException(e.getMessage(), errors);
+        } catch (RuntimeException e) {
+            // Malformed ASN.1 that escapes the typed parse exceptions is still bad client input, not a server fault.
+            logger.warn("Uploaded CSR could not be processed for request-attribute validation (RA profile {})", raProfile.getName(), e);
+            throw new ValidationException("Uploaded certificate request could not be processed for validation");
         }
     }
 

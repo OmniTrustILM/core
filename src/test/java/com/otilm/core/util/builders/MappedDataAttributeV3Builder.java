@@ -60,6 +60,14 @@ public final class MappedDataAttributeV3Builder {
         return this;
     }
 
+    public MappedDataAttributeV3Builder mappingOtherName(String otherNameOid) {
+        SanMappedField field = new SanMappedField();
+        field.setGeneralNameType(GeneralNameType.OTHER_NAME);
+        field.setOtherNameOid(otherNameOid);
+        fields.add(field);
+        return this;
+    }
+
     public MappedDataAttributeV3Builder mappingExtension(String oid) {
         ExtensionMappedField field = new ExtensionMappedField();
         field.setExtensionOid(oid);

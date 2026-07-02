@@ -19,7 +19,16 @@ import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import org.bouncycastle.asn1.DERBitString;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.DERSet;
+import org.bouncycastle.asn1.pkcs.Attribute;
+import org.bouncycastle.asn1.pkcs.CertificationRequest;
+import org.bouncycastle.asn1.pkcs.CertificationRequestInfo;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.ContentSigner;
@@ -151,6 +160,18 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
     }
 
     @Test
+    void rejectsMalformedUploadedCsr_asValidationError_notServerFault() throws Exception {
+        // given — a structurally valid PKCS#10 whose extensionRequest attribute carries an EMPTY value
+        // set: parsing it explodes with an unchecked exception rather than a typed parse exception
+        ClientCertificateRequestDto request = uploadRequest(pemEncodedCsrWithEmptyExtensionRequest());
+
+        // when / then — shaped 422 client error, not an unhandled 500
+        assertThatThrownBy(() -> clientOperationService.submitCertificateRequest(request, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("could not be processed for validation");
+    }
+
+    @Test
     void rejectsUploadedCsr_whenStrictProfileAndAttributeSetCannotBeResolved() {
         // given — a strict profile whose merge mode consults the authority connector, and that connector errors
         RaProfileCertificateRequestAttributesUpdateDto config = new RaProfileCertificateRequestAttributesUpdateDto();
@@ -209,6 +230,32 @@ class CertificateRequestModeBValidationTest extends BaseSpringBootTest {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+    }
+
+    /**
+     * Hand-assembles a PKCS#10 whose {@code extensionRequest} attribute has an empty value set —
+     * legal ASN.1 that no BC builder produces, and that fails extension extraction with an unchecked
+     * exception. The signature is a placeholder: Mode B validation runs before any signature check.
+     */
+    private static String pemEncodedCsrWithEmptyExtensionRequest() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        KeyPair keyPair = kpg.generateKeyPair();
+
+        Attribute emptyExtensionRequest = new Attribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, new DERSet());
+        CertificationRequestInfo info = new CertificationRequestInfo(
+                new X500Name("O=Acme"),
+                SubjectPublicKeyInfo.getInstance(keyPair.getPublic().getEncoded()),
+                new DERSet(emptyExtensionRequest));
+        CertificationRequest csr = new CertificationRequest(info,
+                new AlgorithmIdentifier(PKCSObjectIdentifiers.sha256WithRSAEncryption, DERNull.INSTANCE),
+                new DERBitString(new byte[]{0}));
+
+        StringWriter stringWriter = new StringWriter();
+        try (PemWriter pemWriter = new PemWriter(stringWriter)) {
+            pemWriter.writeObject(new PemObject("CERTIFICATE REQUEST", csr.getEncoded()));
+        }
+        return stringWriter.toString();
     }
 
     /** Builds a self-signed PKCS#10 request over the given subject DN and PEM-encodes it. */

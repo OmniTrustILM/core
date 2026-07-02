@@ -13,7 +13,7 @@ public class OidHandler {
     }
 
     /** Dotted-decimal OID form (e.g. {@code 2.5.4.3}); anything else is treated as a short RDN code. */
-    public static final Pattern OID_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
+    private static final Pattern OID_PATTERN = Pattern.compile("^[0-2](\\.(0|[1-9]\\d{0,38})){1,127}$");
 
     /** {@code true} if {@code value} is a well-formed dotted-decimal OID (never {@code null}-safe true). */
     public static boolean isOid(String value) {
