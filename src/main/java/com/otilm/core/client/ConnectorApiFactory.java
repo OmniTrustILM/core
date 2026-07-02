@@ -20,6 +20,7 @@ import com.otilm.api.clients.signing.SignatureFormattingApiClient;
 import com.otilm.api.interfaces.client.v1.AttributeSyncApiClient;
 import com.otilm.api.interfaces.client.v1.signing.SignatureFormattingSyncApiClient;
 import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
+import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.interfaces.client.v2.ComplianceSyncApiClient;
 import com.otilm.api.interfaces.client.v2.HealthSyncApiClient;
@@ -85,6 +86,7 @@ public class ConnectorApiFactory {
     private final TokenInstanceApiClient restTokenInstanceApiClient;
     private final KeyManagementApiClient restKeyManagementApiClient;
     private final CryptographicOperationsApiClient restCryptographicOperationsApiClient;
+    private final com.otilm.api.clients.v2.AttributesApiClient restAttributesApiClientV2;
     private final com.otilm.api.clients.v2.CertificateApiClient restCertificateApiClientV2;
     private final ComplianceApiClient restComplianceApiClient;
     private final com.otilm.api.clients.v2.ComplianceApiClient restComplianceApiClientV2;
@@ -109,6 +111,7 @@ public class ConnectorApiFactory {
     private final Optional<com.otilm.api.clients.mq.TokenInstanceApiClient> mqTokenInstanceApiClient;
     private final Optional<com.otilm.api.clients.mq.KeyManagementApiClient> mqKeyManagementApiClient;
     private final Optional<com.otilm.api.clients.mq.CryptographicOperationsApiClient> mqCryptographicOperationsApiClient;
+    private final Optional<com.otilm.api.clients.mq.v2.AttributesApiClient> mqAttributesApiClientV2;
     private final Optional<com.otilm.api.clients.mq.v2.CertificateApiClient> mqCertificateApiClientV2;
     private final Optional<com.otilm.api.clients.mq.ComplianceApiClient> mqComplianceApiClient;
     private final Optional<com.otilm.api.clients.mq.v2.ComplianceApiClient> mqComplianceApiClientV2;
@@ -136,8 +139,8 @@ public class ConnectorApiFactory {
 
     @PostConstruct
     void logInitialization() {
-        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatting={}, vault={}, secret(REST-only)={}",
-                mqAttributeApiClient.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormattingApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
+        log.info("ConnectorApiFactory initialized. MQ clients available: attribute={}, attributesV2={}, authorityInstance={}, certificate={}, certificateV2={}, certificateV3={}, authorityV3={}, compliance={}, complianceV2={}, connector={}, discovery={}, endEntity={}, endEntityProfile={}, entityInstance={}, health={}, healthV2={}, infoV2={}, location={}, metricsV2={}, notificationInstance={}, tokenInstance={}, keyManagement={}, cryptographicOperations={}, signatureFormatting={}, vault={}, secret(REST-only)={}",
+                mqAttributeApiClient.isPresent(), mqAttributesApiClientV2.isPresent(), mqAuthorityInstanceApiClient.isPresent(), mqCertificateApiClient.isPresent(), mqCertificateApiClientV2.isPresent(), mqCertificateApiClientV3.isPresent(), mqAuthorityApiClientV3.isPresent(), mqComplianceApiClient.isPresent(), mqComplianceApiClientV2.isPresent(), mqConnectorApiClient.isPresent(), mqDiscoveryApiClient.isPresent(), mqEndEntityApiClient.isPresent(), mqEndEntityProfileApiClient.isPresent(), mqEntityInstanceApiClient.isPresent(), mqHealthApiClient.isPresent(), mqHealthApiClientV2.isPresent(), mqInfoApiClientV2.isPresent(), mqLocationApiClient.isPresent(), mqMetricsApiClientV2.isPresent(), mqNotificationInstanceApiClient.isPresent(), mqTokenInstanceApiClient.isPresent(), mqKeyManagementApiClient.isPresent(), mqCryptographicOperationsApiClient.isPresent(), mqSignatureFormattingApiClient.isPresent(), mqVaultApiClient.isPresent(), true);
     }
 
     /**
@@ -209,6 +212,10 @@ public class ConnectorApiFactory {
      */
     public CryptographicOperationsSyncApiClient getCryptographicOperationsApiClient(UUID connectorUuid) throws NotFoundException {
         return getCryptographicOperationsApiClient(connectorService.getConnectorForApiClient(connectorUuid));
+    }
+
+    public AttributesSyncApiClient getAttributesApiClientV2(ApiClientConnectorInfo connector) {
+        return getClient(connector, restAttributesApiClientV2, mqAttributesApiClientV2);
     }
 
     public CertificateSyncApiClient getCertificateApiClientV2(ApiClientConnectorInfo connector) {
