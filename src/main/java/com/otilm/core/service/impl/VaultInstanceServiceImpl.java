@@ -32,7 +32,8 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.VaultInstanceExternalService;
 import com.otilm.core.service.VaultInstanceInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -60,7 +61,8 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
 
     private ConnectorApiFactory connectorApiFactory;
 
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
 
     private AttributeEngine attributeEngine;
     private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
@@ -86,8 +88,13 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -229,7 +236,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
             throw new ValidationException("Cannot list vault profile attributes for vault without associated connector");
         }
 
-        ApiClientConnectorInfo connectorInfo = connectorService.getConnectorForApiClient(vaultInstance.getConnectorUuid());
+        ApiClientConnectorInfo connectorInfo = connectorInternalService.getConnectorForApiClient(vaultInstance.getConnectorUuid());
         List<BaseAttribute> vaultAttributes = connectorApiFactory.getVaultApiClient(connectorInfo).listVaultAttributes(connectorInfo);
         List<RequestAttribute> requestVaultAttributes = connectorRequestAttributesBuilder.prepareRequestAttributesForConnectorRequest(vaultInstance.getConnectorUuid(), vaultAttributes, attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.VAULT, vaultInstance.getUuid()).connector(vaultInstance.getConnectorUuid()).build()));
 

@@ -33,7 +33,8 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialExternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -58,7 +59,8 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
     private static final Logger logger = LoggerFactory.getLogger(CredentialServiceImpl.class);
 
     private CredentialRepository credentialRepository;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private AttributeEngine attributeEngine;
 
     @Autowired
@@ -67,8 +69,13 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -123,7 +130,7 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
         ConnectorDto connector = connectorService.getConnector(connectorUuid);
 
         attributeEngine.validateCustomAttributesContent(Resource.CREDENTIAL, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(connectorUuid, FunctionGroupCode.CREDENTIAL_PROVIDER, request.getAttributes(), request.getKind());
+        connectorInternalService.mergeAndValidateAttributes(connectorUuid, FunctionGroupCode.CREDENTIAL_PROVIDER, request.getAttributes(), request.getKind());
 
         Credential credential = new Credential();
         credential.setName(request.getName());
@@ -147,7 +154,7 @@ public class CredentialServiceImpl implements CredentialExternalService, Credent
         SecuredUUID connectorUuid = SecuredUUID.fromUUID(credential.getConnectorUuid());
 
         attributeEngine.validateCustomAttributesContent(Resource.CREDENTIAL, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(connectorUuid, FunctionGroupCode.CREDENTIAL_PROVIDER, request.getAttributes(), credential.getKind());
+        connectorInternalService.mergeAndValidateAttributes(connectorUuid, FunctionGroupCode.CREDENTIAL_PROVIDER, request.getAttributes(), credential.getKind());
         credentialRepository.save(credential);
 
         CredentialDto credentialDto = credential.mapToDto();

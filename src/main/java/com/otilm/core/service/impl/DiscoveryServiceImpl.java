@@ -100,7 +100,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private DiscoveryRepository discoveryRepository;
     private CertificateRepository certificateRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CredentialInternalService credentialService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private CertificateContentRepository certificateContentRepository;
@@ -158,7 +158,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

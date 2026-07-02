@@ -24,7 +24,7 @@ import org.springframework.security.core.Authentication;
 class ConnectorRegistrationServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
 
     @Autowired
     private ConnectorRegistrationExternalService connectorRegistrationService;

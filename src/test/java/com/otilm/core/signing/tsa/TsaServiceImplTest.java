@@ -24,7 +24,7 @@ import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TspProfileExternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
@@ -82,7 +82,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
     private SigningRecordExternalService signingRecordService;
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
 
     @Autowired
     private TokenInstanceExternalService tokenInstanceService;

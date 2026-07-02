@@ -36,7 +36,7 @@ import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.TokenInstanceInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateRequestUtils;
 import org.bouncycastle.asn1.DERBitString;
@@ -74,7 +74,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     private TokenInstanceInternalService tokenInstanceService;
     private CryptographicKeyEventHistoryService eventHistoryService;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private PermissionEvaluator permissionEvaluator;
     private CryptographicKeyService cryptographicKeyService;
 
@@ -107,7 +107,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

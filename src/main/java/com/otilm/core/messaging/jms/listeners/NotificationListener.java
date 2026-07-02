@@ -30,7 +30,7 @@ import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.service.NotificationInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.TriggerInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import org.slf4j.Logger;
@@ -56,7 +56,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     private NotificationInternalService notificationService;
     private TriggerInternalService triggerService;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private PendingNotificationRepository pendingNotificationRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;

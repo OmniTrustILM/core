@@ -52,7 +52,7 @@ import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.v2.ClientOperationInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -89,7 +89,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private CertificateRelationRepository certificateRelationRepository;
     private RaProfileRepository raProfileRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CertificateService certificateService;
     private ClientOperationInternalService clientOperationService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -128,7 +128,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

@@ -15,7 +15,8 @@ import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.ResourceInternalService;
@@ -61,7 +62,8 @@ import static org.mockito.Mockito.when;
 class AuthorityInstanceServiceImplV3Test {
 
     @Mock private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    @Mock private ConnectorService connectorService;
+    @Mock private ConnectorExternalService connectorService;
+    @Mock private ConnectorInternalService connectorInternalService;
     @Mock private CredentialInternalService credentialService;
     @Mock private ConnectorApiFactory connectorApiFactory;
     @Mock private RaProfileInternalService raProfileService;
