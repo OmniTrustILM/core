@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -30,7 +30,7 @@ import java.util.Set;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class EnumCollectionsColumnsBitmaskTest extends BaseMigrationTest {
+class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

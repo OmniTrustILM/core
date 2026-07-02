@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -26,7 +26,7 @@ import java.util.List;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class CertificateRelationsTest extends BaseMigrationTest {
+class CertificateRelationsITest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

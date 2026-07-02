@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.core.dao.entity.Certificate;
@@ -21,7 +21,7 @@ import java.sql.Statement;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class UniqueCryptographicKeyItemFingerprintTest extends BaseMigrationTest {
+class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
     private static final String DUPLICATE_FINGERPRINT = "duplicateFingerprint";
     @Autowired
     DataSource dataSource;
