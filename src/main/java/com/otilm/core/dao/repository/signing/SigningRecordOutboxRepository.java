@@ -51,4 +51,12 @@ public interface SigningRecordOutboxRepository extends JpaRepository<SigningReco
     @Modifying
     @Query("DELETE FROM SigningRecordOutbox o WHERE o.uuid = :uuid")
     void deleteByUuid(@Param("uuid") UUID uuid);
+
+    /**
+     * Bulk deletes outbox rows by UUID list. Used by the batch drain path to remove an entire batch's
+     * originating rows in one statement after all records have been persisted.
+     */
+    @Modifying
+    @Query("DELETE FROM SigningRecordOutbox o WHERE o.uuid IN :uuids")
+    void deleteAllByUuidIn(@Param("uuids") List<UUID> uuids);
 }
