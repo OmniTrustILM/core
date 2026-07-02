@@ -14,7 +14,7 @@ import org.springframework.validation.annotation.Validated;
 public record SigningRecordOutboxProperties(
         @Min(1) long flushIntervalMs,
         @Min(1) int maxBatchSize,
-        @Min(0) int maxBatchesPerRun,
+        @Min(1) int maxBatchesPerRun,
         @Min(1) int poisonThreshold
 ) {
 }

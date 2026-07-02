@@ -29,15 +29,17 @@ public class BestEffortSigningRecordQueue {
      * caller can account for the loss.
      */
     public int enqueueDropping(SigningRecord signingRecord) {
-        int evicted = 0;
+        if (queue.offer(signingRecord))
+            return 0;
+        List<String> evictedUuids = new ArrayList<>();
         while (!queue.offer(signingRecord)) {
             SigningRecord removed = queue.poll();
             if (removed != null) {
-                evicted++;
-                log.warn("BEST_EFFORT queue full; evicted oldest {} to admit {}", removed.getUuid(), signingRecord.getUuid());
+                evictedUuids.add(removed.getUuid().toString());
             }
         }
-        return evicted;
+        log.warn("BEST_EFFORT queue full; evicted {} record(s) {} to admit {}", evictedUuids.size(), evictedUuids, signingRecord.getUuid());
+        return evictedUuids.size();
     }
 
     /**
