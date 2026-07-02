@@ -54,7 +54,7 @@ public interface AuthorityProviderAdapter {
      * (`/v1/authorityProvider/{kind}/attributes`); v3 via the stateless
      * `/v3/authorityProvider/authorities/attributes`. Used by authority create/edit so the operator
      * input is validated against the version-correct schema (legacy connectors do NOT use this —
-     * they stay on the function-group path in ConnectorService).
+     * they stay on the function-group path in ConnectorInternalService).
      */
     List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException;
 

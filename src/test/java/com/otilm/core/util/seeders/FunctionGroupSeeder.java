@@ -17,7 +17,7 @@ import java.util.List;
  * Function groups and their required endpoints are platform reference data normally provided by Flyway
  * migrations. In the test profile Flyway is disabled and {@code BaseSpringBootTest} truncates every
  * {@code core} table before each test, so any test that registers a V1 connector through
- * {@code ConnectorService} must re-create the matching function group first — registration validation
+ * {@code ConnectorExternalService} must re-create the matching function group first — registration validation
  * rejects an unknown function group, and {@code ConnectorV1Adapter#validateFunctionGroups} checks the
  * connector's advertised endpoints against the seeded required ones. There is no service for this
  * metadata, so seeding goes through repositories.

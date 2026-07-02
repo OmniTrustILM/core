@@ -21,7 +21,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.util.converter.ConnectorStatusConverter;
 import com.otilm.core.util.converter.FunctionGroupCodeConverter;
 import com.otilm.core.util.converter.OptionalEnumConverter;
@@ -43,10 +43,10 @@ import java.util.Optional;
 @RestController("connectorControllerV1")
 public class ConnectorControllerImpl implements ConnectorController {
 
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
     }
 

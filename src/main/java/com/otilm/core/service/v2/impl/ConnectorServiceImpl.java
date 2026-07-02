@@ -29,11 +29,13 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorAuthInternalService;
 import com.otilm.core.service.handler.ConnectorAdapter;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -60,7 +62,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.CONNECTOR)
 @Transactional
-public class ConnectorServiceImpl implements ConnectorService {
+public class ConnectorServiceImpl implements ConnectorExternalService, ConnectorInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(ConnectorServiceImpl.class);
 
@@ -371,6 +373,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public HealthInfo checkHealth(SecuredUUID uuid) throws NotFoundException, ConnectorException {
         Connector connector = getConnectorEntity(uuid);
         ConnectorAdapter connectorAdapter = getAdapter(connector.getVersion());
@@ -378,6 +381,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public ConnectorInfo getInfo(SecuredUUID uuid) throws NotFoundException, ConnectorException {
         Connector connector = getConnectorEntity(uuid);
         ConnectorAdapter connectorAdapter = getAdapter(connector.getVersion());
@@ -385,6 +389,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CONNECTOR, false);
 

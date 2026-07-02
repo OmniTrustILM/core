@@ -26,7 +26,8 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.NotificationInstanceExternalService;
 import com.otilm.core.service.ResourceInternalService;
@@ -51,7 +52,8 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
 
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -60,8 +62,43 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     private ResourceInternalService resourceService;
 
     @Autowired
+    public void setConnectorService(ConnectorExternalService connectorService) {
+        this.connectorService = connectorService;
+    }
+
+    @Autowired
     public void setNotificationProfileVersionWriter(NotificationProfileVersionWriter notificationProfileVersionWriter) {
         this.notificationProfileVersionWriter = notificationProfileVersionWriter;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
+    }
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
+    }
+
+    @Autowired
+    public void setCredentialService(CredentialInternalService credentialService) {
+        this.credentialService = credentialService;
+    }
+
+    @Autowired
+    public void setNotificationInstanceMappedAttributeRepository(NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository) {
+        this.notificationInstanceMappedAttributeRepository = notificationInstanceMappedAttributeRepository;
+    }
+
+    @Autowired
+    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
+        this.connectorApiFactory = connectorApiFactory;
+    }
+
+    @Autowired
+    public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
+        this.notificationProfileVersionRepository = notificationProfileVersionRepository;
     }
 
     @Autowired
@@ -72,36 +109,6 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
-    }
-
-    @Autowired
-    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
-        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
-    }
-
-    @Autowired
-    public void setNotificationInstanceMappedAttributeRepository(NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository) {
-        this.notificationInstanceMappedAttributeRepository = notificationInstanceMappedAttributeRepository;
-    }
-
-    @Autowired
-    public void setNotificationProfileVersionRepository(NotificationProfileVersionRepository notificationProfileVersionRepository) {
-        this.notificationProfileVersionRepository = notificationProfileVersionRepository;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
-        this.connectorService = connectorService;
-    }
-
-    @Autowired
-    public void setCredentialService(CredentialInternalService credentialService) {
-        this.credentialService = credentialService;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
     }
 
     @Override
@@ -132,7 +139,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
             return notificationInstanceDto;
         }
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(notificationInstanceReference.getConnectorUuid());
         NotificationProviderInstanceDto notificationProviderInstanceDto;
         try {
             notificationProviderInstanceDto = connectorApiFactory.getNotificationInstanceApiClient(connectorDto).getNotificationInstance(
@@ -202,7 +209,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
                 request,
                 notificationInstanceRef.getKind(),
                 notificationInstanceRef.getName(),
-                connectorService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid()));
+                connectorInternalService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid()));
 
         notificationInstanceRef.setDescription(request.getDescription());
 
@@ -239,7 +246,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
     }
 
     private NotificationProviderInstanceDto saveNotificationProviderInstance(UUID uuid, NotificationInstanceUpdateRequestDto request, String kind, String name, ApiClientConnectorInfo connector) throws ConnectorException, AttributeException, NotFoundException {
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromString(connector.getUuid()), FunctionGroupCode.NOTIFICATION_PROVIDER, request.getAttributes(), kind);
+        connectorInternalService.mergeAndValidateAttributes(SecuredUUID.fromString(connector.getUuid()), FunctionGroupCode.NOTIFICATION_PROVIDER, request.getAttributes(), kind);
 
         // Load complete credential data
         var dataAttributes = attributeEngine.getDataAttributesByContent(UUID.fromString(connector.getUuid()), request.getAttributes());
@@ -286,7 +293,7 @@ public class NotificationInstanceServiceImpl implements NotificationInstanceExte
 
         if (notificationInstanceRef.getConnector() != null) {
             try {
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid());
+                ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(notificationInstanceRef.getConnectorUuid());
                 connectorApiFactory.getNotificationInstanceApiClient(connectorDto).removeNotificationInstance(connectorDto,
                         notificationInstanceRef.getNotificationInstanceUuid().toString());
             } catch (ConnectorEntityNotFoundException notFoundException) {

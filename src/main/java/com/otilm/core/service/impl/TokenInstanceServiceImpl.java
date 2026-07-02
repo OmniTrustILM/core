@@ -28,7 +28,8 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
@@ -55,7 +56,8 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     // Services & API Clients
     // --------------------------------------------------------------------------------
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
+    private ConnectorInternalService connectorInternalService;
     private CredentialInternalService credentialService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
@@ -86,8 +88,13 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
+    }
+
+    @Autowired
+    public void setConnectorInternalService(ConnectorInternalService connectorInternalService) {
+        this.connectorInternalService = connectorInternalService;
     }
 
     @Autowired
@@ -126,7 +133,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         TokenInstanceStatusDto status;
         TokenInstanceStatusDetailDto statusDetail = new TokenInstanceStatusDetailDto();
         try {
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+            ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
             status = connectorApiFactory.getTokenInstanceApiClient(connectorDto).getTokenInstanceStatus(
                     connectorDto,
                     tokenInstanceReference.getTokenInstanceUuid()
@@ -169,7 +176,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         UUID connectorUuid =  UUID.fromString(connector.getUuid());
 
         attributeEngine.validateCustomAttributesContent(Resource.TOKEN, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connectorUuid), FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, request.getAttributes(), request.getKind());
+        connectorInternalService.mergeAndValidateAttributes(SecuredUUID.fromUUID(connectorUuid), FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, request.getAttributes(), request.getKind());
 
         // Load complete credential data
         var dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, request.getAttributes());
@@ -221,10 +228,10 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Updating token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
         logger.debug("Token Instance Reference: {}", tokenInstanceReference);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
 
         attributeEngine.validateCustomAttributesContent(Resource.TOKEN, request.getCustomAttributes());
-        connectorService.mergeAndValidateAttributes(SecuredUUID.fromUUID(tokenInstanceReference.getConnectorUuid()), FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, request.getAttributes(), request.getKind());
+        connectorInternalService.mergeAndValidateAttributes(SecuredUUID.fromUUID(tokenInstanceReference.getConnectorUuid()), FunctionGroupCode.CRYPTOGRAPHY_PROVIDER, request.getAttributes(), request.getKind());
 
         TokenInstanceStatusDto status;
         TokenInstanceStatusDetailDto statusDetail = new TokenInstanceStatusDetailDto();
@@ -278,7 +285,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     public void activateTokenInstance(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
         logger.info("Activating token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         connectorApiFactory.getTokenInstanceApiClient(connectorDto).activateTokenInstance(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid(),
@@ -293,7 +300,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     public void deactivateTokenInstance(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         logger.info("Deactivating token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         connectorApiFactory.getTokenInstanceApiClient(connectorDto).deactivateTokenInstance(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -326,7 +333,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
     public TokenInstanceDetailDto reloadStatus(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         logger.info("Reloading status of token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         TokenInstanceStatusDto status = connectorApiFactory.getTokenInstanceApiClient(connectorDto).getTokenInstanceStatus(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -344,7 +351,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Listing token profile attributes of token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
         logger.debug("Token instance detail: {}", tokenInstanceReference);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         return connectorApiFactory.getTokenInstanceApiClient(connectorDto).listTokenProfileAttributes(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -357,7 +364,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Validating token profile attributes of token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
         logger.debug("Token instance detail: {}", tokenInstanceReference);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         connectorApiFactory.getTokenInstanceApiClient(connectorDto).validateTokenProfileAttributes(connectorDto, tokenInstanceReference.getTokenInstanceUuid(),
                 attributes);
     }
@@ -368,7 +375,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         logger.info("Listing token instance activation attributes of token instance with uuid: {}", uuid);
         TokenInstanceReference tokenInstanceReference = getTokenInstanceReferenceEntity(uuid);
         logger.debug("Token instance detail: {}", tokenInstanceReference);
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+        ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
         return connectorApiFactory.getTokenInstanceApiClient(connectorDto).listTokenInstanceActivationAttributes(
                 connectorDto,
                 tokenInstanceReference.getTokenInstanceUuid()
@@ -427,7 +434,7 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         if (tokenInstanceReference.getConnector() != null) {
             try {
                 logger.debug("Deleting token instance with connector: {}", tokenInstanceReference);
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
+                ApiClientConnectorInfo connectorDto = connectorInternalService.getConnectorForApiClient(tokenInstanceReference.getConnectorUuid());
                 connectorApiFactory.getTokenInstanceApiClient(connectorDto).removeTokenInstance(connectorDto, tokenInstanceReference.getTokenInstanceUuid());
             } catch (Exception e) {
                 logger.error(e.getMessage());
