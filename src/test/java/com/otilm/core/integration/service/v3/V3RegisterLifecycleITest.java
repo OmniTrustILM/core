@@ -1,4 +1,4 @@
-package com.otilm.core.service.v3.integration;
+package com.otilm.core.integration.service.v3;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -59,7 +59,7 @@ import java.util.UUID;
  * </ol>
  *
  * <p>The {@link ActionProducer} spy is wired using the same pattern as
- * {@link com.otilm.core.service.acme.integration.AcmeProtocolFlowITest}, forwarding ISSUE actions
+ * {@link com.otilm.core.integration.service.acme.AcmeProtocolFlowITest}, forwarding ISSUE actions
  * synchronously to avoid a RabbitMQ dependency.
  */
 public class V3RegisterLifecycleITest extends BaseSpringBootTest {

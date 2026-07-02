@@ -122,7 +122,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         authorityRef = authorityInstanceReferenceRepository.save(authorityRef);
 
         raProfile = new RaProfile();
-        raProfile.setName("modeATestRaProfile");
+        raProfile.setName("rendererTestRaProfile");
         raProfile.setAuthorityInstanceReference(authorityRef);
         raProfile.setAuthorityInstanceReferenceUuid(authorityRef.getUuid());
         raProfile.setEnabled(true);
@@ -139,7 +139,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         connector2FunctionGroupRepository.save(c2fg);
 
         TokenInstanceReference tokenInstanceReference = new TokenInstanceReference();
-        tokenInstanceReference.setName("modeATokenInstance");
+        tokenInstanceReference.setName("rendererTokenInstance");
         tokenInstanceReference.setConnector(connector);
         tokenInstanceReference.setConnectorUuid(connector.getUuid());
         tokenInstanceReference.setKind("sample");
@@ -147,11 +147,11 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         tokenInstanceReferenceRepository.save(tokenInstanceReference);
 
         tokenProfile = new TokenProfile();
-        tokenProfile.setName("modeATokenProfile");
+        tokenProfile.setName("rendererTokenProfile");
         tokenProfile.setTokenInstanceReference(tokenInstanceReference);
-        tokenProfile.setDescription("mode A test token profile");
+        tokenProfile.setDescription("renderer test token profile");
         tokenProfile.setEnabled(true);
-        tokenProfile.setTokenInstanceName("modeATokenInstance");
+        tokenProfile.setTokenInstanceName("rendererTokenInstance");
         tokenProfileRepository.save(tokenProfile);
 
         // truncateTables() in BaseSpringBootTest wipes all rows including attribute definitions
@@ -162,7 +162,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
 
         keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
         var publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
-        cryptographicKey = cryptographicKeySeeder.seedKey("modeATestKey", tokenProfile, tokenInstanceReference,
+        cryptographicKey = cryptographicKeySeeder.seedKey("rendererTestKey", tokenProfile, tokenInstanceReference,
                 signingPrivateKey(KeyAlgorithm.RSA).withMaterial(KeyFormat.PRKI, "placeholder"),
                 verifyingPublicKey(KeyAlgorithm.RSA).withMaterial(KeyFormat.SPKI, publicKeyData));
     }
@@ -211,11 +211,11 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
         stubIssueAttributes(connectorAttrsJson);
         stubSigning();
 
-        // Extension value: DER-encoded UTF8String "modeAExtValue", then base64 for transport.
-        var extValueBase64 = Base64.getEncoder().encodeToString(new DERUTF8String("modeAExtValue").getEncoded());
+        // Extension value: DER-encoded UTF8String "rendererExtValue", then base64 for transport.
+        var extValueBase64 = Base64.getEncoder().encodeToString(new DERUTF8String("rendererExtValue").getEncoded());
         var request = baseRequest();
         request.setCsrAttributes(List.of(
-                commonNameAttribute("ModeATest"),
+                commonNameAttribute("RendererTest"),
                 aCustomAttribute().withUuid(SAN_ATTR_UUID).withName("sanDns")
                         .withStringContent("connector.example.com").build(),
                 aCustomAttribute().withUuid(EXT_ATTR_UUID).withName("customExt")
@@ -226,7 +226,7 @@ class CertificateRequestIntegrationTest extends BaseSpringBootTest {
 
         // then
         assertThat(result).isNotNull();
-        assertThat(result.getSubjectDn()).contains("CN=ModeATest");
+        assertThat(result.getSubjectDn()).contains("CN=RendererTest");
         assertThat(result.getCertificateRequest()).isNotNull();
 
         Extensions storedExts = extensionsOfStoredCsr(result);
