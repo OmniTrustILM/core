@@ -8,6 +8,7 @@ import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.mapper.signing.SigningRecordMapper;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
