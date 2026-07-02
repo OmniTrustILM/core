@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -27,7 +27,7 @@ import java.util.UUID;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class MigrateToComplianceProfilesV2Test extends BaseMigrationTest {
+class MigrateToComplianceProfilesV2ITest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;
@@ -35,7 +35,7 @@ class MigrateToComplianceProfilesV2Test extends BaseMigrationTest {
     @Autowired
     ObjectMapper objectMapper;
 
-    MigrateToComplianceProfilesV2Test() {
+    MigrateToComplianceProfilesV2ITest() {
     }
 
     @Test
