@@ -24,8 +24,8 @@ import com.otilm.core.dao.entity.cmp.CmpProfile_;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
@@ -328,7 +328,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<CertificateDto> listCmpSigningCertificates() {
         return certificateService.listCmpSigningCertificates(SecurityFilter.create());
     }

@@ -63,7 +63,6 @@ import com.otilm.core.model.cbom.BomVersionDto;
 import com.otilm.core.model.cbom.CryptoStatsDto;
 import com.otilm.core.model.cbom.BomSearchRequestDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CbomExternalService;
@@ -328,7 +327,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CBOM, false);
 

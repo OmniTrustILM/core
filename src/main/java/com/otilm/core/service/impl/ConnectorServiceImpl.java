@@ -89,7 +89,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DETAIL)
     public ConnectorDto getConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         var connectorDetailDto = connectorServiceV2.getConnector(uuid);
         return convertToDtoV1(connectorDetailDto);
@@ -102,7 +102,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CREATE)
     public ConnectorDto createConnector(ConnectorRequestDto request) throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
         requestV2.setName(request.getName());
@@ -119,7 +119,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.UPDATE)
     public ConnectorDto editConnector(SecuredUUID uuid, ConnectorUpdateRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto();
         requestV2.setUrl(request.getUrl());
@@ -133,25 +133,25 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public void deleteConnector(SecuredUUID uuid) throws NotFoundException {
         connectorServiceV2.deleteConnector(uuid);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> bulkDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException {
         return connectorServiceV2.bulkDeleteConnector(uuids);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> forceDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException {
         return connectorServiceV2.forceDeleteConnector(uuids);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public List<ConnectDto> connect(ConnectRequestDto request) throws ValidationException, ConnectorException {
         var connectInfos = connectorServiceV2.connect(request);
 
@@ -177,7 +177,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public List<ConnectDto> reconnect(SecuredUUID uuid) throws ValidationException, ConnectorException, NotFoundException {
         var connector = connectorRepository.findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
@@ -199,19 +199,19 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public void reconnect(List<SecuredUUID> uuids) throws ValidationException, ConnectorException {
         connectorServiceV2.bulkReconnect(uuids);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.APPROVE)
     public void approve(SecuredUUID uuid) throws NotFoundException, ValidationException {
         connectorServiceV2.approve(uuid);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.APPROVE)
     public void approve(List<SecuredUUID> uuids) throws NotFoundException, ValidationException {
         connectorServiceV2.bulkApprove(uuids);
     }

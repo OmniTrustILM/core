@@ -381,7 +381,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DETAIL)
     public ConnectorInfo getInfo(SecuredUUID uuid) throws NotFoundException, ConnectorException {
         Connector connector = getConnectorEntity(uuid);
         ConnectorAdapter connectorAdapter = getAdapter(connector.getVersion());
@@ -389,7 +389,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CONNECTOR, false);
 
