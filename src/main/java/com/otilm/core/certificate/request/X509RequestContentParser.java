@@ -101,9 +101,9 @@ public final class X509RequestContentParser {
      */
     private static String rdnTypeCode(ASN1ObjectIdentifier oid) {
         Map<String, OidRecord> rdnCache = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
-        OidRecord record = rdnCache == null ? null : rdnCache.get(oid.getId());
-        if (record != null && record.code() != null) {
-            return record.code();
+        OidRecord oidRecord = rdnCache == null ? null : rdnCache.get(oid.getId());
+        if (oidRecord != null && oidRecord.code() != null) {
+            return oidRecord.code();
         }
         String displayName = BCStyle.INSTANCE.oidToDisplayName(oid);
         return displayName != null ? displayName : oid.getId();
