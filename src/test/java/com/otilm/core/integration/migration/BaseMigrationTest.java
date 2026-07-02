@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.AfterAll;

@@ -41,3 +41,6 @@ src/main/resources/log-schemas/*-gen.json
 
 .env
 Taskfile.yml
+
+# local design/planning docs
+docs/superpowers/
