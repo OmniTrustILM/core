@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface AuthorityInstanceExternalService {
     List<AuthorityInstanceDto> listAuthorityInstances(SecurityFilter filter);
@@ -29,6 +30,15 @@ public interface AuthorityInstanceExternalService {
     List<NameAndIdDto> listCertificateProfiles(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException;
 
     List<NameAndIdDto> listCAsInProfile(SecuredUUID uuid, Integer endEntityProfileId) throws ConnectorException, NotFoundException;
+
+    /**
+     * Lists the authority attribute schema for a stateless v3 authority connector (used by the
+     * create-authority form), keyed by connector UUID. v3-only: throws ValidationException when the
+     * connector has no AUTHORITY interface or a non-v3 one. {@code interfaceUuid} is optional and only
+     * disambiguates a connector that exposes more than one AUTHORITY interface. Side effect: persists
+     * the returned definitions via the attribute engine for later validation and content preparation.
+     */
+    List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException;
 
     List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
 
