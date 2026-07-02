@@ -209,6 +209,16 @@ public class CmpServiceImpl implements CmpExternalService {
 
         // -- (processing) part
         init(profileName);
+        int bodyType = pkiRequest.getBody().getType();
+
+        // Profile validation must run before cmpProfile is dereferenced below.
+        try {
+            validateProfile(tid, bodyType, profileName);
+        } catch (CmpBaseException e) {
+            return errorResponse(tid, logPrefix, requestAsString, "profile validation", e,
+                    PkiMessageError.unprotectedMessage(pkiRequest.getHeader(), e.toPKIBody()));
+        }
+
         ConfigurationContext configuration = switch (cmpProfile.getVariant()) {
             /*   3gpp*/
             case V2_3GPP -> new Mobile3gppProfileContext(cmpProfile, raProfile, pkiRequest,
@@ -222,9 +232,6 @@ public class CmpServiceImpl implements CmpExternalService {
 
         try {
             PKIMessage pkiResponse;
-            int bodyType = pkiRequest.getBody().getType();
-            validateProfile(tid, bodyType, profileName);
-
             headerValidator.validate(pkiRequest, configuration);
             bodyValidator.validate(pkiRequest, configuration);
             protectionValidator.validateIn(pkiRequest, configuration);
@@ -288,46 +295,38 @@ public class CmpServiceImpl implements CmpExternalService {
 
             return buildOk(pkiResponse);
         } catch (CmpBaseException e) {
-            handleTrxError(tid, e);
-            PKIMessage pkiResponse = new PkiMessageBuilder(configuration)
-                    .addHeader(PkiMessageBuilder.buildBasicHeaderTemplate(pkiRequest))
-                    .addBody(e.toPKIBody())
-                    .addExtraCerts(null)
-                    .build();
-            if (verbose) {
-                LOG.error("{} | processing failed: \n\n response:\n {}", logPrefix,
-                        PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            } else {
-                LOG.error("{} | processing failed: \n\nrequest:\n {}\n response:\n {}", logPrefix,
-                        requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            }
-            return buildBadRequest(pkiResponse);
+            return errorResponse(tid, logPrefix, requestAsString, "processing", e,
+                    new PkiMessageBuilder(configuration)
+                            .addHeader(PkiMessageBuilder.buildBasicHeaderTemplate(pkiRequest))
+                            .addBody(e.toPKIBody())
+                            .addExtraCerts(null)
+                            .build());
         } catch (IOException e) {
-            handleTrxError(tid, e);
-            PKIMessage pkiResponse = PkiMessageError.unprotectedMessage(
-                    pkiRequest.getHeader(),
-                    PKIFailureInfo.badDataFormat,
-                    ImplFailureInfo.CMPSRV101);
-            if (verbose) {
-                LOG.error("{} | parsing failed: \n\n response:\n {}", logPrefix,
-                        PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            } else {
-                LOG.error("{} | parsing failed: \n\nrequest:\n {}\n response:\n {}", logPrefix,
-                        requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            }
-            return buildBadRequest(pkiResponse);
+            return errorResponse(tid, logPrefix, requestAsString, "parsing", e,
+                    PkiMessageError.unprotectedMessage(pkiRequest.getHeader(),
+                            PKIFailureInfo.badDataFormat, ImplFailureInfo.CMPSRV101));
         } catch (Exception e) {
-            handleTrxError(tid, e);
-            PKIMessage pkiResponse = safeUnprotectedError(pkiRequest.getHeader(), e);
-            if (verbose) {
-                LOG.error("{} | handling failed: \n\n response:\n {}", logPrefix,
-                        PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            } else {
-                LOG.error("{} | handling failed: \n\nrequest:\n {}\n response:\n {}", logPrefix,
-                        requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-            }
-            return buildBadRequest(pkiResponse);
+            return errorResponse(tid, logPrefix, requestAsString, "handling", e,
+                    safeUnprotectedError(pkiRequest.getHeader(), e));
         }
+    }
+
+    /**
+     * Fails a transaction, logs the given processing phase, and returns the CMP error response to the client.
+     * The {@code pkiResponse} is built by the caller because each phase shapes it differently (protected vs.
+     * unprotected, domain body vs. generic body).
+     */
+    private ResponseEntity<byte[]> errorResponse(ASN1OctetString tid, String logPrefix, String requestAsString,
+                                                 String phase, Exception e, PKIMessage pkiResponse) {
+        handleTrxError(tid, e);
+        if (verbose) {
+            LOG.error("{} | {} failed: \n\n response:\n {}", logPrefix, phase,
+                    PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+        } else {
+            LOG.error("{} | {} failed: \n\nrequest:\n {}\n response:\n {}", logPrefix, phase,
+                    requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+        }
+        return buildBadRequest(pkiResponse);
     }
 
     // Should it be handled in new transaction? It wqs made private since it was called intra class so Transactional annotation was ignored anyway

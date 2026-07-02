@@ -98,7 +98,7 @@ class CmpServiceImplValidateProfileTest {
     @Test
     void safeUnprotectedError_replacesRawMessageWithGenericDetail_forNonDomainException() {
         // given: a non-domain exception carrying a sensitive, SQL-shaped message, as would
-        // reach the top-level catch(Exception) of the request-handling flow
+        // reach the top-level catch-all in the request-handling flow
         RuntimeException leaky = new RuntimeException(LEAKY_MESSAGE);
 
         // when: the unprotected CMP error response is built for it
