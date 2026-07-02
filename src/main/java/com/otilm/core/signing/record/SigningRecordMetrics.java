@@ -68,6 +68,15 @@ public class SigningRecordMetrics {
         return Counter.builder("signing_record.persist.failed").tag("mode", mode).register(registry);
     }
 
+    // --- Outbox drain health -------------------------------------------------------------------------
+
+    /**
+     * Batch drain transactions that failed and fell back to per-row draining.
+     */
+    public Counter batchDrainFallback() {
+        return registry.counter("signing_record.outbox.batch_drain.fallback");
+    }
+
     // --- Best-effort backpressure loss (post-acceptance) ---------------------------------------------
 
     /**
