@@ -6,7 +6,6 @@ import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -32,14 +31,14 @@ public class SigningRecordWriter {
      */
     private static final int MAX_ERROR_LENGTH = 1000;
 
-    @PersistenceContext
-    private EntityManager entityManager;
-
+    private final EntityManager entityManager;
     private final SigningRecordRepository recordRepository;
     private final SigningRecordOutboxRepository outboxRepository;
 
-    public SigningRecordWriter(SigningRecordRepository recordRepository,
+    public SigningRecordWriter(EntityManager entityManager,
+                               SigningRecordRepository recordRepository,
                                SigningRecordOutboxRepository outboxRepository) {
+        this.entityManager = entityManager;
         this.recordRepository = recordRepository;
         this.outboxRepository = outboxRepository;
     }
