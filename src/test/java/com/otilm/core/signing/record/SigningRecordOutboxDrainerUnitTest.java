@@ -84,7 +84,7 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer).persistBatchAndDeleteOutbox(anyList());
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(writer, never()).recordFailure(any(), any());
-        assertEquals(3, atemptedDrainedCount());
+        assertEquals(3, attemptedCount());
     }
 
     @Test
@@ -98,7 +98,7 @@ class SigningRecordOutboxDrainerUnitTest {
         // then
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(writer, never()).recordFailure(any(), any());
-        assertEquals(0, atemptedDrainedCount());
+        assertEquals(0, attemptedCount());
     }
 
     @Test
@@ -130,7 +130,7 @@ class SigningRecordOutboxDrainerUnitTest {
         // then
         verify(writer).recordFailure(eq(failingUuid), any(String.class));
         assertEquals(1, failedCount());
-        assertEquals(1, atemptedDrainedCount());
+        assertEquals(1, attemptedCount());
     }
 
     @Test
@@ -148,7 +148,7 @@ class SigningRecordOutboxDrainerUnitTest {
         // when / then the failed bookkeeping does not abort the batch — the healthy row is still drained
         assertDoesNotThrow(() -> createDrainer().drainOnce());
         verify(writer).saveRecordAndDeleteOutbox(recordFor(healthyUuid));
-        assertEquals(2, atemptedDrainedCount());
+        assertEquals(2, attemptedCount());
     }
 
     @Test
@@ -169,7 +169,7 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer).recordFailure(eq(failingUuid), any(String.class));
         verify(writer, never()).recordFailure(eq(healthyUuid), any());
         assertEquals(1, failedCount());
-        assertEquals(2, atemptedDrainedCount());
+        assertEquals(2, attemptedCount());
     }
 
     @Test
@@ -186,7 +186,7 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer, never()).persistBatchAndDeleteOutbox(anyList());
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(writer, never()).recordFailure(any(), any());
-        assertEquals(0, atemptedDrainedCount());
+        assertEquals(0, attemptedCount());
         assertEquals(0, failedCount());
     }
 
@@ -205,7 +205,7 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer, times(2)).persistBatchAndDeleteOutbox(anyList());
         verify(writer, never()).saveRecordAndDeleteOutbox(any());
         verify(outboxRepo, times(2)).findDrainableBatch(DEFAULT_POISON_THRESHOLD, batchSize);
-        assertEquals(3, atemptedDrainedCount());
+        assertEquals(3, attemptedCount());
     }
 
     @Test
@@ -272,7 +272,7 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer).saveRecordAndDeleteOutbox(recordFor(uuid1));
         verify(writer).saveRecordAndDeleteOutbox(recordFor(uuid2));
         verify(writer, never()).recordFailure(any(), any());
-        assertEquals(2, atemptedDrainedCount());
+        assertEquals(2, attemptedCount());
     }
 
     /**
@@ -330,7 +330,7 @@ class SigningRecordOutboxDrainerUnitTest {
         return UUID.randomUUID();
     }
 
-    private double atemptedDrainedCount() {
+    private double attemptedCount() {
         return persistCounterValue("signing_record.persist");
     }
 
