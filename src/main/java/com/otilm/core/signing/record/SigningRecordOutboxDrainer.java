@@ -8,8 +8,8 @@ import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.mapper.signing.SigningRecordMapper;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceException;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -109,11 +109,15 @@ public class SigningRecordOutboxDrainer {
      * {@link SigningRecordWriter#persistBatchAndDeleteOutbox} which persists all records via Hibernate JDBC batching
      * and removes the outbox rows with a single bulk DELETE — two round-trips per batch instead of four per row.
      *
-     * <p>Falls back to per-row draining when the batch path throws. The only expected failure is a
-     * {@link PersistenceException} on the flush in crash-recovery: a node crashed after writing to
-     * {@code signing_record} but before deleting the outbox row, leaving a duplicate. The per-row fallback
-     * handles this via the idempotent {@link SigningRecordWriter#saveRecordAndDeleteOutbox} merge copy, and
-     * gives each row individual retry/poison accounting via {@link #recordFailure}.
+     * <p>Falls back to per-row draining only when the batch path throws a constraint violation: a node crashed
+     * after writing to {@code signing_record} but before deleting the outbox row, leaving a duplicate. The
+     * per-row fallback handles this via the idempotent {@link SigningRecordWriter#saveRecordAndDeleteOutbox}
+     * merge copy, and gives each row individual retry/poison accounting via {@link #recordFailure}.
+     *
+     * <p>Any other failure (a dropped connection, a statement/lock timeout, a serialization error) is not a
+     * per-row problem — it is rethrown so the caller's {@code catch (RuntimeException)} aborts this run without
+     * driving every row in an otherwise-healthy batch toward the poison threshold. The batch is retried whole on
+     * the next scheduled run.
      */
     private int drainRows(List<UUID> outboxRowUuids) {
         if (outboxRowUuids.isEmpty())
@@ -131,11 +135,27 @@ public class SigningRecordOutboxDrainer {
             writer.persistBatchAndDeleteOutbox(records);
             return records.size();
         } catch (RuntimeException e) {
-            log.debug("Batch drain failed (crash-recovery duplicate?), falling back to row-by-row for {} rows: {}",
+            if (!isConstraintViolation(e))
+                throw e;
+            log.debug("Batch drain failed (crash-recovery duplicate), falling back to row-by-row for {} rows: {}",
                     outboxRowUuids.size(), e.getMessage());
             metrics.batchDrainFallback().increment();
             return drainRowsOneByOne(records);
         }
+    }
+
+    /**
+     * Walks the cause chain looking for a {@link ConstraintViolationException} — the signal that the batch
+     * flush hit a duplicate key on {@code signing_record}, i.e. the crash-recovery case this fallback exists
+     * for. Direct {@code EntityManager} usage (bypassing Spring Data) means Spring's exception translation does
+     * not apply here, so the raw Hibernate exception is what surfaces.
+     */
+    private static boolean isConstraintViolation(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException)
+                return true;
+        }
+        return false;
     }
 
     private int drainRowsOneByOne(List<SigningRecord> records) {

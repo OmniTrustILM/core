@@ -6,8 +6,10 @@ import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -121,7 +123,7 @@ class SigningRecordOutboxDrainerUnitTest {
         var failingUuid = aUuid();
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(failingUuid));
         aClaimableRow(failingUuid);
-        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
+        doThrow(aConstraintViolation("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
         doThrow(new RuntimeException("constraint violation")).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
 
         // when
@@ -141,7 +143,7 @@ class SigningRecordOutboxDrainerUnitTest {
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(brokenUuid, healthyUuid));
         aClaimableRow(brokenUuid);
         aClaimableRow(healthyUuid);
-        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
+        doThrow(aConstraintViolation("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
         doThrow(new RuntimeException("copy failed")).when(writer).saveRecordAndDeleteOutbox(recordFor(brokenUuid));
         doThrow(new RuntimeException("db unavailable")).when(writer).recordFailure(eq(brokenUuid), any());
 
@@ -159,7 +161,7 @@ class SigningRecordOutboxDrainerUnitTest {
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(healthyUuid, failingUuid));
         aClaimableRow(healthyUuid);
         aClaimableRow(failingUuid);
-        doThrow(new RuntimeException("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
+        doThrow(aConstraintViolation("batch failed")).when(writer).persistBatchAndDeleteOutbox(anyList());
         doThrow(new RuntimeException("FK violation on signing_profile_uuid")).when(writer).saveRecordAndDeleteOutbox(recordFor(failingUuid));
 
         // when
@@ -262,7 +264,7 @@ class SigningRecordOutboxDrainerUnitTest {
         when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(uuid1, uuid2));
         aClaimableRow(uuid1);
         aClaimableRow(uuid2);
-        doThrow(new RuntimeException("could not execute batch")).when(writer)
+        doThrow(aConstraintViolation("could not execute batch")).when(writer)
                 .persistBatchAndDeleteOutbox(anyList());
 
         // when
@@ -273,6 +275,27 @@ class SigningRecordOutboxDrainerUnitTest {
         verify(writer).saveRecordAndDeleteOutbox(recordFor(uuid2));
         verify(writer, never()).recordFailure(any(), any());
         assertEquals(2, attemptedCount());
+    }
+
+    @Test
+    void drainOnce_doesNotFallBackOrRecordFailures_whenBatchTransactionFailsTransiently() {
+        // given the bulk transaction fails for a reason unrelated to a duplicate key (e.g. a dropped connection)
+        var uuid1 = aUuid();
+        var uuid2 = aUuid();
+        when(outboxRepo.findDrainableBatch(anyInt(), anyInt())).thenReturn(List.of(uuid1, uuid2));
+        aClaimableRow(uuid1);
+        aClaimableRow(uuid2);
+        doThrow(new RuntimeException("connection reset")).when(writer).persistBatchAndDeleteOutbox(anyList());
+
+        // when / then the whole run aborts instead of poisoning every row in an otherwise-healthy batch
+        assertDoesNotThrow(() -> createDrainer().drainOnce());
+        verify(writer, never()).saveRecordAndDeleteOutbox(any());
+        verify(writer, never()).recordFailure(any(), any());
+    }
+
+    private static RuntimeException aConstraintViolation(String message) {
+        return new PersistenceException(message,
+                new ConstraintViolationException(message, null, "signing_record_pkey"));
     }
 
     /**
