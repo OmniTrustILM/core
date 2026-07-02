@@ -1187,7 +1187,8 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
      * When the connector returns an error (no certificate data) on a synchronous issue call,
      * the certificate must end in FAILED and the audit history must contain an ISSUE/FAILED row.
      * The failure-from-state is PENDING_ISSUE (the pre-connector transition already ran), so this
-     * exercises the new PENDING_ISSUE -> FAILED arc introduced by this branch.
+     * exercises the pre-existing PENDING_ISSUE -> FAILED arc that sync connector errors now route
+     * through (previously the sync failure ran from REQUESTED); no new transition rows are added.
      */
     @Test
     void issueCertificateAction_transitionsToFailed_onSyncConnectorError() throws Exception {

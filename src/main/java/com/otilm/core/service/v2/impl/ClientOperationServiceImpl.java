@@ -625,13 +625,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 .build());
             } catch (Exception metaEx) {
                 // The connector has already accepted the operation asynchronously (HTTP 202)
-                // upstream — we MUST reflect that in local state, otherwise the upstream
-                // operation becomes orphaned with nothing tracking it. We therefore proceed
-                // with the PENDING_ISSUE transition, but record a FAILED cert-event-history
-                // entry so the operator can see that metadata persistence failed: a later
-                // cancel call may not be able to reconstruct the connector's original
-                // request fully (it will fall back to whatever metadata is queryable via
-                // the attribute engine, possibly empty).
+                // upstream, and the certificate is already in PENDING_ISSUE — the handler
+                // transitioned it before the connector call — so we keep it there: the async
+                // operation is real and must stay tracked, otherwise it becomes orphaned with
+                // nothing tracking it. We only record a FAILED cert-event-history entry so the
+                // operator can see that metadata persistence failed: a later cancel call may not
+                // be able to reconstruct the connector's original request fully (it will fall
+                // back to whatever metadata is queryable via the attribute engine, possibly empty).
                 logger.warn("Failed to persist metadata from 202 response for cert {}: {}",
                         certificate.getUuid(), metaEx.getMessage(), metaEx);
                 certificateEventHistoryService.addEventHistory(
