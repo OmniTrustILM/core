@@ -45,4 +45,19 @@ public class ConnectorRequestAttributesBuilder {
         resourceService.loadResourceObjectContentData(dataAttributes);
         return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
     }
+
+    /**
+     * Dereferences CREDENTIAL + RESOURCE (incl. SECRET) references in attributes that were already stored and
+     * validated, so a stateless connector receives inline content on the operation path — the system-mode
+     * counterpart to the callback reference expander. Unlike
+     * {@link #prepareRequestAttributesForConnectorRequest}, this does not re-validate: the attributes were validated
+     * when persisted and no attribute definitions are supplied here. Runs under the ambient operation principal with
+     * no per-object authorization (the operation is authorized at the operation level).
+     */
+    public List<RequestAttribute> dereferenceForConnectorRequest(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
+        List<DataAttribute> dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, requestAttributes);
+        credentialService.loadFullCredentialData(dataAttributes);
+        resourceService.loadResourceObjectContentData(dataAttributes);
+        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+    }
 }
