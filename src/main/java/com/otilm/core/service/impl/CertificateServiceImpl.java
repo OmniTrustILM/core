@@ -1303,15 +1303,19 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         try {
             certificate = certificateRepository.findBySerialNumberIgnoreCase(serialNumber).orElseThrow(() -> new NotFoundException(Certificate.class, serialNumber));
             oldStatus = certificate.getValidationStatus();
-            if (!stateMachine.canTransition(certificate.getState(), CertificateState.REVOKED)) {
-                log.warn("Certificate {} is in state {}; skipping revoke transition (already revoked or not revocable)",
+            if (stateMachine.canTransition(certificate.getState(), CertificateState.REVOKED)) {
+                stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE, "Revoked");
+            } else if (certificate.getState() == CertificateState.REVOKED) {
+                log.debug("Certificate {} is already REVOKED; revoke transition is a no-op", certificate.getUuid());
+            } else {
+                log.warn("Certificate {} is in non-revocable state {}; leaving local state unchanged (the authority may already have revoked it upstream)",
                         certificate.getUuid(), certificate.getState());
-                return;
             }
-            stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE, "Revoked");
         } catch (NotFoundException e) {
             log.warn("Unable to find the certificate with serialNumber {}", serialNumber);
         }
+        // Evict the auth-cache entry and emit the status event for a found cert even when the
+        // transition is skipped, so a revoke never leaves a stale positive-auth entry live.
         if (certificate != null) {
             if (certificate.getUserUuid() != null) {
                 authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());

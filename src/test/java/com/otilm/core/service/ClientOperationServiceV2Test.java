@@ -1199,7 +1199,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .willReturn(WireMock.okJson("{}")));
 
         Assertions.assertThrows(
-                Exception.class,
+                CertificateOperationException.class,
                 () -> clientOperationInternalService.issueCertificateAction(certUuid, true),
                 "sync issue with no certificate data must throw");
 
@@ -1476,6 +1476,65 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                         h.getEvent() == CertificateEvent.REKEY
                                 && h.getStatus() == CertificateEventStatus.SUCCESS),
                 "expected a REKEY/SUCCESS event on the predecessor after 202 from connector");
+    }
+
+    /**
+     * The synchronous (HTTP 200) renew path moves the new certificate to PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finishes in ISSUED. The "Issuance in progress" audit
+     * row proves the new cert passed through PENDING_ISSUE on the way to ISSUED.
+     */
+    @Test
+    void renewCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        clientOperationInternalService.renewCertificateAction(certificate.getUuid(), request, true);
+
+        Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(),
+                "sync 200 renew must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                        + "to precede ISSUED on the sync renew path");
+    }
+
+    /**
+     * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finishes in ISSUED — mirroring the renew path.
+     */
+    @Test
+    void rekeyCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        clientOperationInternalService.rekeyCertificateAction(certificate.getUuid(), request, true);
+
+        Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(),
+                "sync 200 rekey must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                        + "to precede ISSUED on the sync rekey path");
     }
 
     @Test

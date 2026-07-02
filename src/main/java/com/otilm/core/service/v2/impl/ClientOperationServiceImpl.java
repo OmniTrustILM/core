@@ -561,7 +561,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine.
+            // state via the state machine. Trade-off: no poll row is created for the sync path, so a
+            // crash before the terminal ISSUED/FAILED transition strands the cert in PENDING_ISSUE.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                     "Issuance in progress");
 
@@ -610,8 +611,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Records the connector's asynchronous acceptance ({@code 202 Accepted}) of an issue / renew /
      * rekey: persists any metadata the connector returned in its response body, schedules the status
      * poll, raises the action-performed event, and writes the async-acceptance event-log entry. The
-     * certificate is already in {@code PENDING_ISSUE} by the time this runs — the handlers transition
-     * it via the state machine before calling the connector — so this method no longer transitions.
+     * certificate is already in {@code PENDING_ISSUE} when this runs (the handlers transition it
+     * before the connector call), so this method leaves the state unchanged.
      * The {@code originatingAction} (ISSUE / RENEW / REKEY) drives the event-log
      * {@code CERTIFICATE_ACTION_PERFORMED} message so subscribers see the operation that produced
      * this state — not always {@code ISSUE}.
@@ -624,14 +625,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 .connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid())
                                 .build());
             } catch (Exception metaEx) {
-                // The connector has already accepted the operation asynchronously (HTTP 202)
-                // upstream, and the certificate is already in PENDING_ISSUE — the handler
-                // transitioned it before the connector call — so we keep it there: the async
-                // operation is real and must stay tracked, otherwise it becomes orphaned with
-                // nothing tracking it. We only record a FAILED cert-event-history entry so the
-                // operator can see that metadata persistence failed: a later cancel call may not
-                // be able to reconstruct the connector's original request fully (it will fall
-                // back to whatever metadata is queryable via the attribute engine, possibly empty).
+                // Metadata persistence failed, but the connector has already accepted the operation
+                // asynchronously (HTTP 202): the async operation is real, so the certificate stays in
+                // PENDING_ISSUE. Record a FAILED cert-event-history entry so the operator sees the
+                // metadata gap — a later cancel may not fully reconstruct the connector's original
+                // request (it falls back to whatever the attribute engine can still return).
                 logger.warn("Failed to persist metadata from 202 response for cert {}: {}",
                         certificate.getUuid(), metaEx.getMessage(), metaEx);
                 certificateEventHistoryService.addEventHistory(

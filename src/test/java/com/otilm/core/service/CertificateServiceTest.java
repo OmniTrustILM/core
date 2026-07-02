@@ -1527,6 +1527,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
+        void evictsCertCache_whenRevokeSkipsTransition_forNonRevocableUserCert() {
+            // given - a user-mapped cert in a non-revocable state (REQUESTED has no ->REVOKED arc):
+            // the SM transition is skipped, but a revoke request must still flush the positive-auth cache
+            UUID userUuid = UUID.randomUUID();
+            String fingerprint = "abcdef1234567890";
+            certificate.setUserUuid(userUuid);
+            certificate.setFingerprint(fingerprint);
+            certificate.setState(CertificateState.REQUESTED);
+            certificateRepository.save(certificate);
+            var certCache = primeCertCache(fingerprint);
+
+            // when
+            certificateService.revokeCertificate(certificate.getSerialNumber());
+
+            // then - transition skipped (state unchanged) yet the cert cache entry is still evicted
+            Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.REQUESTED);
+            certCache.assertEvicted();
+        }
+
+        @Test
         void evictsCertCache_whenUserDisassociated() throws NotFoundException {
             // given
             UUID userUuid = UUID.randomUUID();
@@ -2017,9 +2038,18 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
         @Test
         void revokeCertificateBySerial_notFound_warnsAndReturns() {
-            // when / then — unknown serial triggers the NotFoundException path (warn + return)
+            // given — audit-history baseline
+            long historyBefore = certificateEventHistoryRepository.count();
+
+            // when / then — unknown serial hits the NotFoundException path (warn + return), so nothing
+            // downstream runs: no REVOKE audit row and no status-changed event (the certificate != null
+            // block is skipped when nothing is found)
             assertThatCode(() -> certificateService.revokeCertificate("deadbeef-not-a-real-serial"))
                     .doesNotThrowAnyException();
+
+            assertThat(certificateEventHistoryRepository.count())
+                    .as("not-found revoke must not write any cert-event-history row")
+                    .isEqualTo(historyBefore);
         }
     }
 
