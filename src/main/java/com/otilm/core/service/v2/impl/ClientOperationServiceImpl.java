@@ -84,7 +84,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.*;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -144,7 +144,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CryptographicOperationInternalService cryptographicOperationService;
     private CryptographicKeyService keyService;
     private AttributeEngine attributeEngine;
@@ -257,7 +257,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

@@ -38,7 +38,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
@@ -72,7 +72,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private RaProfileRepository raProfileRepository;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CertificateRepository certificateRepository;
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
@@ -767,7 +767,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

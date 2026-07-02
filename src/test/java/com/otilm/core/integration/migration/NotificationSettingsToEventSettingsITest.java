@@ -1,4 +1,4 @@
-package com.otilm.core.migration;
+package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
@@ -25,7 +25,7 @@ import java.util.UUID;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class NotificationSettingsToEventSettingsTest extends BaseMigrationTest {
+class NotificationSettingsToEventSettingsITest extends BaseMigrationTest {
 
     @Autowired
     DataSource dataSource;

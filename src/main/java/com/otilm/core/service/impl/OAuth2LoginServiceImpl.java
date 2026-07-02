@@ -3,7 +3,9 @@ package com.otilm.core.service.impl;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
-import com.otilm.core.service.v2.OAuth2LoginService;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
+import com.otilm.core.service.v2.OAuth2LoginExternalService;
+import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import com.otilm.core.settings.SettingsCache;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +15,7 @@ import java.util.List;
 
 @Service
 @Transactional
-public class OAuth2LoginServiceImpl implements OAuth2LoginService {
+public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService, OAuth2LoginInternalService {
 
     @Override
     public boolean isOAuth2ProviderValid(OAuth2ProviderSettingsDto settingsDto) {
@@ -27,6 +29,7 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<OAuth2ProviderSettingsDto> getValidOAuth2Providers() {
         AuthenticationSettingsDto authenticationSettings = SettingsCache.getSettings(SettingsSection.AUTHENTICATION);
         if (authenticationSettings.getOAuth2Providers() == null) {
@@ -47,6 +50,7 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public String validateAndNormalizeRedirect(String redirectUrl) {
         if (redirectUrl == null || redirectUrl.isEmpty()) {
             return null;

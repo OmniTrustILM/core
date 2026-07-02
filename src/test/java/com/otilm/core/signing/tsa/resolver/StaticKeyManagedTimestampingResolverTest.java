@@ -27,7 +27,7 @@ import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CryptographicKeyService;
 import com.otilm.core.service.TimeQualityConfigurationInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.CertificateTestUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -63,7 +63,7 @@ class StaticKeyManagedTimestampingResolverTest {
     @Mock
     private TimeQualityConfigurationInternalService timeQualityConfigurationService;
     @Mock
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
 
     @InjectMocks
     private StaticKeyManagedTimestampingResolver resolver;
