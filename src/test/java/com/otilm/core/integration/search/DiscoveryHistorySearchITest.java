@@ -1,4 +1,4 @@
-package com.otilm.core.search;
+package com.otilm.core.integration.search;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -55,7 +55,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
-class DiscoveryHistorySearchTest extends BaseSpringBootTest {
+class DiscoveryHistorySearchITest extends BaseSpringBootTest {
 
     @Autowired
     private DiscoveryRepository discoveryRepository;

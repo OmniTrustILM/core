@@ -1,4 +1,4 @@
-package com.otilm.core.search;
+package com.otilm.core.integration.search;
 
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -49,7 +49,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
  *   <li>{@code CONNECTOR_FEATURES} — {@code ConnectorInterfaceEntity.features}</li>
  * </ul>
  */
-class NativeArrayFilterSearchTest extends BaseSpringBootTest {
+class NativeArrayFilterSearchITest extends BaseSpringBootTest {
     @Autowired
     private CustomOidEntryExternalService customOidEntryService;
 
