@@ -79,4 +79,9 @@ public class CrmfCertificateRequest implements CertificateRequest {
         return null;
     }
 
+    /** Extensions carried in the CRMF {@code CertTemplate}, or {@code null} when none are present. */
+    public Extensions getCertTemplateExtensions() {
+        return certificateRequestMessage.getCertTemplate().getExtensions();
+    }
+
 }
