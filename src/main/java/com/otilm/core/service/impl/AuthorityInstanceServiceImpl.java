@@ -321,12 +321,7 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
     }
 
     @Override
-    // Connector-scoped: a SecuredUUID connectorUuid lets ExternalMethodAuthorizationManager perform the
-    // object-level CONNECTOR check (a plain UUID would degrade this to an unscoped resource-type check).
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.ANY)
-    // NOT_SUPPORTED so the connector HTTP call below runs outside any DB transaction (core CLAUDE.md,
-    // "Transactions and external calls"). The lazy interface read is wrapped in a short tx; the
-    // definition write opens its own tx via AttributeEngine (@Transactional).
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException {
         ConnectorDto connector = connectorService.getConnector(connectorUuid);
@@ -346,8 +341,6 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
         // v3 is stateless and kind-less: definitions come from GET /v3/authorityProvider/authorities/attributes.
         AuthorityInstanceReference probeRef = transientAuthorityRef(connectorUuid, connector, iface, null);
         List<BaseAttribute> attributes = adapterFactory.forAuthority(probeRef).listAuthorityInstanceAttributes(probeRef);
-        // Persist the definitions (AttributeEngine opens its own tx) so later validation and content
-        // preparation can resolve them, mirroring VaultInstanceServiceImpl.listVaultInstanceAttributes.
         attributeEngine.updateDataAttributeDefinitions(connectorUuid.getValue(), null, attributes);
         return attributes;
     }
