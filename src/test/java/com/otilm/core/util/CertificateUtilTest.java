@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.QcType;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
@@ -8,6 +9,8 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.security.*;
@@ -195,6 +198,30 @@ class CertificateUtilTest {
         Assertions.assertEquals(List.of(QcType.ESIGN.name()), types, "qcType should contain ESIGN");
         List<String> countries = MetaDefinitions.deserializeArrayString(entity.getQcCcLegislation());
         Assertions.assertEquals(List.of("AT"), countries, "qcCcLegislation should contain AT");
+    }
+
+    @Test
+    void stampIssuedFields_setsFieldsButNotState() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        Certificate cert = new Certificate();
+        cert.setState(CertificateState.PENDING_ISSUE);
+
+        CertificateUtil.stampIssuedFields(cert, x509);
+
+        assertEquals(CertificateState.PENDING_ISSUE, cert.getState(), "stampIssuedFields must not touch state");
+        assertNotNull(cert.getSerialNumber());
+        assertNotNull(cert.getNotAfter());
+    }
+
+    @Test
+    void prepareIssuedCertificate_stillSetsIssued() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        Certificate cert = new Certificate();
+
+        CertificateUtil.prepareIssuedCertificate(cert, x509);
+
+        assertEquals(CertificateState.ISSUED, cert.getState());
+        assertNotNull(cert.getSerialNumber());
     }
 
 }
