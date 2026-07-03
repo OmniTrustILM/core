@@ -217,6 +217,9 @@ public class CmpServiceImpl implements CmpExternalService {
         } catch (CmpBaseException e) {
             return errorResponse(tid, logPrefix, requestAsString, "profile validation", e,
                     PkiMessageError.unprotectedMessage(pkiRequest.getHeader(), e.toPKIBody()));
+        } catch (Exception e) {
+            return errorResponse(tid, logPrefix, requestAsString, "profile validation", e,
+                    safeUnprotectedError(pkiRequest.getHeader(), e));
         }
 
         ConfigurationContext configuration = switch (cmpProfile.getVariant()) {

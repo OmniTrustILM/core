@@ -5,14 +5,12 @@ import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
 import com.otilm.api.interfaces.core.cmp.error.CmpConfigurationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
+import com.otilm.core.service.cmp.CmpTestUtil;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.DEROctetString;
-import org.bouncycastle.asn1.cmp.CertRepMessage;
-import org.bouncycastle.asn1.cmp.ErrorMsgContent;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIMessage;
-import org.bouncycastle.asn1.cmp.PKIStatusInfo;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -133,9 +131,6 @@ class CmpServiceImplValidateProfileTest {
     }
 
     private static String wireStatusText(PKIBody body) {
-        PKIStatusInfo statusInfo = body.getContent() instanceof ErrorMsgContent errorMsgContent
-                ? errorMsgContent.getPKIStatusInfo()
-                : ((CertRepMessage) body.getContent()).getResponse()[0].getStatus();
-        return statusInfo.getStatusString().getStringAtUTF8(0).getString();
+        return CmpTestUtil.wireStatusText(body);
     }
 }
