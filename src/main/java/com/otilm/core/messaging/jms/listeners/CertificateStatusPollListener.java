@@ -25,6 +25,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
     private CertificateStatusPollWriter pollWriter;
+    private CertificateRegistrationWriter registrationWriter;
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
@@ -292,6 +294,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",
                     cert.getUuid(), op, status.status(), e);
         }
+        if (op == CertificateOperation.REGISTER) {
+            refreshRegistrationBinding(cert, status);
+        }
+    }
+
+    /**
+     * A completed async REGISTER may supersede the 202 tracking handle with the final CA handle; the
+     * register->issue binding must carry the latest one for the later issue to replay. Best-effort like
+     * the metadata write above — on failure the binding keeps the tracking handle from the 202 response.
+     */
+    private void refreshRegistrationBinding(Certificate cert, StatusPollResult status) {
+        try {
+            registrationWriter.upsert(cert.getUuid(), status.meta());
+        } catch (RuntimeException e) {
+            logger.warn("Failed to refresh the register->issue binding meta for cert {}; "
+                    + "the binding keeps the tracking handle from the 202 response", cert.getUuid(), e);
+        }
     }
 
     /**
@@ -364,6 +383,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setRegistrationWriter(CertificateRegistrationWriter registrationWriter) {
+        this.registrationWriter = registrationWriter;
     }
 
     @Autowired

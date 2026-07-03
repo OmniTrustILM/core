@@ -7,7 +7,11 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -19,7 +23,9 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -28,7 +34,6 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -38,6 +43,7 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
+import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -51,6 +57,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -82,6 +89,12 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private CertificateRegistrationRepository registrationRepository;
+    // Spied (not mocked) so the binding really persists; individual tests stub failures to drive the
+    // post-acceptance divergence branch.
+    @MockitoSpyBean
+    private CertificateRegistrationWriter registrationWriter;
     @MockitoBean
     private AuthorityProviderAdapterFactory adapterFactory;
 
@@ -523,7 +536,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void registerPersistsConnectorMetadata() throws Exception {
         Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
-                .thenReturn(AdapterOperationResult.syncOk(null, List.of(Mockito.mock(MetadataAttribute.class)), CertificateType.X509));
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
                 authorityParent,
@@ -568,6 +581,85 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
                 securedRaProfile, certUuid, null));
+    }
+
+    // ── register->issue binding persistence ──────────────────────────────────
+
+    private static MetadataAttribute caHandle(String name, String value) {
+        MetadataAttributeV2 attribute = new MetadataAttributeV2();
+        attribute.setUuid(UUID.randomUUID().toString());
+        attribute.setName(name);
+        attribute.setType(AttributeType.META);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setContent(List.of(new StringAttributeContentV2(value)));
+        return attribute;
+    }
+
+    @Test
+    void syncRegistrationPersistsRegisterIssueBinding() throws Exception {
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertNotNull(binding.getMeta(), "the CA handle must be persisted on the binding");
+        Assertions.assertTrue(binding.getMeta().contains("endEntityName"));
+    }
+
+    @Test
+    void asyncRegistrationPersistsBindingWithTrackingHandle() throws Exception {
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of(caHandle("trackingId", "t-1"))));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertTrue(binding.getMeta().contains("trackingId"));
+    }
+
+    @Test
+    void registrationWithoutMetaStillCreatesBinding() throws Exception {
+        // The binding row's presence is the register-bound discriminator for the later issue,
+        // independent of whether the connector returned a CA handle.
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertNull(binding.getMeta());
+    }
+
+    @Test
+    void bindingPersistenceFailureKeepsPendingStateAndSurfacesError() throws Exception {
+        // Post-acceptance divergence: the connector accepted the registration, so a failed binding
+        // write must NOT roll certificate state back — it surfaces a clear error and leaves the cert
+        // PENDING_REGISTRATION for reconciliation (the sync REGISTERED transition never runs).
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        Mockito.doThrow(new IllegalStateException("db down")).when(registrationWriter)
+                .upsert(Mockito.any(), Mockito.any());
+
+        Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, certs.get(0).getState());
+    }
+
+    @Test
+    void rejectedRegistrationLeavesNoBinding() throws Exception {
+        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+
+        Assertions.assertThrows(ConnectorException.class, this::register);
+
+        Assertions.assertEquals(0, registrationRepository.count(),
+                "a rejected registration must not leave a register->issue binding behind");
     }
 
     private String registerSyncRegistered() throws Exception {

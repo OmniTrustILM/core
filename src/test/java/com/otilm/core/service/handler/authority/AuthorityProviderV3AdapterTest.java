@@ -32,8 +32,18 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
+import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,7 +54,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
 import java.net.URI;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -61,9 +73,31 @@ class AuthorityProviderV3AdapterTest {
     ConnectorApiFactory connectorApiFactory;
     @Mock
     AttributeEngine attributeEngine;
+    @Mock
+    ConnectorCapabilityService capabilityService;
 
     @InjectMocks
     AuthorityProviderV3Adapter adapter;
+
+    // The register dual-wire tests render the flat subject DN, which resolves RDN codes via the process-wide OidHandler cache.
+    private static Map<String, OidRecord> savedRdnCache;
+
+    @BeforeAll
+    static void snapshotAndSeedRdnCache() {
+        Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
+        savedRdnCache = existing == null ? null : new HashMap<>(existing);
+        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE, new HashMap<>());
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.3",
+                OidRecord.builder().displayName("Common Name").code("CN").build());
+        OidHandler.cacheOid(OidCategory.RDN_ATTRIBUTE_TYPE, "2.5.4.10",
+                OidRecord.builder().displayName("Organization").code("O").build());
+    }
+
+    @AfterAll
+    static void restoreRdnCache() {
+        OidHandler.cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
+                savedRdnCache != null ? savedRdnCache : new HashMap<>());
+    }
 
     @Mock
     CertificateSyncApiClient certClientV3;
@@ -188,15 +222,12 @@ class AuthorityProviderV3AdapterTest {
 
     @Test
     void issueWrapsConnectorAcceptedLocalFailure() throws ConnectorException {
-        // Connector returns 200 (connectorAccepted = true), then the response-mapping step fails
-        // locally — here the body throws when its content is read. Because the connector already
-        // accepted, the adapter must wrap the failure in ConnectorAcceptedButLocalFailureException
-        // rather than let it propagate as a plain failure (no rollback of an accepted operation).
+        // After a 200 the connector has accepted, so a later local mapping failure must be wrapped
+        // rather than propagated as a plain failure (no rollback of an accepted operation).
         @SuppressWarnings("unchecked")
         ResponseEntity<CertificateDataResponseDto> faultyResponse = mock(ResponseEntity.class);
         org.springframework.http.HttpStatus okStatus = org.springframework.http.HttpStatus.OK;
         when(faultyResponse.getStatusCode()).thenReturn(okStatus);
-        // getBody() returning a body that throws on getCertificateData — use a spy
         CertificateDataResponseDto faultyBody = spy(new CertificateDataResponseDto());
         doThrow(new RuntimeException("synthetic local failure")).when(faultyBody).getCertificateData();
         when(faultyResponse.getBody()).thenReturn(faultyBody);
@@ -205,6 +236,20 @@ class AuthorityProviderV3AdapterTest {
 
         assertThrows(ConnectorAcceptedButLocalFailureException.class,
                 () -> adapter.issue(cert, new ClientCertificateSignRequestDto()));
+    }
+
+    // ---- issue: pre-acceptance connector failure propagates raw (no acceptance guard wrap) ----
+
+    @Test
+    void issuePropagatesRawFailureWhenConnectorCallItselfThrows() throws ConnectorException {
+        // The connector never accepted, so the failure must propagate unchanged rather than be wrapped.
+        RuntimeException connectorFailure = new RuntimeException("connector unreachable");
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
+                .thenThrow(connectorFailure);
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> adapter.issue(cert, new ClientCertificateSignRequestDto()));
+        assertSame(connectorFailure, thrown);
     }
 
     // ---- revoke: 200 -> SYNC_OK ----
@@ -252,7 +297,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.revoke(eq(connectorInfo), any()))
                 .thenReturn(ResponseEntity.noContent().build());
 
-        adapter.revoke(cert, new ClientCertificateRevocationDto());   // reason omitted (null)
+        adapter.revoke(cert, new ClientCertificateRevocationDto());
 
         ArgumentCaptor<CertificateRevocationRequestDtoV3> captor =
                 ArgumentCaptor.forClass(CertificateRevocationRequestDtoV3.class);
@@ -273,6 +318,154 @@ class AuthorityProviderV3AdapterTest {
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         verify(certClientV3).register(eq(connectorInfo), any());
+    }
+
+    // ---- register: dual wire (structured vs flat) ----
+
+    private ClientCertificateRegistrationDto registrationRequest() {
+        ClientCertificateRegistrationDto req = new ClientCertificateRegistrationDto();
+        req.setSubjectDn("CN=device-7,O=Acme");
+        req.setSubjectAltName("DNS:device-7.acme.test");
+        CertificateExtension eku = new CertificateExtension();
+        eku.setOid("2.5.29.37");
+        eku.setCritical(false);
+        eku.setValueBase64("MAoGCCsGAQUFBwMB");
+        req.setExtensions(List.of(eku));
+        return req;
+    }
+
+    private CertificateRegistrationRequestDtoV3 registerAndCaptureWire(ClientCertificateRegistrationDto req)
+            throws ConnectorException {
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setMeta(List.of());
+        when(certClientV3.register(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
+
+        adapter.register(cert, req);
+
+        ArgumentCaptor<CertificateRegistrationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
+        verify(certClientV3).register(eq(connectorInfo), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void registerCarriesStructuredContentWhenConnectorAdvertisesIt() throws ConnectorException {
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
+
+        CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(registrationRequest());
+
+        assertInstanceOf(X509RequestContent.class, wire.getRequestContent());
+        X509RequestContent content = (X509RequestContent) wire.getRequestContent();
+        assertEquals("device-7", content.getSubject().get(0).getValue());
+        assertEquals(1, content.getExtensions().size());
+        // extensions ride the structured wire only — no duplicate flat source
+        assertNull(wire.getExtensions());
+    }
+
+    @Test
+    void registerStillRendersFlatAnchorOnStructuredWire() throws ConnectorException {
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
+
+        CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(registrationRequest());
+
+        assertEquals("O=Acme, CN=device-7", wire.getSubjectDn());
+        assertEquals("DNS:device-7.acme.test", wire.getSubjectAltName());
+    }
+
+    @Test
+    void registerFallsBackToFlatWireWhenStructuredNotAdvertised() throws ConnectorException {
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(false);
+
+        CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(registrationRequest());
+
+        assertNull(wire.getRequestContent());
+        assertEquals("O=Acme, CN=device-7", wire.getSubjectDn());
+        assertEquals("DNS:device-7.acme.test", wire.getSubjectAltName());
+        assertEquals(1, wire.getExtensions().size());
+        assertEquals("2.5.29.37", wire.getExtensions().get(0).getOid());
+    }
+
+    @Test
+    void registerForwardsRegisterAttributesAndScopedBlobs() throws ConnectorException {
+        ClientCertificateRegistrationDto req = registrationRequest();
+        req.setAttributes(List.of());
+
+        CertificateRegistrationRequestDtoV3 wire = registerAndCaptureWire(req);
+
+        assertNotNull(wire.getAttributes());
+        assertNotNull(wire.getAuthorityAttributes());
+        assertNotNull(wire.getRaProfileAttributes());
+    }
+
+    // ---- issueRegistered: register-bound issue ----
+
+    private CertificateSignRequestDtoV3 issueRegisteredAndCaptureWire(List<MetadataAttribute> replayMeta,
+                                                                      X509RequestContent content)
+            throws ConnectorException {
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setCertificateData("aXNzdWVkQ2VydA==");
+        when(certClientV3.issue(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
+
+        adapter.issueRegistered(cert, replayMeta, content);
+
+        ArgumentCaptor<CertificateSignRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateSignRequestDtoV3.class);
+        verify(certClientV3).issue(eq(connectorInfo), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void issueRegisteredReplaysBindingMetaVerbatim() throws ConnectorException {
+        MetadataAttribute handle = mock(MetadataAttribute.class);
+
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(handle), null);
+
+        assertEquals(List.of(handle), wire.getMeta());
+        // binding meta is authoritative — the stored bag is not consulted
+        verify(attributeEngine, never()).getMetadataAttributesDefinitionContent(any());
+    }
+
+    @Test
+    void issueRegisteredFallsBackToStoredMetaBagWhenBindingHasNoHandle() throws ConnectorException {
+        MetadataAttribute stored = mock(MetadataAttribute.class);
+        when(attributeEngine.getMetadataAttributesDefinitionContent(any())).thenReturn(List.of(stored));
+
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), null);
+
+        assertEquals(List.of(stored), wire.getMeta());
+    }
+
+    @Test
+    void issueRegisteredForwardsClientCsrIntact() throws ConnectorException {
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), null);
+
+        assertEquals("dGVzdGNzcg==", wire.getRequest());
+    }
+
+    @Test
+    void issueRegisteredCarriesOverrideIdentityContentWhenSupplied() throws ConnectorException {
+        X509RequestContent identity = new X509RequestContent();
+
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), identity);
+
+        assertSame(identity, wire.getRequestContent());
+    }
+
+    @Test
+    void issueRegisteredOmitsRequestContentWhenOverrideNotClaimed() throws ConnectorException {
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), null);
+
+        assertNull(wire.getRequestContent());
+    }
+
+    @Test
+    void issueRegisteredMaps202ToAsyncAccepted() throws ConnectorException {
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        when(certClientV3.issue(eq(connectorInfo), any())).thenReturn(ResponseEntity.accepted().body(body));
+
+        AdapterOperationResult result = adapter.issueRegistered(cert, List.of(), null);
+
+        assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
     }
 
     // ---- pollStatus: COMPLETED ----
