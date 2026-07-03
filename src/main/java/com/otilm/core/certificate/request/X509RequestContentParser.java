@@ -41,9 +41,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Parses a {@link CertificateRequest} (PKCS#10 or CRMF) into typed {@link X509RequestContent}, decoding
- * subject/SAN from BouncyCastle ASN.1 directly so RFC 4514 special characters survive verbatim. SAN kinds
- * {@link GeneralNameType} cannot model are reported in {@link ParsedRequestContent#unsupportedSans()}.
+ * Parses a {@link CertificateRequest} (PKCS#10 or CRMF) into typed {@link X509RequestContent}, decoding directly
+ * from BouncyCastle ASN.1 so RFC 4514 special characters survive verbatim. SAN kinds {@link GeneralNameType}
+ * cannot model are reported in {@link ParsedRequestContent#unsupportedSans()}.
  */
 @Slf4j
 public final class X509RequestContentParser {
@@ -62,9 +62,8 @@ public final class X509RequestContentParser {
     }
 
     /**
-     * Parses an operator-supplied RFC 4514 subject DN string into ordered {@link RdnEntry} entries,
-     * decoding through BouncyCastle so the same OID-registry vocabulary and ASN.1 value handling as
-     * {@link #parse(CertificateRequest)} applies. Blank input yields an empty list.
+     * Parses an RFC 4514 subject DN string into ordered {@link RdnEntry} entries, using the same BouncyCastle
+     * decoding as {@link #parse(CertificateRequest)}. Blank input yields an empty list.
      *
      * @throws IllegalArgumentException when the DN string is not parseable
      */
@@ -109,9 +108,8 @@ public final class X509RequestContentParser {
     }
 
     /**
-     * Resolves an RDN type OID to the short code the platform uses elsewhere (OID registry first,
-     * BC's standard symbols second, dotted OID as the last resort) so validator matching and
-     * violation messages share one vocabulary.
+     * Resolves an RDN type OID to the platform's short code (OID registry, then BC symbols, then the dotted OID)
+     * so validator matching and violation messages share one vocabulary.
      */
     private static String rdnTypeCode(ASN1ObjectIdentifier oid) {
         Map<String, OidRecord> rdnCache = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
@@ -244,7 +242,7 @@ public final class X509RequestContentParser {
     /** Encodes one requested extension, skipping the SAN OID (kept in subjectAltNames) and empty values. */
     private static RequestedExtension toRequestedExtension(ASN1ObjectIdentifier oid, Extensions extensions) {
         if (Extension.subjectAlternativeName.equals(oid)) {
-            return null; // SAN lives in subjectAltNames only
+            return null;
         }
         Extension ext = extensions.getExtension(oid);
         String value = Base64.getEncoder().encodeToString(ext.getExtnValue().getOctets());

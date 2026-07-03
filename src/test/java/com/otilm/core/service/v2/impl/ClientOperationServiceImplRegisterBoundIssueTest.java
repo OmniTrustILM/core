@@ -59,8 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit coverage for the register-bound issuance branch: a placeholder carrying a registration binding issues its
- * attached CSR through {@link RegisterCapability#issueRegistered} rather than the v2 client. Wires
- * {@link ClientOperationServiceImpl} directly via setters (no Spring context) so each collaborator can be asserted.
+ * attached CSR through {@link RegisterCapability#issueRegistered} rather than the v2 client.
  */
 class ClientOperationServiceImplRegisterBoundIssueTest {
 
@@ -88,9 +87,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
     private static Map<String, OidRecord> savedRdnCache;
 
-    // RegisterWireBuilder.buildIdentityContent renders the subject DN via PlatformX500NameStyle, whose static
-    // initializer reads the global RDN OID cache — seed it the same way RegisterWireBuilderTest does so the
-    // identity-override tests don't depend on the (unrelated) Spring context that normally populates it.
+    // Rendering the subject DN reads the global RDN OID cache; seed it so the identity-override tests don't
+    // depend on the Spring context that normally populates it.
     @BeforeAll
     static void seedRdnOidCache() {
         Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
@@ -203,10 +201,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         AuthorityProviderAdapter plainAdapter = Mockito.mock(AuthorityProviderAdapter.class);
         Mockito.when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(plainAdapter);
 
-        // The register-bound branch is the only code that touches the registration repository, so the
-        // verifyNoInteractions below is the load-bearing assertion that the branch was NOT taken. The v2
-        // fall-through is unmocked and fails downstream; absorb that (it is not what this test asserts) so the
-        // test pins dispatch rather than the fall-through's happens-to-throw behaviour.
+        // Only the register-bound branch touches the registration repository, so verifyNoInteractions below is
+        // the load-bearing assertion that the branch was NOT taken. Absorb the unmocked v2 fall-through's failure.
         try {
             issue();
         } catch (Exception expectedFromUnmockedV2Path) {

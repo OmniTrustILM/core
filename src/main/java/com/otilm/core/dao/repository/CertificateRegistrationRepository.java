@@ -18,16 +18,15 @@ public interface CertificateRegistrationRepository extends JpaRepository<Certifi
     Optional<CertificateRegistration> findByCertificateUuid(UUID certificateUuid);
 
     /**
-     * Pessimistic-write variant ({@code SELECT ... FOR UPDATE}) for the register-bound issue path, so concurrent
-     * issues serialize on the binding row. Must run in a transaction, and the lock must not span the connector
-     * call — the caller consumes the binding while holding it, then releases before going upstream.
+     * Pessimistic-write finder ({@code SELECT ... FOR UPDATE}) so concurrent register-bound issues serialize on
+     * the binding row. Must run in a transaction; the lock must not span the connector call.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<CertificateRegistration> findAndLockByCertificateUuid(UUID certificateUuid);
 
     /**
-     * Creates the binding, or replaces its meta when one already exists (async completion superseding the 202
-     * handle). Atomic on the unique {@code certificate_uuid} — a concurrent loser updates instead of aborting.
+     * Creates the binding, or replaces its meta when one already exists. Atomic on the unique
+     * {@code certificate_uuid} — a concurrent loser updates instead of aborting.
      */
     @Modifying
     @Query(value = """

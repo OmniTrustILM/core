@@ -300,9 +300,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     /**
-     * A completed async REGISTER may supersede the 202 tracking handle with the final CA handle; the
-     * register->issue binding must carry the latest one for the later issue to replay. Best-effort like
-     * the metadata write above — on failure the binding keeps the tracking handle from the 202 response.
+     * A completed async REGISTER may supersede the 202 tracking handle with the final CA handle; the binding must
+     * carry the latest one for the later issue to replay. Best-effort — on failure the binding keeps the 202 handle.
      */
     private void refreshRegistrationBinding(Certificate cert, StatusPollResult status) {
         try {

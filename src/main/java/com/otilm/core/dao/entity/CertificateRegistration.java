@@ -12,8 +12,8 @@ import java.util.UUID;
 
 /**
  * Register->issue binding for a pre-registered certificate: created when the authority accepts a registration,
- * replayed under a pessimistic lock by the register-bound issue, and cleared once issuance completes. {@code meta}
- * carries the connector-returned CA tracking handle (null when none). Internal machinery — no author column.
+ * replayed by the register-bound issue, and cleared once issuance completes. {@code meta} carries the
+ * connector-returned CA tracking handle.
  */
 @Getter
 @Setter
@@ -31,7 +31,7 @@ public class CertificateRegistration extends UniquelyIdentified {
     @Column(name = "meta", length = Integer.MAX_VALUE)
     private String meta;
 
-    // Read-only mapping: set by the database on insert, never by the application.
+    // Set by the database on insert, never by the application.
     @Column(name = "i_cre", nullable = false, insertable = false, updatable = false,
             columnDefinition = "timestamptz not null default now()")
     private OffsetDateTime created;
@@ -41,8 +41,8 @@ public class CertificateRegistration extends UniquelyIdentified {
             columnDefinition = "timestamptz not null default now()")
     private OffsetDateTime updated;
 
-    // Sonar S2160: a field-adding subclass of UniquelyIdentified must override equals. Identity stays the UUID;
-    // the added columns deliberately do not affect equality, matching the other field-adding entities.
+    // Sonar S2160: a field-adding subclass must override equals. Identity stays the UUID; the added columns
+    // do not affect equality.
     @Override
     public boolean equals(Object o) {
         return super.equals(o);

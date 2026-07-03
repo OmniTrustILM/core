@@ -24,9 +24,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Dual-wire decision kernel for the v3 register path: projects the operator-supplied flat identity into typed
- * {@link X509RequestContent}, then renders the register wire (structured content only when the connector
- * advertises {@code CERTIFICATE_REQUEST_STRUCTURED}). Pure: no Spring, no I/O.
+ * Projects the operator-supplied flat identity into typed {@link X509RequestContent} and renders the v3 register
+ * wire. Structured content rides the wire only when the connector advertises {@code CERTIFICATE_REQUEST_STRUCTURED}.
  */
 public final class RegisterWireBuilder {
 
@@ -48,7 +47,7 @@ public final class RegisterWireBuilder {
     }
 
     /**
-     * Projects the operator-supplied flat registration identity into the typed request content.
+     * Projects the operator-supplied flat registration identity into typed request content.
      *
      * @param subjectDn      RFC 4514 subject DN, may be blank (SAN-only identity per RFC 5280 §4.1.2.6)
      * @param subjectAltName textual SAN in OpenSSL convention ({@code DNS:foo,IP:1.2.3.4,email:x@y}), may be blank
@@ -66,8 +65,8 @@ public final class RegisterWireBuilder {
     }
 
     /**
-     * Projects the registered subject identity into structured content for the connector-side identity override
-     * on the register-bound issue. Subject only — the connector resolves SAN/extensions from the replayed CA handle.
+     * Builds subject-only content for the connector-side identity override on a register-bound issue. The connector
+     * resolves SAN and extensions from the replayed CA handle.
      */
     public static X509RequestContent buildIdentityContent(String subjectDn) {
         X509RequestContent content = new X509RequestContent();
@@ -77,8 +76,8 @@ public final class RegisterWireBuilder {
     }
 
     /**
-     * Renders the v3 register wire identity fields from the typed content, choosing structured or flat by the
-     * connector's {@code CERTIFICATE_REQUEST_STRUCTURED} capability. The caller still owns the attribute blobs.
+     * Renders the v3 register wire, choosing structured or flat form by the connector's
+     * {@code CERTIFICATE_REQUEST_STRUCTURED} capability.
      */
     public static CertificateRegistrationRequestDtoV3 buildRegistration(X509RequestContent content,
                                                                         boolean connectorSupportsStructured) {
@@ -99,7 +98,7 @@ public final class RegisterWireBuilder {
         try {
             return X509RequestContentParser.parseSubjectDn(subjectDn);
         } catch (IllegalArgumentException e) {
-            // Do not fold the BouncyCastle parse message into the wire-facing ValidationException (info-leak rule).
+            // Keep the BouncyCastle parse message off the wire-facing exception (info-leak rule).
             throw new ValidationException("Invalid subject DN '%s'".formatted(subjectDn));
         }
     }
@@ -126,8 +125,7 @@ public final class RegisterWireBuilder {
                         "Unknown subject alternative name type prefix '%s' (expected one of DNS, IP, email, URI, dirName, RID, otherName)"
                                 .formatted(prefix));
             }
-            // No recognizable prefix: a continuation of the previous value whose text contains commas
-            // (e.g. dirName:CN=x,O=y). Without a preceding entry the string is simply malformed.
+            // No prefix: a continuation of the previous value whose text contains commas (e.g. dirName:CN=x,O=y).
             if (entries.isEmpty()) {
                 throw new ValidationException(
                         "Subject alternative name segment '%s' has no type prefix (expected e.g. DNS:, IP:, email:)"
@@ -188,7 +186,7 @@ public final class RegisterWireBuilder {
             X500Principal principal = X509RequestContentRenderer.toX500Principal(content);
             return X500Name.getInstance(PlatformX500NameStyle.DEFAULT, principal.getEncoded()).toString();
         } catch (IOException | IllegalArgumentException e) {
-            // Keep the foreign renderer/encoder message off the wire-facing ValidationException (info-leak rule).
+            // Keep the renderer/encoder message off the wire-facing exception (info-leak rule).
             throw new ValidationException("Unable to render subject DN from the certificate request content");
         }
     }

@@ -225,13 +225,13 @@ public class AuthorityProviderV3Adapter
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
         CertificateSignRequestDtoV3 wire = new CertificateSignRequestDtoV3();
-        // The client CSR is forwarded intact (proof-of-possession preserved).
+        // Forward the CSR intact to preserve proof-of-possession.
         wire.setRequest(cert.getCertificateRequest().getContent());
         wire.setFormat(cert.getCertificateRequest().getCertificateRequestFormat());
         wire.setAttributes(issueAttributesFor(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
         wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
-        // Replay the registration binding's CA handle; fall back to the unified meta bag when the binding carried none.
+        // Replay the binding's CA handle; fall back to stored meta when the binding carried none.
         wire.setMeta(replayMeta != null && !replayMeta.isEmpty() ? replayMeta : loadMeta(cert, authority));
         wire.setRequestContent(requestContent);
 
