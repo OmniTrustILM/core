@@ -1,5 +1,7 @@
-package com.otilm.core.provisioning;
+package com.otilm.core.integration.provisioning;
 
+import com.otilm.core.provisioning.ProvisioningException;
+import com.otilm.core.provisioning.ProxyProvisioningService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import org.junit.jupiter.api.Test;
@@ -13,7 +15,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.junit.jupiter.api.Assertions.*;
 
-class ProxyProvisioningServiceTest extends BaseSpringBootTest {
+class ProxyProvisioningServiceITest extends BaseSpringBootTest {
 
     private static final String PROXY_CODE = "TEST_PROXY";
     private static final String INSTALLATION_INSTRUCTIONS_JSON = """

@@ -1,4 +1,4 @@
-package com.otilm.core.evaluator;
+package com.otilm.core.integration.evaluator;
 
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
@@ -45,6 +45,8 @@ import com.otilm.core.dao.repository.workflows.ExecutionItemRepository;
 import com.otilm.core.dao.repository.workflows.ExecutionRepository;
 import com.otilm.core.dao.repository.workflows.TriggerRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.evaluator.CertificateTriggerEvaluator;
+import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.service.*;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -64,7 +66,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 
-class TriggerEvaluatorTest extends BaseSpringBootTest {
+class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @DynamicPropertySource
     static void authServiceProperties(DynamicPropertyRegistry registry) {

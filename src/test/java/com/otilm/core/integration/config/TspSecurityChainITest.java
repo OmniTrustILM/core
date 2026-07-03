@@ -1,5 +1,6 @@
-package com.otilm.core.config;
+package com.otilm.core.integration.config;
 
+import com.otilm.core.config.CookieConfig;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.util.BaseSpringBootTestNoAuth;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -41,7 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * </ul>
  */
 @AutoConfigureMockMvc
-class TspSecurityChainIntegrationTest extends BaseSpringBootTestNoAuth {
+class TspSecurityChainITest extends BaseSpringBootTestNoAuth {
 
     @Autowired
     MockMvc mvc;
