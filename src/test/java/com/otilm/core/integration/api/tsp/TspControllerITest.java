@@ -88,7 +88,7 @@ public class TspControllerITest extends BaseSpringBootTest {
     @Autowired
     private TspControllerImpl tspController;
     @Autowired
-    private SigningProfileService signingProfileService;
+    private SigningProfileExternalService signingProfileService;
     @Autowired
     private TspProfileExternalService tspProfileService;
     @Autowired

@@ -30,9 +30,11 @@ import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AttributeService;
+import com.otilm.core.service.AttributeExternalService;
+import com.otilm.core.service.AttributeInternalService;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +49,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.ATTRIBUTE)
 @Transactional
-public class AttributeServiceImpl implements AttributeService {
+public class AttributeServiceImpl implements AttributeExternalService, AttributeInternalService {
     private static final Logger logger = LoggerFactory.getLogger(AttributeServiceImpl.class);
 
     private AttributeEngine attributeEngine;
@@ -310,6 +312,7 @@ public class AttributeServiceImpl implements AttributeService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<Resource> getResources() {
         return Resource.getCustomAttributesResources();
     }

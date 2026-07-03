@@ -77,13 +77,15 @@ import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.RaProfileInternalService;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileExternalService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.TokenProfileInternalService;
@@ -113,7 +115,7 @@ import java.util.stream.Collectors;
 
 @Service(Resource.Codes.SIGNING_PROFILE)
 @Slf4j
-public class SigningProfileServiceImpl implements SigningProfileService {
+public class SigningProfileServiceImpl implements SigningProfileExternalService, SigningProfileInternalService {
 
     /**
      * Defines which signing protocols are allowed for each workflow type.
@@ -147,6 +149,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Override
+    @ExternalAuthorizationMissing
     @Transactional(readOnly = true)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SIGNING_PROFILE, false);
@@ -164,6 +167,7 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SigningProtocol> listSupportedProtocols(SigningWorkflowType workflowType) {
         return List.copyOf(SUPPORTED_PROTOCOLS.getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class)));
     }
@@ -215,11 +219,13 @@ public class SigningProfileServiceImpl implements SigningProfileService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<CertificateDto> listSigningCertificates(SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp) {
         return certificateService.listDigitalSigningCertificates(SecurityFilter.create(), signingWorkflowType, qualifiedTimestamp);
     }
 
     @Override
+    @ExternalAuthorizationMissing
     @Transactional(readOnly = true)
     public List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException {
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));

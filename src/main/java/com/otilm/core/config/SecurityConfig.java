@@ -12,7 +12,7 @@ import com.otilm.core.security.authn.tsp.TspAuthenticator;
 import com.otilm.core.security.authn.tsp.TspChallengeWriter;
 import com.otilm.core.security.authn.tsp.TspRouteResolver;
 import com.otilm.core.security.authn.tsp.TspSecurityContextWriter;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.util.AuthHelper;
 import jakarta.servlet.http.HttpServletResponse;
@@ -58,7 +58,7 @@ public class SecurityConfig {
 
     private TspProfileInternalService tspProfileService;
 
-    private SigningProfileService signingProfileService;
+    private SigningProfileInternalService signingProfileService;
 
     private PlatformJwtDecoder platformJwtDecoder;
 
@@ -207,7 +207,7 @@ public class SecurityConfig {
     }
 
     @Autowired
-    public void setSigningProfileService(SigningProfileService signingProfileService) {
+    public void setSigningProfileService(SigningProfileInternalService signingProfileService) {
         this.signingProfileService = signingProfileService;
     }
 

@@ -2,7 +2,7 @@ package com.otilm.core.security.authn.tsp;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.model.signing.TspProfileModel;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 class TspRouteResolverTest {
 
     @Mock private TspProfileInternalService tspProfileService;
-    @Mock private SigningProfileService signingProfileService;
+    @Mock private SigningProfileInternalService signingProfileService;
 
     private TspRouteResolver resolver;
 

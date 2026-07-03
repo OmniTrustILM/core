@@ -173,7 +173,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;

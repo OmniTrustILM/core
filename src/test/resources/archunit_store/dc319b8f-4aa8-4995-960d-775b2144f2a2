@@ -1,2 +1,7 @@
+Method <com.otilm.core.service.impl.AttributeServiceImpl.getResources()> is annotated with @ExternalAuthorizationMissing in (AttributeServiceImpl.java:316)
 Method <com.otilm.core.service.impl.ConnectorServiceImpl.checkHealth(com.otilm.core.security.authz.SecuredUUID)> is annotated with @ExternalAuthorizationMissing in (ConnectorServiceImpl.java:222)
+Method <com.otilm.core.service.impl.SigningProfileServiceImpl.getSearchableFieldInformation()> is annotated with @ExternalAuthorizationMissing in (SigningProfileServiceImpl.java:154)
+Method <com.otilm.core.service.impl.SigningProfileServiceImpl.listSignatureAttributesForCertificate(java.util.UUID)> is annotated with @ExternalAuthorizationMissing in (SigningProfileServiceImpl.java:230)
+Method <com.otilm.core.service.impl.SigningProfileServiceImpl.listSigningCertificates(com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType, boolean)> is annotated with @ExternalAuthorizationMissing in (SigningProfileServiceImpl.java:223)
+Method <com.otilm.core.service.impl.SigningProfileServiceImpl.listSupportedProtocols(com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType)> is annotated with @ExternalAuthorizationMissing in (SigningProfileServiceImpl.java:171)
 Method <com.otilm.core.service.v2.impl.ConnectorServiceImpl.checkHealth(com.otilm.core.security.authz.SecuredUUID)> is annotated with @ExternalAuthorizationMissing in (ConnectorServiceImpl.java:378)

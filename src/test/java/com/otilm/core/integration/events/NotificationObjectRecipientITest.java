@@ -28,7 +28,7 @@ import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
 import com.otilm.core.dao.repository.workflows.TriggerRepository;
 import com.otilm.core.messaging.jms.listeners.NotificationListener;
 import com.otilm.core.messaging.model.NotificationMessage;
-import com.otilm.core.service.AttributeService;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -59,7 +59,7 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
     @Autowired private NotificationProfileExternalService notificationProfileService;
     @Autowired private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
     @Autowired private NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository;
-    @Autowired private AttributeService attributeService;
+    @Autowired private AttributeExternalService attributeService;
     @Autowired private AttributeEngine attributeEngine;
     @Autowired private ConnectorRepository connectorRepository;
     @Autowired private TriggerRepository triggerRepository;
