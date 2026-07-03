@@ -1769,12 +1769,12 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         req.setCertificate(certBase64);
         req.setCustomAttributes(List.of());
 
+        // Build args outside the lambda so only manuallyIssueCertificate can throw inside assertThrows.
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyIssueCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        req));
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending_issue"),
                 "expected the re-assert under the lock to reject with a PENDING_ISSUE message, got: " + ex.getMessage());
 
