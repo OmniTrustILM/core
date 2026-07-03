@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -25,6 +26,8 @@ import java.util.UUID;
  * call but, unlike the asynchronous (202) path, creates no {@code certificate_status_poll} row — so the
  * poll sweep, which is driven by those rows, never re-drives it. Re-drive is impossible anyway (the
  * connector response is lost), so a stale orphan is moved to FAILED, which makes it actionable/retriable.
+ * A reaped renew/rekey successor also has its PENDING predecessor relation dropped — the caller-side
+ * cleanup the state machine does not perform.
  *
  * <p>Runs as a phase of {@link CertificateStatusPollSweeper#sweep()} (no separate schedule) and reuses
  * that sweep's {@code PROVIDER_STATUS_POLL_SWEEP} advisory lock. Correctness across nodes rests on the
@@ -37,6 +40,7 @@ public class PendingIssueReaper {
     private static final Logger logger = LoggerFactory.getLogger(PendingIssueReaper.class);
 
     private final CertificateRepository certificateRepository;
+    private final CertificateRelationRepository certificateRelationRepository;
     private final TransactionHandler transactionHandler;
     private final ClusterOperationSynchronizer clusterSynchronizer;
     private final CertificateStateMachine stateMachine;
@@ -44,12 +48,14 @@ public class PendingIssueReaper {
     private final int batchSize;
 
     public PendingIssueReaper(CertificateRepository certificateRepository,
+                              CertificateRelationRepository certificateRelationRepository,
                               TransactionHandler transactionHandler,
                               ClusterOperationSynchronizer clusterSynchronizer,
                               CertificateStateMachine stateMachine,
                               @Value("${provider.status-poll.reap-stale-after:PT30M}") Duration staleAfter,
                               @Value("${provider.status-poll.sweep-batch-size:200}") int batchSize) {
         this.certificateRepository = certificateRepository;
+        this.certificateRelationRepository = certificateRelationRepository;
         this.transactionHandler = transactionHandler;
         this.clusterSynchronizer = clusterSynchronizer;
         this.stateMachine = stateMachine;
@@ -95,6 +101,10 @@ public class PendingIssueReaper {
                 }
                 stateMachine.transition(locked, CertificateState.FAILED, CertificateEvent.ISSUE,
                         "Operation did not complete; reaped from PENDING_ISSUE (no in-flight poll)");
+                // Discharge the caller-side cleanup the SM does not: drop any PENDING predecessor
+                // relation so a reaped renew/rekey successor doesn't leave the predecessor linked to
+                // a now-FAILED certificate. No-op for a pure-issue orphan (no predecessor relation).
+                certificateRelationRepository.deleteAll(locked.getPredecessorRelations());
                 return true;
             }));
         } catch (RuntimeException e) {

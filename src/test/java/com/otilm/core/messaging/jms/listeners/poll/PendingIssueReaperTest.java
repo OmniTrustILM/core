@@ -2,10 +2,13 @@ package com.otilm.core.messaging.jms.listeners.poll;
 
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateStatusPoll;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
+import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateStatusPollRepository;
 import com.otilm.core.service.handler.authority.CertificateOperation;
@@ -35,6 +38,8 @@ class PendingIssueReaperTest extends BaseSpringBootTest {
     private PendingIssueReaper reaper;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificateRelationRepository certificateRelationRepository;
     @Autowired
     private CertificateStatusPollRepository pollRepository;
     @Autowired
@@ -93,6 +98,39 @@ class PendingIssueReaperTest extends BaseSpringBootTest {
 
         assertThat(certificateRepository.findByUuid(cert.getUuid()).orElseThrow().getState())
                 .isEqualTo(CertificateState.ISSUED);
+    }
+
+    @Test
+    void reapingRenewRekeyOrphanDeletesDanglingPredecessorRelation() {
+        // A synchronous renew/rekey crash leaves an ISSUED predecessor linked to a stale PENDING_ISSUE
+        // successor by a PENDING relation (created in an earlier committed step). Reaping the successor
+        // must drop that relation so the predecessor is not left linked to a now-FAILED certificate.
+        Certificate predecessor = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
+        Certificate successor = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
+        backdateUpdated(successor.getUuid(), STALE);
+        savePendingRelation(predecessor, successor);
+
+        reaper.reapStaleOrphans();
+
+        assertThat(certificateRepository.findByUuid(successor.getUuid()).orElseThrow().getState())
+                .as("the orphaned successor is failed")
+                .isEqualTo(CertificateState.FAILED);
+        assertThat(certificateRelationRepository
+                .findFirstByIdSuccessorCertificateUuidAndRelationTypeOrderByCreatedAtAsc(
+                        successor.getUuid(), CertificateRelationType.PENDING))
+                .as("the dangling PENDING predecessor relation is deleted")
+                .isEmpty();
+        assertThat(certificateRepository.findByUuid(predecessor.getUuid()).orElseThrow().getState())
+                .as("the predecessor is left untouched")
+                .isEqualTo(CertificateState.ISSUED);
+    }
+
+    private void savePendingRelation(Certificate predecessor, Certificate successor) {
+        CertificateRelation relation = new CertificateRelation();
+        relation.setPredecessorCertificate(predecessor);
+        relation.setSuccessorCertificate(successor);
+        relation.setRelationType(CertificateRelationType.PENDING);
+        certificateRelationRepository.save(relation);
     }
 
     private void savePollRow(UUID certificateUuid) {

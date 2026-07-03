@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,6 +41,7 @@ import static org.mockito.Mockito.when;
 class PendingIssueReaperUnitTest {
 
     @Mock private CertificateRepository certificateRepository;
+    @Mock private CertificateRelationRepository certificateRelationRepository;
     @Mock private TransactionHandler transactionHandler;
     @Mock private ClusterOperationSynchronizer clusterSynchronizer;
     @Mock private CertificateStateMachine stateMachine;
@@ -48,8 +51,8 @@ class PendingIssueReaperUnitTest {
     @SuppressWarnings({"unchecked", "rawtypes"})
     @BeforeEach
     void setUp() {
-        reaper = new PendingIssueReaper(certificateRepository, transactionHandler, clusterSynchronizer,
-                stateMachine, Duration.ofMinutes(30), 200);
+        reaper = new PendingIssueReaper(certificateRepository, certificateRelationRepository, transactionHandler,
+                clusterSynchronizer, stateMachine, Duration.ofMinutes(30), 200);
         // Execute the transactional lambdas inline so the real selection/reap logic runs under the test.
         lenient().when(transactionHandler.runInNewTransaction(any(Supplier.class)))
                 .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get());
@@ -90,8 +93,20 @@ class PendingIssueReaperUnitTest {
                 eq(CertificateEvent.ISSUE), anyString());
     }
 
+    @Test
+    void skipsAllWorkWhenAdvisoryLockNotAcquired() {
+        // Another node holds the cluster lock: this run must select nothing and reap nothing.
+        when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.PROVIDER_STATUS_POLL_SWEEP))
+                .thenReturn(false);
+
+        reaper.reapStaleOrphans();
+
+        verify(certificateRepository, never()).findStalePendingIssueWithoutPollRow(any(), any());
+        verify(stateMachine, never()).transition(any(), any(), any(), anyString());
+    }
+
     private void doThrowOnTransition(Certificate cert) {
-        org.mockito.Mockito.doThrow(new RuntimeException("lock timeout"))
+        doThrow(new RuntimeException("lock timeout"))
                 .when(stateMachine).transition(eq(cert), eq(CertificateState.FAILED),
                         eq(CertificateEvent.ISSUE), anyString());
     }
