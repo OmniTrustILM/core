@@ -22,7 +22,7 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -43,7 +43,7 @@ import java.util.List;
 public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter {
 
     @Autowired
-    public AuthorityProviderV2Adapter(ConnectorService connectorService,
+    public AuthorityProviderV2Adapter(ConnectorInternalService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine) {
         super(connectorService, connectorApiFactory, attributeEngine);
@@ -116,7 +116,7 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     public List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException {
         // v2 authority-instance attributes come from the function-group attribute endpoint
         // (/v1/authorityProvider/{kind}/attributes). Legacy (LEGACY_AUTHORITY_PROVIDER) connectors
-        // never reach this adapter — they stay on ConnectorService's function-group path.
+        // never reach this adapter — they stay on ConnectorInternalService's function-group path.
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getAttributeApiClient(connectorDto)
                 .listAttributeDefinitions(connectorDto,

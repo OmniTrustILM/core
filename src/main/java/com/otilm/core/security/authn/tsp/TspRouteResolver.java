@@ -2,7 +2,7 @@ package com.otilm.core.security.authn.tsp;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.model.signing.TspProfileModel;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -24,9 +24,9 @@ public class TspRouteResolver {
     private static final String SIGNING_PROFILES_SEGMENT = "signingProfiles/";
 
     private final TspProfileInternalService tspProfileService;
-    private final SigningProfileService signingProfileService;
+    private final SigningProfileInternalService signingProfileService;
 
-    public TspRouteResolver(TspProfileInternalService tspProfileService, SigningProfileService signingProfileService) {
+    public TspRouteResolver(TspProfileInternalService tspProfileService, SigningProfileInternalService signingProfileService) {
         this.tspProfileService = tspProfileService;
         this.signingProfileService = signingProfileService;
     }

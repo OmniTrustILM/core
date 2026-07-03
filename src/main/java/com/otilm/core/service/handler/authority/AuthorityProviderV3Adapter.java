@@ -33,7 +33,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.service.handler.OperationAttributeResolver;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -62,7 +62,7 @@ public class AuthorityProviderV3Adapter
     private final OperationAttributeResolver operationAttributeResolver;
 
     @Autowired
-    public AuthorityProviderV3Adapter(ConnectorService connectorService,
+    public AuthorityProviderV3Adapter(ConnectorInternalService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine,
                                       OperationAttributeResolver operationAttributeResolver) {

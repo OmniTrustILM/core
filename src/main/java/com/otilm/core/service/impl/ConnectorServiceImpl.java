@@ -25,9 +25,11 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.ConnectorService;
+import com.otilm.core.service.ConnectorExternalService;
+import com.otilm.core.service.ConnectorInternalService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -36,17 +38,23 @@ import java.util.*;
 
 @Service("connectorServiceV1")
 @Transactional
-public class ConnectorServiceImpl implements ConnectorService {
+public class ConnectorServiceImpl implements ConnectorExternalService, ConnectorInternalService {
 
-    private com.otilm.core.service.v2.ConnectorService connectorServiceV2;
+    private com.otilm.core.service.v2.ConnectorExternalService connectorServiceV2;
+    private com.otilm.core.service.v2.ConnectorInternalService connectorInternalServiceV2;
 
     private ConnectorRepository connectorRepository;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
 
     @Autowired
-    public void setConnectorServiceV2(com.otilm.core.service.v2.ConnectorService connectorServiceV2) {
+    public void setConnectorServiceV2(com.otilm.core.service.v2.ConnectorExternalService connectorServiceV2) {
         this.connectorServiceV2 = connectorServiceV2;
+    }
+
+    @Autowired
+    public void setConnectorInternalServiceV2(com.otilm.core.service.v2.ConnectorInternalService connectorInternalServiceV2) {
+        this.connectorInternalServiceV2 = connectorInternalServiceV2;
     }
 
     @Autowired
@@ -81,6 +89,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DETAIL)
     public ConnectorDto getConnector(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         var connectorDetailDto = connectorServiceV2.getConnector(uuid);
         return convertToDtoV1(connectorDetailDto);
@@ -93,6 +102,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CREATE)
     public ConnectorDto createConnector(ConnectorRequestDto request) throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
         requestV2.setName(request.getName());
@@ -109,6 +119,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.UPDATE)
     public ConnectorDto editConnector(SecuredUUID uuid, ConnectorUpdateRequestDto request) throws ConnectorException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto();
         requestV2.setUrl(request.getUrl());
@@ -122,21 +133,25 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public void deleteConnector(SecuredUUID uuid) throws NotFoundException {
         connectorServiceV2.deleteConnector(uuid);
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> bulkDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException {
         return connectorServiceV2.bulkDeleteConnector(uuids);
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DELETE)
     public List<BulkActionMessageDto> forceDeleteConnector(List<SecuredUUID> uuids) throws ValidationException, NotFoundException {
         return connectorServiceV2.forceDeleteConnector(uuids);
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public List<ConnectDto> connect(ConnectRequestDto request) throws ValidationException, ConnectorException {
         var connectInfos = connectorServiceV2.connect(request);
 
@@ -162,6 +177,7 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public List<ConnectDto> reconnect(SecuredUUID uuid) throws ValidationException, ConnectorException, NotFoundException {
         var connector = connectorRepository.findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
@@ -183,21 +199,25 @@ public class ConnectorServiceImpl implements ConnectorService {
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
     public void reconnect(List<SecuredUUID> uuids) throws ValidationException, ConnectorException {
         connectorServiceV2.bulkReconnect(uuids);
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.APPROVE)
     public void approve(SecuredUUID uuid) throws NotFoundException, ValidationException {
         connectorServiceV2.approve(uuid);
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.APPROVE)
     public void approve(List<SecuredUUID> uuids) throws NotFoundException, ValidationException {
         connectorServiceV2.bulkApprove(uuids);
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public HealthDto checkHealth(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo connectorDto = getConnectorForApiClient(uuid.getValue());
         return connectorApiFactory.getHealthApiClient(connectorDto).checkHealth(connectorDto);
@@ -267,27 +287,27 @@ public class ConnectorServiceImpl implements ConnectorService {
 
     @Override
     public ApiClientConnectorInfo getConnectorForApiClient(UUID connectorUuid) throws NotFoundException {
-        return connectorServiceV2.getConnectorForApiClient(connectorUuid);
+        return connectorInternalServiceV2.getConnectorForApiClient(connectorUuid);
     }
 
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
-        return connectorServiceV2.getResourceObjectInternal(objectUuid);
+        return connectorInternalServiceV2.getResourceObjectInternal(objectUuid);
     }
 
     @Override
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
-        return connectorServiceV2.getResourceObjectExternal(objectUuid);
+        return connectorInternalServiceV2.getResourceObjectExternal(objectUuid);
     }
 
     @Override
     public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters, PaginationRequestDto pagination) {
-        return connectorServiceV2.listResourceObjects(filter, filters, pagination);
+        return connectorInternalServiceV2.listResourceObjects(filter, filters, pagination);
     }
 
     @Override
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
-        connectorServiceV2.evaluatePermissionChain(uuid);
+        connectorInternalServiceV2.evaluatePermissionChain(uuid);
     }
 
     private void validateFunctionGroup(Connector connector, FunctionGroupCode functionGroup) {

@@ -37,7 +37,7 @@ import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.service.TimeQualityConfigurationInternalService;
 import com.otilm.core.service.model.SecuredList;
@@ -73,7 +73,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     private static final String NOT_FOUND_MSG = "Time Quality Configuration not found: ";
 
     private AttributeEngine attributeEngine;
-    private SigningProfileService signingProfileService;
+    private SigningProfileInternalService signingProfileService;
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TimeQualityConfigurationServiceImpl self;
     private ApplicationEventPublisher applicationEventPublisher;
@@ -309,7 +309,7 @@ public class TimeQualityConfigurationServiceImpl implements TimeQualityConfigura
     }
 
     @Autowired
-    public void setSigningProfileService(SigningProfileService signingProfileService) {
+    public void setSigningProfileService(SigningProfileInternalService signingProfileService) {
         this.signingProfileService = signingProfileService;
     }
 

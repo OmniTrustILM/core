@@ -48,7 +48,6 @@ import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.discovery.DiscoveryContext;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
@@ -100,7 +99,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private DiscoveryRepository discoveryRepository;
     private CertificateRepository certificateRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CredentialInternalService credentialService;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
     private CertificateContentRepository certificateContentRepository;
@@ -158,7 +157,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 
@@ -741,7 +740,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.DISCOVERY, false);
 

@@ -126,8 +126,8 @@ class CiTestSplitTest {
      * fragments — a substring match would wrongly exempt e.g. any path merely containing "api".
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of(
-            "service", "util", "signing", "messaging", "security", "migration", "search",
-            "dao", "api", "attribute", "config", "tasks", "events", "repository", "auth",
+            "service", "util", "signing", "messaging", "security",
+            "api", "attribute", "config", "auth",
             "aop", "model", "provisioning", "evaluator", "cryptography", "cluster");
 
     /**

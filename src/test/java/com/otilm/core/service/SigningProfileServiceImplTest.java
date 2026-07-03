@@ -64,7 +64,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
@@ -110,13 +110,16 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private static final String BASE_URL = "http://localhost";
 
     @Autowired
-    private SigningProfileService signingProfileService;
+    private SigningProfileExternalService signingProfileService;
+
+    @Autowired
+    private SigningProfileInternalService signingProfileInternalService;
 
     @Autowired
     private TspProfileExternalService tspProfileService;
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
 
     @Autowired
     private TokenInstanceExternalService tokenInstanceService;
@@ -611,7 +614,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             SecuredUUID existingProfileUuid = SecuredUUID.fromString(existingProfile.getUuid());
 
             // when
-            SigningProfile entity = signingProfileService.getSigningProfileEntity(existingProfileUuid);
+            SigningProfile entity = signingProfileInternalService.getSigningProfileEntity(existingProfileUuid);
 
             // then
             assertNotNull(entity);
@@ -626,7 +629,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         @Test
         void returnsExistingNames() {
             // when
-            List<String> names = signingProfileService.findAllNames();
+            List<String> names = signingProfileInternalService.findAllNames();
 
             // then
             assertNotNull(names);
@@ -2069,7 +2072,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // when
             SigningProfileModel<?, ?> model =
-                    signingProfileService.getSigningProfileModel("ts-managed-model");
+                    signingProfileInternalService.getSigningProfileModel("ts-managed-model");
 
             // then
             assertInstanceOf(ManagedTimestampingWorkflow.class, model.workflow());
@@ -2097,7 +2100,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // when
             SigningProfileModel<?, ?> model =
-                    signingProfileService.getSigningProfileModel("ts-managed-validation-props");
+                    signingProfileInternalService.getSigningProfileModel("ts-managed-validation-props");
 
             // then
             assertInstanceOf(ManagedTimestampingWorkflow.class, model.workflow());
@@ -2124,7 +2127,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // when
             SigningProfileModel<?, ?> model =
-                    signingProfileService.getSigningProfileModel("ts-managed-base-fields");
+                    signingProfileInternalService.getSigningProfileModel("ts-managed-base-fields");
 
             // then
             assertEquals("ts-managed-base-fields", model.name());
@@ -2342,7 +2345,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                 String nonExistentSigningProfileName = "non-existent-profile-for-ts-check";
 
                 // when
-                Executable getProfile = () -> signingProfileService.getSigningProfileModel(nonExistentSigningProfileName);
+                Executable getProfile = () -> signingProfileInternalService.getSigningProfileModel(nonExistentSigningProfileName);
 
                 // then
                 assertThrows(NotFoundException.class, getProfile);
@@ -2354,7 +2357,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
                 String rawProfileName = defaultRawSigningProfile.getName();
 
                 // when
-                Executable getModel = () -> signingProfileService.getSigningProfileModel(rawProfileName);
+                Executable getModel = () -> signingProfileInternalService.getSigningProfileModel(rawProfileName);
 
                 // then
                 IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, getModel);

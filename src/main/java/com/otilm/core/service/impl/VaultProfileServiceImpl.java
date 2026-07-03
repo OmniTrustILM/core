@@ -27,14 +27,13 @@ import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.SearchHelper;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -60,7 +59,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     private VaultInstanceRepository vaultInstanceRepository;
     private SecretRepository secretRepository;
 
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
     private AttributeEngine attributeEngine;
     private PermissionEvaluator permissionEvaluator;
 
@@ -77,7 +76,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
     }
 
@@ -234,7 +233,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.VAULT_PROFILE, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.VAULT_PROFILE, false);
         List<SearchFieldDataDto> fields = new ArrayList<>(List.of(

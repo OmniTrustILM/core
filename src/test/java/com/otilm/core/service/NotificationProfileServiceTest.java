@@ -72,7 +72,7 @@ class NotificationProfileServiceTest extends BaseSpringBootTest {
     private NotificationInstanceMappedAttributeRepository notificationInstanceMappedAttributeRepository;
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     private NotificationProfileDetailDto originalNotificationProfile;
 

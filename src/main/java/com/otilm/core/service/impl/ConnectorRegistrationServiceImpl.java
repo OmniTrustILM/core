@@ -10,7 +10,7 @@ import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
 import com.otilm.core.service.ConnectorRegistrationExternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,10 +23,10 @@ import jakarta.transaction.Transactional;
 public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationExternalService {
     private static final Logger logger = LoggerFactory.getLogger(ConnectorRegistrationServiceImpl.class);
 
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 

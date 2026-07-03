@@ -217,8 +217,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
 
     /**
      * Sync-path equivalence for a completed issue/renew: parse + persist cert content + ISSUE event.
-     * {@code issueRequestedCertificate} sets state=ISSUED via prepareIssuedCertificate (matching the sync v2
-     * path). Meta is passed empty here and written after commit so a meta-persistence failure does not roll
+     * {@code issueRequestedCertificate} stamps the cert fields and drives the {@code PENDING_ISSUE -> ISSUED}
+     * transition through the state machine (same path as the sync v2 issue). Meta is passed empty here and
+     * written after commit so a meta-persistence failure does not roll
      * back the transition — the connector accepted COMPLETED, so state must reflect that.
      */
     private void persistIssuedCertificate(Certificate locked, CertificateOperation op, StatusPollResult status) {

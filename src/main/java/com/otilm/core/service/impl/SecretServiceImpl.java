@@ -38,12 +38,11 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,7 +91,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private UserManagementApiClient userManagementApiClient;
 
     private ResourceObjectAssociationService objectAssociationService;
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
     private VaultInstanceInternalService vaultInstanceService;
 
     private ConnectorApiFactory connectorApiFactory;
@@ -132,7 +131,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorExternalService connectorService) {
         this.connectorService = connectorService;
     }
 
@@ -182,7 +181,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SECRET, false);
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>(List.of(

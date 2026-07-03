@@ -35,7 +35,7 @@ import java.util.UUID;
 class GlobalMetadataServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     @Autowired
     private AttributeDefinitionRepository attributeDefinitionRepository;

@@ -39,6 +39,7 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -172,7 +173,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
@@ -1526,6 +1527,27 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
+        void evictsCertCache_whenRevokeSkipsTransition_forNonRevocableUserCert() {
+            // given - a user-mapped cert in a non-revocable state (REQUESTED has no ->REVOKED arc):
+            // the SM transition is skipped, but a revoke request must still flush the positive-auth cache
+            UUID userUuid = UUID.randomUUID();
+            String fingerprint = "abcdef1234567890";
+            certificate.setUserUuid(userUuid);
+            certificate.setFingerprint(fingerprint);
+            certificate.setState(CertificateState.REQUESTED);
+            certificateRepository.save(certificate);
+            var certCache = primeCertCache(fingerprint);
+
+            // when
+            certificateService.revokeCertificate(certificate.getSerialNumber());
+
+            // then - transition skipped (state unchanged) yet the cert cache entry is still evicted
+            Certificate reloaded = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.REQUESTED);
+            certCache.assertEvicted();
+        }
+
+        @Test
         void evictsCertCache_whenUserDisassociated() throws NotFoundException {
             // given
             UUID userUuid = UUID.randomUUID();
@@ -1621,7 +1643,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             cache.clear();
 
             // Create a Certificate entity with no content but with RA profile (required by issueRequestedCertificate)
-            Certificate notIssued = aCertificate().withRaProfile(raProfile).build();
+            Certificate notIssued = aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build();
             notIssued = certificateRepository.save(notIssued);
             UUID uuid = notIssued.getUuid();
             String certKey = uuid + "_true";
@@ -1890,7 +1912,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
                     aCertificateContent().withContent(CA_BASE64_CONTENT).build()));
             certificateRepository.save(commonIssuer);
 
-            Certificate notIssued = certificateRepository.save(aCertificate().withRaProfile(raProfile).build());
+            Certificate notIssued = certificateRepository.save(aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
             certificate.setIssuerSerialNumber(commonIssuer.getSerialNumber());
             certificate.setSubjectDnNormalized("2.5.4.3=hybrid-with-csr2");
             certificate.setIssuerDnNormalized(commonIssuer.getSubjectDnNormalized());
@@ -1905,6 +1927,129 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificateRepository.save(notIssued);
             certificateRepository.save(certificate);
             return notIssued;
+        }
+    }
+
+    // ── IssueRequestedCertificate SM ─────────────────────────────────────────
+    @Nested
+    class IssueRequestedCertificateSM {
+
+        @Test
+        void issueRequestedCertificate_pendingIssue_transitionsToIssuedViaStateMachine() throws Exception {
+            // given — a PENDING_ISSUE cert with an RA profile
+            Certificate cert = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
+
+            // generate a unique cert so its fingerprint is not already in DB
+            KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=SMTest-Root");
+            KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=SMTest-EE", null);
+            String pemCert = X509ObjectToString.toPem(eeX509);
+
+            // when
+            certificateService.issueRequestedCertificate(cert.getUuid(), pemCert, null);
+
+            // then
+            Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.ISSUED);
+
+            // ISSUE/SUCCESS audit row written by the SM
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("SM must write an ISSUE/SUCCESS audit row")
+                    .anyMatch(h -> h.getEvent() == CertificateEvent.ISSUE
+                            && h.getStatus() == CertificateEventStatus.SUCCESS);
+        }
+
+        @Test
+        void issueRequestedCertificate_illegalFromState_throwsInvalidTransition() throws Exception {
+            // given — a cert in REVOKED state (not a valid predecessor for ISSUED)
+            Certificate cert = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.REVOKED).build());
+
+            // generate a unique cert data (fingerprint collision check runs before SM)
+            KeyPair rootKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate rootX509 = CertificateGeneratorHelper.generateCACertificate(rootKp, "CN=SMBad-Root");
+            KeyPair eeKp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate eeX509 = CertificateGeneratorHelper.generateEndEntityCertificate(rootKp, rootX509, eeKp, "CN=SMBad-EE", null);
+            String pemCert = X509ObjectToString.toPem(eeX509);
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.issueRequestedCertificate(cert.getUuid(), pemCert, null))
+                    .isInstanceOf(InvalidTransitionException.class);
+        }
+    }
+
+    // ── RevokeCertificateBySN SM ──────────────────────────────────────────────
+    @Nested
+    class RevokeCertificateBySN_SM {
+
+        @Test
+        void revokeCertificateBySerial_issued_transitionsToRevokedAndAudits() {
+            // given — seed an ISSUED cert with a unique serial number
+            Certificate cert = aCertificate()
+                    .withSerialNumber("smc3-issued-" + UUID.randomUUID())
+                    .withState(CertificateState.ISSUED)
+                    .withValidationStatus(CertificateValidationStatus.VALID)
+                    .build();
+            cert = certificateRepository.save(cert);
+            final String serial = cert.getSerialNumber();
+            final UUID certUuid = cert.getUuid();
+
+            // when
+            certificateService.revokeCertificate(serial);
+
+            // then — state is REVOKED
+            Certificate reloaded = certificateRepository.findByUuid(certUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.REVOKED);
+
+            // SM wrote a REVOKE/SUCCESS audit row
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("SM must write a REVOKE/SUCCESS audit row")
+                    .anyMatch(h -> h.getEvent() == CertificateEvent.REVOKE
+                            && h.getStatus() == CertificateEventStatus.SUCCESS);
+        }
+
+        @Test
+        void revokeCertificateBySerial_illegalFromState_isNoOp() {
+            // given — seed a cert in a non-revocable state (REQUESTED has no ->REVOKED arc)
+            Certificate cert = aCertificate()
+                    .withSerialNumber("smc3-requested-" + UUID.randomUUID())
+                    .withState(CertificateState.REQUESTED)
+                    .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                    .build();
+            cert = certificateRepository.save(cert);
+            final String serial = cert.getSerialNumber();
+            final UUID certUuid = cert.getUuid();
+
+            // when / then — lenient guard: no exception, state unchanged, no REVOKE audit row
+            assertThatCode(() -> certificateService.revokeCertificate(serial))
+                    .doesNotThrowAnyException();
+
+            Certificate reloaded = certificateRepository.findByUuid(certUuid).orElseThrow();
+            assertThat(reloaded.getState())
+                    .as("non-revocable state must be left unchanged by the lenient guard")
+                    .isEqualTo(CertificateState.REQUESTED);
+
+            assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(reloaded))
+                    .as("no-op revoke must not write a REVOKE audit row")
+                    .noneMatch(h -> h.getEvent() == CertificateEvent.REVOKE);
+        }
+
+        @Test
+        void revokeCertificateBySerial_notFound_warnsAndReturns() {
+            // given — audit-history baseline
+            long historyBefore = certificateEventHistoryRepository.count();
+
+            // when / then — unknown serial hits the NotFoundException path (warn + return), so nothing
+            // downstream runs: no REVOKE audit row and no status-changed event (the certificate != null
+            // block is skipped when nothing is found)
+            assertThatCode(() -> certificateService.revokeCertificate("deadbeef-not-a-real-serial"))
+                    .doesNotThrowAnyException();
+
+            assertThat(certificateEventHistoryRepository.count())
+                    .as("not-found revoke must not write any cert-event-history row")
+                    .isEqualTo(historyBefore);
         }
     }
 

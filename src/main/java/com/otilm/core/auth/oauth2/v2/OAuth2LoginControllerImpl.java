@@ -8,7 +8,8 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDt
 import com.otilm.core.util.OAuth2LoginFlowHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
-import com.otilm.core.service.v2.OAuth2LoginService;
+import com.otilm.core.service.v2.OAuth2LoginExternalService;
+import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import com.otilm.core.util.OAuth2Constants;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +28,13 @@ import java.util.List;
 public class OAuth2LoginControllerImpl implements OAuth2LoginController {
 
     private AuditLogInternalService auditLogService;
-    private OAuth2LoginService oauth2LoginService;
+    private OAuth2LoginExternalService oauth2LoginService;
+    private OAuth2LoginInternalService oauth2LoginInternalService;
+
+    @Autowired
+    public void setOauth2LoginService(OAuth2LoginExternalService oauth2LoginService) {
+        this.oauth2LoginService = oauth2LoginService;
+    }
 
     @Autowired
     public void setAuditLogService(AuditLogInternalService auditLogService) {
@@ -35,8 +42,8 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
     }
 
     @Autowired
-    public void setOauth2LoginService(OAuth2LoginService oauth2LoginService) {
-        this.oauth2LoginService = oauth2LoginService;
+    public void setOauth2LoginInternalService(OAuth2LoginInternalService oauth2LoginInternalService) {
+        this.oauth2LoginInternalService = oauth2LoginInternalService;
     }
 
     @Override
@@ -84,7 +91,7 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
         HttpServletRequest request = getHttpServletRequest();
         request.getSession(true).setAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE, baseUrl + validatedRedirectUrl);
 
-        OAuth2ProviderSettingsDto providerSettings = OAuth2LoginFlowHelper.resolveProviderOrThrow(provider, request, oauth2LoginService, auditLogService);
+        OAuth2ProviderSettingsDto providerSettings = OAuth2LoginFlowHelper.resolveProviderOrThrow(provider, request, oauth2LoginInternalService, auditLogService);
 
         request.getSession().setAttribute(OAuth2Constants.SERVLET_CONTEXT_SESSION_ATTRIBUTE, ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath());
         request.getSession().setMaxInactiveInterval(providerSettings.getSessionMaxInactiveInterval());

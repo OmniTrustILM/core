@@ -71,6 +71,9 @@ provider:
     sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
     sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
     sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
+    # How long a certificate may sit in PENDING_ISSUE with no poll row (a crashed synchronous issue)
+    # before the reaper fails it. Must exceed any legitimate synchronous issue duration.
+    reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
     defaults:
       delays:
         - PT1S

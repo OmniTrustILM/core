@@ -13,7 +13,7 @@ import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.*;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
@@ -88,11 +88,11 @@ public class TspControllerITest extends BaseSpringBootTest {
     @Autowired
     private TspControllerImpl tspController;
     @Autowired
-    private SigningProfileService signingProfileService;
+    private SigningProfileExternalService signingProfileService;
     @Autowired
     private TspProfileExternalService tspProfileService;
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
     @Autowired
     private TokenInstanceExternalService tokenInstanceService;
     @Autowired

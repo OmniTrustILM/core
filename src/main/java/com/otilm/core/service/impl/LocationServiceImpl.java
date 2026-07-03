@@ -42,7 +42,6 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -52,7 +51,7 @@ import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.v2.ClientOperationInternalService;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -89,7 +88,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private CertificateRelationRepository certificateRelationRepository;
     private RaProfileRepository raProfileRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private CertificateService certificateService;
     private ClientOperationInternalService clientOperationService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -128,7 +127,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 
@@ -1159,7 +1158,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.LOCATION, false);
 

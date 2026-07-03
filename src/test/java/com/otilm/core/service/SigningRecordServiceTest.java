@@ -17,7 +17,7 @@ import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.SearchRequestDtoBuilder;
@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through {@link SigningProfileService}
+ * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through {@link SigningProfileExternalService}
  * against a live {@link SignerConnectorMock}, signing records are persisted through {@link SigningRecordWriter}, and
  * every assertion reads back through the service under test. Nothing touches a repository directly.
  */
@@ -68,13 +68,13 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     private SigningRecordInternalService signingRecordInternalService;
 
     @Autowired
-    private SigningProfileService signingProfileService;
+    private SigningProfileExternalService signingProfileService;
 
     @Autowired
     private SigningRecordWriter signingRecordWriter;
 
     @Autowired
-    private ConnectorService connectorService;
+    private ConnectorExternalService connectorService;
 
     @Autowired
     private ConnectorMockFactory connectorMockFactory;

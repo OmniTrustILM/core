@@ -37,7 +37,10 @@ import java.util.UUID;
 class CustomAttributeServiceTest extends BaseSpringBootTest {
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
+
+    @Autowired
+    private AttributeInternalService attributeInternalService;
 
     @Autowired
     private AttributeDefinitionRepository attributeDefinitionRepository;
@@ -332,12 +335,12 @@ class CustomAttributeServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        Assertions.assertThrows(NotFoundException.class, () -> attributeService.getResourceObjectInternal(UUID.randomUUID()));
-        NameAndUuidDto nameAndUuidDto = attributeService.getResourceObjectInternal(definition.getUuid());
+        Assertions.assertThrows(NotFoundException.class, () -> attributeInternalService.getResourceObjectInternal(UUID.randomUUID()));
+        NameAndUuidDto nameAndUuidDto = attributeInternalService.getResourceObjectInternal(definition.getUuid());
         Assertions.assertEquals(definition.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(definition.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = attributeService.getResourceObjectExternal(definition.getSecuredUuid());
+        nameAndUuidDto = attributeInternalService.getResourceObjectExternal(definition.getSecuredUuid());
         Assertions.assertEquals(definition.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(definition.getName(), nameAndUuidDto.getName());
 

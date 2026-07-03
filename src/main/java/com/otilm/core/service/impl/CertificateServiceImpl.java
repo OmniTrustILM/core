@@ -75,8 +75,9 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
+import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificateValidationWriter;
-import com.otilm.core.service.v2.ConnectorService;
+import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.*;
@@ -167,7 +168,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
     private ConnectorApiFactory connectorApiFactory;
-    private ConnectorService connectorService;
+    private ConnectorInternalService connectorService;
     private UserManagementApiClient userManagementApiClient;
     private CrlService crlService;
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
@@ -185,6 +186,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private ValidationProducer validationProducer;
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
+    private CertificateStateMachine stateMachine;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
@@ -347,7 +349,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Autowired
-    public void setConnectorService(ConnectorService connectorService) {
+    public void setConnectorService(ConnectorInternalService connectorService) {
         this.connectorService = connectorService;
     }
 
@@ -394,6 +396,11 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     @Autowired
     public void setAuthenticationCache(AuthenticationCache authenticationCache) {
         this.authenticationCache = authenticationCache;
+    }
+
+    @Autowired
+    public void setStateMachine(CertificateStateMachine stateMachine) {
+        this.stateMachine = stateMachine;
     }
 
     @Override
@@ -1296,11 +1303,19 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         try {
             certificate = certificateRepository.findBySerialNumberIgnoreCase(serialNumber).orElseThrow(() -> new NotFoundException(Certificate.class, serialNumber));
             oldStatus = certificate.getValidationStatus();
-            certificate.setState(CertificateState.REVOKED);
-            certificateRepository.save(certificate);
+            if (stateMachine.canTransition(certificate.getState(), CertificateState.REVOKED)) {
+                stateMachine.transition(certificate, CertificateState.REVOKED, CertificateEvent.REVOKE, "Revoked");
+            } else if (certificate.getState() == CertificateState.REVOKED) {
+                log.debug("Certificate {} is already REVOKED; revoke transition is a no-op", certificate.getUuid());
+            } else {
+                log.warn("Certificate {} is in non-revocable state {}; leaving local state unchanged (the authority may already have revoked it upstream)",
+                        certificate.getUuid(), certificate.getState());
+            }
         } catch (NotFoundException e) {
             log.warn("Unable to find the certificate with serialNumber {}", serialNumber);
         }
+        // Evict the auth-cache entry and emit the status event for a found cert even when the
+        // transition is skipped, so a revoke never leaves a stale positive-auth entry live.
         if (certificate != null) {
             if (certificate.getUserUuid() != null) {
                 authenticationCache.evictByCertificateFingerprint(certificate.getFingerprint());
@@ -1813,7 +1828,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }
         Certificate certificate = certificateRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
-        CertificateUtil.prepareIssuedCertificate(certificate, x509Cert);
+        CertificateUtil.stampIssuedFields(certificate, x509Cert);
         CertificateContent certificateContent = checkAddCertificateContent(fingerprint, X509ObjectToString.toPem(x509Cert));
         certificate.setFingerprint(fingerprint);
         certificate.setCertificateContent(certificateContent);
@@ -1829,7 +1844,8 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
             uploadCertificateKey(null, certificate, x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
         }
 
-        certificate = certificateRepository.save(certificate);
+        stateMachine.transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,
+                "Issued using RA Profile " + certificate.getRaProfile().getName());
 
         for (CertificateRelation relation : certificate.getPredecessorRelations()) {
             relation.setRelationType(determineRelationType(certificate, relation.getPredecessorCertificate()));
@@ -1840,7 +1856,6 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         UUID connectorUuid = certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid();
 
         attributeEngine.updateMetadataAttributes(meta, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
-        certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.SUCCESS, "Issued using RA Profile " + certificate.getRaProfile().getName(), "");
 
         log.info("Certificate was successfully issued. {}", certificate.getUuid());
 
