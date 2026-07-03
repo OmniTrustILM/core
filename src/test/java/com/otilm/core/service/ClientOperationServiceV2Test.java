@@ -1153,6 +1153,68 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 "expected an ISSUE/SUCCESS event in cert history after 202 from connector");
     }
 
+    /**
+     * The synchronous (HTTP 200) issue path must now pass through PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finish in ISSUED. The pre-connector transition is the
+     * only source of an ISSUE/SUCCESS "Issuance in progress" audit row, so its presence proves the
+     * cert went through PENDING_ISSUE on the way to ISSUED.
+     */
+    @Test
+    void issueCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, fetched.getState(),
+                "sync 200 issue must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the state-machine's PENDING_ISSUE audit row (ISSUE/SUCCESS, "
+                        + "\"Issuance in progress\") to precede ISSUED on the sync path");
+    }
+
+    /**
+     * When the connector returns an error (no certificate data) on a synchronous issue call,
+     * the certificate must end in FAILED and the audit history must contain an ISSUE/FAILED row.
+     * The failure-from-state is PENDING_ISSUE (the pre-connector transition already ran), so this
+     * exercises the pre-existing PENDING_ISSUE -> FAILED arc that sync connector errors now route
+     * through (previously the sync failure ran from REQUESTED); no new transition rows are added.
+     */
+    @Test
+    void issueCertificateAction_transitionsToFailed_onSyncConnectorError() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        // Connector returns 200 but with an empty body — no certificate data
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.okJson("{}")));
+
+        Assertions.assertThrows(
+                CertificateOperationException.class,
+                () -> clientOperationInternalService.issueCertificateAction(certUuid, true),
+                "sync issue with no certificate data must throw");
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.FAILED, fetched.getState(),
+                "cert must end in FAILED after a sync connector error");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.FAILED),
+                "an ISSUE/FAILED audit row must be written after a sync connector error");
+    }
+
     @Test
     void revokeCertificateAction_transitionsToPendingRevoke_when202FromConnector() throws Exception {
         mockServer.stubFor(WireMock
@@ -1414,6 +1476,65 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                         h.getEvent() == CertificateEvent.REKEY
                                 && h.getStatus() == CertificateEventStatus.SUCCESS),
                 "expected a REKEY/SUCCESS event on the predecessor after 202 from connector");
+    }
+
+    /**
+     * The synchronous (HTTP 200) renew path moves the new certificate to PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finishes in ISSUED. The "Issuance in progress" audit
+     * row proves the new cert passed through PENDING_ISSUE on the way to ISSUED.
+     */
+    @Test
+    void renewCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        clientOperationInternalService.renewCertificateAction(certificate.getUuid(), request, true);
+
+        Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(),
+                "sync 200 renew must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                        + "to precede ISSUED on the sync renew path");
+    }
+
+    /**
+     * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state
+     * machine BEFORE the connector call, then finishes in ISSUED — mirroring the renew path.
+     */
+    @Test
+    void rekeyCertificateAction_transitionsThroughPendingIssue_on200Sync() throws Exception {
+        prepareCertificateForRenewal();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        clientOperationInternalService.rekeyCertificateAction(certificate.getUuid(), request, true);
+
+        Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(),
+                "sync 200 rekey must finish in ISSUED");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.SUCCESS
+                                && "Issuance in progress".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                        + "to precede ISSUED on the sync rekey path");
     }
 
     @Test

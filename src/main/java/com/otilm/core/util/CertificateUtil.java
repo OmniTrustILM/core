@@ -376,7 +376,17 @@ public class CertificateUtil {
     }
 
     public static void prepareIssuedCertificate(Certificate modal, X509Certificate certificate) {
+        stampIssuedFields(modal, certificate);
         modal.setState(CertificateState.ISSUED);
+    }
+
+    /**
+     * Sets certificate data fields only; does NOT advance state. Callers routing
+     * PENDING_ISSUE-&gt;ISSUED through {@link com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine}
+     * call this before the SM transition; callers creating new certificate rows that bypass the SM
+     * use {@link #prepareIssuedCertificate} instead.
+     */
+    public static void stampIssuedFields(Certificate modal, X509Certificate certificate) {
         modal.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         modal.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
 
