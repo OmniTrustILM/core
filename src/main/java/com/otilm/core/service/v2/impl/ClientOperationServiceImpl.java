@@ -635,7 +635,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 transactionManager.commit(failTx);
             } catch (Exception failEx) {
                 transactionManager.rollback(failTx);
-                logger.error("Failed to record issuance failure for certificate {}: {}", certificateUuid, failEx.getMessage());
+                logger.error("Failed to record issuance failure for certificate {}: {}", certificateUuid, failEx.getMessage(), failEx);
             }
             throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }

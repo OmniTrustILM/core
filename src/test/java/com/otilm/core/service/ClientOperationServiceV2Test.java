@@ -1218,7 +1218,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     }
 
     /**
-     * Concurrency guard (core#1687): the claim of a certificate for issuance now happens under a
+     * Concurrency guard: the claim of a certificate for issuance now happens under a
      * pessimistic row lock, and the state is re-asserted under that lock. A second ISSUE action for
      * a certificate already claimed to PENDING_ISSUE (the state a concurrent winner leaves behind)
      * must be a benign no-op — it must NOT call the connector again and must NOT drive the cert to
@@ -1742,7 +1742,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     }
 
     /**
-     * Concurrency guard (core#1687): the PENDING_ISSUE -> ISSUED finalize now runs under a pessimistic
+     * Concurrency guard: the PENDING_ISSUE -> ISSUED finalize now runs under a pessimistic
      * row lock and re-asserts PENDING_ISSUE after acquiring it. This models the losing side of a race —
      * the outer (unlocked) checks and the connector identify all saw PENDING_ISSUE, but by the time the
      * lock is acquired a concurrent upload has already finalized the certificate to ISSUED. Only the

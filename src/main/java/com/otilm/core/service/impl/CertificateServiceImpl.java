@@ -1129,13 +1129,12 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (signRequest.getFormat() == null) {
             throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
         }
-        // Locked read (SELECT ... FOR UPDATE): a concurrent attach on the same certificate blocks here
-        // instead of racing an unlocked read, so the state re-assert below is authoritative rather than
-        // a check the other transaction can still slip past.
-        SecuredUUID securedCertificateUuid = SecuredUUID.fromUUID(certificateUuid);
+        // Authorize on an unlocked read first — evaluateCertificateRaProfilePermissions makes an external
+        // OPA call and must not run while holding the row lock — then take the lock (SELECT ... FOR UPDATE)
+        // so a concurrent attach blocks here and the state re-assert below is authoritative.
+        getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
         Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        raProfileService.evaluateCertificateRaProfilePermissions(securedCertificateUuid, SecuredParentUUID.fromUUID(certificate.getRaProfileUuid()));
         // Defense-in-depth: a CSR is attached only while completing a registered placeholder. The sole
         // caller (issueExistingCertificate) already gates on this, but guard here too so this public method
         // cannot overwrite the request of an ISSUED / REQUESTED / pending certificate.
