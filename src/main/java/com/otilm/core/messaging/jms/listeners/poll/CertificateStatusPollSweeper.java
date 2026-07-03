@@ -22,8 +22,9 @@ import java.util.List;
  * DB connection. A lost poll message is self-correcting: the row stays scheduled and is re-enqueued (at the
  * advanced attempt) when next due.</p>
  *
- * <p>The sweep owns only scheduling; the listener owns every state transition and deletes the row on a
- * terminal outcome or timeout.</p>
+ * <p>The poll phase owns only scheduling; the listener owns the async poll flow's state transitions and
+ * deletes the row on a terminal outcome or timeout. As a final phase the sweep also reaps certificates
+ * orphaned in {@code PENDING_ISSUE} with no poll row (see {@link PendingIssueReaper}).</p>
  */
 @Component
 public class CertificateStatusPollSweeper {
@@ -32,15 +33,18 @@ public class CertificateStatusPollSweeper {
 
     private final CertificateStatusPollClaimer pollClaimer;
     private final CertificateStatusPollProducer pollProducer;
+    private final PendingIssueReaper pendingIssueReaper;
     private final int batchSize;
     private final int maxBatchesPerRun;
 
     public CertificateStatusPollSweeper(CertificateStatusPollClaimer pollClaimer,
                                         CertificateStatusPollProducer pollProducer,
+                                        PendingIssueReaper pendingIssueReaper,
                                         @Value("${provider.status-poll.sweep-batch-size:200}") int batchSize,
                                         @Value("${provider.status-poll.sweep-max-batches-per-run:10}") int maxBatchesPerRun) {
         this.pollClaimer = pollClaimer;
         this.pollProducer = pollProducer;
+        this.pendingIssueReaper = pendingIssueReaper;
         this.batchSize = batchSize;
         this.maxBatchesPerRun = maxBatchesPerRun;
     }
@@ -74,5 +78,9 @@ public class CertificateStatusPollSweeper {
         if (enqueued > 0) {
             logger.info("Status-poll sweep enqueued {} poll(s)", enqueued);
         }
+
+        // Final phase: fail certificates orphaned in PENDING_ISSUE by a sync-path crash. They have no
+        // poll row, so the loop above never sees them.
+        pendingIssueReaper.reapStaleOrphans();
     }
 }
