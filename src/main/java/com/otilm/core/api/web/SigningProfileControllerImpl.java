@@ -27,7 +27,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.util.converter.SigningWorkflowTypeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -41,7 +41,7 @@ import java.util.UUID;
 @RestController
 public class SigningProfileControllerImpl implements SigningProfileController {
 
-    private final SigningProfileService signingProfileService;
+    private final SigningProfileExternalService signingProfileService;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -49,7 +49,7 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     }
 
     @Autowired
-    public SigningProfileControllerImpl(SigningProfileService signingProfileService) {
+    public SigningProfileControllerImpl(SigningProfileExternalService signingProfileService) {
         this.signingProfileService = signingProfileService;
     }
 

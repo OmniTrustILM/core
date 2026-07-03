@@ -87,7 +87,7 @@ class TriggerEvaluatorTest extends BaseSpringBootTest {
     private CertificateService certificateService;
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     @Autowired
     private TriggerInternalService triggerService;

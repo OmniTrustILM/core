@@ -20,7 +20,7 @@ import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,11 +32,11 @@ import java.util.UUID;
 public class TimeQualityConfigurationControllerImpl implements TimeQualityConfigurationController {
 
     private final TimeQualityConfigurationExternalService timeQualityConfigurationService;
-    private final SigningProfileService signingProfileService;
+    private final SigningProfileExternalService signingProfileService;
 
     @Autowired
     public TimeQualityConfigurationControllerImpl(TimeQualityConfigurationExternalService timeQualityConfigurationService,
-                                                  SigningProfileService signingProfileService) {
+                                                  SigningProfileExternalService signingProfileService) {
         this.timeQualityConfigurationService = timeQualityConfigurationService;
         this.signingProfileService = signingProfileService;
     }

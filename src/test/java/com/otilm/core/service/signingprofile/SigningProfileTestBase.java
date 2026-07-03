@@ -58,7 +58,8 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileExternalService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
@@ -86,7 +87,10 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected static final String CUSTOM_ATTR_NAME = "signingProfileTestAttribute";
 
     @Autowired
-    protected SigningProfileService signingProfileService;
+    protected SigningProfileExternalService signingProfileService;
+
+    @Autowired
+    protected SigningProfileInternalService signingProfileInternalService;
 
     @Autowired
     protected AttributeEngine attributeEngine;
@@ -307,7 +311,7 @@ abstract class SigningProfileTestBase extends BaseSpringBootTest {
         attributeRelationRepository.save(attributeRelation);
 
         SigningProfileDto created = signingProfileService.createSigningProfile(buildDelegatedRawRequest("existing-signing-profile"));
-        savedProfile = signingProfileService.getSigningProfileEntity(SecuredUUID.fromString(created.getUuid()));
+        savedProfile = signingProfileInternalService.getSigningProfileEntity(SecuredUUID.fromString(created.getUuid()));
     }
 
     @AfterEach

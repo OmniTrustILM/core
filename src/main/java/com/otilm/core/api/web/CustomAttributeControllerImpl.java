@@ -21,7 +21,7 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AttributeService;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.converter.AttributeContentTypeConverter;
 import com.otilm.core.util.converter.ResourceCodeConverter;
@@ -39,11 +39,11 @@ import java.util.UUID;
 @RestController
 public class CustomAttributeControllerImpl implements CustomAttributeController {
 
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
     private ResourceExternalService resourceService;
 
     @Autowired
-    public void setAttributeService(AttributeService attributeService) {
+    public void setAttributeService(AttributeExternalService attributeService) {
         this.attributeService = attributeService;
     }
 

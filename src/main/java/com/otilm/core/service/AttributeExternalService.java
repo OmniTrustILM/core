@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface AttributeService extends ResourceExtensionService {
+public interface AttributeExternalService {
 
     /**
      * Function to list the available custom attributes stored in the database
