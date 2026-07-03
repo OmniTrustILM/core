@@ -1,6 +1,7 @@
 package com.otilm.core.util;
 
 import com.otilm.api.model.core.logging.enums.ActorType;
+import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.core.logging.LoggingHelper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +77,25 @@ class AuthHelperTest {
 
         assertSame(original, SecurityContextHolder.getContext().getAuthentication(),
                 "the caller's principal must be restored even when the action throws");
+    }
+
+    @Test
+    void runAsSystem_restoresCallerActorWhenCallerHadOne() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(mock(Authentication.class));
+        String callerUuid = "11111111-1111-1111-1111-111111111111";
+        LoggingHelper.putActorInfoWhenNull(ActorType.USER, callerUuid, "operator-jane");
+
+        ActorType[] duringType = new ActorType[1];
+        authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
+            duringType[0] = LoggingHelper.getActorInfo().type();
+            return null;
+        });
+
+        assertEquals(ActorType.CORE, duringType[0], "authorization must run under the system actor during the action");
+        ActorRecord after = LoggingHelper.getActorInfo();
+        assertEquals(ActorType.USER, after.type(), "caller's actor type must be restored, not left as the system identity");
+        assertEquals("operator-jane", after.name(), "caller's actor name must be restored");
+        assertEquals(callerUuid, after.uuid().toString(), "caller's actor uuid must be restored, not left stale");
     }
 
     @Test

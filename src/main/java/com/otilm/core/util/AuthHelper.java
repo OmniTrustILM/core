@@ -110,24 +110,27 @@ public class AuthHelper {
      * request stays under the original principal.
      * <p>
      * A fresh {@code SecurityContext} is installed for the elevation window (because
-     * {@code authenticateAsSystemUser} overwrites the current context in place), and the actor MDC is cleared
-     * afterwards <strong>only when the caller had none</strong> — so no system principal or audit actor leaks onto a
-     * principal-less pooled thread (the async status-poll listener runs with no {@code SecurityContext}). When the
-     * caller already has an actor (operator/protocol), it is left intact: authorization runs as the system identity
-     * but the audit actor stays the caller.
+     * {@code authenticateAsSystemUser} overwrites the current context and the actor MDC in place). Afterwards both are
+     * put back exactly as the caller left them: the caller's {@code Authentication} is restored, or the holder is
+     * cleared when the caller had none (so no system principal lingers on a principal-less pooled thread — the async
+     * status-poll listener runs with no {@code SecurityContext}); and the actor MDC snapshot is restored, so an
+     * operator/protocol caller keeps its own audit attribution and an actor-less caller is left actor-less.
      */
     public <T, E extends Exception> T runAsSystem(String systemUsername, ThrowingSupplier<T, E> action) throws E {
         SecurityContext previous = SecurityContextHolder.getContext();
-        boolean callerHadActor = LoggingHelper.hasActorInfo();
+        boolean callerHadAuthentication = previous.getAuthentication() != null;
+        Map<String, String> previousActor = LoggingHelper.snapshotActorInfo();
         try {
             SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
             authenticateAsSystemUser(systemUsername);
             return action.get();
         } finally {
-            SecurityContextHolder.setContext(previous);
-            if (!callerHadActor) {
-                LoggingHelper.clearActorInfo();
+            if (callerHadAuthentication) {
+                SecurityContextHolder.setContext(previous);
+            } else {
+                SecurityContextHolder.clearContext();
             }
+            LoggingHelper.restoreActorInfo(previousActor);
         }
     }
 
