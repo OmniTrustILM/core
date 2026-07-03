@@ -5,6 +5,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.util.AuthHelper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +19,7 @@ import java.util.UUID;
  * inline content for an operation-path connector request — the single home for "system-mode operation-path
  * attribute resolution" that every Attributes-v2 operation adapter can delegate to.
  * <p>
- * The dereference runs under the platform's {@code attribute-resolver} system identity (via
+ * The dereference runs under the platform's {@code attribute-content-resolver} system identity (via
  * {@link AuthHelper#runAsSystem}), so an authority's own infrastructure secret resolves without gating on the acting
  * caller — an operator, a low-privilege protocol robot (ACME/SCEP/CMP), or the principal-less async status-poll
  * thread. The operation itself is already authorized upstream; this step is authorized at the operation level, the
@@ -44,7 +45,13 @@ public class OperationAttributeResolver {
 
     public List<RequestAttribute> resolveForConnectorRequestAsSystem(UUID connectorUuid, List<RequestAttribute> stored)
             throws ConnectorException {
-        return authHelper.runAsSystem(AuthHelper.ATTRIBUTE_RESOLVER_USERNAME, () -> {
+        if (stored == null || stored.stream().noneMatch(OperationAttributeResolver::isInfrastructureReference)) {
+            // No infrastructure reference to resolve: skip the system-identity elevation (and its auth-service
+            // round-trip) and hand the connector the stored attributes unchanged, as it receives them for a
+            // reference-free authority.
+            return stored;
+        }
+        return authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             try {
                 return connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored);
             } catch (AttributeException | NotFoundException | ValidationException e) {
@@ -54,5 +61,10 @@ public class OperationAttributeResolver {
                 throw new ConnectorException("Unable to resolve stored attribute references for connector request", e);
             }
         });
+    }
+
+    private static boolean isInfrastructureReference(RequestAttribute attribute) {
+        AttributeContentType type = attribute.getContentType();
+        return type == AttributeContentType.CREDENTIAL || type == AttributeContentType.RESOURCE;
     }
 }

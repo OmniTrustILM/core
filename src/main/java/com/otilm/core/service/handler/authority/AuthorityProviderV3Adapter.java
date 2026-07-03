@@ -307,7 +307,7 @@ public class AuthorityProviderV3Adapter
     /**
      * v3 connectors are stateless: the stored authority/ra-profile attributes carry references (CREDENTIAL, RESOURCE
      * incl. SECRET) the connector cannot resolve itself. Core resolves them to inline content via
-     * {@link OperationAttributeResolver} under the platform's attribute-resolver system identity — authorized at the
+     * {@link OperationAttributeResolver} under the platform's attribute-content-resolver system identity — authorized at the
      * operation level, not per acting caller (so it works for operators, protocol robots, and the principal-less
      * status-poll path alike). v2 stays stateful and is untouched — the base adapter's non-dereferencing helpers
      * still serve it.

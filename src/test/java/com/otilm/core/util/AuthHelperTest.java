@@ -52,7 +52,7 @@ class AuthHelperTest {
         SecurityContextHolder.getContext().setAuthentication(original);
         Authentication[] during = new Authentication[1];
 
-        String result = authHelper.runAsSystem(AuthHelper.ATTRIBUTE_RESOLVER_USERNAME, () -> {
+        String result = authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             during[0] = SecurityContextHolder.getContext().getAuthentication();
             return "ok";
         });
@@ -70,7 +70,7 @@ class AuthHelperTest {
         SecurityContextHolder.getContext().setAuthentication(original);
 
         assertThrows(IllegalStateException.class, () ->
-                authHelper.runAsSystem(AuthHelper.ATTRIBUTE_RESOLVER_USERNAME, () -> {
+                authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
                     throw new IllegalStateException("boom");
                 }));
 
@@ -82,7 +82,7 @@ class AuthHelperTest {
     void runAsSystem_leavesNoPrincipalWhenCallerHadNone() throws Exception {
         SecurityContextHolder.clearContext(); // principal-less caller (async status-poll pooled thread)
 
-        authHelper.runAsSystem(AuthHelper.ATTRIBUTE_RESOLVER_USERNAME, () -> {
+        authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             assertNotNull(SecurityContextHolder.getContext().getAuthentication(),
                     "the action must still run elevated when the caller has no principal");
             return null;

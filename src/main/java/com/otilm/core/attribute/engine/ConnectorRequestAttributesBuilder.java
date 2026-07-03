@@ -48,8 +48,9 @@ public class ConnectorRequestAttributesBuilder {
      * validated, so a stateless connector receives inline content on the operation path. Unlike
      * {@link #prepareRequestAttributesForConnectorRequest}, this does not re-validate — the attributes were validated
      * when persisted and no attribute definitions are supplied. Callers resolving an authority's own infrastructure
-     * references go through {@code OperationAttributeResolver}, which elevates to the platform's attribute-resolver
-     * system identity for the duration of this call (authorized at the operation level, not per acting caller).
+     * references go through {@code OperationAttributeResolver}, which elevates to the platform's
+     * attribute-content-resolver system identity for the duration of this call (authorized at the operation level, not
+     * per acting caller).
      * <p>
      * Unlike the callback reference expander, this does not arm outbound-secret value-echo containment: an operation
      * response maps to certificate data, not reflected back to an untrusted caller surface.

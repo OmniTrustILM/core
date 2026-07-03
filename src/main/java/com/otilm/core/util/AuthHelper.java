@@ -62,7 +62,7 @@ public class AuthHelper {
      * credential, secret + vault-profile) when assembling an operation-path connector request — see
      * {@code OperationAttributeResolver}. Least-privilege: seeded with only the read grants that resolution touches.
      */
-    public static final String ATTRIBUTE_RESOLVER_USERNAME = "attribute-resolver";
+    public static final String ATTRIBUTE_CONTENT_RESOLVER_USERNAME = "attribute-content-resolver";
 
     public static final List<String> PERMITTED_ENDPOINTS = List.of("/v?/health/**", "/v?/connector/register");
     public static final List<String> OAUTH2_ENDPOINTS = List.of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");

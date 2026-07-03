@@ -52,8 +52,9 @@ import java.util.UUID;
  * <h2>Operation mode lives outside this class — by design</h2>
  * The v3 operation path (issue/renew/revoke/register, status poll/cancel) does <strong>not</strong> run through
  * this fenced callback expander. {@code OperationAttributeResolver} (from {@code AuthorityProviderV3Adapter})
- * resolves an authority's own infrastructure references there by elevating to the platform's attribute-resolver
- * system identity for the dereference only — authorized at the operation level, not per acting caller. The ArchUnit
+ * resolves an authority's own infrastructure references there by elevating to the platform's
+ * attribute-content-resolver system identity for the dereference only — authorized at the operation level, not per
+ * acting caller. The ArchUnit
  * fence forbids this package from depending on {@code AuthHelper}, so the caller-authorized (callback) mode here can
  * never elevate; the two modes stay separated.
  */
@@ -183,7 +184,7 @@ public class AttributeReferenceExpander {
     // ---------------------------------------------------------------------------------------------
     // Operation mode is NOT implemented in this fenced expander — by design. The v3 operation path resolves an
     // authority's own infrastructure references through OperationAttributeResolver (called from
-    // AuthorityProviderV3Adapter), which elevates to the platform's attribute-resolver system identity for the
+    // AuthorityProviderV3Adapter), which elevates to the platform's attribute-content-resolver system identity for the
     // dereference only — authorized at the operation level, not per acting caller. The ArchUnit fence forbids this
     // package from depending on AuthHelper or the operation builder directly, so the callback path here never
     // elevates and the two modes stay separated. Nested-blob resolution (attributesOf, above) is the only piece
