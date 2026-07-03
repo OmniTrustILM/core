@@ -27,7 +27,6 @@ import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.VaultInstanceExternalService;
@@ -200,7 +199,7 @@ public class VaultInstanceServiceImpl implements VaultInstanceExternalService, V
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.VAULT, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.VAULT, false);
 

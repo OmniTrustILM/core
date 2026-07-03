@@ -29,7 +29,6 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
@@ -175,7 +174,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL)
     public ClientEndEntityDto getEndEntity(String raProfileName, String username) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntityChecked(raProfileName);
 
