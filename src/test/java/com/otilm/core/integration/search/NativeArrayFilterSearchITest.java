@@ -59,18 +59,14 @@ class NativeArrayFilterSearchITest extends BaseSpringBootTest {
     @Nested
     class OidEntryAltCodesFilterTest {
 
-        // altCodes = ["OFI", "OFI2"]
-        private RdnAttributeTypeCustomOidEntry multiCode;
-        // altCodes = ["ALONE"]
-        private RdnAttributeTypeCustomOidEntry singleCode;
-        // altCodes = [] (empty array stored as {})
-        private RdnAttributeTypeCustomOidEntry noCode;
-
         @BeforeEach
         void setUp() {
-            multiCode = rdnEntry("2.5.4.100", "Multi", "MULTI", List.of("OFI", "OFI2"));
-            singleCode = rdnEntry("2.5.4.101", "Single", "SINGLE", List.of("ALONE"));
-            noCode = rdnEntry("2.5.4.102", "NoCode", "NOCODE", new ArrayList<>());
+            // altCodes = ["OFI", "OFI2"]
+            rdnEntry("2.5.4.100", "Multi", "MULTI", List.of("OFI", "OFI2"));
+            // altCodes = ["ALONE"]
+            rdnEntry("2.5.4.101", "Single", "SINGLE", List.of("ALONE"));
+            // altCodes = [] (empty array stored as {})
+            rdnEntry("2.5.4.102", "NoCode", "NOCODE", new ArrayList<>());
         }
 
         // ─────────────────────────────────────────────
