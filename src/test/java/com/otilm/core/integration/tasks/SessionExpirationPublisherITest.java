@@ -1,4 +1,4 @@
-package com.otilm.core.tasks;
+package com.otilm.core.integration.tasks;
 
 import com.otilm.core.messaging.scheduler.SessionExpirationPublisher;
 import com.otilm.core.util.SessionTableHelper;
@@ -26,7 +26,7 @@ import org.springframework.session.Session;
 
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SessionExpirationPublisherTest extends BaseSpringBootTest {
+class SessionExpirationPublisherITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;

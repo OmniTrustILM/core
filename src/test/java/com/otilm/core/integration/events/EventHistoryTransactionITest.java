@@ -1,4 +1,4 @@
-package com.otilm.core.events;
+package com.otilm.core.integration.events;
 
 import com.otilm.api.exception.EventException;
 import com.otilm.api.model.core.auth.Resource;
@@ -31,7 +31,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 
-class EventHistoryTransactionTest extends BaseSpringBootTest {
+class EventHistoryTransactionITest extends BaseSpringBootTest {
 
     @MockitoBean
     JmsTemplate jmsTemplate;

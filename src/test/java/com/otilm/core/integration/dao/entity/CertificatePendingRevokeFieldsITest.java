@@ -1,4 +1,4 @@
-package com.otilm.core.dao.entity;
+package com.otilm.core.integration.dao.entity;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
@@ -6,6 +6,7 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * asynchronously moves the certificate to {@code PENDING_REVOKE}; outside that state they
  * are always {@code null}.</p>
  */
-class CertificatePendingRevokeFieldsTest extends BaseSpringBootTest {
+class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;

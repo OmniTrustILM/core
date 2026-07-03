@@ -1,4 +1,4 @@
-package com.otilm.core.events;
+package com.otilm.core.integration.events;
 
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -45,7 +45,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
-class NotificationObjectRecipientIntegrationTest extends BaseSpringBootTest {
+class NotificationObjectRecipientITest extends BaseSpringBootTest {
 
     private static final String MAPPING_ATTRIBUTE_UUID = "1e5657af-423b-4b4b-a9f7-b1150c584a4a";
     private static final String CONTACT_VALUE = "alice@example.com";

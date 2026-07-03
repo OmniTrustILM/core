@@ -1,4 +1,4 @@
-package com.otilm.core.repository;
+package com.otilm.core.integration.repository;
 
 import com.otilm.core.Application;
 import com.otilm.core.dao.entity.Connector;
@@ -15,7 +15,7 @@ import java.util.Collections;
 @SpringBootTest(classes = Application.class)
 @Transactional
 @Rollback
-public class ConnectorRepositoryTest {
+public class ConnectorRepositoryITest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
