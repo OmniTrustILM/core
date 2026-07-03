@@ -18,7 +18,7 @@ public interface SigningRecordInputSource {
     /**
      * The wildcard return type is intentional: signing-profile models are resolved from a name-keyed cache as
      * {@code SigningProfileModel<? extends SigningWorkflow, ? extends SigningSchemeModel>} (see
-     * {@code SigningProfileService#getSigningProfileModel}), so no concrete workflow/scheme type arguments are
+     * {@code SigningProfileInternalService#getSigningProfileModel}), so no concrete workflow/scheme type arguments are
      * ever available here. Parameterizing this interface would only propagate always-wildcard type variables
      * through the whole strategy chain without carrying any information.
      */

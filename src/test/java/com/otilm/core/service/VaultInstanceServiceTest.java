@@ -61,7 +61,7 @@ class VaultInstanceServiceTest extends BaseSpringBootTest {
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
     @Autowired
     private AttributeDefinitionRepository attributeDefinitionRepository;
 

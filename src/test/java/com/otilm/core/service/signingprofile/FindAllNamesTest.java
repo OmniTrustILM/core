@@ -17,7 +17,7 @@ class FindAllNamesTest extends SigningProfileTestBase {
         // savedProfile exists from setUp
 
         // when
-        List<String> names = signingProfileService.findAllNames();
+        List<String> names = signingProfileInternalService.findAllNames();
 
         // then
         Assertions.assertNotNull(names);
@@ -32,7 +32,7 @@ class FindAllNamesTest extends SigningProfileTestBase {
         signingProfileService.createSigningProfile(buildDelegatedRawRequest("second-signing-profile"));
 
         // when
-        List<String> names = signingProfileService.findAllNames();
+        List<String> names = signingProfileInternalService.findAllNames();
 
         // then
         Assertions.assertEquals(2, names.size());
@@ -46,7 +46,7 @@ class FindAllNamesTest extends SigningProfileTestBase {
         signingProfileService.deleteSigningProfile(savedProfile.getSecuredUuid());
 
         // when
-        List<String> names = signingProfileService.findAllNames();
+        List<String> names = signingProfileInternalService.findAllNames();
 
         // then
         Assertions.assertNotNull(names);

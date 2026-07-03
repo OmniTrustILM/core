@@ -369,4 +369,12 @@ public class CmpTestUtil {
         msgBuilder.setPublicKey(keyInfo);
         return msgBuilder;
     }
+
+    /** Extracts the wire-visible {@code PKIFreeText} status string from a CMP response body. */
+    public static String wireStatusText(PKIBody body) {
+        PKIStatusInfo statusInfo = body.getContent() instanceof ErrorMsgContent errorMsgContent
+                ? errorMsgContent.getPKIStatusInfo()
+                : ((CertRepMessage) body.getContent()).getResponse()[0].getStatus();
+        return statusInfo.getStatusString().getStringAtUTF8(0).getString();
+    }
 }
