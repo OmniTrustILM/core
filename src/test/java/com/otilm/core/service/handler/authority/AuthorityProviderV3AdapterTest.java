@@ -211,9 +211,18 @@ class AuthorityProviderV3AdapterTest {
     @Test
     void listIssueAttributesDereferencesAuthorityAndRaProfileAttributes() throws Exception {
         UUID connectorUuid = authority.getConnectorUuid();
-        List<RequestAttribute> resolved = List.of(mock(RequestAttribute.class));
-        lenient().when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), any()))
-                .thenReturn(resolved);
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
         when(certClientV3.listIssueAttributes(eq(connectorInfo), any(CertificateAttributeListRequestDtoV3.class)))
                 .thenReturn(List.of());
 
@@ -223,10 +232,10 @@ class AuthorityProviderV3AdapterTest {
                 ArgumentCaptor.forClass(CertificateAttributeListRequestDtoV3.class);
         verify(certClientV3).listIssueAttributes(eq(connectorInfo), dtoCaptor.capture());
         CertificateAttributeListRequestDtoV3 dto = dtoCaptor.getValue();
-        assertSame(resolved, dto.getAuthorityAttributes(),
-                "the attribute-list request must carry resolved authority attributes");
-        assertSame(resolved, dto.getRaProfileAttributes(),
-                "the attribute-list request must carry resolved ra-profile attributes");
+        assertSame(resolvedAuthority, dto.getAuthorityAttributes(),
+                "the attribute-list request must carry the resolved authority-scoped attributes, not crossed");
+        assertSame(resolvedRaProfile, dto.getRaProfileAttributes(),
+                "the attribute-list request must carry the resolved ra-profile-scoped attributes, not crossed");
     }
 
     // ---- issue: 202 -> ASYNC_ACCEPTED ----

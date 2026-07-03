@@ -22,6 +22,8 @@ import java.util.Map;
  * the guarded resolution mechanics touch; object-config kinds (AUTHORITY/ENTITY/LOCATION) resolve via an unguarded
  * engine read and need no grant here.
  */
+// Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
+@SuppressWarnings("java:S101")
 public class V202607031200__CreateAttributeContentResolverUserAndPermissions extends BaseJavaMigration {
 
     @Override
