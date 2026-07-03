@@ -13,7 +13,7 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.provider.PlatformCipherService;
 import com.otilm.core.provider.PlatformProvider;
 import com.otilm.core.provider.key.PlatformPrivateKey;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyExternalService;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -41,7 +41,7 @@ class CryptographicProviderTest {
     CryptographicOperationsApiClient cryptographicOperationsApiClient;
 
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired

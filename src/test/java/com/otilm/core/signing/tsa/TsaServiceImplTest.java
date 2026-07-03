@@ -18,7 +18,7 @@ import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
@@ -70,7 +70,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TsaServiceImplTest extends BaseSpringBootTest {
 
     @Autowired
-    private TsaService tsaService;
+    private TsaExternalService tsaService;
 
     @Autowired
     private SigningProfileExternalService signingProfileService;
@@ -91,7 +91,7 @@ class TsaServiceImplTest extends BaseSpringBootTest {
     private TokenProfileExternalService tokenProfileService;
 
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
 
     @Autowired
     private ConnectorMockFactory connectorMockFactory;

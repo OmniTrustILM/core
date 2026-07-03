@@ -11,7 +11,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.aop.AuditResultOverride;
 import com.otilm.core.api.tsp.parser.TspRequestParser;
 import com.otilm.core.logging.LogResource;
-import com.otilm.core.signing.tsa.TsaService;
+import com.otilm.core.signing.tsa.TsaExternalService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -24,12 +24,12 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 public class TspSigningProfileControllerImpl implements TspSigningProfileController {
 
-    private final TsaService tsaService;
+    private final TsaExternalService tsaService;
 
     private final AuditResultOverride auditResultOverride;
 
     @Autowired
-    public TspSigningProfileControllerImpl(TsaService tsaService, AuditResultOverride auditResultOverride) {
+    public TspSigningProfileControllerImpl(TsaExternalService tsaService, AuditResultOverride auditResultOverride) {
         this.tsaService = tsaService;
         this.auditResultOverride = auditResultOverride;
     }

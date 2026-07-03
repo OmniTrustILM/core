@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
-@AnalyzeClasses(packages = "com.otilm.core.service", importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = {"com.otilm.core.service", "com.otilm.core.signing.tsa"}, importOptions = ImportOption.DoNotIncludeTests.class)
 public class ExternalServiceAuthorizationArchTest {
 
     private static final Set<String> AUTH_ANNOTATION_NAMES = Set.of(

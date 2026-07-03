@@ -5,7 +5,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyExternalService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -21,7 +21,7 @@ import java.util.UUID;
  * and the duplicated best-effort key destruction.
  *
  * <p>Stateless leaf collaborator — depends only on {@link AttributeEngine} and
- * {@link CryptographicKeyService}. Neither the service nor the listener calls the other; both
+ * {@link CryptographicKeyExternalService}. Neither the service nor the listener calls the other; both
  * call this. The caller owns the surrounding locked transaction and the state-machine
  * transition (the audit event and reason differ between callers), then runs
  * {@link #destroyKeyIfRequested} after commit, outside the lock.</p>
@@ -32,9 +32,9 @@ public class CertificateRevocationFinalizer {
     private static final Logger logger = LoggerFactory.getLogger(CertificateRevocationFinalizer.class);
 
     private final AttributeEngine attributeEngine;
-    private final CryptographicKeyService keyService;
+    private final CryptographicKeyExternalService keyService;
 
-    public CertificateRevocationFinalizer(AttributeEngine attributeEngine, CryptographicKeyService keyService) {
+    public CertificateRevocationFinalizer(AttributeEngine attributeEngine, CryptographicKeyExternalService keyService) {
         this.attributeEngine = attributeEngine;
         this.keyService = keyService;
     }

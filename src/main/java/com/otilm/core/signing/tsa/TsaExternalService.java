@@ -5,7 +5,7 @@ import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 
-public interface TsaService {
+public interface TsaExternalService {
 
     TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException;
 

@@ -98,7 +98,7 @@ public class TspControllerITest extends BaseSpringBootTest {
     @Autowired
     private TokenProfileExternalService tokenProfileService;
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
     @Autowired
     private ConnectorMockFactory connectorMockFactory;
     @Autowired

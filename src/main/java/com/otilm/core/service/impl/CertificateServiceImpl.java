@@ -163,7 +163,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
@@ -324,7 +324,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Lazy
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyInternalService(CryptographicKeyInternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 
