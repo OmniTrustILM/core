@@ -1,10 +1,8 @@
 package com.otilm.core.service.handler.authority;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
-import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
 import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
@@ -28,20 +26,19 @@ import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
-import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -62,15 +59,15 @@ public class AuthorityProviderV3Adapter
         extends AbstractAuthorityProviderAdapter
         implements RegisterCapability, AsyncOperationCapability {
 
-    private final ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
+    private final OperationAttributeResolver operationAttributeResolver;
 
     @Autowired
     public AuthorityProviderV3Adapter(ConnectorService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine,
-                                      ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder) {
+                                      OperationAttributeResolver operationAttributeResolver) {
         super(connectorService, connectorApiFactory, attributeEngine);
-        this.connectorRequestAttributesBuilder = connectorRequestAttributesBuilder;
+        this.operationAttributeResolver = operationAttributeResolver;
     }
 
     // ---- AuthorityProviderAdapter ----
@@ -307,32 +304,26 @@ public class AuthorityProviderV3Adapter
                         .build());
     }
 
+    /**
+     * v3 connectors are stateless: the stored authority/ra-profile attributes carry references (CREDENTIAL, RESOURCE
+     * incl. SECRET) the connector cannot resolve itself. Core resolves them to inline content via
+     * {@link OperationAttributeResolver} under the platform's attribute-resolver system identity — authorized at the
+     * operation level, not per acting caller (so it works for operators, protocol robots, and the principal-less
+     * status-poll path alike). v2 stays stateful and is untouched — the base adapter's non-dereferencing helpers
+     * still serve it.
+     */
     private List<RequestAttribute> authorityAttributesFor(AuthorityInstanceReference authority) throws ConnectorException {
         List<RequestAttribute> stored = attributeEngine.getRequestObjectDataAttributesContent(
                 ObjectAttributeContentInfo.builder(Resource.AUTHORITY, authority.getUuid())
                         .connector(authority.getConnectorUuid())
                         .build());
-        return dereferenceForConnector(authority.getConnectorUuid(), stored);
+        return operationAttributeResolver.resolveForConnectorRequestAsSystem(authority.getConnectorUuid(), stored);
     }
 
     private List<RequestAttribute> resolvedRaProfileAttributes(RaProfile raProfile, AuthorityInstanceReference authority)
             throws ConnectorException {
-        return dereferenceForConnector(authority.getConnectorUuid(), raProfileAttributesFor(raProfile, authority));
-    }
-
-    /**
-     * v3 connectors are stateless: the stored authority/ra-profile attributes carry references (CREDENTIAL, RESOURCE
-     * incl. SECRET) that the connector cannot resolve itself, so Core dereferences them to inline content before the
-     * wire under the operation principal (no per-object authorization — the operation is authorized at the operation
-     * level). v2 stays stateful and is untouched — the base adapter's non-dereferencing helpers still serve it.
-     */
-    private List<RequestAttribute> dereferenceForConnector(UUID connectorUuid, List<RequestAttribute> stored)
-            throws ConnectorException {
-        try {
-            return connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored);
-        } catch (AttributeException | NotFoundException e) {
-            throw new ConnectorException("Unable to resolve stored attribute references for connector request", e);
-        }
+        return operationAttributeResolver.resolveForConnectorRequestAsSystem(
+                authority.getConnectorUuid(), raProfileAttributesFor(raProfile, authority));
     }
 
     /**

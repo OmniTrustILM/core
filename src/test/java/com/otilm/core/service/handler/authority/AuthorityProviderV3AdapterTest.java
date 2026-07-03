@@ -27,7 +27,7 @@ import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
-import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -52,6 +52,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -65,7 +66,7 @@ class AuthorityProviderV3AdapterTest {
     @Mock
     AttributeEngine attributeEngine;
     @Mock
-    ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
+    OperationAttributeResolver operationAttributeResolver;
 
     @InjectMocks
     AuthorityProviderV3Adapter adapter;
@@ -177,12 +178,22 @@ class AuthorityProviderV3AdapterTest {
     @Test
     void issueDereferencesAuthorityAndRaProfileAttributesForConnectorRequest() throws Exception {
         // On the v3 operation path the stored authority + ra-profile attributes carry references (e.g. an OAuth-client
-        // SECRET) that a stateless connector cannot resolve. They must be dereferenced through the system-mode builder
-        // before reaching the wire — not sent as bare references.
+        // SECRET) a stateless connector cannot resolve. Each must be resolved via OperationAttributeResolver and land
+        // on its OWN wire field — distinct stubs prove authority-scoped -> authorityAttributes and ra-profile-scoped
+        // -> raProfileAttributes, not crossed.
         UUID connectorUuid = authority.getConnectorUuid();
-        List<RequestAttribute> resolved = List.of(mock(RequestAttribute.class));
-        lenient().when(connectorRequestAttributesBuilder.dereferenceForConnectorRequest(eq(connectorUuid), any()))
-                .thenReturn(resolved);
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), eq(storedAuthority)))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), eq(storedRaProfile)))
+                .thenReturn(resolvedRaProfile);
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));
 
@@ -191,17 +202,17 @@ class AuthorityProviderV3AdapterTest {
         ArgumentCaptor<CertificateSignRequestDtoV3> wireCaptor = ArgumentCaptor.forClass(CertificateSignRequestDtoV3.class);
         verify(certClientV3).issue(eq(connectorInfo), wireCaptor.capture());
         CertificateSignRequestDtoV3 wire = wireCaptor.getValue();
-        assertSame(resolved, wire.getAuthorityAttributes(),
-                "authority attributes must be dereferenced through the builder before reaching the connector");
-        assertSame(resolved, wire.getRaProfileAttributes(),
-                "ra-profile attributes must be dereferenced through the builder before reaching the connector");
+        assertSame(resolvedAuthority, wire.getAuthorityAttributes(),
+                "authorityAttributes must carry the resolved authority-scoped list");
+        assertSame(resolvedRaProfile, wire.getRaProfileAttributes(),
+                "raProfileAttributes must carry the resolved ra-profile-scoped list");
     }
 
     @Test
     void listIssueAttributesDereferencesAuthorityAndRaProfileAttributes() throws Exception {
         UUID connectorUuid = authority.getConnectorUuid();
         List<RequestAttribute> resolved = List.of(mock(RequestAttribute.class));
-        lenient().when(connectorRequestAttributesBuilder.dereferenceForConnectorRequest(eq(connectorUuid), any()))
+        lenient().when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), any()))
                 .thenReturn(resolved);
         when(certClientV3.listIssueAttributes(eq(connectorInfo), any(CertificateAttributeListRequestDtoV3.class)))
                 .thenReturn(List.of());
@@ -213,9 +224,9 @@ class AuthorityProviderV3AdapterTest {
         verify(certClientV3).listIssueAttributes(eq(connectorInfo), dtoCaptor.capture());
         CertificateAttributeListRequestDtoV3 dto = dtoCaptor.getValue();
         assertSame(resolved, dto.getAuthorityAttributes(),
-                "the attribute-list request must carry dereferenced authority attributes");
+                "the attribute-list request must carry resolved authority attributes");
         assertSame(resolved, dto.getRaProfileAttributes(),
-                "the attribute-list request must carry dereferenced ra-profile attributes");
+                "the attribute-list request must carry resolved ra-profile attributes");
     }
 
     // ---- issue: 202 -> ASYNC_ACCEPTED ----

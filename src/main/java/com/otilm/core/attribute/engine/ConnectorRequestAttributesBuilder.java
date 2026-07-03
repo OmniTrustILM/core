@@ -40,21 +40,27 @@ public class ConnectorRequestAttributesBuilder {
 
     public List<RequestAttribute> prepareRequestAttributesForConnectorRequest(UUID connectorUuid, List<BaseAttribute> attributeDefinitions, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         attributeEngine.validateUpdateDataAttributes(connectorUuid, null, attributeDefinitions, requestAttributes);
-        List<DataAttribute> dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, requestAttributes);
-        credentialService.loadFullCredentialData(dataAttributes);
-        resourceService.loadResourceObjectContentData(dataAttributes);
-        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+        return resolveContent(connectorUuid, requestAttributes);
     }
 
     /**
      * Dereferences CREDENTIAL + RESOURCE (incl. SECRET) references in attributes that were already stored and
-     * validated, so a stateless connector receives inline content on the operation path — the system-mode
-     * counterpart to the callback reference expander. Unlike
-     * {@link #prepareRequestAttributesForConnectorRequest}, this does not re-validate: the attributes were validated
-     * when persisted and no attribute definitions are supplied here. Runs under the ambient operation principal with
-     * no per-object authorization (the operation is authorized at the operation level).
+     * validated, so a stateless connector receives inline content on the operation path. Unlike
+     * {@link #prepareRequestAttributesForConnectorRequest}, this does not re-validate — the attributes were validated
+     * when persisted and no attribute definitions are supplied. Callers resolving an authority's own infrastructure
+     * references go through {@code OperationAttributeResolver}, which elevates to the platform's attribute-resolver
+     * system identity for the duration of this call (authorized at the operation level, not per acting caller).
+     * <p>
+     * Unlike the callback reference expander, this does not arm outbound-secret value-echo containment: an operation
+     * response maps to certificate data, not reflected back to an untrusted caller surface.
      */
     public List<RequestAttribute> dereferenceForConnectorRequest(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
+        return resolveContent(connectorUuid, requestAttributes);
+    }
+
+    /** Shared skeleton: resolve request-attribute content against the connector's definitions, dereferencing
+     * CREDENTIAL + RESOURCE (incl. SECRET) references in place, then map back to client attributes. */
+    private List<RequestAttribute> resolveContent(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, requestAttributes);
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);

@@ -57,6 +57,13 @@ public class AuthHelper {
     public static final String SCEP_USERNAME = "scep";
     public static final String CMP_USERNAME = "cmp";
 
+    /**
+     * System identity the platform assumes to resolve an authority's own infrastructure references (connector,
+     * credential, secret + vault-profile) when assembling an operation-path connector request — see
+     * {@code OperationAttributeResolver}. Least-privilege: seeded with only the read grants that resolution touches.
+     */
+    public static final String ATTRIBUTE_RESOLVER_USERNAME = "attribute-resolver";
+
     public static final List<String> PERMITTED_ENDPOINTS = List.of("/v?/health/**", "/v?/connector/register");
     public static final List<String> OAUTH2_ENDPOINTS = List.of("/login", "/oauth2/**", "/v?/oauth2/**", "/v?/health/**", "/v?/connector/register");
 
@@ -94,6 +101,40 @@ public class AuthHelper {
         SecurityContext securityContext = SecurityContextHolder.getContext();
         securityContext.setAuthentication(new PlatformAuthenticationToken(userDetails));
         logger.debug("User with username '{}' has been successfully authenticated as system user proxy.", authUserInfo.getUsername());
+    }
+
+    /**
+     * Runs {@code action} under the given system identity, then restores the caller's context — the scoped
+     * counterpart to the fire-and-forget {@link #authenticateAsSystemUser}. Used where the platform must act as
+     * itself for one bounded step (resolving an authority's own infrastructure references) while the rest of the
+     * request stays under the original principal.
+     * <p>
+     * A fresh {@code SecurityContext} is installed for the elevation window (because
+     * {@code authenticateAsSystemUser} overwrites the current context in place), and the actor MDC is cleared
+     * afterwards <strong>only when the caller had none</strong> — so no system principal or audit actor leaks onto a
+     * principal-less pooled thread (the async status-poll listener runs with no {@code SecurityContext}). When the
+     * caller already has an actor (operator/protocol), it is left intact: authorization runs as the system identity
+     * but the audit actor stays the caller.
+     */
+    public <T, E extends Exception> T runAsSystem(String systemUsername, ThrowingSupplier<T, E> action) throws E {
+        SecurityContext previous = SecurityContextHolder.getContext();
+        boolean callerHadActor = LoggingHelper.hasActorInfo();
+        try {
+            SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
+            authenticateAsSystemUser(systemUsername);
+            return action.get();
+        } finally {
+            SecurityContextHolder.setContext(previous);
+            if (!callerHadActor) {
+                LoggingHelper.clearActorInfo();
+            }
+        }
+    }
+
+    /** A supplier whose body may throw a single checked exception type — lets {@link #runAsSystem} propagate it. */
+    @FunctionalInterface
+    public interface ThrowingSupplier<T, E extends Exception> {
+        T get() throws E;
     }
 
     public void authenticateAsUser(UUID userUuid) {
