@@ -163,6 +163,19 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                                              @Param("platformEnabled") boolean platformEnabled,
                                              Pageable pageable);
 
+    // Orphaned-PENDING_ISSUE reaper: certificates with no certificate-status-poll row (a crashed
+    // synchronous issue). Staleness uses the last-modified timestamp — a safe over-approximation of
+    // entry time, since a later write only delays reaping, never triggers it early.
+    @Query("""
+            SELECT c.uuid FROM Certificate c
+                WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
+                    AND c.updated < :threshold
+                    AND NOT EXISTS (SELECT 1 FROM CertificateStatusPoll p WHERE p.certificateUuid = c.uuid)
+                ORDER BY c.updated ASC
+            """
+    )
+    List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
+
     List<Certificate> findByRaProfileAndComplianceStatusIsNotNullAndArchivedIsFalse(RaProfile raProfile);
 
     Optional<Certificate> findBySubjectDnNormalizedAndSerialNumber(String subjectDnNormalized, String serialNumber);
