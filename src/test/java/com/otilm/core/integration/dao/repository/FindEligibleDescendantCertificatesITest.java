@@ -1,9 +1,12 @@
-package com.otilm.core.dao.repository;
+package com.otilm.core.integration.dao.repository;
 
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class FindEligibleDescendantCertificatesTest extends BaseSpringBootTest {
+class FindEligibleDescendantCertificatesITest extends BaseSpringBootTest {
 
     private static final int MAX_DEPTH = 20;
 

@@ -127,7 +127,7 @@ class CiTestSplitTest {
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of(
             "service", "util", "signing", "messaging", "security",
-            "dao", "api", "attribute", "config", "tasks", "events", "repository", "auth",
+            "api", "attribute", "config", "auth",
             "aop", "model", "provisioning", "evaluator", "cryptography", "cluster");
 
     /**

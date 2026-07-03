@@ -1,4 +1,4 @@
-package com.otilm.core.events;
+package com.otilm.core.integration.events;
 
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -76,7 +76,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-class EventHandlersTest extends BaseSpringBootTest {
+class EventHandlersITest extends BaseSpringBootTest {
 
     public static final String CERTIFICATE_CUSTOM_ATTRIBUTE_UUID = UUID.randomUUID().toString();
     public static final String CERTIFICATE_CUSTOM_ATTRIBUTE_NAME = "category";
