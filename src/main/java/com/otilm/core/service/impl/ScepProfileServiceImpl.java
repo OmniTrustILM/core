@@ -23,8 +23,8 @@ import com.otilm.core.dao.entity.scep.ScepProfile_;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
@@ -453,7 +453,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<CertificateDto> listScepCaCertificates(boolean intuneEnabled) {
         return certificateService.listScepCaCertificates(SecurityFilter.create(), intuneEnabled);
     }

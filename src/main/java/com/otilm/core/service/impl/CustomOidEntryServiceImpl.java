@@ -5,7 +5,6 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.oid.*;
-import com.otilm.api.model.core.oid.properties.AdditionalOidPropertiesDto;
 import com.otilm.api.model.core.oid.properties.CertificateExtensionOidPropertiesDto;
 import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -24,7 +23,6 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CustomOidEntryExternalService;
@@ -247,7 +245,7 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
         List<SearchFieldDataDto> fields = List.of(
