@@ -247,8 +247,8 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenThrow(connectorFailure);
 
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> adapter.issue(cert, new ClientCertificateSignRequestDto()));
+        ClientCertificateSignRequestDto request = new ClientCertificateSignRequestDto();
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> adapter.issue(cert, request));
         assertSame(connectorFailure, thrown);
     }
 

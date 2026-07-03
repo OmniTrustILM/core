@@ -511,7 +511,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.UPDATE_STATE,
                     CertificateEventStatus.FAILED,
                     "Connector accepted the registration but persisting the register->issue binding failed; left in "
-                            + certificate.getState().getLabel() + " for reconciliation. Cause: " + safeIssueMessage(e), "");
+                            + certificate.getState().getLabel() + " for reconciliation. Cause: "
+                            + safeMessage(e, "persisting the registration binding failed"), "");
             throw new ConnectorAcceptedButLocalFailureException(
                     "Connector accepted the registration but persisting the register->issue binding failed", e);
         }
@@ -663,8 +664,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Phase 1 — under a short pessimistic-write lock: capture the replay handle and identity-override content and
-     * re-assert an issuable state, releasing the lock at commit. The lock does not fully close the TOCTOU (state
-     * advances only after the unlocked connector call); durably claiming state is deferred to #1712.
+     * re-assert an issuable state (REGISTERED or PENDING_APPROVAL — anything else lost a race), releasing the lock
+     * at commit. The lock does not fully close the TOCTOU (state advances only after the unlocked connector call);
+     * durably claiming state is deferred to #1712.
      */
     private RegisterReplayContext captureRegisterReplayContext(Certificate certificate)
             throws CertificateOperationException, NotFoundException {
@@ -676,7 +678,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .orElseThrow(() -> new CertificateOperationException(
                             "Certificate %s has no registration binding; cannot issue against a missing registration (reconcile manually)."
                                     .formatted(certUuid)));
-            // A register-bound placeholder issues only from REGISTERED or PENDING_APPROVAL; anything else is a race.
             CertificateState state = certificateRepository.findByUuid(certUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid))
                     .getState();
@@ -722,16 +723,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService.addEventHistory(certUuid, CertificateEvent.ISSUE,
                     CertificateEventStatus.FAILED,
                     "Connector accepted the register-bound issue but a local step failed; left %s for reconciliation. Cause: %s"
-                            .formatted(entryState, safeIssueMessage(e)), "");
+                            .formatted(entryState, safeMessage(e, "register-bound issuance failed")), "");
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but a local step failed; left %s for reconciliation."
                             .formatted(certUuid, entryState));
         } catch (ConnectorException | RuntimeException e) {
             // Pre-acceptance failure — no upstream work in flight; fail the placeholder.
+            String reason = safeMessage(e, "register-bound issuance failed");
             handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE,
-                    new HashMap<>(), safeIssueMessage(e));
+                    new HashMap<>(), reason);
             throw new CertificateOperationException(
-                    "Failed to issue register-bound certificate %s.".formatted(certUuid));
+                    "Failed to issue register-bound certificate %s: %s".formatted(certUuid, reason));
         }
     }
 
@@ -758,7 +760,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService.addEventHistory(certUuid, CertificateEvent.ISSUE,
                     CertificateEventStatus.FAILED,
                     "Connector accepted the register-bound issue but completing local state failed; reconcile manually. Cause: "
-                            + safeIssueMessage(e), "");
+                            + safeMessage(e, "register-bound issuance failed"), "");
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but completing local state failed; reconcile manually."
                             .formatted(certUuid));
@@ -798,12 +800,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
     }
 
-    /** Includes the message only from our own domain exceptions; connector/JPA messages are not forwarded. */
-    private static String safeIssueMessage(Exception e) {
+    /** Includes the message only from our own domain exceptions; connector/JPA messages fall back to {@code fallback}. */
+    private static String safeMessage(Exception e, String fallback) {
         return (e instanceof ConnectorException || e instanceof CertificateOperationException || e instanceof ValidationException)
                 && e.getMessage() != null
                 ? e.getMessage()
-                : "register-bound issuance failed";
+                : fallback;
     }
 
     /** Delegates with the metadata from the connector's {@code 202 Accepted} response body. */

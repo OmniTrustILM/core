@@ -41,8 +41,6 @@ public class CertificateRegistration extends UniquelyIdentified {
             columnDefinition = "timestamptz not null default now()")
     private OffsetDateTime updated;
 
-    // Sonar S2160: a field-adding subclass must override equals. Identity stays the UUID; the added columns
-    // do not affect equality.
     @Override
     public boolean equals(Object o) {
         return super.equals(o);

@@ -110,31 +110,35 @@ public final class RegisterWireBuilder {
         }
         for (String segment : subjectAltName.split(",")) {
             String trimmed = segment.trim();
-            if (trimmed.isEmpty()) {
-                continue;
+            if (!trimmed.isEmpty()) {
+                appendSanSegment(entries, trimmed);
             }
-            int colon = trimmed.indexOf(':');
-            String prefix = colon > 0 ? trimmed.substring(0, colon) : null;
-            GeneralNameType type = prefix == null ? null : SAN_PREFIXES.get(prefix.toLowerCase(Locale.ROOT));
-            if (type != null) {
-                entries.add(toGeneralNameEntry(type, trimmed.substring(colon + 1)));
-                continue;
-            }
-            if (prefix != null && prefix.matches("[A-Za-z0-9]+")) {
-                throw new ValidationException(
-                        "Unknown subject alternative name type prefix '%s' (expected one of DNS, IP, email, URI, dirName, RID, otherName)"
-                                .formatted(prefix));
-            }
-            // No prefix: a continuation of the previous value whose text contains commas (e.g. dirName:CN=x,O=y).
-            if (entries.isEmpty()) {
-                throw new ValidationException(
-                        "Subject alternative name segment '%s' has no type prefix (expected e.g. DNS:, IP:, email:)"
-                                .formatted(trimmed));
-            }
-            GeneralNameEntry previous = entries.get(entries.size() - 1);
-            previous.setValue(previous.getValue() + "," + trimmed);
         }
         return entries;
+    }
+
+    /** Parses one comma-split SAN segment: a typed entry, or a continuation of the previous entry's value. */
+    private static void appendSanSegment(List<GeneralNameEntry> entries, String segment) {
+        int colon = segment.indexOf(':');
+        String prefix = colon > 0 ? segment.substring(0, colon) : null;
+        GeneralNameType type = prefix == null ? null : SAN_PREFIXES.get(prefix.toLowerCase(Locale.ROOT));
+        if (type != null) {
+            entries.add(toGeneralNameEntry(type, segment.substring(colon + 1)));
+            return;
+        }
+        if (prefix != null && prefix.matches("[A-Za-z0-9]+")) {
+            throw new ValidationException(
+                    "Unknown subject alternative name type prefix '%s' (expected one of DNS, IP, email, URI, dirName, RID, otherName)"
+                            .formatted(prefix));
+        }
+        // No prefix: a continuation of the previous value whose text contains commas (e.g. dirName:CN=x,O=y).
+        if (entries.isEmpty()) {
+            throw new ValidationException(
+                    "Subject alternative name segment '%s' has no type prefix (expected e.g. DNS:, IP:, email:)"
+                            .formatted(segment));
+        }
+        GeneralNameEntry previous = entries.get(entries.size() - 1);
+        previous.setValue(previous.getValue() + "," + segment);
     }
 
     private static GeneralNameEntry toGeneralNameEntry(GeneralNameType type, String value) {
