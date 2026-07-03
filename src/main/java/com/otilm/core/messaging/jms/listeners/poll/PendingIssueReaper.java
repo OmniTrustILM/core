@@ -70,7 +70,7 @@ public class PendingIssueReaper {
             }
             OffsetDateTime threshold = OffsetDateTime.now(ZoneOffset.UTC).minus(staleAfter);
             return certificateRepository.findStalePendingIssueWithoutPollRow(
-                    CertificateState.PENDING_ISSUE, threshold, PageRequest.of(0, batchSize));
+                    threshold, PageRequest.of(0, batchSize));
         });
 
         int reaped = 0;

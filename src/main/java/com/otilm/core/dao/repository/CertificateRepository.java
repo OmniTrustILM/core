@@ -163,21 +163,18 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
                                              @Param("platformEnabled") boolean platformEnabled,
                                              Pageable pageable);
 
-    // Reaper for certificates orphaned in PENDING_ISSUE by a sync-path crash: those with no
-    // certificate_status_poll row (the async 202 path, which the poll sweep re-drives, always has one).
-    // Staleness uses c.updated (i_upd): the state-machine's PENDING_ISSUE write stamps it and a stuck
-    // certificate is not mutated afterwards, so it approximates when the certificate entered PENDING_ISSUE;
-    // a later write only pushes it forward, delaying reaping rather than triggering it early.
+    // Orphaned-PENDING_ISSUE reaper: certificates with no certificate-status-poll row (a crashed
+    // synchronous issue). Staleness uses the last-modified timestamp — a safe over-approximation of
+    // entry time, since a later write only delays reaping, never triggers it early.
     @Query("""
             SELECT c.uuid FROM Certificate c
-                WHERE c.state = :state AND c.updated < :threshold
+                WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
+                    AND c.updated < :threshold
                     AND NOT EXISTS (SELECT 1 FROM CertificateStatusPoll p WHERE p.certificateUuid = c.uuid)
                 ORDER BY c.updated ASC
             """
     )
-    List<UUID> findStalePendingIssueWithoutPollRow(@Param("state") CertificateState state,
-                                                   @Param("threshold") OffsetDateTime threshold,
-                                                   Pageable pageable);
+    List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
 
     List<Certificate> findByRaProfileAndComplianceStatusIsNotNullAndArchivedIsFalse(RaProfile raProfile);
 

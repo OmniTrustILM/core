@@ -14,7 +14,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Duration;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -61,7 +60,7 @@ class PendingIssueReaperUnitTest {
     @Test
     void skipsCandidateNoLongerInPendingIssueUnderLock() {
         UUID uuid = UUID.randomUUID();
-        when(certificateRepository.findStalePendingIssueWithoutPollRow(any(), any(), any()))
+        when(certificateRepository.findStalePendingIssueWithoutPollRow(any(), any()))
                 .thenReturn(List.of(uuid));
         // Between selection and locking the certificate completed elsewhere: it is now ISSUED.
         when(certificateRepository.findAndLockWithAssociationsByUuid(uuid))
@@ -78,7 +77,7 @@ class PendingIssueReaperUnitTest {
         UUID healthy = UUID.randomUUID();
         Certificate failingCert = cert(failing, CertificateState.PENDING_ISSUE);
         Certificate healthyCert = cert(healthy, CertificateState.PENDING_ISSUE);
-        when(certificateRepository.findStalePendingIssueWithoutPollRow(any(), any(), any()))
+        when(certificateRepository.findStalePendingIssueWithoutPollRow(any(), any()))
                 .thenReturn(List.of(failing, healthy));
         when(certificateRepository.findAndLockWithAssociationsByUuid(failing)).thenReturn(Optional.of(failingCert));
         when(certificateRepository.findAndLockWithAssociationsByUuid(healthy)).thenReturn(Optional.of(healthyCert));
