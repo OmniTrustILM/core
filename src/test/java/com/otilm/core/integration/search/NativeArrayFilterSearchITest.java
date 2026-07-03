@@ -61,11 +61,11 @@ class NativeArrayFilterSearchITest extends BaseSpringBootTest {
 
         @BeforeEach
         void setUp() {
-            // altCodes = ["OFI", "OFI2"]
+            // multiCode: altCodes = ["OFI", "OFI2"]
             rdnEntry("2.5.4.100", "Multi", "MULTI", List.of("OFI", "OFI2"));
-            // altCodes = ["ALONE"]
+            // singleCode: altCodes = ["ALONE"]
             rdnEntry("2.5.4.101", "Single", "SINGLE", List.of("ALONE"));
-            // altCodes = [] (empty array stored as {})
+            // noCode: altCodes = [] (empty array stored as {})
             rdnEntry("2.5.4.102", "NoCode", "NOCODE", new ArrayList<>());
         }
 
