@@ -97,7 +97,7 @@ class SigningRecordRetentionSweeperTest extends BaseSpringBootTest {
     }
 
     /**
-     * Persists the version row a record references by int, mirroring {@code SigningRecordRepositoryTest}, so the
+     * Persists the version row a record references by int, mirroring {@link com.otilm.core.integration.dao.repository.signing.SigningRecordRepositoryITest SigningRecordRepositoryITest}, so the
      * fixtures stay valid should the {@code (signing_profile_uuid, signing_profile_version)} reference ever
      * become a hard FK.
      */

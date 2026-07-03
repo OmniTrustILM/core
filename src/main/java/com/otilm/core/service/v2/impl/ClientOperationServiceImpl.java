@@ -567,8 +567,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. Trade-off: no poll row is created for the sync path, so a
-            // crash before the terminal ISSUED/FAILED transition strands the cert in PENDING_ISSUE.
+            // state via the state machine. The sync path creates no poll row, so a crash before the
+            // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                     "Issuance in progress");
 

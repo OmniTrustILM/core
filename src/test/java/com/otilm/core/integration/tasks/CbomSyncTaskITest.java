@@ -1,4 +1,4 @@
-package com.otilm.core.tasks;
+package com.otilm.core.integration.tasks;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,9 +19,11 @@ import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.impl.CbomServiceImpl;
+import com.otilm.core.tasks.CbomSyncTask;
+import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.BaseSpringBootTest;
 
-class CbomSyncTaskTest extends BaseSpringBootTest {
+class CbomSyncTaskITest extends BaseSpringBootTest {
 
     @MockitoBean
     private CbomServiceImpl cbomService;
@@ -62,8 +64,9 @@ class CbomSyncTaskTest extends BaseSpringBootTest {
         ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
         Mockito.when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
+        Object triggerObject = new Object();
         assertThrows(ScheduledJobSkippedException.class, () ->
-            cbomSyncTask.performJob(scheduledJobInfo, new Object())
+            cbomSyncTask.performJob(scheduledJobInfo, triggerObject)
         );
 
         Mockito.verify(cbomService, Mockito.times(1)).isCbomRepositoryClientConfigured();

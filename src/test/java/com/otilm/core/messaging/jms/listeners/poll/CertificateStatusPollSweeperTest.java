@@ -24,6 +24,7 @@ class CertificateStatusPollSweeperTest {
 
     @Mock private CertificateStatusPollClaimer pollClaimer;
     @Mock private CertificateStatusPollProducer pollProducer;
+    @Mock private PendingIssueReaper pendingIssueReaper;
 
     private static final int BATCH_SIZE = 200;
 
@@ -31,7 +32,7 @@ class CertificateStatusPollSweeperTest {
 
     @BeforeEach
     void setUp() {
-        sweeper = new CertificateStatusPollSweeper(pollClaimer, pollProducer, BATCH_SIZE, 10);
+        sweeper = new CertificateStatusPollSweeper(pollClaimer, pollProducer, pendingIssueReaper, BATCH_SIZE, 10);
     }
 
     @Test
@@ -41,6 +42,15 @@ class CertificateStatusPollSweeperTest {
         sweeper.sweep();
 
         verifyNoInteractions(pollProducer);
+    }
+
+    @Test
+    void everySweep_reapsOrphanedPendingIssueCertificates() {
+        when(pollClaimer.claimDueBatch(BATCH_SIZE)).thenReturn(List.of());
+
+        sweeper.sweep();
+
+        verify(pendingIssueReaper).reapStaleOrphans();
     }
 
     @Test

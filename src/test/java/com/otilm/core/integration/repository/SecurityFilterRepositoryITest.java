@@ -1,4 +1,4 @@
-package com.otilm.core.repository;
+package com.otilm.core.integration.repository;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.UUID;
 
 @SpringBootTest
-class SecurityFilterRepositoryTest extends BaseSpringBootTest {
+class SecurityFilterRepositoryITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
