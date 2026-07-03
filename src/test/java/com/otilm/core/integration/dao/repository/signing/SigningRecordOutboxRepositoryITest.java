@@ -1,7 +1,8 @@
-package com.otilm.core.dao.repository.signing;
+package com.otilm.core.integration.dao.repository.signing;
 
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
+import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class SigningRecordOutboxRepositoryTest extends BaseSpringBootTest {
+class SigningRecordOutboxRepositoryITest extends BaseSpringBootTest {
 
     private static final int BATCH_LARGER_THAN_FIXTURES = 1000;
     private static final int POISON_THRESHOLD = 10;
