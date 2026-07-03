@@ -1,4 +1,4 @@
-package com.otilm.core.search;
+package com.otilm.core.integration.search;
 
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
@@ -35,7 +35,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 
-class TimeQualityConfigurationSearchTest extends BaseSpringBootTest {
+class TimeQualityConfigurationSearchITest extends BaseSpringBootTest {
 
     private static final String CUSTOM_ATTR_NAME = "tqc-tag";
     private static final String CUSTOM_ATTR_VALUE = "strict-tag-value";
