@@ -319,12 +319,14 @@ public class CmpServiceImpl implements CmpExternalService {
     private ResponseEntity<byte[]> errorResponse(ASN1OctetString tid, String logPrefix, String requestAsString,
                                                  String phase, Exception e, PKIMessage pkiResponse) {
         handleTrxError(tid, e);
-        if (verbose) {
-            LOG.error("{} | {} failed: \n\n response:\n {}", logPrefix, phase,
-                    PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
-        } else {
-            LOG.error("{} | {} failed: \n\nrequest:\n {}\n response:\n {}", logPrefix, phase,
-                    requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+        if (LOG.isErrorEnabled()) {
+            if (verbose) {
+                LOG.error("{} | {} failed: \n\n response:\n {}", logPrefix, phase,
+                        PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+            } else {
+                LOG.error("{} | {} failed: \n\nrequest:\n {}\n response:\n {}", logPrefix, phase,
+                        requestAsString, PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+            }
         }
         return buildBadRequest(pkiResponse);
     }
