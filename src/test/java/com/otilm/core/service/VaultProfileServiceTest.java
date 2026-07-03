@@ -56,7 +56,7 @@ class VaultProfileServiceTest extends BaseSpringBootTest {
     @Autowired
     private VaultInstanceRepository vaultInstanceRepository;
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
     @Autowired
     private SecretRepository secretRepository;
     @Autowired

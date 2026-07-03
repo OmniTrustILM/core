@@ -39,7 +39,7 @@ import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.AttributeService;
+import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.CryptographicKeyService;
@@ -89,7 +89,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     private EntityManager entityManager;
 
     @Autowired
-    private AttributeService attributeService;
+    private AttributeExternalService attributeService;
 
     @Autowired
     private AttributeEngine attributeEngine;

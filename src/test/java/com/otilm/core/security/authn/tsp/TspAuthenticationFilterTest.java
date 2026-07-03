@@ -11,7 +11,7 @@ import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.SecretsUtil;
@@ -54,7 +54,7 @@ class TspAuthenticationFilterTest {
     private static final String CERT_THUMBPRINT = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
     @Mock private TspProfileInternalService tspProfileService;
-    @Mock private SigningProfileService signingProfileService;
+    @Mock private SigningProfileInternalService signingProfileService;
     @Mock private PlatformAuthenticationClient authClient;
     @Mock private PlatformJwtDecoder jwtDecoder;
     @Mock private CredentialVerificationCache credentialCache;
