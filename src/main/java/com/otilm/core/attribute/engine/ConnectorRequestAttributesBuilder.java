@@ -46,14 +46,18 @@ public class ConnectorRequestAttributesBuilder {
     /**
      * Dereferences CREDENTIAL + RESOURCE (incl. SECRET) references in attributes that were already stored and
      * validated, so a stateless connector receives inline content on the operation path. Unlike
-     * {@link #prepareRequestAttributesForConnectorRequest}, this does not re-validate — the attributes were validated
-     * when persisted and no attribute definitions are supplied. Callers resolving an authority's own infrastructure
-     * references go through {@code OperationAttributeResolver}, which elevates to the platform's
-     * attribute-content-resolver system identity for the duration of this call (authorized at the operation level, not
-     * per acting caller).
+     * {@link #prepareRequestAttributesForConnectorRequest}, this skips the definition-drift check
+     * ({@code validateUpdateDataAttributes}) — the attributes were validated when persisted and no attribute
+     * definitions are supplied here; per-attribute content validation still runs inside
+     * {@code getDataAttributesByContent}. Callers resolving an authority's own infrastructure references go through
+     * {@code OperationAttributeResolver}, which elevates to the platform's attribute-content-resolver system identity
+     * for the duration of this call (authorized at the operation level, not per acting caller).
      * <p>
-     * Unlike the callback reference expander, this does not arm outbound-secret value-echo containment: an operation
-     * response maps to certificate data, not reflected back to an untrusted caller surface.
+     * This does not arm the callback path's outbound-secret value-echo containment. For issue/renew/revoke/register the
+     * connector response is certificate data, not a caller-reflected surface. The attribute-list endpoints
+     * (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content to the operator, so a
+     * malicious connector could echo a resolved secret there — but it already holds that secret to authenticate to the
+     * CA, so the residual exposure is limited; hardening those responses with containment is tracked as a follow-up.
      */
     public List<RequestAttribute> dereferenceForConnectorRequest(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         return resolveContent(connectorUuid, requestAttributes);

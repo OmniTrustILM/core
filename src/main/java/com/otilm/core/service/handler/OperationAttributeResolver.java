@@ -58,7 +58,7 @@ public class OperationAttributeResolver {
                 // A stored reference may be unresolvable, or point at a disabled/invalid-state secret or vault profile
                 // (unchecked ValidationException). Surface all through the declared ConnectorException contract so the
                 // operation fails cleanly instead of escaping as a raw RuntimeException.
-                throw new ConnectorException("Unable to resolve stored attribute references for connector request", e);
+                throw new ConnectorException("Unable to resolve stored attribute references for connector request (connector " + connectorUuid + ")", e);
             }
         });
     }

@@ -190,9 +190,9 @@ class AuthorityProviderV3AdapterTest {
                 .thenReturn(storedAuthority);
         when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
                 .thenReturn(storedRaProfile);
-        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), eq(storedAuthority)))
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
                 .thenReturn(resolvedAuthority);
-        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), eq(storedRaProfile)))
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
                 .thenReturn(resolvedRaProfile);
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));

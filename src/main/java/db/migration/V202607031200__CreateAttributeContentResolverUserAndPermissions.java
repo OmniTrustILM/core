@@ -16,7 +16,7 @@ import java.util.Map;
 /**
  * Seeds the least-privilege {@code attribute-content-resolver} system user + role. The platform assumes this identity
  * (via {@code AuthHelper.runAsSystem}, from {@code OperationAttributeResolver}) to resolve an authority's own
- * infrastructure references — connector, credential, secret content + vault-profile membership — when assembling an
+ * infrastructure references — connector, credential, certificate, and secret content + vault-profile membership — when assembling an
  * operation-path connector request, so a stateless connector receives inline content without gating on the acting
  * caller (operator, protocol robot, or the principal-less status-poll thread). Grants are exactly the read actions
  * the guarded resolution mechanics touch; object-config kinds (AUTHORITY/ENTITY/LOCATION) resolve via an unguarded
@@ -29,6 +29,7 @@ public class V202607031200__CreateAttributeContentResolverUserAndPermissions ext
         return DatabaseMigration.JavaMigrationChecksums.V202607031200__CreateAttributeContentResolverUserAndPermissions.getChecksum();
     }
 
+    @Override
     public void migrate(Context context) throws Exception {
         // create role
         Map<Resource, List<ResourceAction>> roleResourceActions = new EnumMap<>(Resource.class);

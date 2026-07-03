@@ -263,8 +263,10 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
         denyResourceAccess(Resource.VAULT_PROFILE, ResourceAction.MEMBERS);
 
         RequestAttribute secretRef = resourceRef(AttributeResource.SECRET, secret.getUuid());
+        List<RequestAttribute> refs = List.of(secretRef);
+        Set<String> expandedSecrets = new HashSet<>();
         Assertions.assertThrows(AccessDeniedException.class,
-                () -> expander.expandForCaller(List.of(secretRef), new HashSet<>()),
+                () -> expander.expandForCaller(refs, expandedSecrets),
                 "lacking vault-profile membership on the owning profile must fail the SECRET expansion closed");
 
         ResourceObjectContent element = (ResourceObjectContent) ((List<?>) secretRef.getContent()).getFirst();
