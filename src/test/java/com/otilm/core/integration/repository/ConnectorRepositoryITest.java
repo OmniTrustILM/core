@@ -15,13 +15,13 @@ import java.util.Collections;
 @SpringBootTest(classes = Application.class)
 @Transactional
 @Rollback
-public class ConnectorRepositoryITest {
+class ConnectorRepositoryITest {
 
     @Autowired
     private ConnectorRepository connectorRepository;
 
     @Test
-    public void testCreateConnector() {
+    void testCreateConnector() {
         Connector request = new Connector();
         request.setName("testConnector");
         request.setUrl("testUrl");

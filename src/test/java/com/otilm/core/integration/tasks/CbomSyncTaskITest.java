@@ -64,8 +64,9 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
         ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
         Mockito.when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
+        Object triggerObject = new Object();
         assertThrows(ScheduledJobSkippedException.class, () ->
-            cbomSyncTask.performJob(scheduledJobInfo, new Object())
+            cbomSyncTask.performJob(scheduledJobInfo, triggerObject)
         );
 
         Mockito.verify(cbomService, Mockito.times(1)).isCbomRepositoryClientConfigured();
