@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies the single {@link SigningRecordWriter}'s deletion contribution on top of the repository queries (the
- * queries' retention/null/flag semantics are covered in {@code SigningRecordRepositoryTest}): each call runs in
+ * queries' retention/null/flag semantics are covered in {@link com.otilm.core.integration.dao.repository.signing.SigningRecordRepositoryITest SigningRecordRepositoryITest}): each call runs in
  * its own {@code REQUIRES_NEW} transaction, so it deletes and commits with no ambient transaction held by the
  * caller. For {@code deleteExpiredBatch} the {@code limit} bounds a single batch, which is the signal the
  * sweeper uses to detect a full batch and keep looping; {@code deleteByUuid} removes the single
@@ -152,7 +152,7 @@ class SigningRecordWriterTest extends BaseSpringBootTest {
     }
 
     /**
-     * Persists the version row a record references by int, mirroring {@code SigningRecordRepositoryTest}, so the
+     * Persists the version row a record references by int, mirroring {@link com.otilm.core.integration.dao.repository.signing.SigningRecordRepositoryITest SigningRecordRepositoryITest}, so the
      * fixtures stay valid should the {@code (signing_profile_uuid, signing_profile_version)} reference ever
      * become a hard FK.
      */

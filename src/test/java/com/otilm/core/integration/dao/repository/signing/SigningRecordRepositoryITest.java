@@ -1,4 +1,4 @@
-package com.otilm.core.dao.repository.signing;
+package com.otilm.core.integration.dao.repository.signing;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -6,6 +6,9 @@ import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class SigningRecordRepositoryTest extends BaseSpringBootTest {
+class SigningRecordRepositoryITest extends BaseSpringBootTest {
 
     private static final int BATCH_LIMIT_LARGER_THAN_FIXTURES = 1000;
 

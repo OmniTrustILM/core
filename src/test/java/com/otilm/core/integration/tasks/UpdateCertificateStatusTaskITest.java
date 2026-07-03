@@ -1,4 +1,4 @@
-package com.otilm.core.tasks;
+package com.otilm.core.integration.tasks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -22,6 +22,8 @@ import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.tasks.ScheduledJobInfo;
+import com.otilm.core.tasks.UpdateCertificateStatusTask;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +39,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 
-class UpdateCertificateStatusTaskTest extends BaseSpringBootTest {
+class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
