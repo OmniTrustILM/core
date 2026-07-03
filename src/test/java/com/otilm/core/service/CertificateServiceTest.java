@@ -31,6 +31,7 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
@@ -1927,6 +1928,26 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificateRepository.save(notIssued);
             certificateRepository.save(certificate);
             return notIssued;
+        }
+    }
+
+    // ── CSR attach (addCertificateRequestToExisting) ────────────────────────
+    @Nested
+    class CsrAttach {
+
+        @Test
+        void rejectsNonRegisteredCertificate() {
+            // given — a certificate that is not REGISTERED (e.g. still PENDING_ISSUE)
+            Certificate pendingIssue = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
+            UUID uuid = pendingIssue.getUuid();
+            ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+            signRequest.setRequest(SAMPLE_PKCS10);
+            signRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+            // when / then — the locked read re-asserts state under the lock; only REGISTERED may accept a CSR
+            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, signRequest))
+                    .isInstanceOf(ValidationException.class);
         }
     }
 
