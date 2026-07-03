@@ -241,7 +241,7 @@ public interface CryptographicKeyExternalService {
      * @param keyUuid        UUID of parent Key of Key Item
      * @param keyItemUuid    UUID of Key Item
      * @param editKeyItemDto Request for editing the Key Item
-     * @return Key Item which has been deleted
+     * @return Key Item which has been edited
      * @throws NotFoundException Key has not been found
      */
     KeyItemDetailDto editKeyItem(SecuredUUID keyUuid, UUID keyItemUuid, EditKeyItemDto editKeyItemDto) throws NotFoundException;
@@ -263,10 +263,9 @@ public interface CryptographicKeyExternalService {
     void disableKeyItems(List<String> uuids);
 
     /**
-     * Destroy multiple keys
+     * Destroy multiple key items
      *
      * @param keyItemUuids UUID of the concerned key items
-     * @throws NotFoundException  when the token profile or the key uuid is not found
      * @throws ConnectorException when there are issues with connector communication
      */
     void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException;

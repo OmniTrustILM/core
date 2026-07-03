@@ -4,7 +4,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.core.client.ConnectorApiFactory;
-import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;

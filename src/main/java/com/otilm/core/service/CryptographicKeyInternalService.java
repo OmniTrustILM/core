@@ -12,9 +12,9 @@ import java.util.UUID;
 public interface CryptographicKeyInternalService extends ResourceExtensionService {
 
     /**
-     * Function to get the key based on the sha 256 key fingerprint
+     * Function to get the key based on the SHA-256 key fingerprint
      *
-     * @param fingerprint SHA 256 fingerprint of the key
+     * @param fingerprint SHA-256 fingerprint of the key
      * @return Cryptographic Key UUID
      */
     UUID findKeyByFingerprint(String fingerprint);
