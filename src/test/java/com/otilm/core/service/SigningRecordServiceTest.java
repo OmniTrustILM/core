@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through {@link SigningProfileService}
+ * Drives {@link SigningRecordExternalService} end to end: signing profiles are created through {@link SigningProfileExternalService}
  * against a live {@link SignerConnectorMock}, signing records are persisted through {@link SigningRecordWriter}, and
  * every assertion reads back through the service under test. Nothing touches a repository directly.
  */
@@ -68,7 +68,7 @@ class SigningRecordServiceTest extends BaseSpringBootTest {
     private SigningRecordInternalService signingRecordInternalService;
 
     @Autowired
-    private SigningProfileService signingProfileService;
+    private SigningProfileExternalService signingProfileService;
 
     @Autowired
     private SigningRecordWriter signingRecordWriter;

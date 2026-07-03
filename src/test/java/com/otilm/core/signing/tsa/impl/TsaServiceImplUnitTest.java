@@ -6,7 +6,7 @@ import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.workflow.DelegatedTimestampingWorkflow;
 import com.otilm.core.service.PermissionEvaluator;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -43,7 +43,7 @@ class TsaServiceImplUnitTest {
     @Mock
     TspProfileInternalService tspProfileService;
     @Mock
-    SigningProfileService signingProfileService;
+    SigningProfileInternalService signingProfileService;
     @Mock
     SigningProfileResolverFactory signingProfileResolverFactory;
     @Mock
@@ -174,7 +174,7 @@ class TsaServiceImplUnitTest {
             when(tspProfileService.getTspProfile("tsp-profile"))
                     .thenReturn(aTspProfile().withDefaultSigningProfileName("signing-profile").build());
             when(signingProfileService.getSigningProfileModel("signing-profile"))
-                    .thenThrow(new NotFoundException(SigningProfileService.class, "signing-profile"));
+                    .thenThrow(new NotFoundException(SigningProfileInternalService.class, "signing-profile"));
 
             // when
             Executable call = () -> tsaService.processTspRequestForTspProfile("tsp-profile", aTspRequest().build());
@@ -251,7 +251,7 @@ class TsaServiceImplUnitTest {
         void propagatesNotFound_whenSigningProfileDoesNotExist() throws NotFoundException {
             // given
             when(signingProfileService.getSigningProfileModel("nonexistent"))
-                    .thenThrow(new NotFoundException(SigningProfileService.class, "nonexistent"));
+                    .thenThrow(new NotFoundException(SigningProfileInternalService.class, "nonexistent"));
 
             // when
             Executable call = () -> tsaService.processTspRequestForSigningProfile("nonexistent", aTspRequest().build());

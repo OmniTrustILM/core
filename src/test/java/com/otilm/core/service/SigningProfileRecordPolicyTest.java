@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class SigningProfileRecordPolicyTest extends BaseSpringBootTest {
 
     @Autowired
-    private SigningProfileService service;
+    private SigningProfileExternalService service;
     @Autowired
     private SigningProfileRepository profileRepo;
     @Autowired

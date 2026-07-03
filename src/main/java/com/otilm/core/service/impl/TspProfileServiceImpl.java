@@ -39,7 +39,7 @@ import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.service.TspProfileBasicCredentialInternalService;
 import com.otilm.core.service.SecretInternalService;
-import com.otilm.core.service.SigningProfileService;
+import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -75,7 +75,7 @@ public class TspProfileServiceImpl implements TspProfileExternalService, TspProf
     private AttributeEngine attributeEngine;
     private CacheEvictor cacheEvictor;
     private TspProfileServiceImpl self;
-    private SigningProfileService signingProfileService;
+    private SigningProfileInternalService signingProfileService;
     private VaultProfileInternalService vaultProfileService;
     private TspProfileRepository tspProfileRepository;
     private SecretInternalService secretService;
@@ -473,7 +473,7 @@ public class TspProfileServiceImpl implements TspProfileExternalService, TspProf
     }
 
     @Autowired
-    public void setSigningProfileService(SigningProfileService signingProfileService) {
+    public void setSigningProfileService(SigningProfileInternalService signingProfileService) {
         this.signingProfileService = signingProfileService;
     }
 
