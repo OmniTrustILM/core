@@ -1,4 +1,4 @@
-package com.otilm.core.search;
+package com.otilm.core.integration.search;
 
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -49,7 +49,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
  *   <li>{@code CONNECTOR_FEATURES} — {@code ConnectorInterfaceEntity.features}</li>
  * </ul>
  */
-class NativeArrayFilterSearchTest extends BaseSpringBootTest {
+class NativeArrayFilterSearchITest extends BaseSpringBootTest {
     @Autowired
     private CustomOidEntryExternalService customOidEntryService;
 
@@ -59,18 +59,14 @@ class NativeArrayFilterSearchTest extends BaseSpringBootTest {
     @Nested
     class OidEntryAltCodesFilterTest {
 
-        // altCodes = ["OFI", "OFI2"]
-        private RdnAttributeTypeCustomOidEntry multiCode;
-        // altCodes = ["ALONE"]
-        private RdnAttributeTypeCustomOidEntry singleCode;
-        // altCodes = [] (empty array stored as {})
-        private RdnAttributeTypeCustomOidEntry noCode;
-
         @BeforeEach
         void setUp() {
-            multiCode = rdnEntry("2.5.4.100", "Multi", "MULTI", List.of("OFI", "OFI2"));
-            singleCode = rdnEntry("2.5.4.101", "Single", "SINGLE", List.of("ALONE"));
-            noCode = rdnEntry("2.5.4.102", "NoCode", "NOCODE", new ArrayList<>());
+            // multiCode: altCodes = ["OFI", "OFI2"]
+            rdnEntry("2.5.4.100", "Multi", "MULTI", List.of("OFI", "OFI2"));
+            // singleCode: altCodes = ["ALONE"]
+            rdnEntry("2.5.4.101", "Single", "SINGLE", List.of("ALONE"));
+            // noCode: altCodes = [] (empty array stored as {})
+            rdnEntry("2.5.4.102", "NoCode", "NOCODE", new ArrayList<>());
         }
 
         // ─────────────────────────────────────────────
