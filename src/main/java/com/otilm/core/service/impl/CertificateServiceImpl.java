@@ -1129,10 +1129,15 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (signRequest.getFormat() == null) {
             throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
         }
-        // Authorize on an unlocked read first — evaluateCertificateRaProfilePermissions makes an external
-        // OPA call and must not run while holding the row lock — then take the lock (SELECT ... FOR UPDATE)
-        // so a concurrent attach blocks here and the state re-assert below is authoritative.
-        getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+        // Authorize before locking WITHOUT managing the entity: the RA-profile check makes an external OPA
+        // call (must not run while holding the row lock), and loading the full entity first would make the
+        // locking query below return the already-managed, stale-state instance — defeating the under-lock
+        // re-assert. Fetch only the RA-profile UUID (a scalar projection), authorize, then take the lock so
+        // findAndLockWithAssociationsByUuid loads fresh state under SELECT ... FOR UPDATE.
+        UUID raProfileUuid = certificateRepository.findRaProfileUuidByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        raProfileService.evaluateCertificateRaProfilePermissions(SecuredUUID.fromUUID(certificateUuid),
+                SecuredParentUUID.fromUUID(raProfileUuid));
         Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         // Defense-in-depth: a CSR is attached only while completing a registered placeholder. The sole

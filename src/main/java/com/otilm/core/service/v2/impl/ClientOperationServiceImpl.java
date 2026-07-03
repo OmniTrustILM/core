@@ -623,13 +623,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             certificateService.issueRequestedCertificate(certificateUuid, issueCaResponse.getCertificateData(), issueCaResponse.getMeta());
         } catch (Exception e) {
-            // The certificate is detached here — the claim transaction committed (to release the row
-            // lock) before the connector call, so handleFailedOrRejectedEvent cannot lazy-load the
-            // collections it needs (locations, predecessor relations). Run the failure handling against
-            // a managed entity re-read inside a short transaction.
+            // Re-read under a row lock in a short transaction: the claim tx committed (releasing the lock)
+            // before the connector call, so the entity is detached and its collections cannot lazy-load; the
+            // lock also makes the FAILED transition authoritative — if another actor finalized this
+            // certificate meanwhile, handleFailedOrRejectedEvent sees the fresh state and its canTransition
+            // guard skips it, so a concurrent finalize is not clobbered.
             TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
             try {
-                Certificate managed = certificateRepository.findWithAssociationsByUuid(certificateUuid)
+                Certificate managed = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
                         .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
                 handleFailedOrRejectedEvent(managed, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
                 transactionManager.commit(failTx);
