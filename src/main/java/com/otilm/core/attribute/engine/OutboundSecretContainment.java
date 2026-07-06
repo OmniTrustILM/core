@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -74,6 +76,22 @@ public class OutboundSecretContainment {
         }
         // Record path is best-effort (failClosedOnDepth=false): the value-echo + structural reject are the gates.
         walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+    }
+
+    /**
+     * Record the secret leaf values materialized into resolved request attributes about to be sent to a connector, so
+     * a later echo of them in the connector's response can be caught by {@link #assertNoExpandedSecretOutbound}. The
+     * operation path (v3 attribute-list endpoints) resolves an authority's own infrastructure references into these
+     * request attributes; the callback path records from a content blob instead
+     * ({@link #recordExpandedSecrets(ResourceObjectContentData, Set)}).
+     */
+    public void recordExpandedSecretsFromRequest(List<RequestAttribute> resolved, Set<String> expandedSecrets) {
+        if (resolved == null || expandedSecrets == null) {
+            return;
+        }
+        for (RequestAttribute attribute : resolved) {
+            walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+        }
     }
 
     private void recordIfSecretLeaf(Object node, Set<String> sink) {

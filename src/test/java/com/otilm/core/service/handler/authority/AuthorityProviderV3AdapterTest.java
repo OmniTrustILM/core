@@ -25,8 +25,19 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
+import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.OutboundSecretLeakException;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -43,6 +54,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
@@ -67,6 +79,8 @@ class AuthorityProviderV3AdapterTest {
     AttributeEngine attributeEngine;
     @Mock
     OperationAttributeResolver operationAttributeResolver;
+    @Spy
+    OutboundSecretContainment outboundContainment = new OutboundSecretContainment(new ObjectMapper());
 
     @InjectMocks
     AuthorityProviderV3Adapter adapter;
@@ -236,6 +250,27 @@ class AuthorityProviderV3AdapterTest {
                 "the attribute-list request must carry the resolved authority-scoped attributes, not crossed");
         assertSame(resolvedRaProfile, dto.getRaProfileAttributes(),
                 "the attribute-list request must carry the resolved ra-profile-scoped attributes, not crossed");
+    }
+
+    @Test
+    void listIssueAttributesFailsClosedWhenConnectorEchoesResolvedSecret() throws Exception {
+        UUID connectorUuid = authority.getConnectorUuid();
+        ResourceObjectContent secretContent = new ResourceObjectContent();
+        secretContent.setData(new ResourceSecretContentData("u", "n", new ApiKeySecretContent("s3cr3t-token")));
+        RequestAttribute resolvedSecret = new RequestAttributeV3(UUID.randomUUID(), "oauthClient",
+                AttributeContentType.RESOURCE, List.<BaseAttributeContentV3<?>>of(secretContent));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), any()))
+                .thenReturn(List.of(resolvedSecret));
+
+        DataAttributeV3 echoed = new DataAttributeV3();
+        echoed.setName("caUrl");
+        echoed.setContent(List.of(new StringAttributeContentV3("s3cr3t-token")));
+        when(certClientV3.listIssueAttributes(eq(connectorInfo), any(CertificateAttributeListRequestDtoV3.class)))
+                .thenReturn(List.<BaseAttribute>of(echoed));
+
+        assertThrows(OutboundSecretLeakException.class,
+                () -> adapter.listIssueAttributes(authority, raProfile),
+                "a connector echoing a resolved secret into the attribute list must fail closed");
     }
 
     // ---- issue: 202 -> ASYNC_ACCEPTED ----

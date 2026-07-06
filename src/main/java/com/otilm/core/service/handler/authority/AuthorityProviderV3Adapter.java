@@ -26,6 +26,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -38,7 +39,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -60,14 +63,17 @@ public class AuthorityProviderV3Adapter
         implements RegisterCapability, AsyncOperationCapability {
 
     private final OperationAttributeResolver operationAttributeResolver;
+    private final OutboundSecretContainment outboundContainment;
 
     @Autowired
     public AuthorityProviderV3Adapter(ConnectorInternalService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine,
-                                      OperationAttributeResolver operationAttributeResolver) {
+                                      OperationAttributeResolver operationAttributeResolver,
+                                      OutboundSecretContainment outboundContainment) {
         super(connectorService, connectorApiFactory, attributeEngine);
         this.operationAttributeResolver = operationAttributeResolver;
+        this.outboundContainment = outboundContainment;
     }
 
     // ---- AuthorityProviderAdapter ----
@@ -143,22 +149,28 @@ public class AuthorityProviderV3Adapter
     @Override
     public List<BaseAttribute> listRaProfileAttributes(AuthorityInstanceReference authority) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        return connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto)
-                .listRaProfileAttributes(connectorDto, authorityAttributesFor(authority));
+        List<RequestAttribute> authorityAttributes = authorityAttributesFor(authority);
+        List<BaseAttribute> response = connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto)
+                .listRaProfileAttributes(connectorDto, authorityAttributes);
+        return contained(response, authorityAttributes);
     }
 
     @Override
     public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listIssueAttributes(connectorDto, attributeListRequest(authority, raProfile));
+        CertificateAttributeListRequestDtoV3 request = attributeListRequest(authority, raProfile);
+        List<BaseAttribute> response = connectorApiFactory.getCertificateApiClientV3(connectorDto)
+                .listIssueAttributes(connectorDto, request);
+        return contained(response, request.getAuthorityAttributes(), request.getRaProfileAttributes());
     }
 
     @Override
     public List<BaseAttribute> listRevokeAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listRevokeAttributes(connectorDto, attributeListRequest(authority, raProfile));
+        CertificateAttributeListRequestDtoV3 request = attributeListRequest(authority, raProfile);
+        List<BaseAttribute> response = connectorApiFactory.getCertificateApiClientV3(connectorDto)
+                .listRevokeAttributes(connectorDto, request);
+        return contained(response, request.getAuthorityAttributes(), request.getRaProfileAttributes());
     }
 
     @Override
@@ -185,8 +197,25 @@ public class AuthorityProviderV3Adapter
     @Override
     public List<BaseAttribute> listRegisterAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        return connectorApiFactory.getCertificateApiClientV3(connectorDto)
-                .listRegisterAttributes(connectorDto, attributeListRequest(authority, raProfile));
+        CertificateAttributeListRequestDtoV3 request = attributeListRequest(authority, raProfile);
+        List<BaseAttribute> response = connectorApiFactory.getCertificateApiClientV3(connectorDto)
+                .listRegisterAttributes(connectorDto, request);
+        return contained(response, request.getAuthorityAttributes(), request.getRaProfileAttributes());
+    }
+
+    /**
+     * Fail closed if the connector echoed back a secret Core expanded into the request. The v3 attribute-list
+     * responses flow to the operator's attribute-selection UI (unlike issue/revoke/register, whose response is
+     * certificate data), so they get the same outbound-secret containment the callback path applies.
+     */
+    @SafeVarargs
+    private List<BaseAttribute> contained(List<BaseAttribute> response, List<RequestAttribute>... sentAttributes) {
+        Set<String> expandedSecrets = new HashSet<>();
+        for (List<RequestAttribute> attributes : sentAttributes) {
+            outboundContainment.recordExpandedSecretsFromRequest(attributes, expandedSecrets);
+        }
+        outboundContainment.assertNoExpandedSecretOutbound(response, expandedSecrets);
+        return response;
     }
 
     @Override
