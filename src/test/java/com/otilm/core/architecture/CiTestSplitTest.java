@@ -126,8 +126,7 @@ class CiTestSplitTest {
      * fragments — a substring match would wrongly exempt e.g. any path merely containing "api".
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of(
-            "service", "util", "signing", "messaging", "security",
-            "api", "attribute", "model", "cryptography");
+            "service", "util", "signing", "messaging", "security", "api");
 
     /**
      * Root-level test files live directly in com/otilm/core (no sub-package) — e.g. ApplicationTests,

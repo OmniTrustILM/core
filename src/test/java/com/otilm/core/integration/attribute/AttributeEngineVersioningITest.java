@@ -1,4 +1,4 @@
-package com.otilm.core.attribute;
+package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -46,7 +46,7 @@ import java.util.UUID;
  *   <li>Unversioned and versioned rows for the same logical object don't bleed into each other.</li>
  * </ul>
  */
-class AttributeEngineVersioningTest extends BaseSpringBootTest {
+class AttributeEngineVersioningITest extends BaseSpringBootTest {
 
     // ── Operation constants mimicking signing-profile usage ──────────────────
     private static final String OPERATION_SIGN = AttributeOperation.SIGN;

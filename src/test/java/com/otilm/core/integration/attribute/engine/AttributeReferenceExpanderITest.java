@@ -1,4 +1,4 @@
-package com.otilm.core.attribute.engine;
+package com.otilm.core.integration.attribute.engine;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -13,6 +13,7 @@ import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.secret.SecretState;
+import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Credential;
@@ -56,7 +57,7 @@ import java.util.UUID;
  * membership gate. Also asserts the N3 invariant (the ambient principal is unchanged after expansion — no
  * setAuthentication).
  */
-class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
+class AttributeReferenceExpanderITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeReferenceExpander expander;
