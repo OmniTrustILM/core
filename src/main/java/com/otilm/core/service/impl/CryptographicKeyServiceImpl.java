@@ -38,6 +38,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -79,7 +80,7 @@ import static java.util.function.Predicate.not;
 
 @Service(Resource.Codes.CRYPTOGRAPHIC_KEY)
 @Transactional(noRollbackFor = ValidationException.class)
-public class CryptographicKeyServiceImpl implements CryptographicKeyService {
+public class CryptographicKeyServiceImpl implements CryptographicKeyExternalService, CryptographicKeyInternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyServiceImpl.class);
 
@@ -263,6 +264,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return getSearchableFieldsMap();
     }
@@ -502,11 +504,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void enableKeyItems(List<String> uuids) {
         setKeyItemsEnabled(uuids, true, true);
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void disableKeyItems(List<String> uuids) {
         setKeyItemsEnabled(uuids, true, false);
     }
@@ -737,6 +741,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException {
         destroyKeyItems(keyItemUuids, true);
     }
@@ -851,6 +856,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request) {
         compromiseKeyItems(request.getUuids(), true, request.getReason());
     }
@@ -888,6 +894,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public void updateKeyItemUsages(BulkKeyItemUsageRequestDto request) {
         setKeyItemsUsages(request.getUuids(), request.getUsage(), false);
     }

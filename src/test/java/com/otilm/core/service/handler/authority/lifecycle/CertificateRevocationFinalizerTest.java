@@ -7,7 +7,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyExternalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
 class CertificateRevocationFinalizerTest {
 
     @Mock private AttributeEngine attributeEngine;
-    @Mock private CryptographicKeyService keyService;
+    @Mock private CryptographicKeyExternalService keyService;
 
     private CertificateRevocationFinalizer finalizer;
 
