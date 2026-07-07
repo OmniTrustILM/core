@@ -127,7 +127,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         certificate.setFingerprint(fingerprint);
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
         try {
-            if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory)) {
+            if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory, eventMessageData.customAttributes())) {
                 saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
@@ -136,7 +136,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             // Retroactively link trigger histories of the ignore triggers to the certificate
             triggerHistoryRepository.updateObjectUuidAndObjectResource(certificate.getUuid(), Resource.CERTIFICATE, eventHistory.getUuid());
 
-            evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory);
+            evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory, eventMessageData.customAttributes());
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), certificate.toStringShort(), e.getMessage());
             saveEventHistory(eventHistory, EventStatus.FAILED);

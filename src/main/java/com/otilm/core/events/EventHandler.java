@@ -2,6 +2,7 @@ package com.otilm.core.events;
 
 import com.otilm.api.exception.EventException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.workflows.EventStatus;
@@ -197,11 +198,15 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
     }
 
     protected void evaluateTriggers(EventContext<T> context, EventContextTriggers eventTriggers, T resourceObject, Object eventData, EventHistory eventHistory) {
+        evaluateTriggers(context, eventTriggers, resourceObject, eventData, eventHistory, null);
+    }
+
+    protected void evaluateTriggers(EventContext<T> context, EventContextTriggers eventTriggers, T resourceObject, Object eventData, EventHistory eventHistory, List<RequestAttribute> pendingCustomAttributes) {
         for (TriggerAssociation triggerAssociation : eventTriggers.getTriggers()) {
             handleUser(context, triggerAssociation.getTriggeredBy());
             Trigger trigger = triggerAssociation.getTrigger();
             try {
-                context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
+                context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory, pendingCustomAttributes);
                 logger.debug("Trigger '{}' on {} object {} processed successfully", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid());
             } catch (Exception e) {
                 logger.error("Unable to process trigger '{}' on {} object {}. Message: {}", trigger.getName(), context.getResource().getLabel(), resourceObject.getUuid(), e.getMessage());
@@ -209,15 +214,18 @@ public abstract class EventHandler<T extends UniquelyIdentifiedObject> implement
         }
     }
 
-
     protected boolean evaluateIgnoreTriggers(EventContext<T> context, EventContextTriggers eventTriggers, T resourceObject, Object eventData, EventHistory eventHistory) {
+        return evaluateIgnoreTriggers(context, eventTriggers, resourceObject, eventData, eventHistory, null);
+    }
+
+    protected boolean evaluateIgnoreTriggers(EventContext<T> context, EventContextTriggers eventTriggers, T resourceObject, Object eventData, EventHistory eventHistory, List<RequestAttribute> pendingCustomAttributes) {
         // First, check the ignore triggers
         boolean isIgnored = false;
         for (TriggerAssociation triggerAssociation : eventTriggers.getIgnoreTriggers()) {
             handleUser(context, triggerAssociation.getTriggeredBy());
             Trigger trigger = triggerAssociation.getTrigger();
             try {
-                TriggerHistory triggerHistory = context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory);
+                TriggerHistory triggerHistory = context.getTriggerEvaluator().evaluateTrigger(trigger, triggerAssociation, resourceObject, null, eventData, eventHistory, pendingCustomAttributes);
                 if (triggerHistory.isActionsPerformed()) {
                     isIgnored = true;
                 }

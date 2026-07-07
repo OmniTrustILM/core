@@ -1,6 +1,7 @@
 package com.otilm.core.evaluator;
 
 import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.metadata.MetadataResponseDto;
@@ -77,8 +78,12 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     @Override
     public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory) throws RuleException {
+        return evaluateTrigger(trigger, triggerAssociation, object, referenceObjectUuid, data, eventHistory, null);
+    }
+
+    public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), triggerAssociation, object.getUuid(), referenceObjectUuid, eventHistory, trigger.getResource());
-        if (evaluateRules(triggerHistory, trigger.getRules(), object)) {
+        if (evaluateRules(triggerHistory, trigger.getRules(), object, pendingCustomAttributes)) {
             triggerHistory.setConditionsMatched(true);
             if (trigger.isIgnoreTrigger()) {
                 if (data instanceof CertificateEventData) triggerHistory.setMessage(data.toString());
@@ -97,6 +102,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     @Override
     public boolean evaluateRules(TriggerHistory triggerHistory, Set<Rule> rules, T object) throws RuleException {
+        return evaluateRules(triggerHistory, rules, object, null);
+    }
+
+    public boolean evaluateRules(TriggerHistory triggerHistory, Set<Rule> rules, T object, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         // if trigger has no rules, return true as it is trigger that should perform actions on all objects
         if (rules.isEmpty()) {
             return true;
@@ -120,7 +129,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             ruleEvaluated = true;
             for (Condition condition : rule.getConditions()) {
                 for (ConditionItem conditionItem : condition.getItems()) {
-                    if (!getConditionEvaluationResult(conditionItem, object, triggerHistory, rule)) return false;
+                    if (!getConditionEvaluationResult(conditionItem, object, triggerHistory, rule, pendingCustomAttributes)) return false;
                 }
             }
         }
@@ -151,6 +160,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
 
     @Override
     public boolean evaluateConditionItem(ConditionItem conditionItem, T object, Resource resource) throws RuleException {
+        return evaluateConditionItem(conditionItem, object, resource, null);
+    }
+
+    public boolean evaluateConditionItem(ConditionItem conditionItem, T object, Resource resource, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         FilterFieldSource fieldSource = conditionItem.getFieldSource();
         String fieldIdentifier = conditionItem.getFieldIdentifier();
         FilterConditionOperator operator = conditionItem.getOperator();
@@ -169,15 +182,16 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
             throw new RuleException("Cannot get UUID from resource " + resource + ".");
         }
 
-        if (objectUuid != null) {
-            if (fieldSource == FilterFieldSource.CUSTOM) {
-                return evaluateCustomAttributeConditionItem(resource, objectUuid, fieldIdentifier, conditionValue, operator);
-            }
-
-            if (fieldSource == FilterFieldSource.META) {
-                return evaluateMetaAttributeConditionItem(resource, fieldIdentifier, objectUuid, conditionValue, operator);
-            }
+        // Custom Attribute conditions can be evaluated against request-provided pending content even when the object
+        // has no UUID yet (e.g. CERTIFICATE_UPLOADED ignore-triggers, evaluated before the certificate is persisted).
+        if (fieldSource == FilterFieldSource.CUSTOM && (objectUuid != null || pendingCustomAttributes != null)) {
+            return evaluateCustomAttributeConditionItem(resource, objectUuid, fieldIdentifier, conditionValue, operator, pendingCustomAttributes);
         }
+
+        if (objectUuid != null && fieldSource == FilterFieldSource.META) {
+            return evaluateMetaAttributeConditionItem(resource, fieldIdentifier, objectUuid, conditionValue, operator);
+        }
+
         // Field source is not Property and object is not database, therefore attributes can not be evaluated and condition is not satisfied
         return false;
     }
@@ -278,13 +292,27 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return false;
     }
 
-    private boolean evaluateCustomAttributeConditionItem(Resource resource, UUID objectUuid, String fieldIdentifier, Object conditionValue, FilterConditionOperator operator) throws RuleException {
+    private boolean evaluateCustomAttributeConditionItem(Resource resource, UUID objectUuid, String fieldIdentifier, Object conditionValue, FilterConditionOperator operator, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         // If source is Custom Attribute, Field Identifier is either formatted as 'name|contentType', or only as `name` since the content type is not needed
         String attributeName = fieldIdentifier.contains("|") ? parseNameAndContentType(fieldIdentifier)[0] : fieldIdentifier;
-        List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
-        ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
+        List<? extends AttributeContent> attributeContent = null;
+        AttributeContentType attributeContentType = null;
+        if (pendingCustomAttributes != null) {
+            RequestAttribute requestAttribute = pendingCustomAttributes.stream().filter(ra -> Objects.equals(ra.getName(), attributeName)).findFirst().orElse(null);
+            if (requestAttribute != null) {
+                attributeContentType = requestAttribute.getContentType();
+                attributeContent = requestAttribute.getContent();
+            }
+        } else {
+            List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
+            ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
+            if (attributeToCompare != null) {
+                attributeContentType = attributeToCompare.getContentType();
+                attributeContent = attributeToCompare.getContent();
+            }
+        }
         // Evaluate condition on each attribute content of the attribute, if at least one condition is evaluated as satisfied at least once, the condition is satisfied for the object
-        return evaluateConditionOnAttribute(attributeToCompare == null ? null : attributeToCompare.getContent(), attributeToCompare == null ? null : attributeToCompare.getContentType(), conditionValue, operator);
+        return evaluateConditionOnAttribute(attributeContent, attributeContentType, conditionValue, operator);
     }
 
     @Override
@@ -444,9 +472,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return PropertyUtils.getProperty(object, pathToProperty);
     }
 
-    private boolean getConditionEvaluationResult(ConditionItem conditionItem, T object, TriggerHistory triggerHistory, Rule rule) {
+    private boolean getConditionEvaluationResult(ConditionItem conditionItem, T object, TriggerHistory triggerHistory, Rule rule, List<RequestAttribute> pendingCustomAttributes) {
         try {
-            if (!evaluateConditionItem(conditionItem, object, rule.getResource())) {
+            if (!evaluateConditionItem(conditionItem, object, rule.getResource(), pendingCustomAttributes)) {
                 String message = String.format("Condition item '%s %s %s %s' is false.", conditionItem.getFieldSource().getLabel(), conditionItem.getFieldIdentifier(), conditionItem.getOperator().getLabel(), conditionItem.getValue() != null ? conditionItem.getValue().toString() : "");
                 logger.debug("Rule {} is not satisfied. Reason: {}", rule.getName(), message);
                 TriggerHistoryRecord triggerHistoryRecord = triggerService.createTriggerHistoryRecord(triggerHistory.getUuid(), conditionItem.getCondition().getUuid(), null, message);
