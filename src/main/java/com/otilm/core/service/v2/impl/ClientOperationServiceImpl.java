@@ -545,37 +545,72 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateService.checkIssuePermissions();
         }
 
-        final Certificate certificate = certificateRepository.findWithAssociationsByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        if (certificate.isArchived())
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate that has been archived. Certificate: %s", certificate.toStringShort())));
-        if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL && certificate.getState() != CertificateState.REGISTERED) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with state %s. Certificate: %s", certificate.getState().getLabel(), certificate)));
-        }
-        if (certificate.getRaProfile() == null) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no RA Profile associated. Certificate: %s", certificate)));
-        }
-        if (certificate.getCertificateRequest() == null) {
-            throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no certificate request. Certificate: %s", certificate)));
-        }
-
+        // Claim the certificate under a pessimistic row lock, committing before the connector call so
+        // the lock never spans HTTP. Two ISSUE actions can race (action-queue concurrency > 1, no
+        // @Version); serializing the claim lets one win the PENDING_ISSUE transition and the loser skip.
+        // Post-commit code uses data captured here because the entity detaches on commit. Mirrors
+        // manuallyConfirmRevoke.
+        Certificate certificate;
         CertificateSignRequestDto caRequest = new CertificateSignRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_ISSUE).build()));
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, certificate.getRaProfile().getUuid()).connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid()).build()));
-
+        UUID connectorUuid;
+        String authorityInstanceUuid;
+        List<CertificateLocationId> locationIds;
+        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
+            certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+            if (certificate.isArchived())
+                throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate that has been archived. Certificate: %s", certificate.toStringShort())));
+
+            // Benign skip — kept OUTSIDE the connector-failure handling below. Re-asserted under the
+            // lock: if the state is no longer claimable, a concurrent ISSUE already claimed this
+            // certificate to PENDING_ISSUE (or it reached a terminal state). Commit and return rather
+            // than letting it fall into the connector catch, because PENDING_ISSUE -> FAILED is a
+            // *legal* transition — failing here would mark the concurrent winner's in-flight issuance
+            // FAILED. This also guarantees the duplicate never reaches the connector.
+            if (certificate.getState() != CertificateState.REQUESTED && certificate.getState() != CertificateState.PENDING_APPROVAL && certificate.getState() != CertificateState.REGISTERED) {
+                logger.info("Certificate {} is in state {} and no longer claimable for issuance; a concurrent ISSUE action likely won the claim — skipping", certificateUuid, certificate.getState().getLabel());
+                transactionManager.commit(tx);
+                return;
+            }
+            if (certificate.getRaProfile() == null) {
+                throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no RA Profile associated. Certificate: %s", certificate)));
+            }
+            if (certificate.getCertificateRequest() == null) {
+                throw new ValidationException(ValidationError.create(String.format("Cannot issue certificate with no certificate request. Certificate: %s", certificate)));
+            }
+
+            connectorUuid = certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid();
+            authorityInstanceUuid = certificate.getRaProfile().getAuthorityInstanceReference().getAuthorityInstanceUuid();
+
+            caRequest.setRequest(certificate.getCertificateRequest().getContent());
+            caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
+            caRequest.setAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).operation(AttributeOperation.CERTIFICATE_ISSUE).build()));
+            caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, certificate.getRaProfile().getUuid()).connector(connectorUuid).build()));
+
+            // Materialize location ids for the post-commit push loop while the collection is still
+            // attached to the session.
+            locationIds = certificate.getLocations().stream().map(CertificateLocation::getId).toList();
+
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
             // state via the state machine. The sync path creates no poll row, so a crash before the
             // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                     "Issuance in progress");
+            transactionManager.commit(tx);
+        } catch (NotFoundException | RuntimeException e) {
+            transactionManager.rollback(tx);
+            throw e;
+        }
 
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid());
+        // Connector call runs after the claim tx has committed and released the lock. The
+        // certificate is now detached; failures here still route to handleFailedOrRejectedEvent
+        // (PENDING_ISSUE -> FAILED) exactly as before.
+        try {
+            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connectorUuid);
             ResponseEntity<CertificateDataResponseDto> issueResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).issueCertificate(
                     connectorDto,
-                    certificate.getRaProfile().getAuthorityInstanceReference().getAuthorityInstanceUuid(),
+                    authorityInstanceUuid,
                     caRequest);
 
             if (issueResponse.getStatusCode().value() == 202) {
@@ -594,21 +629,35 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             certificateService.issueRequestedCertificate(certificateUuid, issueCaResponse.getCertificateData(), issueCaResponse.getMeta());
         } catch (Exception e) {
-            handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
+            // Re-read under a row lock in a short transaction: the claim tx committed (releasing the lock)
+            // before the connector call, so the entity is detached and its collections cannot lazy-load; the
+            // lock also makes the FAILED transition authoritative — if another actor finalized this
+            // certificate meanwhile, handleFailedOrRejectedEvent sees the fresh state and its canTransition
+            // guard skips it, so a concurrent finalize is not clobbered.
+            TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+            try {
+                Certificate managed = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
+                        .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+                handleFailedOrRejectedEvent(managed, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(), e.getMessage());
+                transactionManager.commit(failTx);
+            } catch (Exception failEx) {
+                transactionManager.rollback(failTx);
+                logger.error("Failed to record issuance failure for certificate {}: {}", certificateUuid, failEx.getMessage(), failEx);
+            }
             throw new CertificateOperationException("Failed to issue certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
 
         // push certificate to locations
-        for (CertificateLocation cl : certificate.getLocations()) {
+        for (CertificateLocationId locationId : locationIds) {
             try {
-                locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), false);
+                locationInternalService.pushRequestedCertificateToLocationAction(locationId, false);
             } catch (Exception e) {
                 logger.error("Failed to push issued certificate to location: {}", e.getMessage());
             }
         }
 
         // raise event
-        eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
+        eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificateUuid, ResourceAction.ISSUE));
 
         logger.debug("Certificate issued: {}", certificate);
     }
@@ -1979,26 +2028,44 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         List<MetadataAttribute> identifyMeta = identifyResponse != null && identifyResponse.getMeta() != null
                 ? identifyResponse.getMeta()
                 : List.of();
+
+        // The PENDING_ISSUE -> ISSUED finalize runs in a short transaction under a pessimistic row lock
+        // so two concurrent uploads of the same certificate cannot both finalize it. The connector
+        // identify above ran before this lock; the location pushes and best-effort async cancel below run
+        // after it commits — the lock is never held across a connector call. PENDING_ISSUE is re-asserted
+        // under the lock: the losing upload blocks here, re-reads ISSUED, and is rejected rather than
+        // driving a second finalize (duplicate location pushes / events). Mirrors issueCertificateAction /
+        // manuallyConfirmRevoke.
+        UUID certUuid = certificate.getUuid();
+        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
-            certificateService.issueRequestedCertificate(certificate.getUuid(), request.getCertificate(), identifyMeta);
+            Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(certUuid)
+                    .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid));
+            assertCertificateInPendingIssueWithCsr(locked);
+            certificateService.issueRequestedCertificate(certUuid, request.getCertificate(), identifyMeta);
+            transactionManager.commit(tx);
         } catch (NoSuchAlgorithmException e) {
+            transactionManager.rollback(tx);
             throw new CertificateException(e);
+        } catch (NotFoundException | CertificateException | AlreadyExistException | AttributeException | RuntimeException e) {
+            transactionManager.rollback(tx);
+            throw e;
         }
 
         if (request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
             attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE,
-                    certificate.getUuid(), request.getCustomAttributes());
+                    certUuid, request.getCustomAttributes());
         }
 
         pushFinalizedCertificateToAllLocations(certificate);
 
         eventProducer.produceMessage(
-                CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
+                CertificateActionPerformedEventHandler.constructEventMessage(certUuid, ResourceAction.ISSUE));
 
-        cancelInFlightAsyncIssueBestEffort(certificate.getUuid());
+        cancelInFlightAsyncIssueBestEffort(certUuid);
 
-        Certificate refreshed = certificateRepository.findByUuid(certificate.getUuid())
-                .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
+        Certificate refreshed = certificateRepository.findByUuid(certUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid));
         return refreshed.mapToDto();
     }
 

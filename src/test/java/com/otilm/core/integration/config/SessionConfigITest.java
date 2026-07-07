@@ -1,6 +1,7 @@
-package com.otilm.core.config;
+package com.otilm.core.integration.config;
 
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.config.CookieConfig;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.util.BaseSpringBootTestNoAuth;
@@ -33,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 @AutoConfigureMockMvc
 @SpringBootTest
-class SessionConfigTest extends BaseSpringBootTestNoAuth {
+class SessionConfigITest extends BaseSpringBootTestNoAuth {
 
     /**
      * Permit-all endpoint used for session-resolution assertions.

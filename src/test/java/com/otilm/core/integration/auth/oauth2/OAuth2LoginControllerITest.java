@@ -1,4 +1,4 @@
-package com.otilm.core.auth.oauth2;
+package com.otilm.core.integration.auth.oauth2;
 
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class OAuth2LoginControllerTest {
+class OAuth2LoginControllerITest {
 
     private static WireMockServer mockServer;
 
