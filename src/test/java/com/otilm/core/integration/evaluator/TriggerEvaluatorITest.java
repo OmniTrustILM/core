@@ -1,10 +1,7 @@
 package com.otilm.core.integration.evaluator;
 
 import com.otilm.api.exception.*;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
-import com.otilm.api.model.client.attribute.RequestAttributeV3;
-import com.otilm.api.model.client.attribute.ResponseAttribute;
-import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.attribute.*;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -766,6 +763,78 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         newCondition.setOperator(FilterConditionOperator.MATCHES);
         newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
         Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeFromPendingRequest() throws RuleException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("criticality|STRING");
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("Low");
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        // No DB content exists for this attribute at all yet — only the pending request value should be evaluated
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+
+        // Without the pending list, the same certificate has no DB content either — falls back to absent-attribute semantics
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE, null));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeFromPendingRequestOnUnpersistedCertificate() throws RuleException {
+        // Not saved to the repository: uuid is null, exactly like a certificate mid-upload before saveCertificate() runs
+        // (the scenario for CERTIFICATE_UPLOADED ignore-triggers, which run before the certificate exists in the DB at all)
+        Certificate unpersistedCertificate = new Certificate();
+        Assertions.assertNull(unpersistedCertificate.getUuid());
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("criticality|STRING");
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("Low");
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        // objectUuid is null, but the pending request content still lets the condition evaluate
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+
+        newCondition.setValue("High");
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+
+        // objectUuid is null AND the pending list doesn't contain this attribute name — no DB to fall back to, so it's absent
+        ConditionItem emptyCondition = new ConditionItem();
+        emptyCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        emptyCondition.setFieldIdentifier("otherAttribute|STRING");
+        emptyCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+
+        // A non-null but EMPTY pending list (the request explicitly supplied zero custom attributes) means the same thing:
+        // no content is possible, so EMPTY is satisfied. This is the case CertificateUploadedEventHandler must produce
+        // when eventMessageData.customAttributes() is null, by normalizing to List.of() rather than passing null through (see Task 4).
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE, List.of()));
+
+        // Without any pending list at all (a true Java null, meaning "this caller does not support pending-attribute
+        // evaluation") and no UUID, CUSTOM conditions still can't be evaluated (original behavior preserved) — even for EMPTY.
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE, null));
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE, null));
     }
 
     @Test
