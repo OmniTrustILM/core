@@ -1,4 +1,4 @@
-package com.otilm.core.security.authn.tsp;
+package com.otilm.core.integration.security.authn.tsp;
 
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.signing.TspProfile;
@@ -7,6 +7,7 @@ import com.otilm.core.dao.repository.signing.TspProfileBasicCredentialRepository
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.events.SecretContentUpdatedEvent;
 import com.otilm.core.security.authn.client.CredentialVerificationCache;
+import com.otilm.core.security.authn.tsp.TspProfileSecretEvictionListener;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * caches. This is the path a password rotation relies on, since {@code update()} intentionally does not
  * evict the verification cache eagerly on rotation.
  */
-class TspProfileSecretEvictionIntegrationTest extends BaseSpringBootTest {
+class TspProfileSecretEvictionITest extends BaseSpringBootTest {
 
     @Autowired
     private CredentialVerificationCache credentialVerificationCache;

@@ -1,4 +1,4 @@
-package com.otilm.core.api.web;
+package com.otilm.core.integration.api.web;
 
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
@@ -11,7 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @AutoConfigureMockMvc
-class SigningRecordStatisticsControllerTest extends BaseSpringBootTest {
+class SigningRecordStatisticsControllerITest extends BaseSpringBootTest {
 
     @Autowired
     private MockMvc mockMvc;
