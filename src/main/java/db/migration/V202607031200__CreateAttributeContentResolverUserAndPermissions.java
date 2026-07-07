@@ -22,9 +22,11 @@ import java.util.Map;
  * <p>
  * The role covers every referenceable {@code AttributeResource} kind — including AUTHORITY/ENTITY/LOCATION, which
  * currently resolve through an unguarded engine read — so that when those reads are eventually guarded the resolver
- * fails safe (it already holds the grant) rather than starting to deny. The granted pairs are seeded into the auth
- * service before the role is created: Core's catalog sync runs only after Flyway, so on a fresh install the auth
- * service would otherwise reject the role for a not-yet-known resource/action.
+ * fails safe (it already holds the grant) rather than starting to deny. Beyond those kinds, {@code CONNECTOR:DETAIL}
+ * and {@code VAULT_PROFILE:MEMBERS} are needed transitively by a SECRET dereference — it loads the secret's vault
+ * connector and checks vault-profile membership. The granted pairs are seeded into the auth service before the role is
+ * created: Core's catalog sync runs only after Flyway, so on a fresh install the auth service would otherwise reject
+ * the role for a not-yet-known resource/action.
  */
 // Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
 @SuppressWarnings("java:S101")

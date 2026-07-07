@@ -263,7 +263,7 @@ public class AuthorityProviderV3Adapter
         wire.setFormat(cert.getCertificateRequest().getCertificateRequestFormat());
         wire.setAttributes(issueAttributesFor(cert, authority));
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
-        wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
         // Replay the binding's CA handle; fall back to stored meta when the binding carried none.
         wire.setMeta(replayMeta != null && !replayMeta.isEmpty() ? replayMeta : loadMeta(cert, authority));
         wire.setRequestContent(requestContent);

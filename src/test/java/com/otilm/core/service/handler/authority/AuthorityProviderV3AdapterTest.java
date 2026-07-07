@@ -521,6 +521,32 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
+    void issueRegisteredDereferencesAuthorityAndRaProfileAttributes() throws Exception {
+        // issueRegistered is a v3 operation path too: both attribute blobs must be resolved via
+        // OperationAttributeResolver, not shipped as bare references to the stateless connector.
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
+
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), null);
+
+        assertSame(resolvedAuthority, wire.getAuthorityAttributes(),
+                "issueRegistered authorityAttributes must carry the resolved authority-scoped list");
+        assertSame(resolvedRaProfile, wire.getRaProfileAttributes(),
+                "issueRegistered raProfileAttributes must be resolved, not shipped as bare references");
+    }
+
+    @Test
     void issueRegisteredReplaysBindingMetaVerbatim() throws ConnectorException {
         MetadataAttribute handle = mock(MetadataAttribute.class);
 
