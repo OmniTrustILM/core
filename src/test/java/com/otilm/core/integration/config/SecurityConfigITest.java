@@ -1,4 +1,4 @@
-package com.otilm.core.config;
+package com.otilm.core.integration.config;
 
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
@@ -53,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @AutoConfigureMockMvc
 @SpringBootTest
-class SecurityConfigTest extends BaseSpringBootTestNoAuth {
+class SecurityConfigITest extends BaseSpringBootTestNoAuth {
 
     @Autowired
     MockMvc mvc;
