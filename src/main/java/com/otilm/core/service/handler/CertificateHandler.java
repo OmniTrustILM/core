@@ -25,7 +25,7 @@ import com.otilm.core.util.*;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateService;
 import com.otilm.core.service.ComplianceInternalService;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.KeySizeUtil;
 import com.otilm.core.util.MetaDefinitions;
@@ -60,7 +60,7 @@ public class CertificateHandler {
     private ComplianceInternalService complianceService;
     private CertificateService certificateService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
 
     private CertificateRepository certificateRepository;
     private DiscoveryRepository discoveryRepository;
@@ -113,7 +113,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyInternalService(CryptographicKeyInternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 
