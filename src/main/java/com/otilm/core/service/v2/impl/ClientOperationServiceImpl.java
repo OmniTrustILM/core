@@ -783,7 +783,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             certificateRegistrationWriter.clear(certUuid);
         } catch (RuntimeException e) {
-            logger.warn("Register-bound issue completed for cert {} but clearing the binding failed: {}", certUuid, e.getMessage());
+            logger.warn("Connector accepted the register-bound issue for cert {} but clearing the binding failed: {}", certUuid, e.getMessage());
         }
     }
 
@@ -802,7 +802,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         eventProducer.produceMessage(CertificateActionPerformedEventHandler.constructEventMessage(certificate.getUuid(), ResourceAction.ISSUE));
     }
 
-    /** Includes the message only from our own domain exceptions; connector/JPA messages fall back to {@code fallback}. */
+    /** Includes the message only from our shaped domain exceptions (connector/operation/validation); other causes (e.g. JPA) fall back to {@code fallback}. */
     private static String safeMessage(Exception e, String fallback) {
         return (e instanceof ConnectorException || e instanceof CertificateOperationException || e instanceof ValidationException)
                 && e.getMessage() != null
