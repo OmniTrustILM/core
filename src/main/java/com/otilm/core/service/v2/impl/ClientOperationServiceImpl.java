@@ -644,9 +644,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw e;
         }
 
-        // Connector call runs after the claim tx has committed and released the lock. The
-        // certificate is now detached; failures here still route to handleFailedOrRejectedEvent
-        // (PENDING_ISSUE -> FAILED) exactly as before.
+        callConnectorAndFinalizeIssue(certificateUuid, certificate, caRequest, connectorUuid, authorityInstanceUuid, locationIds);
+    }
+
+    /**
+     * Post-commit issuance phase: call the connector after the claim tx has released its lock (the certificate is now
+     * detached), then finalize. A sync 200 completes issuance; a 202 leaves the cert in PENDING_ISSUE for the poll cycle.
+     */
+    private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
+            CertificateSignRequestDto caRequest, UUID connectorUuid, String authorityInstanceUuid,
+            List<CertificateLocationId> locationIds) throws CertificateOperationException, NotFoundException {
         try {
             ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(connectorUuid);
             ResponseEntity<CertificateDataResponseDto> issueResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).issueCertificate(
