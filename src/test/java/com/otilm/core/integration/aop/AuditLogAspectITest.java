@@ -1,4 +1,4 @@
-package com.otilm.core.aop;
+package com.otilm.core.integration.aop;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
@@ -16,6 +16,8 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
+import com.otilm.core.aop.AuditLogged;
+import com.otilm.core.aop.AuditResultOverride;
 import com.otilm.core.dao.entity.AuditLog;
 import com.otilm.core.dao.repository.AuditLogRepository;
 import com.otilm.core.logging.LoggingHelper;
@@ -37,7 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-class AuditLogAspectTest extends BaseSpringBootTest {
+class AuditLogAspectITest extends BaseSpringBootTest {
 
     /**
      * Minimal bean that demonstrates the AuditResultOverride contract: the method swallows an
