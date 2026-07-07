@@ -65,8 +65,9 @@ class OutboundSecretContainmentTest {
 
         assertEquals(Set.of("s3cr3t-token"), expandedSecrets,
                 "the secret value in a resolved request attribute must be recorded for the outbound echo check");
-        assertThrows(OutboundSecretLeakException.class, () -> containment.assertNoExpandedSecretOutbound(
-                Map.of("attributes", List.of(Map.of("default", "s3cr3t-token"))), expandedSecrets));
+        Object echoResponse = Map.of("attributes", List.of(Map.of("default", "s3cr3t-token")));
+        assertThrows(OutboundSecretLeakException.class,
+                () -> containment.assertNoExpandedSecretOutbound(echoResponse, expandedSecrets));
     }
 
     @Test

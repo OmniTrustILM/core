@@ -54,11 +54,10 @@ public class V202607031200__CreateAttributeContentResolverUserAndPermissions ext
 
         RoleRequestDto roleRequestDto = new RoleRequestDto();
         roleRequestDto.setName(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME);
-        roleRequestDto.setDescription("System role for resolving an authority's own infrastructure references (connector, credential, certificate, secret) when assembling operation-path connector requests");
+        roleRequestDto.setDescription("System role for resolving an authority's own infrastructure references (any referenceable resource kind) into inline content when assembling operation-path connector requests");
         roleRequestDto.setSystemRole(true);
         RoleDetailDto role = DatabaseAuthMigration.createRole(roleRequestDto, roleResourceActions);
 
-        // create user
         UserRequestDto userRequestDto = new UserRequestDto();
         userRequestDto.setUsername(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME);
         userRequestDto.setDescription("System user the platform assumes to dereference an authority's own infrastructure references on the operation path");

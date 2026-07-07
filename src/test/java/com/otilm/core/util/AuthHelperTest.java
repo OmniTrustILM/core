@@ -85,13 +85,14 @@ class AuthHelperTest {
         String callerUuid = "11111111-1111-1111-1111-111111111111";
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, callerUuid, "operator-jane");
 
-        ActorType[] duringType = new ActorType[1];
+        ActorRecord[] during = new ActorRecord[1];
         authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
-            duringType[0] = LoggingHelper.getActorInfo().type();
+            during[0] = LoggingHelper.getActorInfo();
             return null;
         });
 
-        assertEquals(ActorType.CORE, duringType[0], "authorization must run under the system actor during the action");
+        assertEquals(ActorType.CORE, during[0].type(), "authorization must run under the system actor during the action");
+        assertNull(during[0].uuid(), "no caller uuid may linger in the actor MDC during the elevated window");
         ActorRecord after = LoggingHelper.getActorInfo();
         assertEquals(ActorType.USER, after.type(), "caller's actor type must be restored, not left as the system identity");
         assertEquals("operator-jane", after.name(), "caller's actor name must be restored");

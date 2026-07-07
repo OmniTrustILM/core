@@ -122,6 +122,10 @@ public class AuthHelper {
         Map<String, String> previousActor = LoggingHelper.snapshotActorInfo();
         try {
             SecurityContextHolder.setContext(SecurityContextHolder.createEmptyContext());
+            // Clear before elevating: authenticateAsSystemUser overwrites only the actor type + name, so without this
+            // the caller's uuid/authMethod would linger and audit records from the elevated read would show a mixed
+            // actor (system type/name, caller uuid). The snapshot above restores the caller's actor in finally.
+            LoggingHelper.clearActorInfo();
             authenticateAsSystemUser(systemUsername);
             return action.get();
         } finally {
