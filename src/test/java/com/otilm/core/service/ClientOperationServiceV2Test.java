@@ -55,7 +55,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -76,6 +75,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class ClientOperationServiceV2Test extends BaseSpringBootTest {
@@ -395,7 +396,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAltKeyUuid(altKey.getUuid());
         request.setAltTokenProfileUuid(altKey.getTokenProfileUuid());
         request.setAltSignatureAttributes(List.of());
-        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
+        when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
         SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
         SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
         String certificateUuid = String.valueOf(certificate.getUuid());
@@ -1762,7 +1763,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         // the lock is ISSUED — as if a concurrent upload committed the finalize just before we locked.
         Certificate alreadyIssued = new Certificate();
         alreadyIssued.setState(CertificateState.ISSUED);
-        Mockito.doReturn(Optional.of(alreadyIssued))
+        doReturn(Optional.of(alreadyIssued))
                 .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
 
         UploadCertificateRequestDto req = new UploadCertificateRequestDto();
@@ -1798,7 +1799,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     void addCertificateRequestToExisting_reassertUnderLock_rejectsWhenRaProfileChangedDuringAuthorization() throws Exception {
         Certificate switchedAway = new Certificate();
         switchedAway.setState(CertificateState.REGISTERED);   // raProfileUuid left null: profile changed away
-        Mockito.doReturn(Optional.of(switchedAway))
+        doReturn(Optional.of(switchedAway))
                 .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
 
         ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();

@@ -101,6 +101,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -416,7 +419,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             objectAccessDenied.setAllowedObjects(List.of());
             objectAccessDenied.setForbiddenObjects(List.of());
 
-            Mockito.when(
+            when(
                     opaClient.checkObjectAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
             ).thenReturn(objectAccessDenied);
 
@@ -862,7 +865,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(() -> certificateService.getCertificate(certificate.getSecuredUuid())).isInstanceOf(NotFoundException.class);
-            Mockito.verify(notificationProducer, Mockito.times(1)).produceInternalNotificationMessage(
+            verify(notificationProducer, times(1)).produceInternalNotificationMessage(
                     Mockito.eq(Resource.CERTIFICATE),
                     Mockito.eq(nonExistentUuid),
                     Mockito.any(),
@@ -885,7 +888,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             OpaObjectAccessResult objectAccessResult = new OpaObjectAccessResult();
             objectAccessResult.setAllowedObjects(List.of(certificate.getUuid().toString()));
             objectAccessResult.setForbiddenObjects(List.of(forbiddenUuid.toString()));
-            Mockito.when(
+            when(
                     opaClient.checkObjectAccess(
                             Mockito.any(),
                             Mockito.argThat(resource ->
@@ -907,7 +910,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(() -> certificateService.getCertificate(certificate.getSecuredUuid())).isInstanceOf(NotFoundException.class);
             assertThatCode(() -> certificateService.getCertificate(SecuredUUID.fromUUID(forbiddenUuid))).doesNotThrowAnyException();
-            Mockito.verify(notificationProducer, Mockito.times(1)).produceInternalNotificationMessage(
+            verify(notificationProducer, times(1)).produceInternalNotificationMessage(
                     Mockito.eq(Resource.CERTIFICATE),
                     Mockito.eq(forbiddenUuid),
                     Mockito.any(),
