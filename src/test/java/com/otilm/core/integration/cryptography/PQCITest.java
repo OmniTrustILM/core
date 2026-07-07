@@ -1,4 +1,4 @@
-package com.otilm.core.cryptography;
+package com.otilm.core.integration.cryptography;
 
 import com.otilm.core.util.KeySizeUtil;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -27,7 +27,7 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.util.Objects;
 
 @SpringBootTest
-class PQCTests {
+class PQCITest {
 
     public static final String FALCON = "Falcon";
 

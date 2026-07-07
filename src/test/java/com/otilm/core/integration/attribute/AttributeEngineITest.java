@@ -1,4 +1,4 @@
-package com.otilm.core.attribute;
+package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -68,7 +68,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-class AttributeEngineTest extends BaseSpringBootTest {
+class AttributeEngineITest extends BaseSpringBootTest {
 
     private static final String REGISTERED_EXTENSION_OID = "9.9.9.1";
 

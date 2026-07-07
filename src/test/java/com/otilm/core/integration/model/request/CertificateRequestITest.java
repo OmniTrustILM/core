@@ -1,7 +1,8 @@
-package com.otilm.core.model.request;
+package com.otilm.core.integration.model.request;
 
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
@@ -17,7 +18,7 @@ import java.io.IOException;
 import java.security.*;
 import java.util.Base64;
 
-class CertificateRequestTest extends BaseSpringBootTest {
+class CertificateRequestITest extends BaseSpringBootTest {
 
     @Test
     void testPkcs10CertificateRequestAlt() throws CertificateRequestException, NoSuchAlgorithmException {
