@@ -44,7 +44,7 @@ public class CertificateUploader {
         certificateService.updateCertificateObjects(certificate.getSecuredUuid(), aCertificateUpdateObjectsRequest().withTrustedCa(true).build());
     }
 
-    public void validate(Certificate certificate) throws NotFoundException, CertificateException {
+    public void validate(Certificate certificate) throws NotFoundException {
         certificateService.getCertificateValidationResult(certificate.getSecuredUuid());
     }
 }

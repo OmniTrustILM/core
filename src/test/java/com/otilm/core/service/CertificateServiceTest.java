@@ -823,7 +823,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void deletesAllCertificates_whenBulkRemoving() throws NotFoundException {
+        void deletesAllCertificates_whenBulkRemoving() {
             // given
             List<String> uuids = new ArrayList<>();
             uuids.add(certificate.getUuid().toString());
@@ -852,7 +852,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
         }
 
         @Test
-        void notifiesAndContinues_whenBulkRemoveHasMissingUuid() throws NotFoundException {
+        void notifiesAndContinues_whenBulkRemoveHasMissingUuid() {
             // given
             UUID nonExistentUuid = UUID.randomUUID();
             RemoveCertificateDto request = new RemoveCertificateDto();
@@ -1410,7 +1410,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     class EventHistory {
 
         @Test
-        void recordsFailedHistory_whenBulkRaProfileUpdateFails() throws NotFoundException, NotSupportedException {
+        void recordsFailedHistory_whenBulkRaProfileUpdateFails() throws NotSupportedException {
             // given
             // The authority of the new RA profile does not identify the certificate,
             // so switching the RA profile fails for every selected certificate.
