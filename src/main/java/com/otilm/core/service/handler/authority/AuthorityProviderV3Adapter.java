@@ -7,7 +7,9 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v3.AuthoritySyncApiClient;
 import com.otilm.api.interfaces.client.v3.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
@@ -16,8 +18,10 @@ import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRe
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRenewRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.CertificateRevocationRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateSignRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
@@ -28,11 +32,13 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,16 +70,19 @@ public class AuthorityProviderV3Adapter
 
     private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundContainment;
+    private final ConnectorCapabilityService capabilityService;
 
     @Autowired
     public AuthorityProviderV3Adapter(ConnectorInternalService connectorService,
                                       ConnectorApiFactory connectorApiFactory,
                                       AttributeEngine attributeEngine,
                                       OperationAttributeResolver operationAttributeResolver,
-                                      OutboundSecretContainment outboundContainment) {
+                                      OutboundSecretContainment outboundContainment,
+                                      ConnectorCapabilityService capabilityService) {
         super(connectorService, connectorApiFactory, attributeEngine);
         this.operationAttributeResolver = operationAttributeResolver;
         this.outboundContainment = outboundContainment;
+        this.capabilityService = capabilityService;
     }
 
     // ---- AuthorityProviderAdapter ----
@@ -224,11 +233,13 @@ public class AuthorityProviderV3Adapter
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        CertificateRegistrationRequestDtoV3 wire = new CertificateRegistrationRequestDtoV3();
+        X509RequestContent content = RegisterWireBuilder.buildContent(
+                req != null ? req.getSubjectDn() : null,
+                req != null ? req.getSubjectAltName() : null,
+                req != null ? req.getExtensions() : null);
+        boolean structured = capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED);
+        CertificateRegistrationRequestDtoV3 wire = RegisterWireBuilder.buildRegistration(content, structured);
         if (req != null) {
-            wire.setSubjectDn(req.getSubjectDn());
-            wire.setSubjectAltName(req.getSubjectAltName());
-            wire.setExtensions(req.getExtensions());
             wire.setAttributes(req.getAttributes());
         }
         wire.setAuthorityAttributes(authorityAttributesFor(authority));
@@ -236,6 +247,29 @@ public class AuthorityProviderV3Adapter
 
         return executeWithAcceptanceGuard(CertificateOperation.REGISTER,
                 () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).register(connectorDto, wire),
+                this::mapIssueRenewRegisterResponse);
+    }
+
+    @Override
+    public AdapterOperationResult issueRegistered(Certificate cert, List<MetadataAttribute> replayMeta,
+                                                  CertificateRequestContent requestContent) throws ConnectorException {
+        RaProfile raProfile = cert.getRaProfile();
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+
+        CertificateSignRequestDtoV3 wire = new CertificateSignRequestDtoV3();
+        // Forward the CSR intact to preserve proof-of-possession.
+        wire.setRequest(cert.getCertificateRequest().getContent());
+        wire.setFormat(cert.getCertificateRequest().getCertificateRequestFormat());
+        wire.setAttributes(issueAttributesFor(cert, authority));
+        wire.setAuthorityAttributes(authorityAttributesFor(authority));
+        wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+        // Replay the binding's CA handle; fall back to stored meta when the binding carried none.
+        wire.setMeta(replayMeta != null && !replayMeta.isEmpty() ? replayMeta : loadMeta(cert, authority));
+        wire.setRequestContent(requestContent);
+
+        return executeWithAcceptanceGuard(CertificateOperation.ISSUE,
+                () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).issue(connectorDto, wire),
                 this::mapIssueRenewRegisterResponse);
     }
 

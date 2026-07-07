@@ -44,7 +44,9 @@ class CryptographicKeyServiceTest extends BaseSpringBootTest {
     private static final String KEY_NAME = "testKey1";
 
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
+    @Autowired
+    private CryptographicKeyInternalService cryptographicKeyInternalService;
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
@@ -875,11 +877,11 @@ class CryptographicKeyServiceTest extends BaseSpringBootTest {
 
     @Test
     void testGetResourceObject() throws NotFoundException {
-        NameAndUuidDto nameAndUuidDto = cryptographicKeyService.getResourceObjectInternal(key.getUuid());
+        NameAndUuidDto nameAndUuidDto = cryptographicKeyInternalService.getResourceObjectInternal(key.getUuid());
         Assertions.assertEquals(key.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(key.getName(), nameAndUuidDto.getName());
 
-        nameAndUuidDto = cryptographicKeyService.getResourceObjectExternal(key.getSecuredUuid());
+        nameAndUuidDto = cryptographicKeyInternalService.getResourceObjectExternal(key.getSecuredUuid());
         Assertions.assertEquals(key.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(key.getName(), nameAndUuidDto.getName());
     }

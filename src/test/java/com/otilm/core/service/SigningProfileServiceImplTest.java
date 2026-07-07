@@ -128,7 +128,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
     private TokenProfileExternalService tokenProfileService;
 
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
 
     @Autowired
     private TimeQualityConfigurationExternalService timeQualityConfigurationService;

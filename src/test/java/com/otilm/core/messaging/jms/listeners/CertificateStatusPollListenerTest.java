@@ -58,6 +58,7 @@ class CertificateStatusPollListenerTest {
     @Mock private com.otilm.core.events.transaction.TransactionHandler transactionHandler;
     @Mock private com.otilm.core.service.CertificateService certificateService;
     @Mock private com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
+    @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -73,7 +74,7 @@ class CertificateStatusPollListenerTest {
 
     @BeforeEach
     void setUp() {
-        adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
         asyncAdapter = (AsyncOperationCapability) adapter;
 
@@ -87,6 +88,7 @@ class CertificateStatusPollListenerTest {
         listener.setTransactionHandler(transactionHandler);
         listener.setCertificateService(certificateService);
         listener.setRevocationFinalizer(revocationFinalizer);
+        listener.setRegistrationWriter(registrationWriter);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -300,6 +302,73 @@ class CertificateStatusPollListenerTest {
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);    }
+
+    // -----------------------------------------------------------------------
+    // completedRegisterRefreshesBindingWithFinalMeta
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedRegisterRefreshesBindingWithFinalMeta() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        var finalMeta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, finalMeta, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        // The completed REGISTER supersedes the 202 handle: the binding meta is refreshed with the final CA handle.
+        verify(registrationWriter).upsert(CERT_UUID, finalMeta);
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
+    // bindingRefreshExceptionDoesNotBlockRegisterCompletion
+    // -----------------------------------------------------------------------
+
+    @Test
+    void bindingRefreshExceptionDoesNotBlockRegisterCompletion() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        var finalMeta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, finalMeta, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        doThrow(new IllegalStateException("db down")).when(registrationWriter).upsert(CERT_UUID, finalMeta);
+
+        // Best-effort refresh: the transition already committed, so a failed binding refresh must not throw.
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        verify(registrationWriter).upsert(CERT_UUID, finalMeta);
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
+    // failedRegisterWithMetaDoesNotRefreshBinding
+    // -----------------------------------------------------------------------
+
+    @Test
+    void failedRegisterWithMetaDoesNotRefreshBinding() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        var finalMeta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, finalMeta, "CA rejected"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        // A FAILED register must not upsert a binding row (the cert will never replay it) even though meta is present.
+        verify(registrationWriter, never()).upsert(any(), any());
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
+    }
 
     // -----------------------------------------------------------------------
     // failedTransitionsToTerminalFailure (ISSUE → FAILED)

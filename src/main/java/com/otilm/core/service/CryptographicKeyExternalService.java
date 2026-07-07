@@ -5,25 +5,20 @@ import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.client.cryptography.key.*;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
-import com.otilm.core.dao.entity.CryptographicKey;
-import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
-import java.security.PublicKey;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface CryptographicKeyService extends ResourceExtensionService {
+public interface CryptographicKeyExternalService {
 
     /**
      * List of all available keys
@@ -32,8 +27,6 @@ public interface CryptographicKeyService extends ResourceExtensionService {
      * @return List of Key details {@Link KeyDto}
      */
     CryptographicKeyResponseDto listCryptographicKeys(SecurityFilter filter, SearchRequestDto request);
-
-    List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
 
     /**
      * List of all available keys that contains full key pair
@@ -131,20 +124,6 @@ public interface CryptographicKeyService extends ResourceExtensionService {
     );
 
     /**
-     * Function to enable multiple key items
-     *
-     * @param uuids UUIDs of the key items
-     */
-    void enableKeyItems(List<String> uuids);
-
-    /**
-     * Function to disable multiple key items
-     *
-     * @param uuids UUIDs of the key items
-     */
-    void disableKeyItems(List<String> uuids);
-
-    /**
      * Function to delete the key
      *
      * @param uuid     UUID of the key
@@ -195,15 +174,6 @@ public interface CryptographicKeyService extends ResourceExtensionService {
     void destroyKey(List<String> uuids) throws ConnectorException, NotFoundException;
 
     /**
-     * Destroy multiple keys
-     *
-     * @param keyItemUuids UUID of the concerned key items
-     * @throws NotFoundException  when the token profile or the key uuid is not found
-     * @throws ConnectorException when there are issues with connector communication
-     */
-    void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException;
-
-    /**
      * List attributes to create a new key
      *
      * @param tokenInstanceUuid UUID of the token instance
@@ -242,13 +212,6 @@ public interface CryptographicKeyService extends ResourceExtensionService {
     void compromiseKey(BulkCompromiseKeyRequestDto request);
 
     /**
-     * Function to mark the key items as compromised
-     *
-     * @param request UUIDs of the key items
-     */
-    void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request);
-
-    /**
      * Function to update the usages for the key
      *
      * @param request Request containing the details for updating the usages
@@ -264,13 +227,6 @@ public interface CryptographicKeyService extends ResourceExtensionService {
     void updateKeyUsages(UUID uuid, UpdateKeyUsageRequestDto request) throws NotFoundException;
 
     /**
-     * Function to update the usages for the key items
-     *
-     * @param request Request containing the details for updating the usages
-     */
-    void updateKeyItemUsages(BulkKeyItemUsageRequestDto request);
-
-    /**
      * Get the list of actions and events done of the provided key item
      *
      * @param uuid        Key UUID
@@ -280,47 +236,51 @@ public interface CryptographicKeyService extends ResourceExtensionService {
     List<KeyEventHistoryDto> getEventHistory(UUID uuid, UUID keyItemUuid) throws NotFoundException;
 
     /**
-     * Function to get the key based on the sha 256 key fingerprint
-     *
-     * @param fingerprint SHA 256 fingerprint of the key
-     * @return Cryptographic Key UUID
-     */
-    UUID findKeyByFingerprint(String fingerprint);
-
-    /**
-     * Get the key item of specified type based on the cryptographic key
-     *
-     * @param key     Cryptographic Key wrapper object
-     * @param keyType Key type
-     * @return Key Item
-     */
-    CryptographicKeyItem getKeyItemFromKey(CryptographicKey key, KeyType keyType);
-
-    /**
-     * Returns the cached model for a key item including its full connector chain.
-     * The result is cached by key item UUID; cache is invalidated whenever the key item is mutated.
-     */
-    CryptographicKeyItemModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
-
-    /**
-     * Upload public key of existing certificate
-     *
-     * @param name         Name of the cryptographic key
-     * @param publicKey    Public Key to be uploaded
-     * @param keyLength    Length of the Public Key
-     * @param fingerprint  Unique fingerprint of the Public Key
-     * @return UUID of the uploaded Cryptographic Key
-     */
-    UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint);
-
-    /**
      * Edit Key Item
      *
      * @param keyUuid        UUID of parent Key of Key Item
      * @param keyItemUuid    UUID of Key Item
      * @param editKeyItemDto Request for editing the Key Item
-     * @return Key Item which has been deleted
+     * @return Key Item which has been edited
      * @throws NotFoundException Key has not been found
      */
     KeyItemDetailDto editKeyItem(SecuredUUID keyUuid, UUID keyItemUuid, EditKeyItemDto editKeyItemDto) throws NotFoundException;
+
+    List<SearchFieldDataByGroupDto> getSearchableFieldInformation();
+
+    /**
+     * Function to enable multiple key items
+     *
+     * @param uuids UUIDs of the key items
+     */
+    void enableKeyItems(List<String> uuids);
+
+    /**
+     * Function to disable multiple key items
+     *
+     * @param uuids UUIDs of the key items
+     */
+    void disableKeyItems(List<String> uuids);
+
+    /**
+     * Destroy multiple key items
+     *
+     * @param keyItemUuids UUID of the concerned key items
+     * @throws ConnectorException when there are issues with connector communication
+     */
+    void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException;
+
+    /**
+     * Function to mark the key items as compromised
+     *
+     * @param request UUIDs of the key items
+     */
+    void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request);
+
+    /**
+     * Function to update the usages for the key items
+     *
+     * @param request Request containing the details for updating the usages
+     */
+    void updateKeyItemUsages(BulkKeyItemUsageRequestDto request);
 }
