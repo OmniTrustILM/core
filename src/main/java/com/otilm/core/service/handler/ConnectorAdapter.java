@@ -21,6 +21,11 @@ public interface ConnectorAdapter {
 
     ConnectInfo validateConnection(ApiClientConnectorInfo connectorInfo) throws ConnectorException;
 
+    /**
+     * Validates the metadata of an already-fetched connection descriptor. Implementations expect the
+     * version-appropriate {@link ConnectInfo} subtype and return the validated descriptor, or throw
+     * {@link com.otilm.api.exception.ValidationException} when the connector's interface set is invalid.
+     */
     ConnectInfo validateConnection(ConnectInfo connectInfo) throws ConnectorException;
 
     void updateConnectorFunctions(Connector connector, ConnectInfo connectInfo) throws ConnectorException, NotFoundException;
