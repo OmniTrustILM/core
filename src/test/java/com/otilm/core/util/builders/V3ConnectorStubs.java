@@ -11,22 +11,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
 
 /**
- * WireMock stub helpers for the v3 authority provider wire contract.
- *
- * <p>Each static method registers one or more stubs on the supplied {@link WireMockServer} for a
- * specific v3 connector endpoint. All paths are taken directly from the {@code CertificateApiClient} v3 constants:
- *
- * <ul>
- *   <li>REGISTER  — POST /v3/authorityProvider/certificates/register</li>
- *   <li>REGISTER STATUS — POST /v3/authorityProvider/certificates/register/status</li>
- *   <li>REGISTER CANCEL — POST /v3/authorityProvider/certificates/register/cancel</li>
- *   <li>V2 ISSUE (tail call) — POST /v2/authorityProvider/authorities/{uuid}/certificates/issue</li>
- *   <li>ATTRIBUTES/VALIDATE — GET/POST for list and validate endpoints (returns empty / true)</li>
- * </ul>
- *
- * <p>The status stub uses WireMock scenario state so a test can simulate a multi-poll sequence
- * (first call returns IN_PROGRESS, second returns COMPLETED). The scenario name is a parameter
- * so multiple independent tests do not share state.
+ * WireMock stub helpers for the v3 authority provider wire contract. Each static method registers stubs for a
+ * specific v3 connector endpoint using paths from the {@code CertificateApiClient} v3 constants.
  */
 public final class V3ConnectorStubs {
 
@@ -34,6 +20,7 @@ public final class V3ConnectorStubs {
 
     private static final String REGISTER_PATH   = "/v3/authorityProvider/certificates/register";
     public static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
+    private static final String ISSUE_PATH      = "/v3/authorityProvider/certificates/issue";
 
     // State names for the stateful register-status scenario.
     private static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;
@@ -46,9 +33,7 @@ public final class V3ConnectorStubs {
     /**
      * Stubs a synchronous register response (HTTP 200).
      *
-     * @param wm       the WireMock server to register the stub on
-     * @param metaJson JSON array of MetadataAttribute objects, or {@code "[]"} if none.
-     *                 Use {@code null} or {@code "[]"} for a meta-free response.
+     * @param metaJson JSON array of MetadataAttribute objects; pass {@code null} or {@code "[]"} for a meta-free response
      */
     public static void stubRegisterSync(WireMockServer wm, String metaJson) {
         String safeMetaJson = (metaJson == null || metaJson.isBlank()) ? "[]" : metaJson;
@@ -64,9 +49,7 @@ public final class V3ConnectorStubs {
     /**
      * Stubs an asynchronous register response (HTTP 202).
      *
-     * @param wm            the WireMock server to register the stub on
-     * @param trackingMeta  JSON array of MetadataAttribute tracking objects returned by the connector.
-     *                      Pass {@code null} or {@code "[]"} for an empty-meta async response.
+     * @param trackingMeta JSON array of MetadataAttribute tracking objects; pass {@code null} or {@code "[]"} for empty meta
      */
     public static void stubRegisterAsync(WireMockServer wm, String trackingMeta) {
         String safeMeta = (trackingMeta == null || trackingMeta.isBlank()) ? "[]" : trackingMeta;
@@ -82,15 +65,9 @@ public final class V3ConnectorStubs {
     // ---- Register status (stateful scenario) ----------------------------
 
     /**
-     * Registers a two-state stateful stub for the register-status endpoint.
+     * Registers a two-state stateful stub for the register-status endpoint: first call returns IN_PROGRESS and
+     * transitions to COMPLETED, subsequent calls return COMPLETED.
      *
-     * <ul>
-     *   <li>State {@code STARTED} → returns {@code IN_PROGRESS}; transitions to {@code COMPLETED}.</li>
-     *   <li>State {@code COMPLETED} → returns {@code COMPLETED} with {@code certificateData: null}
-     *       (this stub carries no certificate content).</li>
-     * </ul>
-     *
-     * @param wm           the WireMock server to register the stub on
      * @param scenarioName unique name for this scenario; use a per-test name to avoid cross-test state
      */
     public static void stubRegisterStatus(WireMockServer wm, String scenarioName) {
@@ -117,11 +94,8 @@ public final class V3ConnectorStubs {
     }
 
     /**
-     * Registers a stateless stub for the register-status endpoint that always returns
-     * {@code IN_PROGRESS}. Use for timeout/max-attempts scenarios where the connector
-     * never completes the operation.
-     *
-     * @param wm the WireMock server to register the stub on
+     * Registers a stateless stub for the register-status endpoint that always returns IN_PROGRESS, for
+     * timeout/max-attempts scenarios where the connector never completes.
      */
     public static void stubRegisterStatusAlwaysInProgress(WireMockServer wm) {
         wm.stubFor(post(urlEqualTo(REGISTER_STATUS))
@@ -133,36 +107,41 @@ public final class V3ConnectorStubs {
                                 """)));
     }
 
-    // ---- v2 issue (tail call from issueCertificateAction) ---------------
+    // ---- v3 issue (register-bound issuance) ------------------------------
 
     /**
-     * Stubs the v2 issue endpoint used by {@code issueCertificateAction} (HTTP 200).
+     * Stubs a synchronous v3 issue response (HTTP 200) returning the given base64 certificate data and empty meta.
      *
-     * <p>The URL pattern covers any authority UUID segment:
-     * {@code /v2/authorityProvider/authorities/{uuid}/certificates/issue}.</p>
-     *
-     * @param wm       the WireMock server to register the stub on
      * @param certData base64-encoded certificate DER bytes to include in the response
      */
-    public static void stubV2Issue(WireMockServer wm, String certData) {
-        wm.stubFor(post(urlMatching(
-                "/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+    public static void stubV3IssueSync(WireMockServer wm, String certData) {
+        wm.stubFor(post(urlEqualTo(ISSUE_PATH))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
                         .withBody("""
-                                {"certificateData": "%s"}
+                                {"certificateData": "%s", "meta": []}
                                 """.formatted(certData))));
+    }
+
+    /**
+     * Stubs an asynchronous v3 issue response (HTTP 202) with empty meta.
+     */
+    public static void stubV3IssueAsync(WireMockServer wm) {
+        wm.stubFor(post(urlEqualTo(ISSUE_PATH))
+                .willReturn(aResponse()
+                        .withStatus(202)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {"certificateData": null, "meta": []}
+                                """)));
     }
 
     // ---- Attribute list + validate (required by mergeAndValidateAttributes) ----
 
     /**
-     * Stubs the v3 attribute-list and validate endpoints (issue/revoke/register attributes, authority
-     * attributes, and RA-profile attributes) to return empty lists / {@code true}, so service-layer
-     * calls to {@code mergeAndValidateAttributes} succeed without any real attribute data.
-     *
-     * @param wm the WireMock server to register the stubs on
+     * Stubs the v3 attribute-list and validate endpoints (certificate, authority, and RA-profile attributes) to return
+     * empty lists / {@code true}, so {@code mergeAndValidateAttributes} succeeds without real attribute data.
      */
     public static void stubAttributesAndValidate(WireMockServer wm) {
         // v3 certificate attribute list endpoints
