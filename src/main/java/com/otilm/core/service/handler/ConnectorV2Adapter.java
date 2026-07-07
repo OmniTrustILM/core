@@ -78,6 +78,11 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
         EnumSet<ConnectorInterface> mandatoryInterfaces = EnumSet.copyOf(List.of(ConnectorInterface.INFO, ConnectorInterface.HEALTH, ConnectorInterface.METRICS));
         Set<ConnectorInterface> implementedInterfaces = connectInfo.getInterfaces().stream().map(ConnectorInterfaceInfo::getCode).collect(Collectors.toSet());
 
+        // A malformed /v2/info can carry an interface entry with no code; reject it before dereferencing categories.
+        if (implementedInterfaces.contains(null)) {
+            throw new ValidationException("Connector returned an interface entry with no code.");
+        }
+
         if (!implementedInterfaces.containsAll(mandatoryInterfaces)) {
             mandatoryInterfaces.removeAll(implementedInterfaces);
             throw new ValidationException("Connector is missing mandatory interfaces: " + String.join(", ", mandatoryInterfaces.stream().map(ConnectorInterface::getLabel).toList()));
