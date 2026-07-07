@@ -74,7 +74,7 @@ class CertificateStatusPollListenerTest {
 
     @BeforeEach
     void setUp() {
-        adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
         asyncAdapter = (AsyncOperationCapability) adapter;
 

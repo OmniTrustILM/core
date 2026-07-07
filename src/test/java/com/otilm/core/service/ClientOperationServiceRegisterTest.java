@@ -65,6 +65,12 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 /**
  * Service-level coverage for the v3 register flow. The authority adapter is mocked so the test drives
  * each branch (sync 200 / async 202 / connector failure / unsupported authority) and asserts the
@@ -147,7 +153,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         // Default: the authority advertises every flag, so capability-gated paths run. The gating
         // tests below re-stub a specific flag to false to assert the gate is consulted.
-        Mockito.when(capabilityService.supports(Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
+        when(capabilityService.supports(Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
                 .thenReturn(true);
     }
 
@@ -160,9 +166,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     /** Mocks an adapter that supports registration and makes the factory return it. */
     private RegisterCapability registeringAdapter() {
         // Both capabilities, like the real v3 adapter — so an async-accepted registration actually schedules a poll.
-        AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
-        Mockito.when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
         return (RegisterCapability) adapter;
     }
 
@@ -175,7 +181,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void syncRegistrationTransitionsToRegistered() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -186,7 +192,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void asyncRegistrationStaysPendingAndSchedulesRegisterPoll() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
 
         ClientCertificateDataResponseDto response = register();
@@ -194,14 +200,14 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         UUID certUuid = UUID.fromString(response.getUuid());
         Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
-        Mockito.verify(pollWriter).schedule(Mockito.eq(certUuid), Mockito.eq(CertificateOperation.REGISTER), Mockito.any());
+        verify(pollWriter).schedule(Mockito.eq(certUuid), Mockito.eq(CertificateOperation.REGISTER), Mockito.any());
     }
 
     @Test
     void unsupportedAuthorityIsRejectedWithoutCreatingPlaceholder() {
         // Adapter without RegisterCapability — i.e. a v2 authority.
-        Mockito.when(adapterFactory.forAuthority(Mockito.any()))
-                .thenReturn(Mockito.mock(AuthorityProviderAdapter.class));
+        when(adapterFactory.forAuthority(Mockito.any()))
+                .thenReturn(mock(AuthorityProviderAdapter.class));
 
         Assertions.assertThrows(ValidationException.class, this::register);
         Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a rejected request");
@@ -209,7 +215,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void connectorFailureLeavesPlaceholderFailed() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
 
         Assertions.assertThrows(ConnectorException.class, this::register);
@@ -223,7 +229,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     void registerRuntimeFailureLeavesPlaceholderFailed() throws Exception {
         // A raw RuntimeException from register() is pre-acceptance per the RegisterCapability contract, so
         // the placeholder must be FAILED — not orphaned in PENDING_REGISTRATION with no transition.
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenThrow(new IllegalStateException("pre-acceptance failure"));
 
         Assertions.assertThrows(IllegalStateException.class, this::register);
@@ -235,8 +241,8 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void listAvailableOperationsForV2AuthorityExcludesRegisterAndAsync() throws Exception {
-        Mockito.when(adapterFactory.forAuthority(Mockito.any()))
-                .thenReturn(Mockito.mock(AuthorityProviderAdapter.class)); // v2: neither register nor async
+        when(adapterFactory.forAuthority(Mockito.any()))
+                .thenReturn(mock(AuthorityProviderAdapter.class)); // v2: neither register nor async
 
         AvailableOperationsDto ops = listOperations();
 
@@ -249,9 +255,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void listAvailableOperationsForV3AuthoritySupportsRegisterAndAsync() throws Exception {
-        AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
-        Mockito.when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
 
         OperationSupport register = operation(listOperations(), CertificateOperationKind.REGISTER);
         Assertions.assertTrue(register.isSupported());
@@ -266,7 +272,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         // Adapter implements RegisterCapability (layer 1 passes), but the authority does not advertise
         // CERTIFICATE_REGISTRATION — the layer-2 gate must still reject, without persisting a placeholder.
         registeringAdapter();
-        Mockito.when(capabilityService.supports(
+        when(capabilityService.supports(
                         Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_REGISTRATION)))
                 .thenReturn(false);
 
@@ -278,9 +284,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     void asyncRegistrationSkipsPollWhenStatusPollingNotAdvertised() throws Exception {
         // Registration is advertised (proceeds), but status polling is not — the cert is left PENDING
         // with no poll scheduled (manual / out-of-band completion).
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
-        Mockito.when(capabilityService.supports(
+        when(capabilityService.supports(
                         Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
                 .thenReturn(false);
 
@@ -288,7 +294,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
-        Mockito.verify(pollWriter, Mockito.never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+        verify(pollWriter, never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -296,7 +302,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         // Adapter implements both capabilities (layer 1 passes for both), but neither flag is advertised
         // — listAvailableOperations must report REGISTER unsupported and issue async unsupported.
         registeringAdapter();
-        Mockito.when(capabilityService.supports(
+        when(capabilityService.supports(
                         Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
                 .thenReturn(false);
 
@@ -374,7 +380,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, blank);
 
-        Mockito.verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
     }
 
     @Test
@@ -389,7 +395,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions.assertNotNull(cert.getCertificateRequest(), "operator CSR should be attached to the registered placeholder");
-        Mockito.verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
     }
 
     @Test
@@ -445,7 +451,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void registerStaysPendingWhenConnectorAcceptedButLocalFailureRaised() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed", new RuntimeException("boom")));
 
         Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
@@ -459,7 +465,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void sanOnlyRegistrationReachesRegistered() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
         request.setSubjectAltName("DNS:device-1.example.com"); // subject carried entirely in the SAN, no subjectDn
@@ -493,17 +499,17 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void asyncRegistrationWithoutAsyncCapabilityDoesNotSchedulePoll() throws Exception {
         // Register-capable but NOT async-capable adapter that nonetheless returns async-accepted.
-        AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(RegisterCapability.class));
-        Mockito.when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
-        Mockito.when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any()))
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
 
         ClientCertificateDataResponseDto response = register();
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
-        Mockito.verify(pollWriter, Mockito.never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+        verify(pollWriter, never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test
@@ -535,7 +541,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void registerPersistsConnectorMetadata() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
@@ -546,7 +552,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         // registration completes.
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
-        Mockito.verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+        verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
     }
 
     @Test
@@ -597,7 +603,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void syncRegistrationPersistsRegisterIssueBinding() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -610,7 +616,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void asyncRegistrationPersistsBindingWithTrackingHandle() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(List.of(caHandle("trackingId", "t-1"))));
 
         ClientCertificateDataResponseDto response = register();
@@ -624,7 +630,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     void registrationWithoutMetaStillCreatesBinding() throws Exception {
         // The binding row's presence is the register-bound discriminator for the later issue,
         // independent of whether the connector returned a CA handle.
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -639,9 +645,9 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         // Post-acceptance divergence: the connector accepted the registration, so a failed binding
         // write must NOT roll certificate state back — it surfaces a clear error and leaves the cert
         // PENDING_REGISTRATION for reconciliation (the sync REGISTERED transition never runs).
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
-        Mockito.doThrow(new IllegalStateException("db down")).when(registrationWriter)
+        doThrow(new IllegalStateException("db down")).when(registrationWriter)
                 .upsert(Mockito.any(), Mockito.any());
 
         Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
@@ -653,7 +659,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
 
     @Test
     void rejectedRegistrationLeavesNoBinding() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
 
         Assertions.assertThrows(ConnectorException.class, this::register);
@@ -663,7 +669,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     }
 
     private String registerSyncRegistered() throws Exception {
-        Mockito.when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         return register().getUuid();
     }

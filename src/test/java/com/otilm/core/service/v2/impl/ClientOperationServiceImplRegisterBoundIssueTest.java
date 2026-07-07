@@ -55,6 +55,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit coverage for the register-bound issuance branch: a placeholder carrying a registration binding issues its
@@ -108,19 +114,19 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        certificateRepository = Mockito.mock(CertificateRepository.class);
-        certificateRegistrationRepository = Mockito.mock(CertificateRegistrationRepository.class);
-        certificateRegistrationWriter = Mockito.mock(CertificateRegistrationWriter.class);
-        adapterFactory = Mockito.mock(AuthorityProviderAdapterFactory.class);
-        capabilityService = Mockito.mock(ConnectorCapabilityService.class);
-        certificateService = Mockito.mock(CertificateService.class);
-        transactionManager = Mockito.mock(PlatformTransactionManager.class);
-        stateMachine = Mockito.mock(CertificateStateMachine.class);
-        attributeEngine = Mockito.mock(AttributeEngine.class);
-        certificateEventHistoryService = Mockito.mock(CertificateEventHistoryInternalService.class);
-        pollWriter = Mockito.mock(CertificateStatusPollWriter.class);
-        certificateRelationRepository = Mockito.mock(CertificateRelationRepository.class);
-        eventProducer = Mockito.mock(EventProducer.class);
+        certificateRepository = mock(CertificateRepository.class);
+        certificateRegistrationRepository = mock(CertificateRegistrationRepository.class);
+        certificateRegistrationWriter = mock(CertificateRegistrationWriter.class);
+        adapterFactory = mock(AuthorityProviderAdapterFactory.class);
+        capabilityService = mock(ConnectorCapabilityService.class);
+        certificateService = mock(CertificateService.class);
+        transactionManager = mock(PlatformTransactionManager.class);
+        stateMachine = mock(CertificateStateMachine.class);
+        attributeEngine = mock(AttributeEngine.class);
+        certificateEventHistoryService = mock(CertificateEventHistoryInternalService.class);
+        pollWriter = mock(CertificateStatusPollWriter.class);
+        certificateRelationRepository = mock(CertificateRelationRepository.class);
+        eventProducer = mock(EventProducer.class);
 
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
@@ -137,8 +143,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         service.setCertificateRelationRepository(certificateRelationRepository);
         service.setEventProducer(eventProducer);
 
-        TransactionStatus tx = Mockito.mock(TransactionStatus.class);
-        Mockito.when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(tx);
+        TransactionStatus tx = mock(TransactionStatus.class);
+        when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(tx);
 
         authority = new AuthorityInstanceReference();
         authority.setUuid(UUID.randomUUID());
@@ -162,20 +168,20 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         binding = new CertificateRegistration();
         binding.setCertificateUuid(certUuid);
 
-        Mockito.when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
-        Mockito.when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(certificate));
         // The dispatch discriminator (non-locking) and the locked read in the register-bound path both resolve the
         // binding by certificate UUID — a pre-registered placeholder has one.
-        Mockito.when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
-        Mockito.when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
-        Mockito.when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
+        when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
+        when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
+        when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
     }
 
     /** Mocks an adapter that supports the register-bound issue path and wires the factory to return it. */
     private RegisterCapability registerCapableAdapter() {
-        AuthorityProviderAdapter adapter = Mockito.mock(AuthorityProviderAdapter.class,
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
-        Mockito.when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
+        when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
         return (RegisterCapability) adapter;
     }
 
@@ -186,19 +192,19 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @Test
     void registeredPlaceholderOnRegisterCapableAuthorityDispatchesToAdapter() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
         issue();
 
-        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
-        Mockito.verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+        verify(adapter).issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
     }
 
     @Test
     void registeredPlaceholderOnNonRegisterCapableAuthorityFallsThroughToV2Path() {
-        AuthorityProviderAdapter plainAdapter = Mockito.mock(AuthorityProviderAdapter.class);
-        Mockito.when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(plainAdapter);
+        AuthorityProviderAdapter plainAdapter = mock(AuthorityProviderAdapter.class);
+        when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(plainAdapter);
 
         // Only the register-bound branch touches the registration repository, so verifyNoInteractions below is
         // the load-bearing assertion that the branch was NOT taken. Absorb the unmocked v2 fall-through's failure.
@@ -214,15 +220,15 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @Test
     void missingRegistrationBindingIsRejectedAndRollsBackTransaction() {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.empty());
-        TransactionStatus tx = Mockito.mock(TransactionStatus.class);
-        Mockito.when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(tx);
+        when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.empty());
+        TransactionStatus tx = mock(TransactionStatus.class);
+        when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(tx);
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
 
         Mockito.verifyNoInteractions(adapter);
-        Mockito.verify(transactionManager).rollback(tx);
-        Mockito.verify(transactionManager, Mockito.never()).commit(ArgumentMatchers.any());
+        verify(transactionManager).rollback(tx);
+        verify(transactionManager, never()).commit(ArgumentMatchers.any());
     }
 
     @Test
@@ -230,7 +236,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         RegisterCapability adapter = registerCapableAdapter();
         Certificate racedRead = new Certificate();
         racedRead.setState(CertificateState.FAILED);
-        Mockito.when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(racedRead));
+        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -242,87 +248,87 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @Test
     void requestStructuredAndIdentityOverrideTogetherBuildRequestContent() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
-        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
         issue();
 
-        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNotNull());
+        verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNotNull());
     }
 
     @Test
     void identityOverrideWithoutRequestStructuredPassesNullRequestContent() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
         issue();
 
-        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull());
+        verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull());
     }
 
     @Test
     void neitherFlagPassesNullRequestContent() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         // capabilityService.supports defaults to false in setUp().
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
         issue();
 
-        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull());
+        verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull());
     }
 
     @Test
     void syncOkCompletesIssuanceAndClearsBinding() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         List<MetadataAttribute> meta = List.of(caHandle("endEntityName", "device-1"));
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", meta, CertificateType.X509));
 
         issue();
 
-        Mockito.verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", meta);
-        Mockito.verify(certificateRegistrationWriter).clear(certUuid);
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", meta);
+        verify(certificateRegistrationWriter).clear(certUuid);
     }
 
     @Test
     void asyncAcceptedTransitionsToPendingIssueAndSchedulesPollExactlyOnce() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
 
         // transitionToPendingIssue's internal scheduleStatusPoll reloads the certificate with the polling
         // graph and re-resolves the adapter to evaluate pollability.
-        Mockito.when(certificateRepository.findForPollingByUuid(certUuid)).thenReturn(Optional.of(certificate));
-        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING)).thenReturn(true);
+        when(certificateRepository.findForPollingByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING)).thenReturn(true);
 
         issue();
 
-        Mockito.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
                 ArgumentMatchers.any(), ArgumentMatchers.any());
-        Mockito.verify(pollWriter, Mockito.times(1))
+        verify(pollWriter, times(1))
                 .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE), ArgumentMatchers.any());
-        Mockito.verify(certificateRegistrationWriter).clear(certUuid);
-        Mockito.verify(certificateService, Mockito.never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateRegistrationWriter).clear(certUuid);
+        verify(certificateService, never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
     void connectorAcceptedButLocalFailureDoesNotFailTheCertificate() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed", new RuntimeException("boom")));
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
 
-        Mockito.verify(stateMachine, Mockito.never())
+        verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         // The audit message names the actual entry-state label (here "Registered"), not a hardcoded state, so a
         // PENDING_APPROVAL placeholder taking this same branch would be reported correctly.
-        Mockito.verify(certificateEventHistoryService).addEventHistory(
+        verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
                 ArgumentMatchers.contains("left " + CertificateState.REGISTERED.getLabel() + " for reconciliation"), ArgumentMatchers.eq(""));
     }
@@ -330,27 +336,27 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @Test
     void preAcceptanceConnectorFailureFailsTheCertificate() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
-        Mockito.when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
 
         // handleFailedOrRejectedEvent delegates the FAILED transition and its audit-history write to the (mocked)
         // state machine, so verifying this call is the unit-level proxy for "the certificate was failed".
-        Mockito.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
                 ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
         // Pre-acceptance FAILED is terminal — the binding is dropped.
-        Mockito.verify(certificateRegistrationWriter).clear(certUuid);
+        verify(certificateRegistrationWriter).clear(certUuid);
     }
 
     @Test
     void nonDomainExceptionMessageIsNotForwardedToTheCaller() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         String leakySecret = "jdbc://internal-host:5432/secret-schema constraint violation";
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new IllegalStateException(leakySecret));
-        Mockito.when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -358,7 +364,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         // The audit message handed to the state machine (and therefore to the persisted event history) is
         // the safe placeholder, not the raw IllegalStateException message.
-        Mockito.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
                 ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq("register-bound issuance failed"), ArgumentMatchers.any());
     }
 
@@ -368,10 +374,10 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @Test
     void syncOkButLocalCompletionFailureDoesNotFailTheCertificate() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
         String leakySecret = "jdbc://internal-host:5432/secret-schema constraint violation";
-        Mockito.doThrow(new IllegalStateException(leakySecret))
+        doThrow(new IllegalStateException(leakySecret))
                 .when(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
 
         assertThatThrownBy(this::issue)
@@ -379,18 +385,18 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .hasMessageNotContaining(leakySecret);
 
         // State-divergence rule: no FAILED transition after the connector accepted.
-        Mockito.verify(stateMachine, Mockito.never())
+        verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
                         ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         // Divergence recorded to event history; the persisted cause is the safe placeholder, not the leaky text.
-        Mockito.verify(certificateEventHistoryService).addEventHistory(
+        verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
                 ArgumentMatchers.argThat(msg -> msg.contains("completing local state failed")
                         && msg.contains("register-bound issuance failed")
                         && !msg.contains(leakySecret)),
                 ArgumentMatchers.eq(""));
         // Best-effort binding cleanup (step 4) is skipped because completing local state threw.
-        Mockito.verify(certificateRegistrationWriter, Mockito.never()).clear(ArgumentMatchers.any());
+        verify(certificateRegistrationWriter, never()).clear(ArgumentMatchers.any());
     }
 
     // The binding, not the state, is the dispatch discriminator: a placeholder moved to PENDING_APPROVAL still
@@ -399,13 +405,13 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     void pendingApprovalPlaceholderWithBindingDispatchesToRegisterBoundPath() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         certificate.setState(CertificateState.PENDING_APPROVAL);
-        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
         issue();
 
-        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
-        Mockito.verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+        verify(adapter).issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
     }
 
     // A normal PENDING_APPROVAL issue has no binding, so it must NOT route to the register-bound path even on a
@@ -414,7 +420,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     void pendingApprovalWithoutBindingDoesNotDispatchToRegisterBoundPath() {
         RegisterCapability adapter = registerCapableAdapter();
         certificate.setState(CertificateState.PENDING_APPROVAL);
-        Mockito.when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
+        when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
 
         // No binding -> register-bound branch skipped -> falls through to the (unmocked) v2 path. Absorb its
         // downstream failure; this test pins that dispatch skipped the register-bound path, not the v2 throw.
@@ -425,7 +431,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         }
 
         Mockito.verifyNoInteractions(adapter);
-        Mockito.verify(certificateRegistrationRepository, Mockito.never()).findAndLockByCertificateUuid(ArgumentMatchers.any());
+        verify(certificateRegistrationRepository, never()).findAndLockByCertificateUuid(ArgumentMatchers.any());
     }
 
     private static MetadataAttribute caHandle(String name, String value) {
