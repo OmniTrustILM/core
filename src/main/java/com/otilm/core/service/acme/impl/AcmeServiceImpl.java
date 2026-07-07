@@ -2,6 +2,7 @@ package com.otilm.core.service.acme.impl;
 
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -19,6 +20,8 @@ import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
+import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.acme.*;
@@ -27,6 +30,8 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.*;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
+import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
@@ -104,10 +109,16 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private ClientOperationInternalService clientOperationService;
     private CertificateService certificateService;
     private AttributeEngine attributeEngine;
+    private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
+        this.protocolRequestAttributeValidator = protocolRequestAttributeValidator;
     }
 
     @Autowired
@@ -1134,6 +1145,19 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR);
         }
         if (!new HashSet<>(dnsIdentifiers).containsAll(identifiersDns)) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR);
+        }
+
+        try {
+            CertificateRequest parsed = new Pkcs10CertificateRequest(csr.getEncoded());
+            RaProfile raProfile = order.getAcmeAccount().getRaProfile();
+            protocolRequestAttributeValidator.validate(parsed, raProfile);
+        } catch (RequestAttributePolicyViolationException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
+        } catch (CertificateException e) {
+            // Availability failure resolving the request-attribute set: server-side, not a bad CSR.
+            throw new AcmeProblemDocumentException(HttpStatus.INTERNAL_SERVER_ERROR, Problem.SERVER_INTERNAL);
+        } catch (CertificateRequestException | IOException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR);
         }
     }
