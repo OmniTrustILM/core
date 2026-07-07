@@ -239,7 +239,8 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
 
         X509Certificate x509 = AcmeTestUtil.createTestCertificate(kp, "round-trip");
         String certData = Base64.getEncoder().encodeToString(x509.getEncoded());
-        V3ConnectorStubs.stubV2Issue(wireMockServer, certData);
+        // Register-bound issue forwards through the v3 issue endpoint (issueRegistered), not the v2 client.
+        V3ConnectorStubs.stubV3IssueSync(wireMockServer, certData);
 
         PKCS10CertificationRequest csr = AcmeTestUtil.createCsr(kp, "round-trip");
         String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
@@ -260,7 +261,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         // Step 4: assert final state
         Certificate certAfterIssue = reloadCert(registerResponse.getUuid());
         Assertions.assertEquals(CertificateState.ISSUED, certAfterIssue.getState(),
-                "issueExistingCertificate → ISSUE action → v2 issue 200 must transition cert to ISSUED");
+                "issueExistingCertificate → ISSUE action → register-bound v3 issue 200 must transition cert to ISSUED");
 
         // Registration identity preserved: the subject DN from the registration step is still on the row
         // (the issued certificate's identity is written from the CA response at issuance time, but the
@@ -269,6 +270,55 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
                 "Subject DN must not be null after issuance");
         Assertions.assertTrue(certAfterIssue.getSubjectDn().contains("CN=round-trip"),
                 "Registration subject DN must be preserved through issuance; was: " + certAfterIssue.getSubjectDn());
+    }
+
+    /**
+     * Scenario 5: register sync → {@code REGISTERED}; supply a CSR; {@code issueExistingCertificate} → the
+     * register-bound issue receives a 202 (async) → the certificate parks in {@code PENDING_ISSUE} and an ISSUE
+     * status-poll row is scheduled (the connector advertises {@code CERTIFICATE_STATUS_POLLING}).
+     */
+    @Test
+    public void registerThenIssueAsync_parksPendingIssueAndSchedulesPoll() throws Exception {
+        AuthorityFixtures.Fixture fixture = buildV3Fixture(
+                FeatureFlag.CERTIFICATE_REGISTRATION,
+                FeatureFlag.CERTIFICATE_STATUS_POLLING);
+
+        // Step 1: register sync → REGISTERED
+        V3ConnectorStubs.stubRegisterSync(wireMockServer, null);
+        ClientCertificateDataResponseDto registerResponse = registerCertificate(fixture, "CN=async-issue,O=Acme");
+        UUID certUuid = UUID.fromString(registerResponse.getUuid());
+        Assertions.assertEquals(CertificateState.REGISTERED, reloadCert(registerResponse.getUuid()).getState(),
+                "Pre-condition: certificate must be REGISTERED before issue");
+
+        // Step 2: CSR + async (202) v3 issue stub
+        KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
+        gen.initialize(2048);
+        KeyPair kp = gen.generateKeyPair();
+        PKCS10CertificationRequest csr = AcmeTestUtil.createCsr(kp, "async-issue");
+        String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
+        V3ConnectorStubs.stubV3IssueAsync(wireMockServer);
+
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest(base64Csr);
+        signRequest.setFormat(CertificateRequestFormat.PKCS10);
+        signRequest.setAttributes(List.of());
+        signRequest.setCustomAttributes(List.of());
+
+        // Step 3: issue → the register-bound v3 issue returns 202 (async)
+        clientOperationService.issueExistingCertificate(
+                SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
+                fixture.raProfile().getSecuredUuid(),
+                registerResponse.getUuid(),
+                signRequest);
+
+        // Step 4: accepted-but-async → PENDING_ISSUE + exactly one ISSUE status-poll row scheduled
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, reloadCert(registerResponse.getUuid()).getState(),
+                "register-bound v3 issue 202 must park the certificate in PENDING_ISSUE");
+        long pollRows = pollRepository.findAll().stream()
+                .filter(p -> certUuid.equals(p.getCertificateUuid()))
+                .count();
+        Assertions.assertEquals(1L, pollRows,
+                "async register-bound issue must schedule exactly one status-poll row");
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
