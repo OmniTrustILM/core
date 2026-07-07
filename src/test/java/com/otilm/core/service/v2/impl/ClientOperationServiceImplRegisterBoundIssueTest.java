@@ -240,8 +240,9 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void identityOverrideGateControlsWhetherRequestContentIsBuilt() throws Exception {
+    void requestStructuredAndIdentityOverrideTogetherBuildRequestContent() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
+        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
         Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
         Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
@@ -252,7 +253,19 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void identityOverrideGateOffPassesNullRequestContent() throws Exception {
+    void identityOverrideWithoutRequestStructuredPassesNullRequestContent() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        Mockito.when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)).thenReturn(true);
+        Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+
+        issue();
+
+        Mockito.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void neitherFlagPassesNullRequestContent() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         // capabilityService.supports defaults to false in setUp().
         Mockito.when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
@@ -327,6 +340,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         // state machine, so verifying this call is the unit-level proxy for "the certificate was failed".
         Mockito.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
                 ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
+        // Pre-acceptance FAILED is terminal — the binding is dropped.
+        Mockito.verify(certificateRegistrationWriter).clear(certUuid);
     }
 
     @Test

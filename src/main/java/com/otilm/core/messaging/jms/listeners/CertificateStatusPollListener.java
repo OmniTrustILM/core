@@ -294,7 +294,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             logger.warn("Failed to update metadata attributes for cert {} after {} {}; transition already committed",
                     cert.getUuid(), op, status.status(), e);
         }
-        if (op == CertificateOperation.REGISTER) {
+        if (op == CertificateOperation.REGISTER && status.status() == CertificateOperationStatus.COMPLETED) {
             refreshRegistrationBinding(cert, status);
         }
     }

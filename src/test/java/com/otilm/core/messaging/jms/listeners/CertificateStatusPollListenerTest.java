@@ -349,6 +349,28 @@ class CertificateStatusPollListenerTest {
     }
 
     // -----------------------------------------------------------------------
+    // failedRegisterWithMetaDoesNotRefreshBinding
+    // -----------------------------------------------------------------------
+
+    @Test
+    void failedRegisterWithMetaDoesNotRefreshBinding() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        var finalMeta = List.of(mock(com.otilm.api.model.common.attribute.common.MetadataAttribute.class));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, finalMeta, "CA rejected"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        // A FAILED register must not upsert a binding row (the cert will never replay it) even though meta is present.
+        verify(registrationWriter, never()).upsert(any(), any());
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
     // failedTransitionsToTerminalFailure (ISSUE → FAILED)
     // -----------------------------------------------------------------------
 

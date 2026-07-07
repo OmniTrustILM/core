@@ -666,7 +666,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Phase 1 — under a short pessimistic-write lock: capture the replay handle and identity-override content and
      * re-assert an issuable state (REGISTERED or PENDING_APPROVAL — anything else lost a race), releasing the lock
      * at commit. The lock does not fully close the TOCTOU (state advances only after the unlocked connector call);
-     * durably claiming state is deferred to #1712.
+     * durably claiming state is deferred to a follow-up.
      */
     private RegisterReplayContext captureRegisterReplayContext(Certificate certificate)
             throws CertificateOperationException, NotFoundException {
@@ -690,7 +690,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     ? List.of()
                     : AttributeDefinitionUtils.deserialize(binding.getMeta(), MetadataAttribute.class);
             CertificateRequestContent identityContent =
-                    capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
+                    capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)
+                            && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
             transactionManager.commit(tx);
@@ -732,6 +733,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String reason = safeMessage(e, "register-bound issuance failed");
             handleFailedOrRejectedEvent(certificate, null, CertificateState.FAILED, CertificateEvent.ISSUE,
                     new HashMap<>(), reason);
+            clearBindingBestEffort(certUuid);
             throw new CertificateOperationException(
                     "Failed to issue register-bound certificate %s: %s".formatted(certUuid, reason));
         }
