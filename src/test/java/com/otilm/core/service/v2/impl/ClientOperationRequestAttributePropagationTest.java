@@ -6,7 +6,6 @@ import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -79,7 +78,6 @@ class ClientOperationRequestAttributePropagationTest extends BaseSpringBootTest 
                 connectorRepository, functionGroupRepository, connector2FunctionGroupRepository,
                 authorityInstanceReferenceRepository, raProfileRepository, connectorInterfaceRepository);
         AuthorityFixtures.Fixture fixture = AuthorityFixtures.v2Authority(fixtureRepos, mockServer, null);
-        Connector connector = fixture.connector();
         authorityInstanceReference = fixture.authority();
         raProfile = fixture.raProfile();
     }
@@ -102,8 +100,9 @@ class ClientOperationRequestAttributePropagationTest extends BaseSpringBootTest 
 
         // when / then — the typed subtype reaches the caller un-wrapped (not a CertificateOperationException),
         // carrying the shaped policy message and no internal identifiers
-        assertThatThrownBy(() -> clientOperationService.issueCertificate(
-                authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(), request, null))
+        var authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        var raProfileUuid = raProfile.getSecuredUuid();
+        assertThatThrownBy(() -> clientOperationService.issueCertificate(authorityUuid, raProfileUuid, request, null))
                 .isInstanceOf(RequestAttributePolicyViolationException.class)
                 .satisfies(ex -> assertThat(ex.getMessage())
                         .as("message should identify the RA profile")

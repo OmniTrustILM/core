@@ -37,10 +37,6 @@ class CrmfIrCrRequestAttributeValidationTest extends BaseSpringBootTest {
     @Autowired
     private CertificateKeyServiceImpl certificateKeyService;
 
-    // Mocked as the concrete class (rather than ClientOperationInternalService) because the
-    // same bean also implements ClientOperationExternalService for other consumers in the
-    // context; mocking only the narrower interface would break their autowiring.
-    // :TODO: Why?
     @MockitoBean(name = "clientOperationServiceImplV2")
     private ClientOperationServiceImpl clientOperationServiceImpl;
 

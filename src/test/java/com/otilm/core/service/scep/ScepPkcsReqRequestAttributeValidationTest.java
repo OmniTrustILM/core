@@ -11,7 +11,6 @@ import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.UndeclaredThrowableException;
@@ -23,9 +22,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 /**
- * Verifies that the SCEP {@code PKCSReq} issue seam in {@link ScepServiceImpl} shapes a {@link RequestAttributePolicyViolationException} raised by
+ * Verifies that the SCEP {@code PKCSReq} issue seam in {@link ScepServiceImpl} shapes a {@link RequestAttributePolicyViolationException}
  * into a {@link ScepException} carrying {@link FailInfo#BAD_REQUEST} and the platform-authored (safe) message, rather than the generic
  * {@code CertificateOperationException} mapping.
  */
@@ -39,11 +39,11 @@ class ScepPkcsReqRequestAttributeValidationTest {
         // (RA profile requires CN, the CSR's subject omits it)
         var policyMessage = "Certificate request does not satisfy the request-attribute policy "
                 + "of RA profile 'X': missing required RDN: CN";
-        ClientOperationInternalService clientOperationService = Mockito.mock(ClientOperationInternalService.class);
+        ClientOperationInternalService clientOperationService = mock(ClientOperationInternalService.class);
         given(clientOperationService.issueCertificate(any(), any(), any(), any()))
                 .willThrow(new RequestAttributePolicyViolationException(policyMessage, List.of("missing required RDN: CN")));
         ScepServiceImpl service = seededScepService(clientOperationService);
-        ScepRequest scepRequest = Mockito.mock(ScepRequest.class);
+        ScepRequest scepRequest = mock(ScepRequest.class);
         given(scepRequest.getPkcs10Request()).willReturn(new JcaPKCS10CertificationRequest(Base64.getDecoder().decode(PKCS10_BASE64)));
 
         // when / then — the seam shapes the policy violation into a ScepException carrying the safe,

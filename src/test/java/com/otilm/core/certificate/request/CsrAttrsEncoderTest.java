@@ -43,7 +43,7 @@ class CsrAttrsEncoderTest {
         ASN1Sequence csrAttrs = encodeToSequence(List.of(), CODE_TO_OID);
 
         // then
-        assertThat(csrAttrs.size()).isEqualTo(0);
+        assertThat(csrAttrs.size()).isZero();
     }
 
     @Test

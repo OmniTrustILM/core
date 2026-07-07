@@ -60,6 +60,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 /**
  * ACME `finalizeOrder` must pre-validate request attributes synchronously in `validateCSR`, so a policy violation surfaces immediately as {@link Problem#BAD_CSR}.
@@ -140,7 +142,7 @@ class AcmeFinalizeRequestAttributeValidationTest extends BaseSpringBootTest {
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);
         certificate.setRaProfile(raProfile);
-        certificate = certificateRepository.save(certificate);
+        certificateRepository.save(certificate);
 
         AcmeProfile acmeProfile = new AcmeProfile();
         acmeProfile.setRaProfile(raProfile);
@@ -189,7 +191,7 @@ class AcmeFinalizeRequestAttributeValidationTest extends BaseSpringBootTest {
     void rejectsFinalizeWithBadCsr_whenCsrViolatesRequestAttributes() throws Exception {
         // given — pre-validation (validateCSR) rejects the CSR with a request-attribute policy violation
         var violationDetail = "CSR is missing required request attribute 'commonName'";
-        Mockito.doThrow(new RequestAttributePolicyViolationException(violationDetail, List.of()))
+        doThrow(new RequestAttributePolicyViolationException(violationDetail, List.of()))
                 .when(protocolRequestAttributeValidator).validate(Mockito.any(), Mockito.any());
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
@@ -231,17 +233,17 @@ class AcmeFinalizeRequestAttributeValidationTest extends BaseSpringBootTest {
         OpaResourceAccessResult resourceAccessAllowed = new OpaResourceAccessResult(true, List.of("AllResourcesAllowed"));
         OpaResourceAccessResult resourceAccessNotAllowed = new OpaResourceAccessResult(false, List.of());
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
         ).thenReturn(resourceAccessNotAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(Mockito.any(), Mockito.argThat(req ->
                         req != null && req.getProperties().containsKey(Resource.ACME_ACCOUNT.getCode())
                 ), Mockito.any(), Mockito.any())
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
                         Mockito.any(),
                         Mockito.argThat(req -> isRequestForResourceAction(req, Resource.ACME_PROFILE, ResourceAction.DETAIL)),
@@ -250,7 +252,7 @@ class AcmeFinalizeRequestAttributeValidationTest extends BaseSpringBootTest {
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
                         Mockito.any(),
                         Mockito.argThat(req -> isRequestForResourceAction(req, Resource.RA_PROFILE, ResourceAction.DETAIL)),
