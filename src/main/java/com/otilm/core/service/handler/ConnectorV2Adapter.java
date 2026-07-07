@@ -83,7 +83,9 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
             throw new ValidationException("Connector is missing mandatory interfaces: " + String.join(", ", mandatoryInterfaces.stream().map(ConnectorInterface::getLabel).toList()));
         }
 
-        if (implementedInterfaces.size() == mandatoryInterfaces.size()) {
+        boolean hasFunctionalInterface = implementedInterfaces.stream()
+                .anyMatch(i -> i.getCategory() == ConnectorInterface.InterfaceCategory.FUNCTIONAL);
+        if (!hasFunctionalInterface) {
             throw new ValidationException("Connector is missing any functional interface. At least one functional interface must be implemented in addition to mandatory interfaces.");
         }
 
