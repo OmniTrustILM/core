@@ -297,6 +297,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         String attributeName = fieldIdentifier.contains("|") ? parseNameAndContentType(fieldIdentifier)[0] : fieldIdentifier;
         List<? extends AttributeContent> attributeContent = null;
         AttributeContentType attributeContentType = null;
+        // A non-null pendingCustomAttributes is authoritative: if the attribute isn't found in it, the DB is not
+        // consulted as a fallback. Only pass a non-null list when it is guaranteed to represent the object's complete
+        // custom attribute state (e.g. a certificate upload request, where nothing else has written attributes yet).
         if (pendingCustomAttributes != null) {
             RequestAttribute requestAttribute = pendingCustomAttributes.stream().filter(ra -> Objects.equals(ra.getName(), attributeName)).findFirst().orElse(null);
             if (requestAttribute != null) {
