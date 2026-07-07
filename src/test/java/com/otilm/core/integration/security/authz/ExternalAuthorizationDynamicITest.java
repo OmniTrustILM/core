@@ -32,13 +32,14 @@ import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
 import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
 
 /**
@@ -113,8 +114,8 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
     }
 
     private void denyResourceAction(Resource resource, ResourceAction action) {
-        when(opaClient.checkResourceAccess(Mockito.any(),
-                        Mockito.argThat(req -> isRequestFor(req, resource, action)), Mockito.any(), Mockito.any()))
+        when(opaClient.checkResourceAccess(any(),
+                        argThat(req -> isRequestFor(req, resource, action)), any(), any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
     }
 
