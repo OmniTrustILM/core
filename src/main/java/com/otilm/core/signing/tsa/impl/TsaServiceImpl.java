@@ -11,12 +11,13 @@ import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
-import com.otilm.core.signing.tsa.TsaService;
+import com.otilm.core.signing.tsa.TsaExternalService;
 import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
@@ -26,7 +27,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class TsaServiceImpl implements TsaService {
+public class TsaServiceImpl implements TsaExternalService {
 
     private final TspRequestValidator tspRequestValidator;
     private final TspProfileInternalService tspProfileService;
@@ -45,6 +46,7 @@ public class TsaServiceImpl implements TsaService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException {
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
         LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
@@ -64,6 +66,7 @@ public class TsaServiceImpl implements TsaService {
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
         LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());

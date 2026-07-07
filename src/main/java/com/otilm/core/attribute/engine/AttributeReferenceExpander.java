@@ -33,7 +33,7 @@ import java.util.UUID;
  * The aspect reads the ambient Spring {@code SecurityContext}; there is no API to pass a context in, so there is
  * deliberately no {@code SecurityContext} parameter, and this class performs <strong>no</strong>
  * {@code setAuthentication} / principal swap of any kind (invariant: the expander never swaps the ambient
- * principal — asserted by {@code AttributeReferenceExpanderIntegrationTest.expanderDoesNotMutateAmbientPrincipal}).
+ * principal — asserted by {@code AttributeReferenceExpanderITest.expanderDoesNotMutateAmbientPrincipal}).
  * <p>
  * <strong>Single-level only today.</strong> Only the references directly present in the passed attribute list
  * are resolved (depth 0). Resolving references nested <em>inside</em> an already-loaded blob (depth 1+) is not

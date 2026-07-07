@@ -31,7 +31,7 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
@@ -76,7 +76,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private PermissionEvaluator permissionEvaluator;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
 
     // --------------------------------------------------------------------------------
     // Repositories
@@ -122,7 +122,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyInternalService(CryptographicKeyInternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 

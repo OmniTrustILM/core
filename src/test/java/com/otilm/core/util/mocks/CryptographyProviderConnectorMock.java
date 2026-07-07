@@ -118,7 +118,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
     }
 
     /**
-     * Stubs the create-key-pair endpoints hit by {@code CryptographicKeyService#createKey}. The public key
+     * Stubs the create-key-pair endpoints hit by {@code CryptographicKeyExternalService#createKey}. The public key
      * is reported in {@code SubjectPublicKeyInfo} format with the given Base64-encoded SPKI, so Core derives
      * the same fingerprint a certificate built from the matching public key will carry — letting the two be
      * associated later.

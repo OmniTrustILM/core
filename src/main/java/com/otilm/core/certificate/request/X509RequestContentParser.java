@@ -13,6 +13,7 @@ import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.util.PlatformX500NameStyle;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1IA5String;
@@ -40,14 +41,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Parses a supplied {@link CertificateRequest} (PKCS#10 or CRMF) into the typed {@link X509RequestContent}.
- *
- * <p>Subject and SAN values are decoded from the BouncyCastle ASN.1 objects directly — never from a
- * rendered DN string — so RDN values containing RFC 4514 special characters ({@code ,} {@code +}
- * {@code =} {@code \}) reach validation exactly as encoded in the request.</p>
- *
- * <p>SAN kinds that {@link GeneralNameType} cannot model ({@code x400Address}, {@code ediPartyName}),
- * and SAN entries that fail to decode, are reported in {@link ParsedRequestContent#unsupportedSans()}.</p>
+ * Parses a {@link CertificateRequest} (PKCS#10 or CRMF) into typed {@link X509RequestContent}, decoding directly
+ * from BouncyCastle ASN.1 so RFC 4514 special characters survive verbatim. SAN kinds {@link GeneralNameType}
+ * cannot model are reported in {@link ParsedRequestContent#unsupportedSans()}.
  */
 @Slf4j
 public final class X509RequestContentParser {
@@ -65,12 +61,29 @@ public final class X509RequestContentParser {
         return new ParsedRequestContent(x509, unsupportedSans);
     }
 
+    /**
+     * Parses an RFC 4514 subject DN string into ordered {@link RdnEntry} entries, using the same BouncyCastle
+     * decoding as {@link #parse(CertificateRequest)}. Blank input yields an empty list.
+     *
+     * @throws IllegalArgumentException when the DN string is not parseable
+     */
+    public static List<RdnEntry> parseSubjectDn(String subjectDn) {
+        if (subjectDn == null || subjectDn.isBlank()) {
+            return new ArrayList<>();
+        }
+        return parseSubject(new X500Name(PlatformX500NameStyle.DEFAULT, subjectDn));
+    }
+
     private static List<RdnEntry> parseSubject(CertificateRequest request) {
-        List<RdnEntry> result = new ArrayList<>();
         X500Name subject = request.getSubject();
         if (subject == null) {
-            return result;
+            return new ArrayList<>();
         }
+        return parseSubject(subject);
+    }
+
+    private static List<RdnEntry> parseSubject(X500Name subject) {
+        List<RdnEntry> result = new ArrayList<>();
         for (RDN rdn : subject.getRDNs()) {
             for (AttributeTypeAndValue atv : rdn.getTypesAndValues()) {
                 RdnEntry entry = toRdnEntry(atv);
@@ -95,9 +108,8 @@ public final class X509RequestContentParser {
     }
 
     /**
-     * Resolves an RDN type OID to the short code the platform uses elsewhere (OID registry first,
-     * BC's standard symbols second, dotted OID as the last resort) so validator matching and
-     * violation messages share one vocabulary.
+     * Resolves an RDN type OID to the platform's short code (OID registry, then BC symbols, then the dotted OID)
+     * so validator matching and violation messages share one vocabulary.
      */
     private static String rdnTypeCode(ASN1ObjectIdentifier oid) {
         Map<String, OidRecord> rdnCache = OidHandler.getOidCache(OidCategory.RDN_ATTRIBUTE_TYPE);
@@ -170,9 +182,8 @@ public final class X509RequestContentParser {
     }
 
     /**
-     * Recovers an {@code otherName} SAN with its type-id OID so the validator can match and whitelist on the (type, OID) pair.
-     * A string-typed value keeps its scalar form ({@link ExtensionValueEncoding#UTF8_STRING}, the common UPN case);
-     * any other ASN.1 value is carried as Base64(DER).
+     * Recovers an {@code otherName} SAN with its type-id OID so the validator can match on the (type, OID) pair.
+     * String values keep their scalar form ({@link ExtensionValueEncoding#UTF8_STRING}); others are Base64(DER).
      */
     private static GeneralNameEntry toOtherNameEntry(GeneralName name) throws IOException {
         OtherName otherName = OtherName.getInstance(name.getName());
@@ -231,7 +242,7 @@ public final class X509RequestContentParser {
     /** Encodes one requested extension, skipping the SAN OID (kept in subjectAltNames) and empty values. */
     private static RequestedExtension toRequestedExtension(ASN1ObjectIdentifier oid, Extensions extensions) {
         if (Extension.subjectAlternativeName.equals(oid)) {
-            return null; // SAN lives in subjectAltNames only
+            return null;
         }
         Extension ext = extensions.getExtension(oid);
         String value = Base64.getEncoder().encodeToString(ext.getExtnValue().getOctets());

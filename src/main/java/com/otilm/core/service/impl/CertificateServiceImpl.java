@@ -163,7 +163,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
     private PermissionEvaluator permissionEvaluator;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
@@ -324,7 +324,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Lazy
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyInternalService(CryptographicKeyInternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 
@@ -1129,7 +1129,24 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
         if (signRequest.getFormat() == null) {
             throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
         }
-        Certificate certificate = getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+        // Authorize before locking WITHOUT managing the entity: the RA-profile check makes an external OPA
+        // call (must not run while holding the row lock), and loading the full entity first would make the
+        // locking query below return the already-managed, stale-state instance — defeating the under-lock
+        // re-assert. Fetch only the RA-profile UUID (a scalar projection), authorize, then take the lock so
+        // findAndLockWithAssociationsByUuid loads fresh state under SELECT ... FOR UPDATE.
+        UUID raProfileUuid = certificateRepository.findRaProfileUuidByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        raProfileService.evaluateCertificateRaProfilePermissions(SecuredUUID.fromUUID(certificateUuid),
+                SecuredParentUUID.fromUUID(raProfileUuid));
+        Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // The RA profile can change concurrently (switchRaProfile is allowed on REGISTERED and takes no row
+        // lock) between the authorization above and this locked read. Authorization was evaluated against
+        // raProfileUuid, so reject if the locked row now belongs to a different profile — otherwise a caller
+        // authorized on the old profile could attach a CSR to a certificate under one they do not control.
+        if (!raProfileUuid.equals(certificate.getRaProfileUuid())) {
+            throw new ValidationException("Certificate's RA profile changed during authorization; retry the operation. Certificate: %s".formatted(certificate.toStringShort()));
+        }
         // Defense-in-depth: a CSR is attached only while completing a registered placeholder. The sole
         // caller (issueExistingCertificate) already gates on this, but guard here too so this public method
         // cannot overwrite the request of an ISSUED / REQUESTED / pending certificate.
