@@ -65,6 +65,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -157,6 +158,13 @@ class EventHandlersITest extends BaseSpringBootTest {
 
     private WireMockServer mockServer;
 
+    @AfterEach
+    void tearDown() {
+        if (mockServer != null) {
+            mockServer.stop();
+        }
+    }
+
     @Test
     void testCertificateStatusChangedAndApprovalEvents() throws EventException, NotFoundException, AlreadyExistException, AttributeException {
         Group group = new Group();
@@ -234,8 +242,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         historyList = certificateEventHistoryService.getCertificateEventHistory(certificate.getUuid());
         Assertions.assertEquals(3, historyList.size());
         Assertions.assertEquals(CertificateEvent.APPROVAL_CLOSE, historyList.getFirst().getEvent());
-
-        mockServer.stop();
     }
 
     private void createCertificateTriggerAssociation(ResourceEvent event, Resource eventResource, UUID eventObjectUuid, boolean ignoreTrigger) throws AttributeException, AlreadyExistException, NotFoundException {
@@ -394,7 +400,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, histories.size());
         Assertions.assertTrue(histories.getFirst().isConditionsMatched());
         Assertions.assertTrue(histories.getFirst().isActionsPerformed());
-        mockServer.stop();
     }
 
     @Test
@@ -420,7 +425,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, histories.size());
         Assertions.assertTrue(histories.getFirst().isConditionsMatched());
         Assertions.assertTrue(histories.getFirst().isActionsPerformed());
-        mockServer.stop();
     }
 
     @Test
@@ -580,8 +584,6 @@ class EventHandlersITest extends BaseSpringBootTest {
             Assertions.assertNotNull(eh.getStartedAt());
             Assertions.assertNotNull(eh.getFinishedAt());
         });
-
-        mockServer.stop();
     }
 
     private void mockAuthResponse(NameAndUuidDto userInfo) {
@@ -663,7 +665,6 @@ class EventHandlersITest extends BaseSpringBootTest {
 
         Assertions.assertNotNull(th.getMessage());
         Assertions.assertTrue(th.getMessage().contains(fingerprint), "ignore TriggerHistory.message includes the fingerprint");
-        mockServer.stop();
     }
 
     @Test
@@ -739,7 +740,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto.getCustomAttributes().stream().filter(attr -> CERTIFICATE_CUSTOM_ATTRIBUTE_NAME.equals(attr.getName())).findFirst();
         Assertions.assertTrue(customAttributeDtoOptional.isPresent());
         Assertions.assertEquals("fromRequest", ((List<StringAttributeContentV3>) customAttributeDtoOptional.get().getContent()).getFirst().getData());
-        mockServer.stop();
     }
 
     @Test
@@ -848,8 +848,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         pendingNotification = pendingNotificationRepository.findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(notificationProfileUuids.getLast(), Resource.CERTIFICATE, certificate.getUuid(), ResourceEvent.CERTIFICATE_EXPIRING);
         Assertions.assertNotNull(pendingNotification);
         Assertions.assertEquals(1, pendingNotification.getRepetitions(), "Second notification should be suppressed");
-
-        mockServer.stop();
     }
 
     private List<UUID> prepareDataAndMockServer(WireMockServer mockServer, Group group, UUID ownerUuid, UUID roleUuid) throws NotFoundException, AlreadyExistException {
