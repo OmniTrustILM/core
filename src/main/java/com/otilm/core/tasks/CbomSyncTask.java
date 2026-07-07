@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @NoArgsConstructor
-@Transactional
 public class CbomSyncTask implements ScheduledJobTask {
 
     public static final String NAME = "CbomSyncTask";
@@ -51,6 +50,7 @@ public class CbomSyncTask implements ScheduledJobTask {
     }
 
     @Override
+    @Transactional(noRollbackFor = ScheduledJobSkippedException.class)
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
         if (!cbomService.isCbomRepositoryClientConfigured()) {
             throw new ScheduledJobSkippedException();
