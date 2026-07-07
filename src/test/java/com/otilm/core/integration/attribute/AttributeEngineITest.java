@@ -1,4 +1,4 @@
-package com.otilm.core.attribute;
+package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -57,6 +57,7 @@ import java.security.cert.CertificateException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.Month;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -67,7 +68,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-class AttributeEngineTest extends BaseSpringBootTest {
+class AttributeEngineITest extends BaseSpringBootTest {
 
     private static final String REGISTERED_EXTENSION_OID = "9.9.9.1";
 
@@ -900,7 +901,7 @@ class AttributeEngineTest extends BaseSpringBootTest {
         testAttributeEncryption(AttributeContentType.STRING, new StringAttributeContentV3("sensitiveData"), "sensitiveData");
         testAttributeEncryption(AttributeContentType.INTEGER, new IntegerAttributeContentV3(1), 1);
         testAttributeEncryption(AttributeContentType.TEXT, new TextAttributeContentV3("text"), "text");
-        testAttributeEncryption(AttributeContentType.DATE, new DateAttributeContentV3(LocalDate.of(2024, 1, 1)), LocalDate.of(2024, 1, 1));
+        testAttributeEncryption(AttributeContentType.DATE, new DateAttributeContentV3(LocalDate.of(2024, Month.JANUARY, 1)), LocalDate.of(2024, Month.JANUARY, 1));
         testAttributeEncryption(AttributeContentType.TIME, new TimeAttributeContentV3(LocalTime.of(12, 0)), LocalTime.of(12, 0));
         testAttributeEncryption(AttributeContentType.DATETIME, new DateTimeAttributeContentV3(ZonedDateTime.parse("2024-01-01T12:00:00+00:00")), ZonedDateTime.parse("2024-01-01T12:00:00+00:00"));
         FileAttributeContentData fileAttributeContentData = new FileAttributeContentData();

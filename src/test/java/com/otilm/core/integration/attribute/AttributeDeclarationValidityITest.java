@@ -1,4 +1,4 @@
-package com.otilm.core.attribute;
+package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
@@ -24,7 +24,7 @@ import java.util.UUID;
  * #1622 Task 4b — declaration-validity guard at the ingest choke point: dependsOn and callbackContext are
  * mutually exclusive, and dependsOn is forbidden on a RESOURCE-content attribute.
  */
-class AttributeDeclarationValidityTest extends BaseSpringBootTest {
+class AttributeDeclarationValidityITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeEngine attributeEngine;

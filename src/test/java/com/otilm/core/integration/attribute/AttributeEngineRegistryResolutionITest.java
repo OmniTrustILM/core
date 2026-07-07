@@ -1,4 +1,4 @@
-package com.otilm.core.attribute;
+package com.otilm.core.integration.attribute;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
@@ -24,7 +24,7 @@ import java.util.UUID;
  * accessor must never 500 when two {@code operation=null} rows share a name. The two-row state is created via
  * the engine's own ingest path (registry/callback ingest writes {@code operation=null}).
  */
-class AttributeEngineRegistryResolutionTest extends BaseSpringBootTest {
+class AttributeEngineRegistryResolutionITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeEngine attributeEngine;
