@@ -31,6 +31,7 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
@@ -100,6 +101,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class CertificateServiceTest extends BaseSpringBootTest {
 
@@ -415,7 +419,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             objectAccessDenied.setAllowedObjects(List.of());
             objectAccessDenied.setForbiddenObjects(List.of());
 
-            Mockito.when(
+            when(
                     opaClient.checkObjectAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
             ).thenReturn(objectAccessDenied);
 
@@ -861,7 +865,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(() -> certificateService.getCertificate(certificate.getSecuredUuid())).isInstanceOf(NotFoundException.class);
-            Mockito.verify(notificationProducer, Mockito.times(1)).produceInternalNotificationMessage(
+            verify(notificationProducer, times(1)).produceInternalNotificationMessage(
                     Mockito.eq(Resource.CERTIFICATE),
                     Mockito.eq(nonExistentUuid),
                     Mockito.any(),
@@ -884,7 +888,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             OpaObjectAccessResult objectAccessResult = new OpaObjectAccessResult();
             objectAccessResult.setAllowedObjects(List.of(certificate.getUuid().toString()));
             objectAccessResult.setForbiddenObjects(List.of(forbiddenUuid.toString()));
-            Mockito.when(
+            when(
                     opaClient.checkObjectAccess(
                             Mockito.any(),
                             Mockito.argThat(resource ->
@@ -906,7 +910,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(() -> certificateService.getCertificate(certificate.getSecuredUuid())).isInstanceOf(NotFoundException.class);
             assertThatCode(() -> certificateService.getCertificate(SecuredUUID.fromUUID(forbiddenUuid))).doesNotThrowAnyException();
-            Mockito.verify(notificationProducer, Mockito.times(1)).produceInternalNotificationMessage(
+            verify(notificationProducer, times(1)).produceInternalNotificationMessage(
                     Mockito.eq(Resource.CERTIFICATE),
                     Mockito.eq(forbiddenUuid),
                     Mockito.any(),
@@ -1927,6 +1931,26 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificateRepository.save(notIssued);
             certificateRepository.save(certificate);
             return notIssued;
+        }
+    }
+
+    // ── CSR attach (addCertificateRequestToExisting) ────────────────────────
+    @Nested
+    class CsrAttach {
+
+        @Test
+        void rejectsNonRegisteredCertificate() {
+            // given — a certificate that is not REGISTERED (e.g. still PENDING_ISSUE)
+            Certificate pendingIssue = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
+            UUID uuid = pendingIssue.getUuid();
+            ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+            signRequest.setRequest(SAMPLE_PKCS10);
+            signRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+            // when / then — the locked read re-asserts state under the lock; only REGISTERED may accept a CSR
+            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, signRequest))
+                    .isInstanceOf(ValidationException.class);
         }
     }
 

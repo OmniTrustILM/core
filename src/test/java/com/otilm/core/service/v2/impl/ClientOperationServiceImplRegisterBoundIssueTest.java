@@ -206,15 +206,17 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         AuthorityProviderAdapter plainAdapter = mock(AuthorityProviderAdapter.class);
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(plainAdapter);
 
-        // Only the register-bound branch touches the registration repository, so verifyNoInteractions below is
-        // the load-bearing assertion that the branch was NOT taken. Absorb the unmocked v2 fall-through's failure.
+        // A binding exists (see setUp), so dispatch consults it, but a non-register-capable adapter falls through
+        // to the v2 path. The register-bound branch is characterized by the locked binding read, so verifying it
+        // never runs is the load-bearing assertion that the branch was NOT taken. Absorb the unmocked v2
+        // fall-through's failure.
         try {
             issue();
         } catch (Exception expectedFromUnmockedV2Path) {
             // ignored — see above
         }
 
-        Mockito.verifyNoInteractions(certificateRegistrationRepository);
+        verify(certificateRegistrationRepository, never()).findAndLockByCertificateUuid(certUuid);
     }
 
     @Test
