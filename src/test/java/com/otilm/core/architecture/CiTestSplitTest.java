@@ -127,8 +127,7 @@ class CiTestSplitTest {
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of(
             "service", "util", "signing", "messaging", "security",
-            "api", "attribute", "config", "auth",
-            "aop", "model", "provisioning", "evaluator", "cryptography", "cluster");
+            "api", "attribute", "model", "cryptography");
 
     /**
      * Root-level test files live directly in com/otilm/core (no sub-package) — e.g. ApplicationTests,

@@ -1,9 +1,10 @@
-package com.otilm.core.cluster;
+package com.otilm.core.integration.cluster;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.cluster.ClusterOperationSynchronizer.Operation;
 import com.otilm.core.util.BaseSpringBootTest;
 
@@ -34,7 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * nodes, each on its own thread (its own pooled connection) holding its transaction open, so the
  * nodes genuinely compete for the lock.
  */
-class ClusterOperationSynchronizerTest extends BaseSpringBootTest {
+class ClusterOperationSynchronizerITest extends BaseSpringBootTest {
 
     private static final long AWAIT_TIMEOUT_SECONDS = 15;
 
@@ -176,7 +177,7 @@ class ClusterOperationSynchronizerTest extends BaseSpringBootTest {
         }
 
         private static long countWinners(List<Future<Boolean>> attempts) {
-            return attempts.stream().filter(ClusterOperationSynchronizerTest::awaitOutcome).count();
+            return attempts.stream().filter(ClusterOperationSynchronizerITest::awaitOutcome).count();
         }
 
         void shutdown() {
