@@ -110,7 +110,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     private ClientOperationInternalService clientOperationInternalService;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @MockitoBean
     private CryptographicOperationInternalService cryptographicOperationService;

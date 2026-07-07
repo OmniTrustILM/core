@@ -45,7 +45,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
@@ -74,7 +74,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Autowired
     private AttributeEngine attributeEngine;
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired

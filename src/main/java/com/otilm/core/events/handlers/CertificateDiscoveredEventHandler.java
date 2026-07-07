@@ -25,7 +25,7 @@ import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.producers.ValidationProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.ValidationMessage;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.CertificateUtil;
@@ -69,7 +69,7 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
     private TransactionHandler transactionHandler;
     private ValidationProducer validationProducer;
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private DiscoveryRepository discoveryRepository;
     private DiscoveryCertificateRepository discoveryCertificateRepository;
 
@@ -94,7 +94,7 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

@@ -23,7 +23,7 @@ import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.service.*;
 import com.otilm.core.util.*;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.util.CertificateUtil;
@@ -58,7 +58,7 @@ public class CertificateHandler {
     private ValidationProducer validationProducer;
 
     private ComplianceInternalService complianceService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private CryptographicKeyInternalService cryptographicKeyService;
 
@@ -88,7 +88,7 @@ public class CertificateHandler {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

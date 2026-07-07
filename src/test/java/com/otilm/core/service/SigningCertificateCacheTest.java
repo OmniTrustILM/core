@@ -57,7 +57,7 @@ import java.util.UUID;
 class SigningCertificateCacheTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
 
     @MockitoSpyBean
     private CertificateRepository certificateRepository;

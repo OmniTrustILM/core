@@ -89,7 +89,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private CertificateService certificateService;
+    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
     @Autowired
     private CertificateEventHistoryExternalService certificateEventHistoryService;
     @Autowired

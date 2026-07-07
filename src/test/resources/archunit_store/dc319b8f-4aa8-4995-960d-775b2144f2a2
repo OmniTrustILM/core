@@ -1,4 +1,6 @@
 Method <com.otilm.core.service.impl.AttributeServiceImpl.getResources()> is annotated with @ExternalAuthorizationMissing in (AttributeServiceImpl.java:316)
+Method <com.otilm.core.service.impl.CertificateServiceImpl.checkCompliance(com.otilm.api.model.client.certificate.CertificateComplianceCheckDto)> is annotated with @ExternalAuthorizationMissing in (CertificateServiceImpl.java:1375)
+Method <com.otilm.core.service.impl.CertificateServiceImpl.getSearchableFieldInformationByGroup()> is annotated with @ExternalAuthorizationMissing in (CertificateServiceImpl.java:796)
 Method <com.otilm.core.service.impl.ConnectorServiceImpl.checkHealth(com.otilm.core.security.authz.SecuredUUID)> is annotated with @ExternalAuthorizationMissing in (ConnectorServiceImpl.java:222)
 Method <com.otilm.core.service.impl.CryptographicKeyServiceImpl.compromiseKeyItems(com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto)> is annotated with @ExternalAuthorizationMissing in (CryptographicKeyServiceImpl.java:861)
 Method <com.otilm.core.service.impl.CryptographicKeyServiceImpl.destroyKeyItems(java.util.List)> is annotated with @ExternalAuthorizationMissing in (CryptographicKeyServiceImpl.java:746)

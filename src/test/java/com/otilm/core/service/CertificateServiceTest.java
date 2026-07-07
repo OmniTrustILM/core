@@ -126,7 +126,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private CrlRepository crlRepository;
 
     @Autowired
-    private CertificateService certificateService;
+    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
 
     @Autowired
     private CertificateRepository certificateRepository;

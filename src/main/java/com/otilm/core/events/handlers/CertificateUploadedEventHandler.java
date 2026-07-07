@@ -25,7 +25,7 @@ import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.X509ObjectToString;
 import org.bouncycastle.asn1.x509.Extension;
@@ -46,7 +46,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     private static final Logger logger = LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
 
     private final CertificateRepository certificateRepository;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
@@ -63,7 +63,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

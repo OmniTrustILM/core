@@ -7,7 +7,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import org.springframework.stereotype.Component;
 
 import java.security.cert.CertificateException;
@@ -17,17 +17,21 @@ import static com.otilm.core.util.builders.CertificateUpdateObjectsDtoBuilder.aC
 import static com.otilm.core.util.builders.UploadCertificateRequestDtoBuilder.anUploadCertificateRequest;
 
 /**
- * Uploads X.509 certificates into the platform through {@link CertificateService} and exposes the
+ * Uploads X.509 certificates into the platform through {@link CertificateServiceImpl} and exposes the
  * follow-up actions a test typically needs (marking a CA trusted, running validation). Generation of
  * the certificate is the caller's concern (see {@code CertificateGeneratorHelper}); this class owns the
  * persistence boundary only.
+ *
+ * <p>Depends on the concrete {@code CertificateServiceImpl} rather than either split interface because
+ * it calls methods from both the external face ({@code uploadSync}, {@code updateCertificateObjects},
+ * {@code getCertificateValidationResult}) and the internal face ({@code getCertificateEntity}).</p>
  */
 @Component
 public class CertificateUploader {
 
-    private final CertificateService certificateService;
+    private final CertificateServiceImpl certificateService;
 
-    public CertificateUploader(CertificateService certificateService) {
+    public CertificateUploader(CertificateServiceImpl certificateService) {
         this.certificateService = certificateService;
     }
 

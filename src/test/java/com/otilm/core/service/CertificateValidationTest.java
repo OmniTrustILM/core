@@ -70,7 +70,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 public class CertificateValidationTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
 
     @Autowired
     private CrlService crlService;
