@@ -55,10 +55,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -71,9 +71,12 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class ClientOperationServiceV2Test extends BaseSpringBootTest {
@@ -133,7 +136,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
-    @Autowired
+    @MockitoSpyBean
     private CertificateRepository certificateRepository;
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
@@ -393,7 +396,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         request.setAltKeyUuid(altKey.getUuid());
         request.setAltTokenProfileUuid(altKey.getTokenProfileUuid());
         request.setAltSignatureAttributes(List.of());
-        Mockito.when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
+        when(cryptographicOperationService.generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), eq(altKey.getTokenProfileUuid()), anyList())).thenReturn("MIIBUjCBvAIBADATMREwDwYDVQQDDAhuZXdfY2VydDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA52WsWllsOi/XtK8VcKHN63Mhk6awMboP9iuwgtPXzkFLV/wILHH+YPAJcS8dP037SZQlAng9dF+IoLHn7WFYmQqqgkObWoH1+5LxHjkPRRNPJLKPtxfM/V+IafsddK7a5TiVD+PiKjoWQaGHVEieozV1fK2BfqVbenKbYMupGVkCAwEAAaAAMA0GCSqGSIb3DQEBBAUAA4GBALtgmv31dFCSO+KnXWeaGEVr2H8g6O0D/RS8xoTRF4yHIgU84EXL5ZWUxhLF6mAXP1de0IfeEf95gGrU9FQ7tdUnwfsBZCIhHOQ/PdzVhRRhaVaPK8N+/g1GyXM/mC074u8y+VoyhHTqAlnbGwzyJkLnVwJ0/jLiRaTdvn7zFDWr");
         SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
         SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
         String certificateUuid = String.valueOf(certificate.getUuid());
@@ -1215,6 +1218,36 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 "an ISSUE/FAILED audit row must be written after a sync connector error");
     }
 
+    /**
+     * Concurrency guard: the claim of a certificate for issuance now happens under a
+     * pessimistic row lock, and the state is re-asserted under that lock. A second ISSUE action for
+     * a certificate already claimed to PENDING_ISSUE (the state a concurrent winner leaves behind)
+     * must be a benign no-op — it must NOT call the connector again and must NOT drive the cert to
+     * FAILED (PENDING_ISSUE -> FAILED is a legal transition, so a wrong path here would fail the
+     * winner's in-flight issuance).
+     */
+    @Test
+    void issueCertificateAction_benignSkip_whenAlreadyPendingIssue_doesNotCallConnectorOrFail() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        certificate.setState(CertificateState.PENDING_ISSUE);
+        certificateRepository.save(certificate);
+
+        // Stub the issue endpoint so that, were the skip broken and the connector called, the call
+        // would still succeed — leaving the verify(0) below as the decisive proof it was not called.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.aResponse().withStatus(202)));
+
+        Assertions.assertDoesNotThrow(() -> clientOperationInternalService.issueCertificateAction(certUuid, true));
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState(),
+                "a duplicate ISSUE for a cert already claimed to PENDING_ISSUE must leave it in PENDING_ISSUE, not FAILED");
+
+        mockServer.verify(0, WireMock.postRequestedFor(
+                WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue")));
+    }
+
     @Test
     void revokeCertificateAction_transitionsToPendingRevoke_when202FromConnector() throws Exception {
         mockServer.stubFor(WireMock
@@ -1707,6 +1740,77 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                         req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending_issue"),
                 "expected error mentioning PENDING_ISSUE state, got: " + ex.getMessage());
+    }
+
+    /**
+     * Concurrency guard: the PENDING_ISSUE -> ISSUED finalize now runs under a pessimistic
+     * row lock and re-asserts PENDING_ISSUE after acquiring it. This models the losing side of a race —
+     * the outer (unlocked) checks and the connector identify all saw PENDING_ISSUE, but by the time the
+     * lock is acquired a concurrent upload has already finalized the certificate to ISSUED. Only the
+     * re-assert under the lock can catch this; it must reject the duplicate rather than finalizing twice.
+     * The locked read is stubbed to return an already-ISSUED row so the scenario is deterministic.
+     */
+    @Test
+    void manuallyIssueCertificate_reassertUnderLock_blocksWhenConcurrentUploadAlreadyFinalized() throws Exception {
+        KeyPair kp = setupPendingIssueCertWithRealCsr();
+        String certBase64 = buildSelfSignedCertBase64(kp, "test-pending-issue");
+
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                .willReturn(WireMock.okJson("{\"meta\":[]}")));
+
+        // The real row stays PENDING_ISSUE (so the outer read + identify pass), but the row observed under
+        // the lock is ISSUED — as if a concurrent upload committed the finalize just before we locked.
+        Certificate alreadyIssued = new Certificate();
+        alreadyIssued.setState(CertificateState.ISSUED);
+        doReturn(Optional.of(alreadyIssued))
+                .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
+
+        UploadCertificateRequestDto req = new UploadCertificateRequestDto();
+        req.setCertificate(certBase64);
+        req.setCustomAttributes(List.of());
+
+        // Build args outside the lambda so only manuallyIssueCertificate can throw inside assertThrows.
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending_issue"),
+                "expected the re-assert under the lock to reject with a PENDING_ISSUE message, got: " + ex.getMessage());
+
+        // The losing upload must not have finalized: the real row is untouched, still PENDING_ISSUE.
+        // (findByUuid is unstubbed, so the spy delegates to the real repository here.)
+        Certificate afterAttempt = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, afterAttempt.getState(),
+                "the losing concurrent upload must not finalize the certificate");
+    }
+
+    /**
+     * Concurrency guard on the CSR-attach path: addCertificateRequestToExisting authorizes against the RA
+     * profile read before the lock, then attaches the CSR to the row read under the lock. switchRaProfile
+     * is allowed on REGISTERED certificates and takes no row lock, so a concurrent switch can move the
+     * certificate between those two reads. The re-assert under the lock must reject when the locked row no
+     * longer belongs to the authorized profile — otherwise a caller authorized on the old profile could
+     * attach a CSR to a certificate under one they do not control. The locked read is stubbed to return a
+     * row under a different (here, removed) profile so the scenario is deterministic.
+     */
+    @Test
+    void addCertificateRequestToExisting_reassertUnderLock_rejectsWhenRaProfileChangedDuringAuthorization() throws Exception {
+        Certificate switchedAway = new Certificate();
+        switchedAway.setState(CertificateState.REGISTERED);   // raProfileUuid left null: profile changed away
+        doReturn(Optional.of(switchedAway))
+                .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
+
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest(SAMPLE_PKCS10);
+        signRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+        UUID certUuid = certificate.getUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
+                certificateService.addCertificateRequestToExisting(certUuid, signRequest));
+        Assertions.assertTrue(ex.getMessage().contains("RA profile changed"),
+                "expected the re-assert under the lock to reject on RA-profile change, got: " + ex.getMessage());
     }
 
     @Test

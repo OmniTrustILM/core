@@ -285,6 +285,11 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
     Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
 
+    /** Scalar projection of the RA-profile UUID — authorize without managing the full entity (so a later
+     * locking read returns fresh state, not an already-managed stale instance). */
+    @Query("SELECT c.raProfileUuid FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<UUID> findRaProfileUuidByUuid(@Param("uuid") UUID uuid);
+
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}certificate (
