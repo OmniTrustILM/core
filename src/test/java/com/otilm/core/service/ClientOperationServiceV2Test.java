@@ -1785,6 +1785,33 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 "the losing concurrent upload must not finalize the certificate");
     }
 
+    /**
+     * Concurrency guard on the CSR-attach path: addCertificateRequestToExisting authorizes against the RA
+     * profile read before the lock, then attaches the CSR to the row read under the lock. switchRaProfile
+     * is allowed on REGISTERED certificates and takes no row lock, so a concurrent switch can move the
+     * certificate between those two reads. The re-assert under the lock must reject when the locked row no
+     * longer belongs to the authorized profile — otherwise a caller authorized on the old profile could
+     * attach a CSR to a certificate under one they do not control. The locked read is stubbed to return a
+     * row under a different (here, removed) profile so the scenario is deterministic.
+     */
+    @Test
+    void addCertificateRequestToExisting_reassertUnderLock_rejectsWhenRaProfileChangedDuringAuthorization() throws Exception {
+        Certificate switchedAway = new Certificate();
+        switchedAway.setState(CertificateState.REGISTERED);   // raProfileUuid left null: profile changed away
+        Mockito.doReturn(Optional.of(switchedAway))
+                .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
+
+        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        signRequest.setRequest(SAMPLE_PKCS10);
+        signRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+        UUID certUuid = certificate.getUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
+                certificateService.addCertificateRequestToExisting(certUuid, signRequest));
+        Assertions.assertTrue(ex.getMessage().contains("RA profile changed"),
+                "expected the re-assert under the lock to reject on RA-profile change, got: " + ex.getMessage());
+    }
+
     @Test
     void manuallyIssueCertificate_blocksOnPublicKeyMismatch() throws Exception {
         setupPendingIssueCertWithRealCsr();

@@ -1140,6 +1140,13 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
                 SecuredParentUUID.fromUUID(raProfileUuid));
         Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // The RA profile can change concurrently (switchRaProfile is allowed on REGISTERED and takes no row
+        // lock) between the authorization above and this locked read. Authorization was evaluated against
+        // raProfileUuid, so reject if the locked row now belongs to a different profile — otherwise a caller
+        // authorized on the old profile could attach a CSR to a certificate under one they do not control.
+        if (!raProfileUuid.equals(certificate.getRaProfileUuid())) {
+            throw new ValidationException("Certificate's RA profile changed during authorization; retry the operation. Certificate: %s".formatted(certificate.toStringShort()));
+        }
         // Defense-in-depth: a CSR is attached only while completing a registered placeholder. The sole
         // caller (issueExistingCertificate) already gates on this, but guard here too so this public method
         // cannot overwrite the request of an ISSUED / REQUESTED / pending certificate.
