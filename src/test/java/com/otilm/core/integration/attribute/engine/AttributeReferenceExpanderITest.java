@@ -1,4 +1,4 @@
-package com.otilm.core.attribute.engine;
+package com.otilm.core.integration.attribute.engine;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -9,6 +9,7 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectConten
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.EntityInstanceReference;
@@ -39,7 +40,7 @@ import java.util.UUID;
  * closed via OPA and never returns the credential blob to an unauthorized caller. Also asserts the N3 invariant
  * (the ambient principal is unchanged after expansion — no setAuthentication).
  */
-class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
+class AttributeReferenceExpanderITest extends BaseSpringBootTest {
 
     @Autowired
     private AttributeReferenceExpander expander;
@@ -90,8 +91,10 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
         denyResourceAccess(Resource.CREDENTIAL, ResourceAction.DETAIL);
 
         RequestAttribute attr = credentialRef(credential.getUuid());
+        List<RequestAttribute> attrs = List.of(attr);
+        Set<String> expandedSecrets = new HashSet<>();
         Assertions.assertThrows(AccessDeniedException.class,
-                () -> expander.expandForCaller(List.of(attr), new HashSet<>()),
+                () -> expander.expandForCaller(attrs, expandedSecrets),
                 "the live per-object DETAIL aspect must fail closed when OPA denies");
 
         ResourceObjectContent element = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
@@ -156,8 +159,10 @@ class AttributeReferenceExpanderIntegrationTest extends BaseSpringBootTest {
         denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL);
 
         RequestAttribute locationRef = resourceRef(AttributeResource.LOCATION, location.getUuid());
+        List<RequestAttribute> attrs = List.of(locationRef);
+        Set<String> expandedSecrets = new HashSet<>();
         Assertions.assertThrows(AccessDeniedException.class,
-                () -> expander.expandForCaller(List.of(locationRef), new HashSet<>()),
+                () -> expander.expandForCaller(attrs, expandedSecrets),
                 "lacking ENTITY:DETAIL on the owning entity must fail the location expansion closed");
 
         ResourceObjectContent element = (ResourceObjectContent) ((List<?>) locationRef.getContent()).getFirst();

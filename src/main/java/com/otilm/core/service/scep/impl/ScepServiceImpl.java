@@ -38,7 +38,7 @@ import com.otilm.core.provider.PlatformProvider;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateService;
-import com.otilm.core.service.CryptographicKeyService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -110,7 +110,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepTransactionRepository scepTransactionRepository;
     private ClientOperationInternalService clientOperationService;
     private CertificateService certificateService;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
 
@@ -150,7 +150,7 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyInternalService(CryptographicKeyInternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 

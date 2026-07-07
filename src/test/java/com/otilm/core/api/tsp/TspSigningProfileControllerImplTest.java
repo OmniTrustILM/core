@@ -4,7 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.core.aop.AuditResultOverride;
-import com.otilm.core.signing.tsa.TsaService;
+import com.otilm.core.signing.tsa.TsaExternalService;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
@@ -36,13 +36,13 @@ class TspSigningProfileControllerImplTest {
 
     private static final String PROFILE_NAME = "test-signing-profile";
 
-    private TsaService tsaService;
+    private TsaExternalService tsaService;
     private AuditResultOverride auditResultOverride;
     private TspSigningProfileControllerImpl controller;
 
     @BeforeEach
     void setUp() {
-        tsaService = mock(TsaService.class);
+        tsaService = mock(TsaExternalService.class);
         auditResultOverride = mock(AuditResultOverride.class);
         controller = new TspSigningProfileControllerImpl(tsaService, auditResultOverride);
     }

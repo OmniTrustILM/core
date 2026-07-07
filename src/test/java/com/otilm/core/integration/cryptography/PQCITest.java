@@ -1,4 +1,4 @@
-package com.otilm.core.cryptography;
+package com.otilm.core.integration.cryptography;
 
 import com.otilm.core.util.KeySizeUtil;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -27,7 +27,7 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.util.Objects;
 
 @SpringBootTest
-class PQCTests {
+class PQCITest {
 
     public static final String FALCON = "Falcon";
 
@@ -76,32 +76,22 @@ class PQCTests {
     }
 
     @Test
-    void testMLDSACsr() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException, OperatorCreationException, PKCSException {
-        PKCS10CertificationRequest csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44, PURE_ML_DSA, 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
+    void testMLDSAPureCsrUsesPureSignatureEvenWhenHashAliasRequested() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException, OperatorCreationException, PKCSException {
+        assertCsrRoundTrip(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44, PURE_ML_DSA, 10496, MLDSAParameterSpec.ml_dsa_44.getName());
 
         // When generating CSR with key that does not have hash in parameters, HASH-ML-DSA is overwritten to ML-DSA
-        csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44, HASH_ML_DSA, 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
+        assertCsrRoundTrip(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44, HASH_ML_DSA, 10496, MLDSAParameterSpec.ml_dsa_44.getName());
+    }
 
-        csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, HASH_ML_DSA, 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
+    @Test
+    void testMLDSAHashedCsrUsesHashedSignatureForSupportedAliases() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException, OperatorCreationException, PKCSException {
+        assertCsrRoundTrip(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, HASH_ML_DSA, 10496, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName());
+        assertCsrRoundTrip(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, PURE_ML_DSA, 10496, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName());
+        assertCsrRoundTrip(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), 10496, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName());
+    }
 
-        csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, PURE_ML_DSA, 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
-
-        csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
-
-        csr = generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44_with_sha512, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), 10496);
-        Assertions.assertEquals(MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
-        Assertions.assertTrue(verifyCsr(csr));
-
+    @Test
+    void testMLDSARejectsHashedSignatureNameForPureKey() {
         Assertions.assertThrows(OperatorCreationException.class, () -> generateCsr(PURE_ML_DSA, MLDSAParameterSpec.ml_dsa_44, MLDSAParameterSpec.ml_dsa_44_with_sha512.getName(), 10496));
     }
 
@@ -143,6 +133,12 @@ class PQCTests {
         KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(keyAlgorithm, BouncyCastleProvider.PROVIDER_NAME);
         keyPairGenerator.initialize(keyParameters);
         return keyPairGenerator.generateKeyPair();
+    }
+
+    private static void assertCsrRoundTrip(String keyAlgorithm, AlgorithmParameterSpec keyParameters, String signatureAlgorithm, int expectedKeySize, String expectedSignatureAlgorithmName) throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException, OperatorCreationException, PKCSException {
+        PKCS10CertificationRequest csr = generateCsr(keyAlgorithm, keyParameters, signatureAlgorithm, expectedKeySize);
+        Assertions.assertEquals(expectedSignatureAlgorithmName, new DefaultAlgorithmNameFinder().getAlgorithmName(csr.getSignatureAlgorithm()));
+        Assertions.assertTrue(verifyCsr(csr));
     }
 
     private static boolean verifyCsr(PKCS10CertificationRequest csr) throws OperatorCreationException, PKCSException {

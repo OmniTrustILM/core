@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
 class TsaServiceAuthzTest extends BaseSpringBootTest {
 
     @Autowired
-    private TsaService tsaService;
+    private TsaExternalService tsaService;
 
     @MockitoBean
     private ManagedTimestampEngine managedTimestampEngine;
