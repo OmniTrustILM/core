@@ -14,13 +14,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Seeds the least-privilege {@code attribute-content-resolver} system user + role. The platform assumes this identity
- * (via {@code AuthHelper.runAsSystem}, from {@code OperationAttributeResolver}) to resolve an authority's own
- * infrastructure references — connector, credential, certificate, and secret content + vault-profile membership — when assembling an
- * operation-path connector request, so a stateless connector receives inline content without gating on the acting
- * caller (operator, protocol robot, or the principal-less status-poll thread). Grants are exactly the read actions
- * the guarded resolution mechanics touch; object-config kinds (AUTHORITY/ENTITY/LOCATION) resolve via an unguarded
- * engine read and need no grant here.
+ * Seeds the {@code attribute-content-resolver} system user + role. The platform assumes this identity (via
+ * {@code AuthHelper.runAsSystem}, from {@code OperationAttributeResolver}) to resolve an authority's own
+ * infrastructure references into inline content when assembling an operation-path connector request, so a stateless
+ * connector receives usable content without gating on the acting caller (operator, protocol robot, or the
+ * principal-less status-poll thread).
+ * <p>
+ * The role covers every referenceable {@code AttributeResource} kind — including AUTHORITY/ENTITY/LOCATION, which
+ * currently resolve through an unguarded engine read — so that when those reads are eventually guarded the resolver
+ * fails safe (it already holds the grant) rather than starting to deny. The granted pairs are seeded into the auth
+ * service before the role is created: Core's catalog sync runs only after Flyway, so on a fresh install the auth
+ * service would otherwise reject the role for a not-yet-known resource/action.
  */
 // Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
 @SuppressWarnings("java:S101")
@@ -33,17 +37,24 @@ public class V202607031200__CreateAttributeContentResolverUserAndPermissions ext
 
     @Override
     public void migrate(Context context) throws Exception {
-        // create role
         Map<Resource, List<ResourceAction>> roleResourceActions = new EnumMap<>(Resource.class);
         roleResourceActions.put(Resource.CONNECTOR, List.of(ResourceAction.DETAIL));
         roleResourceActions.put(Resource.CREDENTIAL, List.of(ResourceAction.DETAIL));
-        roleResourceActions.put(Resource.SECRET, List.of(ResourceAction.GET_SECRET_CONTENT));
-        roleResourceActions.put(Resource.VAULT_PROFILE, List.of(ResourceAction.MEMBERS));
         roleResourceActions.put(Resource.CERTIFICATE, List.of(ResourceAction.DETAIL));
+        roleResourceActions.put(Resource.AUTHORITY, List.of(ResourceAction.DETAIL));
+        roleResourceActions.put(Resource.ENTITY, List.of(ResourceAction.DETAIL));
+        roleResourceActions.put(Resource.LOCATION, List.of(ResourceAction.DETAIL));
+        roleResourceActions.put(Resource.VAULT_PROFILE, List.of(ResourceAction.MEMBERS));
+        roleResourceActions.put(Resource.SECRET, List.of(ResourceAction.DETAIL, ResourceAction.GET_SECRET_CONTENT));
+
+        // Seed the granted pairs into the auth service before creating the role: the auth service rejects a role
+        // referencing an unknown resource/action, and Core's catalog sync runs only after Flyway. addResources is
+        // additive, so re-seeding long-standing pairs is a safe no-op.
+        DatabaseAuthMigration.seedResources(roleResourceActions);
 
         RoleRequestDto roleRequestDto = new RoleRequestDto();
         roleRequestDto.setName(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME);
-        roleRequestDto.setDescription("System role for resolving an authority's own infrastructure references (connector, credential, secret) when assembling operation-path connector requests");
+        roleRequestDto.setDescription("System role for resolving an authority's own infrastructure references (connector, credential, certificate, secret) when assembling operation-path connector requests");
         roleRequestDto.setSystemRole(true);
         RoleDetailDto role = DatabaseAuthMigration.createRole(roleRequestDto, roleResourceActions);
 

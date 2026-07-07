@@ -73,7 +73,7 @@ public class DatabaseMigration {
         V202509041555__CertificateRequestEntityBitmask(1876867908, true),
         V202509191412__LogRecordsRefactor(79840308, true),
         V202604011901__BackfillExtendedKeyUsageCritical(-1003930180, true),
-        V202607031200__CreateAttributeContentResolverUserAndPermissions(148627376, false);
+        V202607031200__CreateAttributeContentResolverUserAndPermissions(-1805761603, false);
 
         private final int checksum;
 
