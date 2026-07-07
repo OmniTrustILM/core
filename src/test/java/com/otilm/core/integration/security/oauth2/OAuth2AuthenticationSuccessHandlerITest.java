@@ -1,10 +1,11 @@
-package com.otilm.core.security.oauth2;
+package com.otilm.core.integration.security.oauth2;
 
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.core.auth.oauth2.PlatformAuthenticationSuccessHandler;
 import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.security.oauth2.OAuth2TestUtil;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
 import com.nimbusds.jose.JOSEException;
@@ -35,8 +36,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.Mockito.when;
+
 @SpringBootTest
-class OAuth2AuthenticationSuccessHandlerTest {
+class OAuth2AuthenticationSuccessHandlerITest {
 
     @MockitoBean
     OAuth2AuthorizedClientService clientService;
@@ -72,7 +75,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, "username");
         idTokenClaims.put("sub", "sub");
@@ -87,7 +90,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, List.of("audience"), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, "username");
         idTokenClaims.put("sub", "sub");
@@ -103,7 +106,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put("sub", "sub");
         OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusMillis(100), idTokenClaims);
@@ -119,7 +122,7 @@ class OAuth2AuthenticationSuccessHandlerTest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put("sub", "sub");

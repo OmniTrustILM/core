@@ -1,4 +1,4 @@
-package com.otilm.core.security.authz;
+package com.otilm.core.integration.security.authz;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -23,6 +23,8 @@ import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.SecuredResource;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.ComplianceExternalService;
@@ -37,12 +39,16 @@ import org.springframework.security.authorization.AuthorizationDeniedException;
 import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.Mockito.when;
+
 /**
- * End-to-end tests for the {@link ExternalAuthorizationDynamic} annotation exercised through the real Spring
- * AOP stack: the {@code dynamicAuthorizationManagerBeforeMethodInterception} advisor wired in {@code MethodSecurityConfig},
- * the {@link ExternalMethodAuthorizationManager}, and {@link OpaSecuredAnnotationMetadataExtractor}.
+ * End-to-end tests for the {@link com.otilm.core.security.authz.ExternalAuthorizationDynamic} annotation
+ * exercised through the real Spring AOP stack: the {@code dynamicAuthorizationManagerBeforeMethodInterception}
+ * advisor wired in {@code MethodSecurityConfig}, the
+ * {@link com.otilm.core.security.authz.ExternalMethodAuthorizationManager}, and
+ * {@link OpaSecuredAnnotationMetadataExtractor}.
  */
-class ExternalAuthorizationDynamicIntegrationTest extends BaseSpringBootTest {
+class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
 
     @Autowired
     private ResourceExternalService resourceService;
@@ -107,7 +113,7 @@ class ExternalAuthorizationDynamicIntegrationTest extends BaseSpringBootTest {
     }
 
     private void denyResourceAction(Resource resource, ResourceAction action) {
-        Mockito.when(opaClient.checkResourceAccess(Mockito.any(),
+        when(opaClient.checkResourceAccess(Mockito.any(),
                         Mockito.argThat(req -> isRequestFor(req, resource, action)), Mockito.any(), Mockito.any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
     }
