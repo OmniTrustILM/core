@@ -65,7 +65,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     private RaProfileRepository raProfileRepository;
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyExternalService cryptographicKeyService;
     private TokenProfileInternalService tokenProfileService;
     private AttributeEngine attributeEngine;
     private ResourceInternalService resourceService;
@@ -134,7 +134,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
     }
 
     @Autowired
-    public void setCryptographicKeyService(CryptographicKeyService cryptographicKeyService) {
+    public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
         this.cryptographicKeyService = cryptographicKeyService;
     }
 

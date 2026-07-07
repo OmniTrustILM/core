@@ -57,7 +57,7 @@ class SigningCertificateParityTest extends BaseSpringBootTest {
     @Autowired
     private CertificateService certificateService;
     @Autowired
-    private CryptographicKeyService cryptographicKeyService;
+    private CryptographicKeyInternalService cryptographicKeyService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired

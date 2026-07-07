@@ -146,7 +146,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private CryptographicOperationInternalService cryptographicOperationService;
-    private CryptographicKeyService keyService;
+    private CryptographicKeyExternalService keyService;
+    private CryptographicKeyInternalService keyInternalService;
     private AttributeEngine attributeEngine;
     private CertificateRelationRepository certificateRelationRepository;
 
@@ -272,8 +273,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setKeyService(CryptographicKeyService keyService) {
+    public void setKeyService(CryptographicKeyExternalService keyService) {
         this.keyService = keyService;
+    }
+
+    @Autowired
+    public void setKeyInternalService(CryptographicKeyInternalService keyInternalService) {
+        this.keyInternalService = keyInternalService;
     }
 
     @Override
@@ -1648,7 +1654,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (altKeyEncoded != null) {
                 PublicKey publicKey = CertificateUtil.getAltPublicKey(altKeyEncoded);
                 String fingerprint = CertificateUtil.getThumbprint(publicKey.getEncoded());
-                UUID keyWithSameFingerprintUuid = keyService.findKeyByFingerprint(fingerprint);
+                UUID keyWithSameFingerprintUuid = keyInternalService.findKeyByFingerprint(fingerprint);
                 if (altKeyUuid.equals(keyWithSameFingerprintUuid)) {
                     throw new ValidationException(ValidationError.create(
                             "Rekey operation not permitted. Cannot use same alternative key to rekey certificate"
