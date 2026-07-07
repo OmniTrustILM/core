@@ -297,16 +297,15 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         String attributeName = fieldIdentifier.contains("|") ? parseNameAndContentType(fieldIdentifier)[0] : fieldIdentifier;
         List<? extends AttributeContent> attributeContent = null;
         AttributeContentType attributeContentType = null;
-        // A non-null pendingCustomAttributes is authoritative: if the attribute isn't found in it, the DB is not
-        // consulted as a fallback. Only pass a non-null list when it is guaranteed to represent the object's complete
-        // custom attribute state (e.g. a certificate upload request, where nothing else has written attributes yet).
-        if (pendingCustomAttributes != null) {
-            RequestAttribute requestAttribute = pendingCustomAttributes.stream().filter(ra -> Objects.equals(ra.getName(), attributeName)).findFirst().orElse(null);
-            if (requestAttribute != null) {
-                attributeContentType = requestAttribute.getContentType();
-                attributeContent = requestAttribute.getContent();
-            }
-        } else {
+        // Pending (request-supplied) content takes precedence for this specific attribute name — it may not exist in
+        // the DB yet (e.g. a certificate upload request, evaluated before its attributes are persisted). If this
+        // attribute isn't in the pending list, fall through to the DB, which may hold a value written by an earlier
+        // trigger's action in this same evaluation pass (e.g. a SET_FIELD execution).
+        RequestAttribute requestAttribute = pendingCustomAttributes == null ? null : pendingCustomAttributes.stream().filter(ra -> Objects.equals(ra.getName(), attributeName)).findFirst().orElse(null);
+        if (requestAttribute != null) {
+            attributeContentType = requestAttribute.getContentType();
+            attributeContent = requestAttribute.getContent();
+        } else if (objectUuid != null) {
             List<ResponseAttribute> responseAttributes = attributeEngine.getObjectCustomAttributesContent(resource, objectUuid);
             ResponseAttributeV3 attributeToCompare = (ResponseAttributeV3) responseAttributes.stream().filter(rad -> Objects.equals(rad.getName(), attributeName)).findFirst().orElse(null);
             if (attributeToCompare != null) {

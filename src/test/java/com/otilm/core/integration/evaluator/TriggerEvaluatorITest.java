@@ -794,6 +794,41 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testCertificateRuleEvaluatorCustomAttributeFallsBackToDbWhenNotInPendingRequest() throws RuleException, AlreadyExistException, NotFoundException, AttributeException {
+        // Simulates a certificate upload where the request supplied "criticality", but a DIFFERENT custom attribute
+        // ("category") was written directly to the DB by an earlier trigger's SET_FIELD action within the same
+        // evaluation pass. A condition checking "category" must fall back to the DB rather than treat it as absent,
+        // since pendingCustomAttributes only reflects the original request payload, not attributes set by other triggers.
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto categoryAttributeRequest = new CustomAttributeCreateRequestDto();
+        categoryAttributeRequest.setName("category");
+        categoryAttributeRequest.setLabel("category");
+        categoryAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        categoryAttributeRequest.setContentType(AttributeContentType.STRING);
+        categoryAttributeRequest.setList(false);
+        CustomAttributeDefinitionDetailDto categoryAttribute = attributeService.createCustomAttribute(categoryAttributeRequest);
+        attributeEngine.updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null, categoryAttribute.getName(),
+                List.of(new StringAttributeContentV3("ref", "Approved")));
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        ConditionItem categoryCondition = new ConditionItem();
+        categoryCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        categoryCondition.setFieldIdentifier("category|STRING");
+        categoryCondition.setOperator(FilterConditionOperator.EQUALS);
+        categoryCondition.setValue("Approved");
+
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(categoryCondition, newCertificate, Resource.CERTIFICATE, pendingCustomAttributes));
+    }
+
+    @Test
     void testCertificateRuleEvaluatorCustomAttributeFromPendingRequestOnUnpersistedCertificate() throws RuleException {
         // Not saved to the repository: uuid is null, exactly like a certificate mid-upload before saveCertificate() runs
         // (the scenario for CERTIFICATE_UPLOADED ignore-triggers, which run before the certificate exists in the DB at all)
