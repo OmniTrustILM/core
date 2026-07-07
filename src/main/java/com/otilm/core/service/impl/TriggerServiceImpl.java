@@ -288,10 +288,13 @@ public class TriggerServiceImpl implements TriggerExternalService, TriggerIntern
     }
 
     private static boolean isCertificateUploadedEventCompatible(ConditionItem conditionItem) {
-        // Condition should be applicable to not persisted certificate - it can only check its property not tied to another object
+        // Custom Attribute conditions are evaluated against the certificate upload request payload, which is available
+        // even though the certificate itself is not yet persisted at evaluation time.
+        if (conditionItem.getFieldSource() == FilterFieldSource.CUSTOM) return true;
+        // Property conditions can only check the certificate's own property, not one tied to another resource, since the certificate is not yet persisted.
         if (conditionItem.getFieldSource() != FilterFieldSource.PROPERTY) return false;
         FilterField filterField = FilterField.valueOf(conditionItem.getFieldIdentifier());
-        return filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty()) ;
+        return filterField.getFieldResource() == null && (filterField.getJoinAttributes() == null || filterField.getJoinAttributes().isEmpty());
     }
 
     @Override
