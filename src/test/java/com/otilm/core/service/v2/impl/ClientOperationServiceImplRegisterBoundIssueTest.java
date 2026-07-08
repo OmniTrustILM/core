@@ -42,7 +42,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -233,11 +236,13 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(transactionManager, never()).commit(ArgumentMatchers.any());
     }
 
-    @Test
-    void racedStateIsRejectedWithoutConnectorCall() {
+    // Any non-issuable state observed under the lock is rejected before any connector call.
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"FAILED", "PENDING_ISSUE"})
+    void racedStateIsRejectedWithoutConnectorCall(CertificateState racedState) {
         RegisterCapability adapter = registerCapableAdapter();
         Certificate racedRead = new Certificate();
-        racedRead.setState(CertificateState.FAILED);
+        racedRead.setState(racedState);
         when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue)
@@ -245,6 +250,20 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .hasMessageContaining("raced");
 
         Mockito.verifyNoInteractions(adapter);
+    }
+
+    @Test
+    void claimsPendingIssueBeforeCallingConnector() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+
+        issue();
+
+        InOrder inOrder = Mockito.inOrder(stateMachine, adapter);
+        inOrder.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any());
+        inOrder.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -328,11 +347,9 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
-        // The audit message names the actual entry-state label (here "Registered"), not a hardcoded state, so a
-        // PENDING_APPROVAL placeholder taking this same branch would be reported correctly.
         verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
-                ArgumentMatchers.contains("left " + CertificateState.REGISTERED.getLabel() + " for reconciliation"), ArgumentMatchers.eq(""));
+                ArgumentMatchers.contains("left " + CertificateState.PENDING_ISSUE.getLabel() + " for reconciliation"), ArgumentMatchers.eq(""));
     }
 
     @Test
@@ -341,6 +358,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
         when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
 
@@ -359,6 +377,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new IllegalStateException(leakySecret));
         when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -394,11 +413,33 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
                 ArgumentMatchers.argThat(msg -> msg.contains("completing local state failed")
-                        && msg.contains("register-bound issuance failed")
+                        && msg.contains("issuance completion failed")
                         && !msg.contains(leakySecret)),
                 ArgumentMatchers.eq(""));
         // Best-effort binding cleanup (step 4) is skipped because completing local state threw.
         verify(certificateRegistrationWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    @Test
+    void syncOkWithEmptyBodyFailsTheCertificate() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+
+        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+
+        // Empty body is a connector error, fail fast — same terminal arc as a pre-acceptance failure.
+        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateService, never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        // Terminal failure clears the binding, same as the pre-acceptance ConnectorException branch.
+        verify(certificateRegistrationWriter).clear(certUuid);
+        // Must NOT be routed through the "reconcile manually" state-divergence path.
+        verify(certificateEventHistoryService, never()).addEventHistory(
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
     }
 
     // The binding, not the state, is the dispatch discriminator: a placeholder moved to PENDING_APPROVAL still

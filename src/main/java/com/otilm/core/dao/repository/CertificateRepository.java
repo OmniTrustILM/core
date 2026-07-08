@@ -66,16 +66,14 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     Optional<Certificate> findForPollingByUuid(UUID uuid);
 
     /**
-     * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven
-     * pending-state endpoints (manuallyIssueCertificate, manuallyConfirmRevoke,
-     * cancelPendingCertificateOperation). Issues {@code SELECT ... FOR UPDATE} on the
-     * certificate row so concurrent operator actions on the same pending certificate
-     * serialize. Must be called inside an active transaction, otherwise the lock is
+     * Pessimistic-write variant of {@link #findWithAssociationsByUuid} for the operator-driven pending-state endpoints and for {@code issuePlainCertificateAction}.
+     * Issues {@code SELECT ... FOR UPDATE} on the certificate row. Must be called inside an active transaction, otherwise the lock is
      * released immediately on query completion.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items",
-            "raProfile", "raProfile.authorityInstanceReference"})
+            "raProfile", "raProfile.authorityInstanceReference", "raProfile.authorityInstanceReference.connectorInterface",
+            "raProfile.authorityInstanceReference.connector"})
     Optional<Certificate> findAndLockWithAssociationsByUuid(UUID uuid);
 
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
