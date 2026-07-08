@@ -1,4 +1,4 @@
-package com.otilm.core.signing.tsa;
+package com.otilm.core.integration.signing.tsa;
 
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
@@ -21,6 +21,8 @@ import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.signing.tsa.ManagedTimestampEngine;
+import com.otilm.core.signing.tsa.TsaExternalService;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.resolver.SigningProfileResolverFactory;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -44,7 +46,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class TsaServiceAuthzTest extends BaseSpringBootTest {
+class TsaServiceAuthzITest extends BaseSpringBootTest {
 
     @Autowired
     private TsaExternalService tsaService;
