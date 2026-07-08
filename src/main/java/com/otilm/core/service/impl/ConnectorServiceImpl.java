@@ -25,7 +25,6 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorExternalService;
@@ -217,7 +216,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DETAIL)
     public HealthDto checkHealth(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo connectorDto = getConnectorForApiClient(uuid.getValue());
         return connectorApiFactory.getHealthApiClient(connectorDto).checkHealth(connectorDto);

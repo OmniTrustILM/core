@@ -38,7 +38,6 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -264,7 +263,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         return getSearchableFieldsMap();
     }
@@ -504,13 +503,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENABLE, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public void enableKeyItems(List<String> uuids) {
         setKeyItemsEnabled(uuids, true, true);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENABLE, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public void disableKeyItems(List<String> uuids) {
         setKeyItemsEnabled(uuids, true, false);
     }
@@ -741,7 +740,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DELETE, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public void destroyKeyItems(List<String> keyItemUuids) throws ConnectorException {
         destroyKeyItems(keyItemUuids, true);
     }
@@ -856,7 +855,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.UPDATE, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public void compromiseKeyItems(BulkCompromiseKeyItemRequestDto request) {
         compromiseKeyItems(request.getUuids(), true, request.getReason());
     }
@@ -894,9 +893,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.UPDATE, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public void updateKeyItemUsages(BulkKeyItemUsageRequestDto request) {
-        setKeyItemsUsages(request.getUuids(), request.getUsage(), false);
+        setKeyItemsUsages(request.getUuids(), request.getUsage(), true);
     }
 
     @Override

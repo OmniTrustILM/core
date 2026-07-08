@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.*;
@@ -884,6 +885,18 @@ class CryptographicKeyServiceTest extends BaseSpringBootTest {
         nameAndUuidDto = cryptographicKeyInternalService.getResourceObjectExternal(key.getSecuredUuid());
         Assertions.assertEquals(key.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(key.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void getSearchableFieldInformation_deniesWhenUnauthorized() {
+        // given - the caller is denied the CRYPTOGRAPHIC_KEY LIST resource action
+        denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.LIST);
+
+        // when / then - @ExternalAuthorization rejects before the method body runs
+        Assertions.assertThrows(
+                AccessDeniedException.class,
+                () -> cryptographicKeyService.getSearchableFieldInformation()
+        );
     }
 
     private void mockConnectorDeleteKey() {

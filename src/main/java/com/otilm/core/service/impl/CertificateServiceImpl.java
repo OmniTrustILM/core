@@ -71,7 +71,6 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -791,7 +790,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CERTIFICATE, false);
 
@@ -1370,11 +1369,11 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Async
-    @ExternalAuthorizationMissing
-    public void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException {
-        for (String uuid : request.getCertificateUuids()) {
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CHECK_COMPLIANCE)
+    public void checkCompliance(List<SecuredUUID> uuids) throws NotFoundException {
+        for (SecuredUUID uuid : uuids) {
             try {
-                Certificate certificateEntity = getCertificateEntity(SecuredUUID.fromString(uuid));
+                Certificate certificateEntity = getCertificateEntity(uuid);
                 complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificateEntity.getUuid());
             } catch (Exception e) {
                 log.error("Compliance check failed.", e);

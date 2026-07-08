@@ -73,6 +73,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
@@ -1074,14 +1075,23 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificate.setArchived(true);
             certificateRepository.save(certificate);
             ComplianceStatus oldComplianceStatus = certificate.getComplianceStatus();
-            CertificateComplianceCheckDto request = new CertificateComplianceCheckDto();
-            request.setCertificateUuids(List.of(certificate.getUuid().toString()));
 
             // when
-            certificateService.checkCompliance(request);
+            certificateService.checkCompliance(List.of(SecuredUUID.fromUUID(certificate.getUuid())));
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).get().getComplianceStatus()).isEqualTo(oldComplianceStatus);
+        }
+
+        @Test
+        void deniesCheckCompliance_whenUnauthorized() {
+            // given - the caller is denied the CERTIFICATE CHECK_COMPLIANCE resource action
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.CHECK_COMPLIANCE);
+            List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(certificate.getUuid()));
+
+            // when / then - @ExternalAuthorization rejects before the method body runs
+            assertThatThrownBy(() -> certificateService.checkCompliance(uuids))
+                    .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
