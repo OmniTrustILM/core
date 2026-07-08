@@ -60,7 +60,8 @@ class RegistrationChallengeStoreTest extends BaseSpringBootTest {
 
     @Test
     void resolvePlaintextRejectsUnpopulatedRow() {
-        assertThatThrownBy(() -> challengeStore.resolvePlaintext(new CertificateRegistrationAuthorization()))
+        CertificateRegistrationAuthorization row = new CertificateRegistrationAuthorization();
+        assertThatThrownBy(() -> challengeStore.resolvePlaintext(row))
                 .isInstanceOf(IllegalStateException.class);
     }
 }
