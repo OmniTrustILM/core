@@ -360,7 +360,10 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
                 String fingerprint = certificateUploadService.upload(certificateData, certificateCustomAttributes, true);
                 certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
                 logger.getLogger().debug("New Certificate uploaded for the user");
-            } catch (Exception e) {
+            } catch (ValidationException e) {
+                throw e;
+            }
+            catch (Exception e) {
                 throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
             }
         } else {
