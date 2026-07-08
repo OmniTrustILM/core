@@ -1,4 +1,4 @@
-package com.otilm.core.messaging.proxy;
+package com.otilm.core.integration.messaging.proxy;
 
 import com.otilm.api.clients.mq.model.ConnectorResponse;
 import com.otilm.api.clients.mq.model.CoreMessage;
@@ -6,6 +6,8 @@ import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.proxy.ProxyDto;
+import com.otilm.core.messaging.proxy.ProxyClientImpl;
+import com.otilm.core.messaging.proxy.ProxyMessageCorrelator;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +33,7 @@ import static org.mockito.Mockito.*;
  * Integration tests for {@link ProxyClientImpl}.
  * Tests end-to-end proxy request/response flow with mocked JMS.
  */
-class ProxyClientIntegrationTest extends BaseSpringBootTest {
+class ProxyClientITest extends BaseSpringBootTest {
 
     @MockitoBean
     private JmsTemplate jmsTemplate;

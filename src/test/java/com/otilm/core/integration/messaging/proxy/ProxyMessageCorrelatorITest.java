@@ -1,7 +1,9 @@
-package com.otilm.core.messaging.proxy;
+package com.otilm.core.integration.messaging.proxy;
 
 import com.otilm.api.clients.mq.model.ConnectorResponse;
 import com.otilm.api.clients.mq.model.ProxyMessage;
+import com.otilm.core.messaging.proxy.ProxyMessageCorrelator;
+import com.otilm.core.messaging.proxy.ProxyProperties;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +25,7 @@ import static org.awaitility.Awaitility.await;
  * Integration tests for {@link ProxyMessageCorrelator}.
  * Tests real timeout behavior, threading, and capacity enforcement with Spring context.
  */
-class ProxyMessageCorrelatorIntegrationTest extends BaseSpringBootTest {
+class ProxyMessageCorrelatorITest extends BaseSpringBootTest {
 
     @Autowired
     private ProxyProperties proxyProperties;
