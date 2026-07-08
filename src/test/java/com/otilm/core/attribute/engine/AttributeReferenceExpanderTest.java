@@ -7,6 +7,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -123,6 +124,26 @@ class AttributeReferenceExpanderTest {
         }
     }
 
+    @Test
+    void expandsStoredSecretReferenceAndArmsContainment() throws Exception {
+        // A STORED SECRET reference (e.g. an authority's OAuth-client secret) resolves to inline content via the
+        // registry's SECRET loader — it is no longer passed through as a bare reference. Expanding a secret also arms
+        // the outbound value-echo containment so the resolved secret cannot be reflected back by the connector.
+        UUID uuid = UUID.randomUUID();
+        ResourceSecretContentData secretBlob = new ResourceSecretContentData();
+        registerLoader(AttributeResource.SECRET, securedUuid -> {
+            assertEquals(uuid, securedUuid.getValue());
+            return secretBlob;
+        });
+
+        RequestAttribute attr = resourceRef(AttributeResource.SECRET, uuid);
+        expander.expandForCaller(List.of(attr), expandedSecrets);
+
+        ResourceObjectContent element = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
+        assertSame(secretBlob, element.getData(), "a stored SECRET reference must resolve to its inline content");
+        verify(containment).recordExpandedSecrets(secretBlob, expandedSecrets);
+    }
+
     // ---- AC2: fail-closed ----------------------------------------------------------------------
 
     @Test
@@ -166,15 +187,15 @@ class AttributeReferenceExpanderTest {
     @Test
     void passesThroughKindsWithoutAConnectorConsumableBlob() throws Exception {
         UUID uuid = UUID.randomUUID();
-        when(registry.loaderFor(AttributeResource.SECRET)).thenReturn(null);
+        when(registry.loaderFor(AttributeResource.CERTIFICATE)).thenReturn(null);
 
-        RequestAttribute attr = resourceRef(AttributeResource.SECRET, uuid);
+        RequestAttribute attr = resourceRef(AttributeResource.CERTIFICATE, uuid);
         ResourceObjectContent before = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
         ResourceObjectContentData original = before.getData();
 
         expander.expandForCaller(List.of(attr), expandedSecrets);
 
-        assertSame(original, before.getData(), "a pass-through kind (SECRET) must be left untouched");
+        assertSame(original, before.getData(), "a pass-through kind (CERTIFICATE) must be left untouched");
         verify(containment, never()).recordExpandedSecrets(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 

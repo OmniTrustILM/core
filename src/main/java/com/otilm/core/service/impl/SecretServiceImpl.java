@@ -832,6 +832,16 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
+    public ResourceObjectContentData getAuthorizedObjectAttributes(SecuredUUID objectUuid) throws NotFoundException, ConnectorException, AttributeException {
+        // Dereference a stored SECRET reference (for example an authority's OAuth-client secret) so a stateless
+        // connector receives usable inline content instead of a bare reference. Object-scoped GET_SECRET_CONTENT on
+        // this SecuredUUID, plus the vault-profile-membership gate inside getSecretContent, authorize the ambient
+        // caller per object; the reference expander resolves secrets only through this guarded method.
+        return getResourceObjectContent(objectUuid.getValue());
+    }
+
+    @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         Secret secret = getSecretEntity(objectUuid.getValue());
