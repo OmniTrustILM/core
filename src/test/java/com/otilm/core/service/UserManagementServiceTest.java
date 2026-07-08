@@ -42,6 +42,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class UserManagementServiceTest extends BaseSpringBootTest {
 
@@ -102,9 +105,9 @@ class UserManagementServiceTest extends BaseSpringBootTest {
         // A fingerprint different from the submitted certificate's thumbprint, so the initial inventory
         // lookup misses and the upload path is taken; the mocked upload then "produces" this row.
         Certificate uploadedCertificate = saveCertificate("uploaded-fingerprint");
-        Mockito.when(certificateUploadService.upload(Mockito.anyString(), Mockito.anyList(), Mockito.anyBoolean()))
+       when(certificateUploadService.upload(anyString(), anyList(), anyBoolean()))
                 .thenReturn(uploadedCertificate.getFingerprint());
-        Mockito.when(userManagementApiClient.createUser(Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
 
         List<RequestAttribute> certificateCustomAttributes = List.of(certificateCustomAttribute());
         AddUserRequestDto request = new AddUserRequestDto();
@@ -114,13 +117,13 @@ class UserManagementServiceTest extends BaseSpringBootTest {
 
         userManagementService.createUser(request);
 
-        Mockito.verify(certificateUploadService).upload(certificateData, certificateCustomAttributes, true);
+        verify(certificateUploadService).upload(certificateData, certificateCustomAttributes, true);
     }
 
     @Test
     void testCertificateCustomAttributesIgnoredForExistingCertificateReferencedByUuid() throws Exception {
         Certificate existingCertificate = saveCertificate("existing-by-uuid-fingerprint");
-        Mockito.when(userManagementApiClient.createUser(Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
 
         AddUserRequestDto request = new AddUserRequestDto();
         request.setUsername("userWithExistingCertificateByUuid");
@@ -129,7 +132,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
 
         userManagementService.createUser(request);
 
-        Mockito.verify(certificateUploadService, Mockito.never()).upload(Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+        verify(certificateUploadService, never()).upload(any(),any(), anyBoolean());
         Assertions.assertTrue(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, existingCertificate.getUuid()).isEmpty());
     }
 
@@ -137,7 +140,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
     void testCertificateCustomAttributesIgnoredForExistingCertificateMatchedByFingerprint() throws Exception {
         X509Certificate x509Certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=existing-user-cert");
         Certificate existingCertificate = saveCertificate(CertificateUtil.getThumbprint(x509Certificate));
-        Mockito.when(userManagementApiClient.createUser(Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
 
         AddUserRequestDto request = new AddUserRequestDto();
         request.setUsername("userWithExistingCertificateByFingerprint");
@@ -146,13 +149,13 @@ class UserManagementServiceTest extends BaseSpringBootTest {
 
         userManagementService.createUser(request);
 
-        Mockito.verify(certificateUploadService, Mockito.never()).upload(Mockito.any(), Mockito.any(), Mockito.anyBoolean());
+        verify(certificateUploadService, never()).upload(any(), any(), anyBoolean());
         Assertions.assertTrue(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, existingCertificate.getUuid()).isEmpty());
     }
 
     @Test
     void testCreateUserWithoutGroupUuidsCreatesUserWithEmptyGroups() {
-        Mockito.when(userManagementApiClient.createUser(Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
 
         AddUserRequestDto request = new AddUserRequestDto();
         request.setUsername("userWithoutGroups");
@@ -161,14 +164,14 @@ class UserManagementServiceTest extends BaseSpringBootTest {
         Assertions.assertDoesNotThrow(() -> userManagementService.createUser(request));
 
         ArgumentCaptor<UserRequestDto> requestCaptor = ArgumentCaptor.forClass(UserRequestDto.class);
-        Mockito.verify(userManagementApiClient).createUser(requestCaptor.capture());
+        verify(userManagementApiClient).createUser(requestCaptor.capture());
         Assertions.assertTrue(requestCaptor.getValue().getGroups().isEmpty());
     }
 
     @Test
     void testUploadValidationErrorPropagatesAsValidationException() throws Exception {
         X509Certificate x509Certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=rejected-user-cert");
-        Mockito.when(certificateUploadService.upload(Mockito.anyString(), Mockito.anyList(), Mockito.anyBoolean()))
+        when(certificateUploadService.upload(anyString(), anyList(), anyBoolean()))
                 .thenThrow(new ValidationException("Certificate custom attributes are not valid."));
 
         AddUserRequestDto request = new AddUserRequestDto();
@@ -182,7 +185,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
     @Test
     void testUpdateUserWithExistingCertificate() throws Exception {
         Certificate existingCertificate = saveCertificate("update-existing-fingerprint");
-        Mockito.when(userManagementApiClient.updateUser(Mockito.anyString(), Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.updateUser(anyString(), any())).thenReturn(userDetailDto());
 
         UpdateUserRequestDto request = new UpdateUserRequestDto();
         request.setCertificateUuid(existingCertificate.getUuid().toString());
@@ -191,7 +194,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
         userManagementService.updateUser(userUuid, request);
 
         ArgumentCaptor<UserUpdateRequestDto> requestCaptor = ArgumentCaptor.forClass(UserUpdateRequestDto.class);
-        Mockito.verify(userManagementApiClient).updateUser(Mockito.eq(userUuid), requestCaptor.capture());
+        verify(userManagementApiClient).updateUser(eq(userUuid), requestCaptor.capture());
         Assertions.assertEquals(existingCertificate.getUuid().toString(), requestCaptor.getValue().getCertificateUuid());
         Assertions.assertEquals(existingCertificate.getFingerprint(), requestCaptor.getValue().getCertificateFingerprint());
     }
@@ -200,7 +203,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
     void testUpdateUserWithGroupUuidsResolvesGroups() throws Exception {
         Group firstGroup = saveGroup("first-group");
         Group secondGroup = saveGroup("second-group");
-        Mockito.when(userManagementApiClient.updateUser(Mockito.anyString(), Mockito.any())).thenReturn(userDetailDto());
+        when(userManagementApiClient.updateUser(anyString(), any())).thenReturn(userDetailDto());
 
         UpdateUserRequestDto request = new UpdateUserRequestDto();
         request.setGroupUuids(List.of(firstGroup.getUuid().toString(), secondGroup.getUuid().toString()));
@@ -209,7 +212,7 @@ class UserManagementServiceTest extends BaseSpringBootTest {
         userManagementService.updateUser(userUuid, request);
 
         ArgumentCaptor<UserUpdateRequestDto> requestCaptor = ArgumentCaptor.forClass(UserUpdateRequestDto.class);
-        Mockito.verify(userManagementApiClient).updateUser(Mockito.eq(userUuid), requestCaptor.capture());
+        verify(userManagementApiClient).updateUser(eq(userUuid), requestCaptor.capture());
         Assertions.assertEquals(
                 List.of(new NameAndUuidDto(firstGroup.getUuid(), firstGroup.getName()), new NameAndUuidDto(secondGroup.getUuid(), secondGroup.getName())),
                 requestCaptor.getValue().getGroups());

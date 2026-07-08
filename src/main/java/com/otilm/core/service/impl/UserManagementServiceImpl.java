@@ -356,16 +356,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         }
 
         if (uploadCertificate) {
-            try {
-                String fingerprint = certificateUploadService.upload(certificateData, certificateCustomAttributes, true);
-                certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
-                logger.getLogger().debug("New Certificate uploaded for the user");
-            } catch (ValidationException e) {
-                throw e;
-            }
-            catch (Exception e) {
-                throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
-            }
+            certificate = uploadCertificate(certificateData, certificateCustomAttributes);
         } else {
             if (certificate.isArchived())
                 throw new ValidationException("Cannot assign archived certificate to the user.");
@@ -378,6 +369,21 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
             if (certificateCustomAttributes != null && !certificateCustomAttributes.isEmpty()) {
                 logger.getLogger().warn("Certificate custom attributes were provided but ignored because certificate {} already exists in the inventory and was not uploaded", certificate.getUuid());
             }
+        }
+        return certificate;
+    }
+
+    private Certificate uploadCertificate(String certificateData, List<RequestAttribute> certificateCustomAttributes) throws CertificateException {
+        Certificate certificate;
+        try {
+            String fingerprint = certificateUploadService.upload(certificateData, certificateCustomAttributes, true);
+            certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
+            logger.getLogger().debug("New Certificate uploaded for the user");
+        } catch (ValidationException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
         }
         return certificate;
     }
