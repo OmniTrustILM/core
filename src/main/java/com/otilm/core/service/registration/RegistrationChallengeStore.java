@@ -21,6 +21,11 @@ public class RegistrationChallengeStore {
      * the row within its own transaction.
      */
     public void store(CertificateRegistrationAuthorization row, String plaintext) {
+        // Fail fast: a null/blank challenge would encode to null and only surface as an opaque NOT NULL
+        // violation when the row is saved.
+        if (plaintext == null || plaintext.isBlank()) {
+            throw new IllegalArgumentException("A registration challenge is required");
+        }
         row.setChallenge(SecretsUtil.encryptAndEncodeSecretString(plaintext, SecretEncodingVersion.V1));
     }
 

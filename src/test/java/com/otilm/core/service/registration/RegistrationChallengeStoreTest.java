@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Boots the full context so {@code SecretsUtil}'s static encryption key is injected from
@@ -48,5 +49,12 @@ class RegistrationChallengeStoreTest extends BaseSpringBootTest {
     @Test
     void verifyRejectsWhenNoStoredChallenge() {
         assertThat(challengeStore.verify(new CertificateRegistrationAuthorization(), PLAINTEXT)).isFalse();
+    }
+
+    @Test
+    void storeRejectsMissingChallenge() {
+        CertificateRegistrationAuthorization row = new CertificateRegistrationAuthorization();
+        assertThatThrownBy(() -> challengeStore.store(row, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> challengeStore.store(row, "   ")).isInstanceOf(IllegalArgumentException.class);
     }
 }
