@@ -1,7 +1,8 @@
-package com.otilm.core.messaging.jms.listeners;
+package com.otilm.core.integration.messaging.jms.listeners;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.core.messaging.jms.listeners.EventListener;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.util.BaseMessagingIntTest;
@@ -36,7 +37,7 @@ import static org.mockito.Mockito.verify;
  * are excluded and listener containers never start.</p>
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
-class JmsListenerIntegrationTest extends BaseMessagingIntTest {
+class JmsListenerITest extends BaseMessagingIntTest {
 
     @Autowired
     private EventProducer eventProducer;

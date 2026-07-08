@@ -1,4 +1,4 @@
-package com.otilm.core.messaging.jms.listeners.poll;
+package com.otilm.core.integration.messaging.jms.listeners.poll;
 
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateStatusPollRepository;
+import com.otilm.core.messaging.jms.listeners.poll.PendingIssueReaper;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * alone. Staleness is driven by the {@code i_upd} column, which is back-dated directly since
  * {@code @UpdateTimestamp} would otherwise stamp it to now on every save.
  */
-class PendingIssueReaperTest extends BaseSpringBootTest {
+class PendingIssueReaperITest extends BaseSpringBootTest {
 
     @Autowired
     private PendingIssueReaper reaper;
