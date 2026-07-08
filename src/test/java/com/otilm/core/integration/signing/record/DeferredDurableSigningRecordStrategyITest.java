@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -8,6 +8,9 @@ import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.signing.record.DeferredDurableSigningRecordStrategy;
+import com.otilm.core.signing.record.SigningRecordInputSources;
+import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * back field-for-field through the jsonb and {@code byte[]} columns a mocked writer would only echo, and a
  * constraint violation propagates to the caller leaving nothing staged.
  */
-class DeferredDurableSigningRecordStrategyTest extends BaseSpringBootTest {
+class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
 
     @Autowired
     private DeferredDurableSigningRecordStrategy strategy;
