@@ -139,6 +139,23 @@ class AuthorityProviderV2AdapterTest {
         assertEquals("dGVzdGNzcg==", captor.getValue().getRequest());
     }
 
+    @Test
+    void issue_doesNotDereferenceStoredRaProfileAttributes() throws ConnectorException {
+        // v2 authority connectors are stateful and resolve their own references. Unlike v3, Core must NOT dereference
+        // the stored ra-profile attributes for v2 — they reach the wire exactly as stored (byte-identical guard).
+        List<RequestAttribute> stored = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(stored);
+        when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
+                .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));
+
+        adapter.issue(cert, new ClientCertificateSignRequestDto());
+
+        ArgumentCaptor<CertificateSignRequestDto> captor = ArgumentCaptor.forClass(CertificateSignRequestDto.class);
+        verify(certClient).issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
+        assertSame(stored, captor.getValue().getRaProfileAttributes(),
+                "v2 must pass stored ra-profile attributes through unchanged — no dereference");
+    }
+
     // --- renew ---
 
     @Test
