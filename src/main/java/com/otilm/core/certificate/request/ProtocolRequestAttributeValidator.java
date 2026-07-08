@@ -14,9 +14,13 @@ import java.util.List;
 
 /**
  * Single reuse seam for validating a parsed protocol request (PKCS#10 or CRMF) against the resolved
- * request-attribute set. Resolves the set + effective strictness via the request-attribute service,
- * runs {@link CertificateRequestContentValidator}, and throws {@link RequestAttributePolicyViolationException}
- * on a strict policy violation — a client fault that protocol adapters catch and shape into their native error.
+ * request-attribute set.
+ *
+ * <p><b>What it does:</b> resolves the request-attribute set and the effective strictness via the
+ * request-attribute service, then runs {@link CertificateRequestContentValidator}.
+ *
+ * <p><b>Failure shaping:</b> a strict policy violation throws {@link RequestAttributePolicyViolationException}.
+ * That is a client fault; protocol adapters catch it and shape it into their native error.
  */
 @Slf4j
 @Component
@@ -70,6 +74,7 @@ public class ProtocolRequestAttributeValidator {
                                                        RaProfile raProfile, boolean strict) {
         try {
             ParsedRequestContent parsed = X509RequestContentParser.parse(request);
+            // Whitelist enforcement is tied to strict mode, so lenient mode does NOT run the whitelist check.
             return CertificateRequestContentValidator.validate(definitions, parsed, new RequestAttributePolicy(strict, strict));
         } catch (RuntimeException e) {
             log.warn("Certificate request could not be processed for validation (RA profile {})", raProfile.getName(), e);

@@ -1,21 +1,27 @@
 package com.otilm.core.certificate.request;
 
 import com.otilm.api.model.core.certificate.GeneralNameType;
+import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.ASN1Set;
 import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Verifies the RFC 7030 §4.5.2 form of the {@code extensionRequest} attribute: its {@code values} SET
+ * lists the requested extension OIDs <em>directly</em> as bare OBJECT IDENTIFIERs.
+ */
 class CsrAttrsEncoderExtensionRequestTest {
 
     @Test
@@ -24,12 +30,11 @@ class CsrAttrsEncoderExtensionRequestTest {
         var definitions = List.of(aMappedDataAttribute().withName("fqdn").mappingSan(GeneralNameType.DNS).build());
 
         // when
-        Extensions extensionRequest = extensionRequestFrom(CsrAttrsEncoder.encode(definitions, Map.of()));
+        List<ASN1ObjectIdentifier> requested = extensionRequestOids(CsrAttrsEncoder.encode(definitions, Map.of()));
 
-        // then — SAN is requested under id-ce-subjectAltName (2.5.29.17)
-        assertThat(extensionRequest).as("extensionRequest attribute must be present").isNotNull();
-        assertThat(extensionRequest.getExtension(Extension.subjectAlternativeName))
-                .as("SAN must be requested under 2.5.29.17").isNotNull();
+        // then — SAN is requested under id-ce-subjectAltName (2.5.29.17), as a bare OID
+        assertThat(requested).as("extensionRequest attribute must be present").isNotNull();
+        assertThat(requested).contains(Extension.subjectAlternativeName);
     }
 
     @Test
@@ -39,11 +44,29 @@ class CsrAttrsEncoderExtensionRequestTest {
         var definitions = List.of(aMappedDataAttribute().withName("eku").mappingExtension(ekuOid).build());
 
         // when
-        Extensions extensionRequest = extensionRequestFrom(CsrAttrsEncoder.encode(definitions, Map.of()));
+        List<ASN1ObjectIdentifier> requested = extensionRequestOids(CsrAttrsEncoder.encode(definitions, Map.of()));
 
         // then
-        assertThat(extensionRequest).isNotNull();
-        assertThat(extensionRequest.getExtension(new ASN1ObjectIdentifier(ekuOid))).isNotNull();
+        assertThat(requested).isNotNull();
+        assertThat(requested).contains(new ASN1ObjectIdentifier(ekuOid));
+    }
+
+    @Test
+    void emitsBareOidsWithoutExtnValueWrapping_whenExtensionMapped() throws Exception {
+        // given — an EXTENSION-mapped attribute
+        var ekuOid = "2.5.29.37";
+        var definitions = List.of(aMappedDataAttribute().withName("eku").mappingExtension(ekuOid).build());
+
+        // when
+        ASN1Set values = extensionRequestValues(CsrAttrsEncoder.encode(definitions, Map.of()));
+
+        // then — every element is a bare OID, never an Extension SEQUENCE / octet-string wrapper
+        assertThat(values).isNotNull();
+        for (int i = 0; i < values.size(); i++) {
+            assertThat(values.getObjectAt(i).toASN1Primitive())
+                    .as("extensionRequest values must be bare OIDs (RFC 7030 §4.5.2 form)")
+                    .isInstanceOf(ASN1ObjectIdentifier.class);
+        }
     }
 
     @Test
@@ -60,19 +83,32 @@ class CsrAttrsEncoderExtensionRequestTest {
         // then — one bare RDN OID plus one extensionRequest attribute
         assertThat(csrAttrs.size()).isEqualTo(2);
         assertThat(csrAttrs.getObjectAt(0)).isEqualTo(new ASN1ObjectIdentifier("2.5.4.3"));
-        assertThat(extensionRequestFrom(der)).isNotNull();
+        assertThat(extensionRequestOids(der)).contains(Extension.subjectAlternativeName);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    /** Extracts the PKCS#9 extensionRequest attribute's {@link Extensions} from an encoded CsrAttrs, or null. */
-    private static Extensions extensionRequestFrom(byte[] der) throws Exception {
+    /** Returns the extension OIDs listed in the PKCS#9 extensionRequest attribute's values SET, or null. */
+    private static List<ASN1ObjectIdentifier> extensionRequestOids(byte[] der) throws Exception {
+        ASN1Set values = extensionRequestValues(der);
+        if (values == null) {
+            return null;
+        }
+        List<ASN1ObjectIdentifier> oids = new ArrayList<>();
+        for (ASN1Encodable value : values) {
+            oids.add(ASN1ObjectIdentifier.getInstance(value));
+        }
+        return oids;
+    }
+
+    /** Returns the raw values SET of the PKCS#9 extensionRequest attribute in an encoded CsrAttrs, or null. */
+    private static ASN1Set extensionRequestValues(byte[] der) throws Exception {
         ASN1Sequence csrAttrs = (ASN1Sequence) ASN1Primitive.fromByteArray(der);
         for (int i = 0; i < csrAttrs.size(); i++) {
             if (csrAttrs.getObjectAt(i) instanceof ASN1Sequence) {
                 Attribute attr = Attribute.getInstance(csrAttrs.getObjectAt(i));
                 if (attr.getAttrType().equals(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest)) {
-                    return Extensions.getInstance(attr.getAttrValues().getObjectAt(0));
+                    return attr.getAttrValues();
                 }
             }
         }

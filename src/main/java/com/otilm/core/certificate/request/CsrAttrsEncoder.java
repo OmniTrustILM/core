@@ -11,13 +11,11 @@ import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
 import com.otilm.core.oid.OidHandler;
 import org.bouncycastle.asn1.ASN1EncodableVector;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.DERSet;
 import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 
 import java.io.IOException;
 import java.util.LinkedHashSet;
@@ -33,14 +31,24 @@ import java.util.stream.Collectors;
  *   AttrOrOID ::= CHOICE { oid OBJECT IDENTIFIER, attribute Attribute }
  * </pre>
  * RDN-mapped attributes become bare attribute-type OIDs; SAN/EXTENSION-mapped attributes are grouped
- * into a single PKCS#9 extensionRequest attribute, SAN under id-ce-subjectAltName. The extensionRequest
- * value is a {@code SET} with exactly one {@code Extensions} element per RFC 9908.
+ * into a single PKCS#9 extensionRequest attribute, following the RFC 7030 §4.5.2 example. This advertisement is advisory.
  */
 public final class CsrAttrsEncoder {
 
     private CsrAttrsEncoder() {
     }
 
+    /**
+     * Projects the resolved request-attribute {@code definitions} into a DER-encoded EST CsrAttrs body.
+     *
+     * @param definitions the resolved request-attribute set; RDN-mapped fields become bare attribute-type
+     *                    OIDs and SAN/EXTENSION-mapped fields are grouped into one extensionRequest attribute
+     * @param codeToOid   maps a well-known RDN code (e.g. {@code CN}) to its dotted OID; may be {@code null}
+     *                    when every RDN is already a dotted OID
+     * @return the DER encoding of the CsrAttrs {@code SEQUENCE}
+     * @throws IOException if DER encoding fails
+     * @throws IllegalArgumentException if an RDN code is blank or cannot be resolved to an OID
+     */
     public static byte[] encode(List<? extends BaseAttribute> definitions, Map<String, String> codeToOid) throws IOException {
         List<MappedField> fields = x509Fields(definitions);
 
@@ -79,15 +87,13 @@ public final class CsrAttrsEncoder {
     }
 
     /**
-     * Builds the PKCS#9 extensionRequest Attribute (1.2.840.113549.1.9.14). Per RFC 9908 (clarifying
-     * RFC 7030 §4.5.2), its value is a {@code SET} with exactly one {@code Extensions} element.
+     * Builds the PKCS#9 extensionRequest Attribute (1.2.840.113549.1.9.14). Following the RFC 7030 §4.5.2
+     * example, its {@code values} SET lists the requested extension OIDs directly (advisory; no values).
      */
-    private static Attribute extensionRequestAttribute(Set<ASN1ObjectIdentifier> extensionOids) throws IOException {
-        ExtensionsGenerator gen = new ExtensionsGenerator();
-        for (ASN1ObjectIdentifier oid : extensionOids) {
-            gen.addExtension(oid, false, new DEROctetString(new byte[0]));
-        }
-        return new Attribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, new DERSet(gen.generate()));
+    private static Attribute extensionRequestAttribute(Set<ASN1ObjectIdentifier> extensionOids) {
+        ASN1EncodableVector values = new ASN1EncodableVector();
+        extensionOids.forEach(values::add);
+        return new Attribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, new DERSet(values));
     }
 
     static FieldMapping mappingOf(BaseAttribute def) {

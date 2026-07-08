@@ -549,6 +549,8 @@ public class ScepServiceImpl implements ScepExternalService {
         CertificateDetailDto response;
         try {
             response = clientOperationService.submitCertificateRequest(requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
+        } catch (RequestAttributePolicyViolationException e) {
+            throw new ScepException(e.getMessage(), FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | NoSuchAlgorithmException | AttributeException |
                  ConnectorException | CertificateRequestException e) {
             throw new ScepException("Unable to submit certificate request", e, FailInfo.BAD_REQUEST);

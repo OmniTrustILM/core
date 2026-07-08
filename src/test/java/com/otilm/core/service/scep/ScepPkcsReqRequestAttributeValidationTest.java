@@ -25,9 +25,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 /**
- * Verifies that the SCEP {@code PKCSReq} issue seam in {@link ScepServiceImpl} shapes a {@link RequestAttributePolicyViolationException}
- * into a {@link ScepException} carrying {@link FailInfo#BAD_REQUEST} and the platform-authored (safe) message, rather than the generic
- * {@code CertificateOperationException} mapping.
+ * Verifies that both SCEP {@code PKCSReq} seams in {@link ScepServiceImpl} shape a {@link RequestAttributePolicyViolationException}
+ * into a {@link ScepException} carrying {@link FailInfo#BAD_REQUEST}.
  */
 class ScepPkcsReqRequestAttributeValidationTest {
 
@@ -50,6 +49,36 @@ class ScepPkcsReqRequestAttributeValidationTest {
         // platform-authored message and FailInfo.BAD_REQUEST.
         // ReflectionTestUtils wraps the target's declared checked ScepException in an UndeclaredThrowableException.
         assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "issueCertificate", scepRequest, null))
+                .isInstanceOf(UndeclaredThrowableException.class)
+                .cause()
+                .isInstanceOf(ScepException.class)
+                .hasMessage(policyMessage)
+                .satisfies(ex -> {
+                    ScepException scepException = (ScepException) ex;
+                    assertThat(scepException.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST);
+                    assertThat(scepException.getMessage())
+                            .doesNotContainIgnoringCase("sql")
+                            .doesNotContainIgnoringCase("exception")
+                            .doesNotContain("com.otilm");
+                });
+    }
+
+    @Test
+    void shapesBadRequest_whenManualApprovalPkcsReqViolatesRequestAttributePolicy() throws Exception {
+        // given — a SCEP service in the manual-approval (generateCsr) path whose submitCertificateRequest is
+        // rejected by the request-attribute policy.
+        var policyMessage = "Certificate request does not satisfy the request-attribute policy "
+                + "of RA profile 'X': missing required RDN: CN";
+        ClientOperationInternalService clientOperationService = mock(ClientOperationInternalService.class);
+        given(clientOperationService.submitCertificateRequest(any(), any()))
+                .willThrow(new RequestAttributePolicyViolationException(policyMessage, List.of("missing required RDN: CN")));
+        ScepServiceImpl service = seededScepService(clientOperationService);
+        ScepRequest scepRequest = mock(ScepRequest.class);
+        given(scepRequest.getPkcs10Request()).willReturn(new JcaPKCS10CertificationRequest(Base64.getDecoder().decode(PKCS10_BASE64)));
+
+        // when / then — the manual-approval seam shapes the policy violation into a ScepException carrying the
+        // safe, platform-authored message and FailInfo.BAD_REQUEST, not the generic "Unable to submit" mapping.
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "generateCsr", scepRequest, null))
                 .isInstanceOf(UndeclaredThrowableException.class)
                 .cause()
                 .isInstanceOf(ScepException.class)

@@ -1112,6 +1112,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             newCertificate = submitCertificateRequest(certificateRequestDto, null);
             transactionManager.commit(status);
+        } catch (RequestAttributePolicyViolationException e) {
+            transactionManager.rollback(status);
+            // a client-facing validation failure
+            throw e;
         } catch (Exception e) {
             transactionManager.rollback(status);
             throw new CertificateOperationException("Failed to submit certificate request for certificate renewal: " + e.getMessage());
@@ -1275,6 +1279,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             newCertificate = submitCertificateRequest(certificateRequestDto, null);
             transactionManager.commit(status);
+        } catch (RequestAttributePolicyViolationException e) {
+            transactionManager.rollback(status);
+            // a client-facing validation failure
+            throw e;
         } catch (Exception e) {
             transactionManager.rollback(status);
             throw new CertificateOperationException("Failed to submit certificate request for certificate rekey: " + e.getMessage());
