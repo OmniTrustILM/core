@@ -24,7 +24,7 @@ import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.otilm.core.model.signing.workflow.DelegatedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.TimeQualityConfigurationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
@@ -57,7 +57,7 @@ import static org.mockito.Mockito.when;
 class StaticKeyManagedTimestampingResolverTest {
 
     @Mock
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     @Mock
     private CryptographicKeyInternalService cryptographicKeyService;
     @Mock

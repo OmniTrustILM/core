@@ -20,7 +20,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.converter.CertificateFormatConverter;
 import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
@@ -44,7 +44,7 @@ import java.util.UUID;
 @RestController
 public class CertificateControllerImpl implements CertificateController {
 
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     private CertificateEventHistoryExternalService certificateEventHistoryService;
 
@@ -244,7 +244,7 @@ public class CertificateControllerImpl implements CertificateController {
     // SETTERs
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateExternalService certificateService) {
         this.certificateService = certificateService;
     }
 

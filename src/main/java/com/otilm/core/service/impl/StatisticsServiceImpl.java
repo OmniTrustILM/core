@@ -3,7 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.model.client.dashboard.StatisticsDto;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.DiscoveryInternalService;
 import com.otilm.core.service.GroupInternalService;
 import com.otilm.core.service.RaProfileInternalService;
@@ -25,7 +25,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(StatisticsServiceImpl.class);
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private DiscoveryInternalService discoveryService;
     private GroupInternalService groupService;
     private RaProfileInternalService raProfileService;
@@ -80,7 +80,7 @@ public class StatisticsServiceImpl implements StatisticsExternalService {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

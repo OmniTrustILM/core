@@ -14,7 +14,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.CmpEntityUtil;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
@@ -52,7 +52,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     @Autowired private CmpProfileRepository cmpProfileRepository;
     @Autowired private RaProfileRepository raProfileRepository;
     @Autowired private CertificateKeyServiceImpl certificateKeyService;
-    @Autowired private CertificateService certificateService;
+    @Autowired private CertificateInternalService certificateService;
     @Autowired private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;

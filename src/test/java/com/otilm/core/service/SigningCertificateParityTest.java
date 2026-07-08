@@ -55,7 +55,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 class SigningCertificateParityTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     @Autowired
     private CryptographicKeyInternalService cryptographicKeyService;
     @Autowired

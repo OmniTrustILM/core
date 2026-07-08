@@ -37,7 +37,7 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.provider.PlatformProvider;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
@@ -109,7 +109,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepProfileRepository scepProfileRepository;
     private ScepTransactionRepository scepTransactionRepository;
     private ClientOperationInternalService clientOperationService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CryptographicKeyInternalService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -145,7 +145,7 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 
