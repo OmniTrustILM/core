@@ -35,7 +35,7 @@ import static org.mockito.Mockito.when;
  * real-DB test cannot exercise deterministically: the under-lock state re-assertion (skip a candidate
  * that is no longer PENDING_ISSUE) and the per-certificate try/catch (one certificate's transition
  * failure must not abort the rest of the batch). Collaborators are mocked; the selection predicates and
- * the FAILED+audit outcome are covered against real Postgres in {@code PendingIssueReaperITest}.
+ * the FAILED+audit outcome are covered against real Postgres in {@link com.otilm.core.integration.messaging.jms.listeners.poll.PendingIssueReaperITest}.
  */
 @ExtendWith(MockitoExtension.class)
 class PendingIssueReaperUnitTest {

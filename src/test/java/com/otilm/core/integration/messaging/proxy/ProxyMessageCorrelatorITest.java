@@ -190,7 +190,8 @@ class ProxyMessageCorrelatorITest extends BaseSpringBootTest {
         assertThat(correlator.getPendingCount()).isEqualTo(100);
 
         // Next registration should fail
-        assertThatThrownBy(() -> correlator.registerRequest("overflow", Duration.ofSeconds(30)))
+        Duration overflowTimeout = Duration.ofSeconds(30);
+        assertThatThrownBy(() -> correlator.registerRequest("overflow", overflowTimeout))
                 .isInstanceOf(IllegalStateException.class);
     }
 

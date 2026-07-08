@@ -108,7 +108,7 @@ class ProxyClientITest extends BaseSpringBootTest {
         // Verify future completes
         Map result = future.get(2, TimeUnit.SECONDS);
         assertThat(result).isNotNull();
-        assertThat(result.get("status")).isEqualTo("ok");
+        assertThat(result).containsEntry("status", "ok");
     }
 
     @Test
