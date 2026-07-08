@@ -6,7 +6,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
@@ -30,7 +30,7 @@ public interface AuthorityProviderAdapter {
      *             runs, then the adapter re-reads them). Kept for contract symmetry with
      *             {@code renew}/{@code revoke}/{@code register}, which do consume their DTOs.
      */
-    AdapterOperationResult issue(Certificate cert, ClientCertificateSignRequestDto req) throws ConnectorException;
+    AdapterOperationResult issue(Certificate cert, ClientCertificateIssueRequestDto req) throws ConnectorException;
 
     /**
      * Renews (or rekeys) a certificate through the authority provider.

@@ -16,7 +16,7 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -608,7 +608,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         logger.debug("Initiating issue Certificate for Order with ID: {}", order.getOrderId());
-        ClientCertificateSignRequestDto certificateSignRequestDto = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto certificateSignRequestDto = new ClientCertificateIssueRequestDto();
         certificateSignRequestDto.setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
         certificateSignRequestDto.setRequest(decodedCsr);
         certificateSignRequestDto.setFormat(CertificateRequestFormat.PKCS10);
@@ -1195,7 +1195,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     }
 
-    private void createCert(AcmeOrder order, ClientCertificateSignRequestDto certificateSignRequestDto) {
+    private void createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateSignRequestDto) {
         // check if certificate is not already requested (prevent calling finalize multiple times issuing more certificates)
         // not sure if it is necessary
         if (order.getCertificateReference() == null) {

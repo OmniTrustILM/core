@@ -38,7 +38,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
             @LogResource(uuid = true) String certificateUuid,
-            ClientCertificateSignRequestDto request) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException {
+            ClientCertificateIssueRequestDto request) throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException {
         return clientOperationService.issueExistingCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), certificateUuid, request);
     }
 
@@ -47,7 +47,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
     public ClientCertificateDataResponseDto issueCertificate(
             String authorityUuid,
             @LogResource(uuid = true, affiliated = true) String raProfileUuid,
-            ClientCertificateSignRequestDto request) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException {
+            ClientCertificateIssueRequestDto request) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException {
         return clientOperationService.issueCertificate(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid), request, null);
     }
 

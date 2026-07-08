@@ -336,7 +336,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final ClientCertificateSignRequestDto request, final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
+    public ClientCertificateDataResponseDto issueCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request, final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -1025,7 +1025,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateSignRequestDto request) throws NotFoundException {
+    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateIssueRequestDto request) throws NotFoundException {
         // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
         // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
         RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())

@@ -8,7 +8,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
@@ -55,7 +55,7 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * for issuance. The registration identity already on the row (subject DN / SAN) is preserved; the issued
      * certificate's identity is written from the CA response at issuance.
      */
-    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateSignRequestDto signRequest)
+    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto signRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException;
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate) throws NotFoundException;

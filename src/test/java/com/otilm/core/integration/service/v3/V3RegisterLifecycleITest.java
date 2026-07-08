@@ -7,7 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -246,7 +246,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
 
         // Step 3: issue the registered certificate
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest(base64Csr);
         signRequest.setFormat(CertificateRequestFormat.PKCS10);
         signRequest.setAttributes(List.of());
@@ -298,7 +298,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
         V3ConnectorStubs.stubV3IssueAsync(wireMockServer);
 
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest(base64Csr);
         signRequest.setFormat(CertificateRequestFormat.PKCS10);
         signRequest.setAttributes(List.of());

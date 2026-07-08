@@ -24,7 +24,7 @@ import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.LocationDto;
@@ -1122,7 +1122,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Transactional
-    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateSignRequestDto signRequest)
+    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto signRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
         if (signRequest == null || signRequest.getRequest() == null || signRequest.getRequest().isBlank()) {
             throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");

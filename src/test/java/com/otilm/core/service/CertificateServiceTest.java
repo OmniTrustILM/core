@@ -31,7 +31,7 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
@@ -1955,7 +1955,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
             Certificate pendingIssue = certificateRepository.save(
                     aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
             UUID uuid = pendingIssue.getUuid();
-            ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+            ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
             signRequest.setRequest(SAMPLE_PKCS10);
             signRequest.setFormat(CertificateRequestFormat.PKCS10);
 

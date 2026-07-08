@@ -16,7 +16,7 @@ import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -327,7 +327,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void issueRegisteredCertificateWithoutCsrIsRejected() throws Exception {
         String certUuid = registerSyncRegistered();
-        ClientCertificateSignRequestDto noCsr = new ClientCertificateSignRequestDto(); // request == null
+        ClientCertificateIssueRequestDto noCsr = new ClientCertificateIssueRequestDto(); // request == null
 
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
@@ -339,7 +339,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         // An explicit null format must surface a clear validation error rather than an NPE inside the
         // CSR parser's format-selection logic.
         String certUuid = registerSyncRegistered();
-        ClientCertificateSignRequestDto noFormat = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto noFormat = new ClientCertificateIssueRequestDto();
         noFormat.setRequest(generateCsrBase64());
         noFormat.setFormat(null);
 
@@ -356,7 +356,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         requested = certificateRepository.save(requested);
         String certUuid = requested.getUuid().toString();
 
-        ClientCertificateSignRequestDto withCsr = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto withCsr = new ClientCertificateIssueRequestDto();
         withCsr.setRequest("a-csr-body"); // validation rejects before any parsing
 
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
@@ -375,7 +375,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         requested = certificateRepository.save(requested);
         String certUuid = requested.getUuid().toString();
 
-        ClientCertificateSignRequestDto blank = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto blank = new ClientCertificateIssueRequestDto();
         blank.setRequest("   ");
 
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, blank);
@@ -386,7 +386,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void issueRegisteredCertificateAttachesOperatorCsr() throws Exception {
         String certUuid = registerSyncRegistered();
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest(generateCsrBase64());
 
         clientOperationService.issueExistingCertificate(
@@ -406,10 +406,10 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         UUID first = UUID.fromString(registerSyncRegistered());
         UUID second = UUID.fromString(registerSyncRegistered());
 
-        ClientCertificateSignRequestDto req1 = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto req1 = new ClientCertificateIssueRequestDto();
         req1.setRequest(csr);
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, first.toString(), req1);
-        ClientCertificateSignRequestDto req2 = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto req2 = new ClientCertificateIssueRequestDto();
         req2.setRequest(csr);
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, second.toString(), req2);
 
@@ -427,7 +427,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         requested.setRaProfile(raProfile);
         requested = certificateRepository.save(requested);
         UUID uuid = requested.getUuid();
-        ClientCertificateSignRequestDto req = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
         req.setRequest(generateCsrBase64());
 
         Assertions.assertThrows(ValidationException.class, () -> certificateService.addCertificateRequestToExisting(uuid, req));
@@ -488,7 +488,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         otherRaProfile.setEnabled(true);
         otherRaProfile = raProfileRepository.save(otherRaProfile);
 
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest("ignored-rejected-before-parse");
         SecuredParentUUID otherAuthority = SecuredParentUUID.fromUUID(otherRaProfile.getAuthorityInstanceReferenceUuid());
         SecuredUUID otherRa = otherRaProfile.getSecuredUuid();
@@ -532,7 +532,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void issueRegisteredCertificateRejectsMalformedCsr() throws Exception {
         String certUuid = registerSyncRegistered();
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest("!!!not-valid-base64!!!");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
@@ -570,7 +570,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         String certUuid = registerSyncRegistered();
         raProfile.setEnabled(false);
         raProfileRepository.save(raProfile);
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
         signRequest.setRequest("x");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,

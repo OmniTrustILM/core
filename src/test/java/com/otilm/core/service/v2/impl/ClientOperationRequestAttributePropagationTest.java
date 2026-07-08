@@ -2,7 +2,7 @@ package com.otilm.core.service.v2.impl;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -93,7 +93,7 @@ class ClientOperationRequestAttributePropagationTest extends BaseSpringBootTest 
         // a genuine policy violation (a client fault), distinct from an availability failure
         when(requestAttributeService.resolveIssueAttributeSet(any())).thenReturn(List.of(CsrAttributes.commonNameAttribute()));
         when(requestAttributeService.resolveExternalCsrValidationStrict(any())).thenReturn(true);
-        ClientCertificateSignRequestDto request = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
         request.setRequest(pemEncodedCsrWithSubject("O=Acme,C=US"));
         request.setFormat(CertificateRequestFormat.PKCS10);
         request.setAttributes(List.of());

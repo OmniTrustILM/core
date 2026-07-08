@@ -32,7 +32,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -814,7 +814,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     private ClientCertificateDataResponseDto issueCertificateForLocation(Location location, String csr, List<RequestAttribute> issueAttributes, String raProfileUuid, List<RequestAttribute> certificateCustomAttributes) throws LocationException {
-        ClientCertificateSignRequestDto clientCertificateSignRequestDto = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto clientCertificateSignRequestDto = new ClientCertificateIssueRequestDto();
         clientCertificateSignRequestDto.setAttributes(issueAttributes);
         // TODO: support for different types of certificate
         clientCertificateSignRequestDto.setRequest(csr);
