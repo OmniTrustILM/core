@@ -21,10 +21,12 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.Proxy;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.ProxyRepository;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -66,6 +68,8 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
     private ProxyRepository proxyRepository;
+    @Autowired
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     @MockitoBean
     private ProxyClient proxyClient;
@@ -344,6 +348,17 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     @Test
     void testRemoveConnector_notFound() {
         Assertions.assertThrows(NotFoundException.class, () -> connectorService.deleteConnector(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
+    void testRemoveConnector_withNotificationInstanceReferences_throws() {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        SecuredUUID connectorSecuredUuid = connector.getSecuredUuid();
+        ValidationException exception = Assertions.assertThrows(ValidationException.class, () -> connectorService.deleteConnector(connectorSecuredUuid));
+        Assertions.assertTrue(exception.getMessage().contains(notificationInstance.getName()));
     }
 
     @Test

@@ -24,6 +24,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.*;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.TransactionHandler;
@@ -614,6 +615,10 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
         if (!connector.getVaultInstances().isEmpty()) {
             errors.add("Dependent Vault Instances: " + String.join(", ", connector.getVaultInstances().stream().map(VaultInstance::getName).collect(Collectors.toSet())));
+        }
+
+        if (!connector.getNotificationInstanceReferences().isEmpty()) {
+            errors.add("Dependent Notification Instances: " + String.join(", ", connector.getNotificationInstanceReferences().stream().map(NotificationInstanceReference::getName).collect(Collectors.toSet())));
         }
 
         Set<String> complianceProfileNames = complianceProfileRepository.findDistinctByComplianceRulesConnectorUuid(connector.getUuid()).stream().map(ComplianceProfile::getName).collect(Collectors.toSet());
