@@ -5,7 +5,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
@@ -31,10 +31,10 @@ public class PollFeature {
     @Value("${cmp.protocol.poll.feature.timeout}")
     private Integer pollFeatureTimeout;
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

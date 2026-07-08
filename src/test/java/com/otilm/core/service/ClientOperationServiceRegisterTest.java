@@ -86,7 +86,7 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Autowired
     private ClientOperationInternalService clientOperationInternalService;
     @Autowired
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired

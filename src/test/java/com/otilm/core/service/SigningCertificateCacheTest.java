@@ -26,6 +26,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.signing.SigningCertificate;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.api.model.core.oid.SystemOid;
@@ -57,7 +58,7 @@ import java.util.UUID;
 class SigningCertificateCacheTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateServiceImpl certificateService;
 
     @MockitoSpyBean
     private CertificateRepository certificateRepository;

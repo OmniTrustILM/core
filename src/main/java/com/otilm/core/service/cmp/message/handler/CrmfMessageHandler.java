@@ -12,7 +12,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
@@ -64,10 +64,10 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
             PKIBody.TYPE_KEY_RECOVERY_REQ,  // krr      [9]  CertReqMessages,       --Key Recovery Req     (not implemented)
             PKIBody.TYPE_CROSS_CERT_REQ);   // ccr      [13] CertReqMessages,       --Cross-Cert.  Request (not implemented)
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

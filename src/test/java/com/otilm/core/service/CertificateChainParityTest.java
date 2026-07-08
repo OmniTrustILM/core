@@ -38,8 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Parity tests ensuring that {@link CertificateService#getCertificateChain(SecuredUUID, boolean)}
- * (DTO path) and {@link CertificateService#getCertificateChainForSigning(UUID, boolean)}
+ * Parity tests ensuring that {@link CertificateInternalService#getCertificateChain(SecuredUUID, boolean)}
+ * (DTO path) and {@link CertificateInternalService#getCertificateChainForSigning(UUID, boolean)}
  * (signing hot path) return the same certificate bytes in the same order for every scenario
  * where parity is expected.
  *
@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CertificateChainParityTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
     private CertificateRepository certificateRepository;

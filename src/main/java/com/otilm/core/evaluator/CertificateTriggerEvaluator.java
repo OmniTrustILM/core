@@ -9,7 +9,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,10 +20,10 @@ import java.util.*;
 @Transactional
 public class CertificateTriggerEvaluator extends TriggerEvaluator<Certificate> {
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

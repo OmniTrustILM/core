@@ -3,7 +3,7 @@ package com.otilm.core.messaging.jms.listeners;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseMessagingIntTest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +19,7 @@ import static org.awaitility.Awaitility.await;
 /**
  * End-to-end integration test for the certificate upload async flow using a real RabbitMQ container.
  *
- * <p>Flow: {@link CertificateService#uploadAsync} → EventProducer → RabbitMQ exchange/queue →
+ * <p>Flow: {@link CertificateExternalService#uploadAsync} → EventProducer → RabbitMQ exchange/queue →
  * EventListener → CertificateUploadedEventHandler → certificate persisted in DB.</p>
  *
  * <p>Kept separate from {@link JmsListenerIntegrationTest} because that class mocks
@@ -29,7 +29,7 @@ import static org.awaitility.Awaitility.await;
 class CertificateUploadMessagingIntTest extends BaseMessagingIntTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     @Autowired
     private CertificateRepository certificateRepository;
