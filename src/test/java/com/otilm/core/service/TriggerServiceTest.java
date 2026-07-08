@@ -254,12 +254,19 @@ class TriggerServiceTest extends BaseSpringBootTest {
                 () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(incompatiblePropertyTrigger.getUuid())), false),
                 "Trigger with PROPERTY field that has fieldResource should be rejected for CERTIFICATE_UPLOADED event");
 
-        // non-PROPERTY field source (CUSTOM) — should be rejected
-        TriggerDetailDto incompatibleSourceTrigger = createIgnoreTriggerForUploadedEvent(
-                "IncompatibleSourceUploadTrigger", FilterFieldSource.CUSTOM, "%s|%s".formatted(domainAttr.getName(), domainAttr.getContentType().name()), "CZ");
+        // CUSTOM field source — should be accepted, evaluated against the upload request payload rather than the DB
+        TriggerDetailDto customAttributeTrigger = createIgnoreTriggerForUploadedEvent(
+                "CustomAttributeUploadTrigger", FilterFieldSource.CUSTOM, "%s|%s".formatted(domainAttr.getName(), domainAttr.getContentType().name()), "CZ");
+        Assertions.assertDoesNotThrow(
+                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(customAttributeTrigger.getUuid())), false),
+                "Trigger with CUSTOM field source should be accepted for CERTIFICATE_UPLOADED event");
+
+        // META field source — should still be rejected, there is no request-time source for metadata
+        TriggerDetailDto metaAttributeTrigger = createIgnoreTriggerForUploadedEvent(
+                "MetaAttributeUploadTrigger", FilterFieldSource.META, "%s|%s".formatted(domainAttr.getName(), domainAttr.getContentType().name()), "CZ");
         Assertions.assertThrows(ValidationException.class,
-                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(incompatibleSourceTrigger.getUuid())), false),
-                "Trigger with CUSTOM field source should be rejected for CERTIFICATE_UPLOADED event");
+                () -> triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(UUID.fromString(metaAttributeTrigger.getUuid())), false),
+                "Trigger with META field source should be rejected for CERTIFICATE_UPLOADED event");
     }
 
     private TriggerDetailDto createIgnoreTriggerForUploadedEvent(String name, FilterFieldSource fieldSource, String fieldIdentifier, String value) throws AlreadyExistException, NotFoundException {
