@@ -18,6 +18,7 @@ import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -70,7 +71,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 public class CertificateValidationTest extends BaseSpringBootTest {
 
     @Autowired
-    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
+    private CertificateServiceImpl certificateService;
 
     @Autowired
     private CrlService crlService;

@@ -59,6 +59,7 @@ import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.*;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.tasks.DiscoveryCertificateTask;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -89,7 +90,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
+    private CertificateServiceImpl certificateService;
     @Autowired
     private CertificateEventHistoryExternalService certificateEventHistoryService;
     @Autowired

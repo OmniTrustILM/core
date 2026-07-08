@@ -41,6 +41,7 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -126,7 +127,7 @@ class CertificateServiceTest extends BaseSpringBootTest {
     private CrlRepository crlRepository;
 
     @Autowired
-    private com.otilm.core.service.impl.CertificateServiceImpl certificateService;
+    private CertificateServiceImpl certificateService;
 
     @Autowired
     private CertificateRepository certificateRepository;
