@@ -102,11 +102,10 @@ public final class CsrAttrsEncoder {
      * Wraps {@code codeToOid} in a case-insensitive view so RDN-code resolution matches {@link CertificateRequestContentValidator}.
      */
     private static Map<String, String> caseInsensitive(Map<String, String> codeToOid) {
-        if (codeToOid == null) {
-            return null;
-        }
         Map<String, String> ci = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        ci.putAll(codeToOid);
+        if (codeToOid != null) {
+            ci.putAll(codeToOid);
+        }
         return ci;
     }
 
