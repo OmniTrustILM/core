@@ -31,7 +31,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ClientOperationExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -54,7 +54,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     private RaProfileRepository raProfileRepository;
     private ConnectorApiFactory connectorApiFactory;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private AttributeEngine attributeEngine;
     private ConnectorInternalService connectorService;
 
@@ -69,7 +69,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

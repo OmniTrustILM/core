@@ -17,7 +17,9 @@ import com.otilm.core.util.NullUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.MDC;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LoggingHelper {
@@ -34,6 +36,7 @@ public class LoggingHelper {
     private static final String LOG_ACTOR_AUTH_METHOD = "log_actor_authMethod";
     private static final String LOG_ACTOR_UUID = "log_actor_uuid";
     private static final String LOG_ACTOR_NAME = "log_actor_name";
+    private static final String[] ACTOR_KEYS = {LOG_ACTOR_TYPE, LOG_ACTOR_AUTH_METHOD, LOG_ACTOR_UUID, LOG_ACTOR_NAME};
 
     private static final String LOG_SOURCE_METHOD = "log_source_method";
     private static final String LOG_SOURCE_PATH = "log_source_path";
@@ -146,6 +149,31 @@ public class LoggingHelper {
         MDC.remove(LOG_ACTOR_AUTH_METHOD);
         MDC.remove(LOG_ACTOR_UUID);
         MDC.remove(LOG_ACTOR_NAME);
+    }
+
+    /**
+     * Captures the actor attribution MDC keys so a scoped elevation can restore the caller's attribution afterwards.
+     * A key absent from the snapshot maps to {@code null} — {@link #restoreActorInfo} removes it on restore, so an
+     * actor-less caller is returned to the actor-less state rather than retaining an elevated actor.
+     */
+    public static Map<String, String> snapshotActorInfo() {
+        Map<String, String> snapshot = new HashMap<>();
+        for (String key : ACTOR_KEYS) {
+            snapshot.put(key, MDC.get(key));
+        }
+        return snapshot;
+    }
+
+    /** Restores the actor MDC keys captured by {@link #snapshotActorInfo()}, removing any that were absent. */
+    public static void restoreActorInfo(Map<String, String> snapshot) {
+        for (String key : ACTOR_KEYS) {
+            String value = snapshot.get(key);
+            if (value == null) {
+                MDC.remove(key);
+            } else {
+                MDC.put(key, value);
+            }
+        }
     }
 
     public static void putLogResourceInfo(Resource resource, boolean affiliated, String resourceUuid, String resourceName) {

@@ -1,10 +1,13 @@
-package com.otilm.core.security.authn.client;
+package com.otilm.core.integration.security.authn.client;
 
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.security.authn.client.AuthenticationCache;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -23,12 +26,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-class PlatformAuthenticationClientTest extends BaseSpringBootTest {
+class PlatformAuthenticationClientITest extends BaseSpringBootTest {
     private static MockWebServer authServiceMock;
 
     private PlatformAuthenticationClient authenticationClient;
@@ -40,7 +42,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
 
     // @formatter:off
-    String RAW_DATA = "{" +
+    private static final String RAW_DATA = "{" +
             "\"authenticated\": true," +
             "\"data\": {" +
             "\"user\": {" +
@@ -114,7 +116,7 @@ class PlatformAuthenticationClientTest extends BaseSpringBootTest {
                 List.of("ROLE_ADMINISTRATOR", "ROLE_USER"),
                 info.getAuthorities().stream()
                         .map(GrantedAuthority::getAuthority)
-                        .collect(Collectors.toList())
+                        .toList()
         );
 
     }

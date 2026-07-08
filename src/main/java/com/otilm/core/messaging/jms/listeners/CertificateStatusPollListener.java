@@ -16,7 +16,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -68,7 +68,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private StatusPollProperties statusPollProperties;
     private AttributeEngine attributeEngine;
     private TransactionHandler transactionHandler;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CertificateRevocationFinalizer revocationFinalizer;
 
     @Override
@@ -405,7 +405,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

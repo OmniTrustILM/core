@@ -57,7 +57,7 @@ class ScepProfileServiceTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     @Autowired
     private ScepProfileExternalService scepProfileService;

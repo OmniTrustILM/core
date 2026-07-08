@@ -114,7 +114,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private TokenInstanceInternalService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
     private PermissionEvaluator permissionEvaluator;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
 
@@ -175,7 +175,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

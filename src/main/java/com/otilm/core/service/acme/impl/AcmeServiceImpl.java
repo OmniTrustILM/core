@@ -34,7 +34,7 @@ import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.AcmeExternalService;
@@ -107,7 +107,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private AcmeAuthorizationRepository acmeAuthorizationRepository;
     private AcmeChallengeRepository acmeChallengeRepository;
     private ClientOperationInternalService clientOperationService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private AttributeEngine attributeEngine;
     private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
 
@@ -162,7 +162,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

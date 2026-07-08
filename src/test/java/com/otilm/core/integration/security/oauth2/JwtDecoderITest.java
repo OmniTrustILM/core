@@ -1,4 +1,4 @@
-package com.otilm.core.security.oauth2;
+package com.otilm.core.integration.security.oauth2;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.settings.SettingsSection;
@@ -10,6 +10,7 @@ import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.security.authn.PlatformAnonymousToken;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.security.oauth2.OAuth2TestUtil;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -38,7 +39,7 @@ import java.util.*;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 
 @SpringBootTest
-class JwtDecoderTest extends BaseSpringBootTest {
+class JwtDecoderITest extends BaseSpringBootTest {
 
     public static final String AUDIENCE = "your-audience";
     @Autowired

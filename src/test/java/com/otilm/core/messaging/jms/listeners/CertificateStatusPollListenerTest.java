@@ -56,7 +56,7 @@ class CertificateStatusPollListenerTest {
     @Mock private StatusPollProperties statusPollProperties;
     @Mock private AttributeEngine attributeEngine;
     @Mock private com.otilm.core.events.transaction.TransactionHandler transactionHandler;
-    @Mock private com.otilm.core.service.CertificateService certificateService;
+    @Mock private com.otilm.core.service.CertificateInternalService certificateService;
     @Mock private com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
     @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
 

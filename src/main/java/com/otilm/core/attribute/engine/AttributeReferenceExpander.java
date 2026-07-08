@@ -25,9 +25,9 @@ import java.util.UUID;
  *
  * <h2>Callback mode — the only mode implemented here</h2>
  * {@link #expandForCaller(List, Set)} authorizes the <em>ambient calling user</em> per referenced object through the
- * resource's object-scoped {@code @ExternalAuthorization(<KIND>, DETAIL)} guarded entrypoint (a {@link SecuredUUID}
- * argument the auth aspect resolves the concrete object from). It <strong>fails closed</strong>: any
- * {@code AccessDeniedException} from a DETAIL gate propagates and aborts the whole expansion — no partial blob is
+ * resource's object-scoped guarded loader (a {@link SecuredUUID} the auth aspect resolves the concrete object from;
+ * the per-kind gate is defined by {@link CallerAuthorizedReferenceLoaderRegistry}). It <strong>fails closed</strong>:
+ * any {@code AccessDeniedException} from that gate propagates and aborts the whole expansion — no partial blob is
  * emitted, and multi-select selecting one unauthorized element among authorized ones fails the entire call.
  * <p>
  * The aspect reads the ambient Spring {@code SecurityContext}; there is no API to pass a context in, so there is
@@ -38,7 +38,7 @@ import java.util.UUID;
  * <strong>Single-level only today.</strong> Only the references directly present in the passed attribute list
  * are resolved (depth 0). Resolving references nested <em>inside</em> an already-loaded blob (depth 1+) is not
  * wired — {@link #attributesOf} returns empty, so the recursion below is a no-op and the depth/cycle machinery
- * is inactive at runtime. Nested resolution is deferred to the operation-path follow-up (see DEFERRED below).
+ * is inactive at runtime. Nested resolution is future work (see below); operation mode does not run through this expander.
  *
  * <h2>The fence</h2>
  * Callback mode resolves <strong>exclusively</strong> through {@link CallerAuthorizedReferenceLoader} —
@@ -49,10 +49,14 @@ import java.util.UUID;
  * package-private fence is impossible; the boundary is carried by a type-level ArchUnit
  * reachability test ({@code AttributeReferenceExpanderFenceArchTest}). That test is the load-bearing fence.
  *
- * <h2>DEFERRED — operation mode</h2>
- * The operation path (authority-v3 op-path wiring through a fenced, non-per-object loader) is intentionally
- * NOT implemented here. See {@code #expandViaOperationLoader} placeholder below and the follow-up PR. This
- * facility slice ships callback mode only.
+ * <h2>Operation mode lives outside this class — by design</h2>
+ * The v3 operation path (issue/renew/revoke/register, status poll/cancel) does <strong>not</strong> run through
+ * this fenced callback expander. {@code OperationAttributeResolver} (from {@code AuthorityProviderV3Adapter})
+ * resolves an authority's own infrastructure references there by elevating to the platform's
+ * attribute-content-resolver system identity for the dereference only — authorized at the operation level, not per
+ * acting caller. The ArchUnit
+ * fence forbids this package from depending on {@code AuthHelper}, so the caller-authorized (callback) mode here can
+ * never elevate; the two modes stay separated.
  */
 @Component
 public class AttributeReferenceExpander {
@@ -62,8 +66,8 @@ public class AttributeReferenceExpander {
     /**
      * Max reference-chain depth for the (not-yet-active) nested-blob recursion. Today {@link #attributesOf}
      * returns empty, so expansion is single-level only and this cap is never reached at runtime; it and the
-     * cross-frame cycle guard are kernel-tested ({@link ReferenceTraversal}) scaffolding that becomes live when
-     * the operation-path follow-up implements nested resolution. Overflow throws, never silently truncates.
+     * cross-frame cycle guard are kernel-tested ({@link ReferenceTraversal}) scaffolding that becomes live only if a
+     * future nested-resolution change activates {@link #attributesOf}. Overflow throws, never silently truncates.
      */
     static final int MAX_DEPTH = 3;
 
@@ -142,7 +146,7 @@ public class AttributeReferenceExpander {
         outboundContainment.recordExpandedSecrets(blob, expandedSecrets);
 
         // Wiring point for nested resolution: today attributesOf(blob) returns empty (single-level only), so this
-        // is a no-op. The operation-path follow-up makes it live; the depth/cycle guards above protect it then.
+        // is a no-op. A future nested-resolution change makes it live; the depth/cycle guards above protect it then.
         expand(attributesOf(blob), visited, depth + 1, expandedSecrets);
     }
 
@@ -168,24 +172,15 @@ public class AttributeReferenceExpander {
      * The attributes nested inside an already-loaded blob, as the {@code List<RequestAttribute>} the recursion
      * would consume. <strong>Returns empty unconditionally today</strong>: nested-blob resolution is not yet
      * wired, so expansion is single-level. A loaded blob's nested attributes are {@code ResponseAttribute}, not
-     * {@code RequestAttribute}, and are not re-resolvable in place; translating them into recursion input is the
-     * operation-path follow-up's job. Until then a reference nested inside a loaded blob stays a bare reference.
+     * {@code RequestAttribute}, and are not re-resolvable in place; translating them into recursion input is future
+     * work. Until then a reference nested inside a loaded blob stays a bare reference.
      */
     private static List<RequestAttribute> attributesOf(ResourceObjectContentData blob) {
-        // Nested-blob resolution is deferred (single-level expansion only today): always empty. Real extraction
-        // returns with the operation-path follow-up; see the Javadoc above.
+        // Nested-blob resolution is future work (single-level expansion only today): always empty. Real extraction
+        // lands with a future nested-resolution change; see the Javadoc above.
         return List.of();
     }
 
-    // ---------------------------------------------------------------------------------------------
-    // DEFERRED to the operation-path follow-up — do NOT wire the AuthorityProviderV3Adapter callsites here.
-    //
-    // Operation mode must resolve through a fenced loader carrying NO @ExternalAuthorization and performing NO
-    // setAuthentication (it runs under the operation path's existing principal). The live operation primitive is
-    // the public ConnectorRequestAttributesBuilder; safety rests on extending the ArchUnit fence to cover the
-    // operation entrypoint, NOT on a new unguarded twin. Until that follow-up:
-    //   - no expandViaOperationLoader is exposed,
-    //   - no adapter callsite is changed,
-    //   - the v2-adapter-does-not-expand / noDoubleExpansion / protocol-principal regression tests live there.
-    // ---------------------------------------------------------------------------------------------
+    // Operation mode is deliberately not implemented here (see class Javadoc); only nested-blob resolution via
+    // attributesOf(), above, remains deferred.
 }

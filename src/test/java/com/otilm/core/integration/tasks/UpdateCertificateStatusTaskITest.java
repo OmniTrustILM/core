@@ -19,7 +19,7 @@ import com.otilm.core.messaging.jms.listeners.ValidationListener;
 import com.otilm.core.messaging.jms.producers.ValidationProducer;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.ScheduledTaskResult;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.ScheduledJobInfo;
@@ -71,7 +71,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
     private ValidationListener validationListener;
 
     @MockitoSpyBean
-    private CertificateService mockedCertificateService;
+    private CertificateInternalService mockedCertificateService;
 
     private ScheduledJobInfo scheduledJobInfo;
 

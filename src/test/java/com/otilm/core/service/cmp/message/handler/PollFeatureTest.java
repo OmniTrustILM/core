@@ -5,7 +5,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
 import org.bouncycastle.asn1.DEROctetString;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,13 +36,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class PollFeatureTest {
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private EntityManager entityManager;
     private PollFeature pollFeature;
 
     @BeforeEach
     void setUp() throws Exception {
-        certificateService = Mockito.mock(CertificateService.class);
+        certificateService = Mockito.mock(CertificateInternalService.class);
         entityManager = Mockito.mock(EntityManager.class);
         pollFeature = new PollFeature();
         pollFeature.setCertificateService(certificateService);

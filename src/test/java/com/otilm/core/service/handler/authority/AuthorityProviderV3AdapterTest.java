@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
@@ -23,8 +24,21 @@ import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
+import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.OutboundSecretLeakException;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -50,6 +64,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
@@ -61,6 +76,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -73,6 +89,10 @@ class AuthorityProviderV3AdapterTest {
     ConnectorApiFactory connectorApiFactory;
     @Mock
     AttributeEngine attributeEngine;
+    @Mock
+    OperationAttributeResolver operationAttributeResolver;
+    @Spy
+    OutboundSecretContainment outboundContainment = new OutboundSecretContainment(new ObjectMapper());
     @Mock
     ConnectorCapabilityService capabilityService;
 
@@ -199,6 +219,92 @@ class AuthorityProviderV3AdapterTest {
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("no CERTIFICATE-scoped attribute load during issue"));
         assertEquals(AttributeOperation.CERTIFICATE_ISSUE, certScoped.operation());
+    }
+
+    // ---- operation path dereferences stored authority/ra-profile references (incl. SECRET) ----
+
+    @Test
+    void issueDereferencesAuthorityAndRaProfileAttributesForConnectorRequest() throws Exception {
+        // On the v3 operation path the stored authority + ra-profile attributes carry references (e.g. an OAuth-client
+        // SECRET) a stateless connector cannot resolve. Each must be resolved via OperationAttributeResolver and land
+        // on its OWN wire field — distinct stubs prove authority-scoped -> authorityAttributes and ra-profile-scoped
+        // -> raProfileAttributes, not crossed.
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
+        when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
+                .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));
+
+        adapter.issue(cert, new ClientCertificateSignRequestDto());
+
+        ArgumentCaptor<CertificateSignRequestDtoV3> wireCaptor = ArgumentCaptor.forClass(CertificateSignRequestDtoV3.class);
+        verify(certClientV3).issue(eq(connectorInfo), wireCaptor.capture());
+        CertificateSignRequestDtoV3 wire = wireCaptor.getValue();
+        assertSame(resolvedAuthority, wire.getAuthorityAttributes(),
+                "authorityAttributes must carry the resolved authority-scoped list");
+        assertSame(resolvedRaProfile, wire.getRaProfileAttributes(),
+                "raProfileAttributes must carry the resolved ra-profile-scoped list");
+    }
+
+    @Test
+    void listIssueAttributesDereferencesAuthorityAndRaProfileAttributes() throws Exception {
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
+        when(certClientV3.listIssueAttributes(eq(connectorInfo), any(CertificateAttributeListRequestDtoV3.class)))
+                .thenReturn(List.of());
+
+        adapter.listIssueAttributes(authority, raProfile);
+
+        ArgumentCaptor<CertificateAttributeListRequestDtoV3> dtoCaptor =
+                ArgumentCaptor.forClass(CertificateAttributeListRequestDtoV3.class);
+        verify(certClientV3).listIssueAttributes(eq(connectorInfo), dtoCaptor.capture());
+        CertificateAttributeListRequestDtoV3 dto = dtoCaptor.getValue();
+        assertSame(resolvedAuthority, dto.getAuthorityAttributes(),
+                "the attribute-list request must carry the resolved authority-scoped attributes, not crossed");
+        assertSame(resolvedRaProfile, dto.getRaProfileAttributes(),
+                "the attribute-list request must carry the resolved ra-profile-scoped attributes, not crossed");
+    }
+
+    @Test
+    void listIssueAttributesFailsClosedWhenConnectorEchoesResolvedSecret() throws Exception {
+        UUID connectorUuid = authority.getConnectorUuid();
+        ResourceObjectContent secretContent = new ResourceObjectContent();
+        secretContent.setData(new ResourceSecretContentData("u", "n", new ApiKeySecretContent("s3cr3t-token")));
+        RequestAttribute resolvedSecret = new RequestAttributeV3(UUID.randomUUID(), "oauthClient",
+                AttributeContentType.RESOURCE, List.<BaseAttributeContentV3<?>>of(secretContent));
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(eq(connectorUuid), any()))
+                .thenReturn(List.of(resolvedSecret));
+
+        DataAttributeV3 echoed = new DataAttributeV3();
+        echoed.setName("caUrl");
+        echoed.setContent(List.of(new StringAttributeContentV3("s3cr3t-token")));
+        when(certClientV3.listIssueAttributes(eq(connectorInfo), any(CertificateAttributeListRequestDtoV3.class)))
+                .thenReturn(List.<BaseAttribute>of(echoed));
+
+        assertThrows(OutboundSecretLeakException.class,
+                () -> adapter.listIssueAttributes(authority, raProfile),
+                "a connector echoing a resolved secret into the attribute list must fail closed");
     }
 
     // ---- issue: 202 -> ASYNC_ACCEPTED ----
@@ -412,6 +518,32 @@ class AuthorityProviderV3AdapterTest {
                 ArgumentCaptor.forClass(CertificateSignRequestDtoV3.class);
         verify(certClientV3).issue(eq(connectorInfo), captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    void issueRegisteredDereferencesAuthorityAndRaProfileAttributes() throws Exception {
+        // issueRegistered is a v3 operation path too: both attribute blobs must be resolved via
+        // OperationAttributeResolver, not shipped as bare references to the stateless connector.
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
+
+        CertificateSignRequestDtoV3 wire = issueRegisteredAndCaptureWire(List.of(), null);
+
+        assertSame(resolvedAuthority, wire.getAuthorityAttributes(),
+                "issueRegistered authorityAttributes must carry the resolved authority-scoped list");
+        assertSame(resolvedRaProfile, wire.getRaProfileAttributes(),
+                "issueRegistered raProfileAttributes must be resolved, not shipped as bare references");
     }
 
     @Test
