@@ -1,9 +1,10 @@
-package com.otilm.core.security.oauth2;
+package com.otilm.core.integration.security.oauth2;
 
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.auth.oauth2.PlatformJwtAuthenticationConverter;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.oauth2.OAuth2TestUtil;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -22,7 +23,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 
-class PlatformJwtConvertorTest extends BaseSpringBootTest {
+class PlatformJwtConvertorITest extends BaseSpringBootTest {
 
     @DynamicPropertySource
     static void authServiceProperties(DynamicPropertyRegistry registry) {

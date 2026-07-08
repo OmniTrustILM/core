@@ -18,7 +18,7 @@ import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.PlatformX500NameStyle;
@@ -55,7 +55,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
 
     private ScepProfileRepository scepProfileRepository;
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     private ClientOperationInternalService clientOperationService;
 
@@ -77,7 +77,7 @@ public class UpdateIntuneRevocationRequestsTask implements ScheduledJobTask {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

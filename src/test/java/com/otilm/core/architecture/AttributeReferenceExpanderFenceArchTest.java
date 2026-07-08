@@ -4,6 +4,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.attribute.engine.CallerAuthorizedReferenceLoaderRegistry;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.impl.CredentialServiceImpl;
 import com.otilm.core.service.impl.ResourceServiceImpl;
 import com.otilm.core.util.AuthHelper;
@@ -65,6 +66,17 @@ public class AttributeReferenceExpanderFenceArchTest {
                     .should().dependOnClassesThat().areAssignableTo(ConnectorRequestAttributesBuilder.class)
                     .because("ConnectorRequestAttributesBuilder is the unguarded operation-mode primitive (it calls "
                             + "both unguarded list-loaders); callback mode must not link against it");
+
+    @ArchTest
+    static final ArchRule callback_path_must_not_reach_operation_mode_resolver =
+            noClasses()
+                    .that().resideInAPackage("com.otilm.core.attribute.engine..")
+                    .and().areNotAssignableTo(ConnectorRequestAttributesBuilder.class)
+                    .and().areNotAssignableTo(AttributeEngine.class)
+                    .should().dependOnClassesThat().areAssignableTo(OperationAttributeResolver.class)
+                    .because("OperationAttributeResolver elevates to a system identity to dereference under "
+                            + "operation-level authorization; the callback expander resolves per-object as the calling "
+                            + "user and must never route through the operation-mode resolver");
 
     @ArchTest
     static final ArchRule expander_must_not_mutate_security_context =

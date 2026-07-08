@@ -2,24 +2,39 @@ package com.otilm.core.integration.attribute.engine;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.connector.secrets.SecretType;
+import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.entity.Secret;
+import com.otilm.core.dao.entity.SecretVersion;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
+import com.otilm.core.dao.repository.SecretRepository;
+import com.otilm.core.dao.repository.SecretVersionRepository;
+import com.otilm.core.dao.repository.VaultInstanceRepository;
+import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SecretsUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,10 +50,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Integration test exercising the REAL {@code @ExternalAuthorization(CREDENTIAL, DETAIL)} aspect through the
- * expander's callback path: the unit test mocks the loader, this one proves the live per-object gate fails
- * closed via OPA and never returns the credential blob to an unauthorized caller. Also asserts the N3 invariant
- * (the ambient principal is unchanged after expansion — no setAuthentication).
+ * Integration test exercising the REAL {@code @ExternalAuthorization} aspects through the expander's callback
+ * path: the unit test mocks the loaders, this one proves the live per-object gates fail closed via OPA and never
+ * return a blob to an unauthorized caller — for the object-config kinds (CREDENTIAL/AUTHORITY/ENTITY/LOCATION via
+ * their {@code DETAIL} gate, LOCATION also via its owning-entity gate) and for SECRET via its vault-profile
+ * membership gate. Also asserts the N3 invariant (the ambient principal is unchanged after expansion — no
+ * setAuthentication).
  */
 class AttributeReferenceExpanderITest extends BaseSpringBootTest {
 
@@ -53,6 +70,16 @@ class AttributeReferenceExpanderITest extends BaseSpringBootTest {
     private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
     @Autowired
     private LocationRepository locationRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private VaultInstanceRepository vaultInstanceRepository;
+    @Autowired
+    private VaultProfileRepository vaultProfileRepository;
+    @Autowired
+    private SecretRepository secretRepository;
+    @Autowired
+    private SecretVersionRepository secretVersionRepository;
 
     private Credential credential;
 
@@ -180,5 +207,75 @@ class AttributeReferenceExpanderITest extends BaseSpringBootTest {
         Authentication after = SecurityContextHolder.getContext().getAuthentication();
         Assertions.assertSame(before, after,
                 "N3: expander performs no setAuthentication / principal swap — ambient principal is unchanged");
+    }
+
+    /**
+     * Persists the graph a stored SECRET reference needs — Connector -> VaultInstance -> VaultProfile -> Secret —
+     * so the SECRET loader reaches its in-body vault-profile-membership gate. No vault content is stubbed: the
+     * denied path throws at that gate before any connector call, so this fixture never fetches secret content.
+     */
+    private Secret seedStoredSecret() throws Exception {
+        Connector connector = new Connector();
+        connector.setName("expander-it-vault-connector");
+        connector.setUrl("http://localhost:1");
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        VaultInstance vaultInstance = new VaultInstance();
+        vaultInstance.setName("expander-it-vault-instance");
+        vaultInstance.setConnector(connector);
+        vaultInstanceRepository.save(vaultInstance);
+
+        VaultProfile vaultProfile = new VaultProfile();
+        vaultProfile.setName("expander-it-vault-profile");
+        vaultProfile.setVaultInstance(vaultInstance);
+        vaultProfile.setVaultInstanceUuid(vaultInstance.getUuid());
+        vaultProfile.setEnabled(true);
+        vaultProfileRepository.save(vaultProfile);
+
+        Secret secret = new Secret();
+        secret.setName("expander-it-oauth-client");
+        secret.setType(SecretType.BASIC_AUTH);
+        secret.setState(SecretState.ACTIVE);
+        secret.setSourceVaultProfile(vaultProfile);
+        secret.setSourceVaultProfileUuid(vaultProfile.getUuid());
+        secret.setEnabled(true);
+
+        SecretVersion secretVersion = new SecretVersion();
+        secretVersion.setVersion(1);
+        secretVersion.setVaultProfile(vaultProfile);
+        BasicAuthSecretContent content = new BasicAuthSecretContent();
+        content.setUsername("oauth-client-id");
+        content.setPassword("oauth-client-secret");
+        secretVersion.setFingerprint(SecretsUtil.calculateSecretContentFingerprint(content));
+        secretVersionRepository.save(secretVersion);
+
+        secret.setLatestVersion(secretVersion);
+        secretRepository.save(secret);
+
+        secretVersion.setSecretUuid(secret.getUuid());
+        secretVersionRepository.save(secretVersion);
+        return secret;
+    }
+
+    @Test
+    void secretExpansionFailsClosedWhenDeniedVaultProfileMembership() throws Exception {
+        // A stored SECRET reference (an authority's OAuth-client secret) resolves through the caller-authorized SECRET
+        // loader, whose in-body gate requires vault-profile membership. A caller lacking VAULT_PROFILE:MEMBERS on the
+        // owning profile must fail closed — even though SECRET:GET_SECRET_CONTENT would pass — and no content may leak.
+        Secret secret = seedStoredSecret();
+
+        denyResourceAccess(Resource.VAULT_PROFILE, ResourceAction.MEMBERS);
+
+        RequestAttribute secretRef = resourceRef(AttributeResource.SECRET, secret.getUuid());
+        List<RequestAttribute> refs = List.of(secretRef);
+        Set<String> expandedSecrets = new HashSet<>();
+        Assertions.assertThrows(AccessDeniedException.class,
+                () -> expander.expandForCaller(refs, expandedSecrets),
+                "lacking vault-profile membership on the owning profile must fail the SECRET expansion closed");
+
+        ResourceObjectContent element = (ResourceObjectContent) ((List<?>) secretRef.getContent()).getFirst();
+        Assertions.assertInstanceOf(ResourceSimpleContentData.class, element.getData(),
+                "no secret content may be set on the reference when the vault-profile gate denies — it stays a bare ref");
     }
 }

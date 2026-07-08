@@ -95,7 +95,7 @@ class ResourceServiceTest extends BaseSpringBootTest {
     private AttributeRelationRepository attributeRelationRepository;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     private WireMockServer mockServer;
 

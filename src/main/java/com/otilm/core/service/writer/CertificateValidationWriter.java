@@ -3,7 +3,7 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.validation.certificate.X509CertificateValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,7 +18,7 @@ import java.util.UUID;
  * <p>Methods use the default propagation ({@code REQUIRED}) — they join an ambient transaction if one is active,
  * or open a new one if no ambient transaction exists.
  *
- * @see CertificateService#validate(Certificate)
+ * @see CertificateInternalService#validate(Certificate)
  * @see X509CertificateValidator
  */
 @Service

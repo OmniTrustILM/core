@@ -4,7 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateChainService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.writer.CertificateChainWriter;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LdapUtils;
@@ -49,13 +49,13 @@ public class CertificateChainServiceImpl implements CertificateChainService {
 
     private final CertificateRepository certificateRepository;
     private final CertificateChainWriter chainWriter;
-    private final CertificateService certificateService;
+    private final CertificateInternalService certificateService;
 
     @Autowired
     public CertificateChainServiceImpl(
             CertificateRepository certificateRepository,
             CertificateChainWriter chainWriter,
-            @Lazy CertificateService certificateService) {
+            @Lazy CertificateInternalService certificateService) {
         this.certificateRepository = certificateRepository;
         this.chainWriter = chainWriter;
         this.certificateService = certificateService;

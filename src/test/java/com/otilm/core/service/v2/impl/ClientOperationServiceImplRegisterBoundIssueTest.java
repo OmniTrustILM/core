@@ -26,7 +26,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -75,7 +75,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private AuthorityProviderAdapterFactory adapterFactory;
     private ConnectorCapabilityService capabilityService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private PlatformTransactionManager transactionManager;
     private CertificateStateMachine stateMachine;
     private AttributeEngine attributeEngine;
@@ -119,7 +119,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         certificateRegistrationWriter = mock(CertificateRegistrationWriter.class);
         adapterFactory = mock(AuthorityProviderAdapterFactory.class);
         capabilityService = mock(ConnectorCapabilityService.class);
-        certificateService = mock(CertificateService.class);
+        certificateService = mock(CertificateInternalService.class);
         transactionManager = mock(PlatformTransactionManager.class);
         stateMachine = mock(CertificateStateMachine.class);
         attributeEngine = mock(AttributeEngine.class);

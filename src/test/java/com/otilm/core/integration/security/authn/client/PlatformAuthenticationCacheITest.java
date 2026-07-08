@@ -1,6 +1,8 @@
-package com.otilm.core.security.authn.client;
+package com.otilm.core.integration.security.authn.client;
 
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.security.authn.client.AuthenticationCache;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,7 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
-class PlatformAuthenticationCacheTest extends BaseSpringBootTest {
+class PlatformAuthenticationCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private AuthenticationCache authenticationCache;
