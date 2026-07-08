@@ -30,7 +30,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * stage-2 persist is the drainer's job, so no {@code persist} meter is touched here. Like the immediate
  * strategy it does not swallow failures: a staging failure ticks {@code intake.failed{save_error}} and
  * propagates. Persistence wiring (the row landing in {@code signing_record_outbox}, field fidelity through
- * jsonb/byte[] columns) is covered against the real context in {@link DeferredDurableSigningRecordStrategyTest}.
+ * jsonb/byte[] columns) is covered against the real context in {@link com.otilm.core.integration.signing.record.DeferredDurableSigningRecordStrategyITest}.
  */
 class DeferredDurableSigningRecordStrategyUnitTest {
 
