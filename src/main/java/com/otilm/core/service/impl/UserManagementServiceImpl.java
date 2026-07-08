@@ -143,7 +143,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         }
         UserRequestDto requestDto = new UserRequestDto();
         Certificate certificate = null;
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
+        if (StringUtils.isNotBlank(request.getCertificateUuid()) || StringUtils.isNotBlank(request.getCertificateData())) {
             certificate = addUserCertificate(null, request.getCertificateUuid(), request.getCertificateData(), request.getCertificateCustomAttributes());
             requestDto.setCertificateUuid(certificate.getUuid().toString());
             requestDto.setCertificateFingerprint(certificate.getFingerprint());
@@ -383,7 +383,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         Certificate certificate = null;
         UserUpdateRequestDto requestDto = new UserUpdateRequestDto();
 
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
+        if (StringUtils.isNotBlank(request.getCertificateUuid()) || StringUtils.isNotBlank(request.getCertificateData())) {
             certificate = addUserCertificate(userUuid, request.getCertificateUuid(), request.getCertificateData(), request.getCertificateCustomAttributes());
             requestDto.setCertificateUuid(certificate.getUuid().toString());
             requestDto.setCertificateFingerprint(certificate.getFingerprint());
