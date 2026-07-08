@@ -44,4 +44,7 @@ public interface RaProfileCertificateRequestAttributeService {
 
     /** Returns the editable platform default set (seeded from {@code CsrAttributes} when unset). */
     List<BaseAttribute> getDefaultSet();
+
+    /** Effective strictness: per-RA-Profile value, else the platform default, else lenient (false). */
+    boolean resolveExternalCsrValidationStrict(RaProfile raProfile);
 }
