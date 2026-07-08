@@ -12,7 +12,7 @@ import java.security.cert.X509Certificate;
 /**
  * Test fixture that establishes a trusted certificate authority inside the platform and issues leaf
  * certificates from it. Certificate material is produced by {@code CertificateGeneratorHelper} (pure
- * crypto) and persisted by {@link CertificateUploader} (the {@code CertificateService} boundary); this
+ * crypto) and persisted by {@link CertificateUploader} (the {@code CertificateServiceImpl} boundary); this
  * class only wires the two together so a test can obtain an uploaded, trusted chain in one call.
  */
 @Component

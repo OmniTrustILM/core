@@ -4,7 +4,7 @@ import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.ApprovalInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import jakarta.transaction.Transactional;
 import lombok.NoArgsConstructor;
 import org.slf4j.Logger;
@@ -24,7 +24,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
     private static final Logger logger = LoggerFactory.getLogger(UpdateCertificateStatusTask.class);
 
     private ApprovalInternalService approvalService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private AcmeNonceRepository acmeNonceRepository;
 
     public String getDefaultJobName() {
@@ -74,7 +74,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
     // SETTERs
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

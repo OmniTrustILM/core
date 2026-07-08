@@ -9,7 +9,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.util.RabbitMQContainerFactory;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -67,7 +67,7 @@ class CertificateHandlerValidationAndComplianceTest extends BaseComplianceTest {
     private CertificateHandler certificateHandler;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;

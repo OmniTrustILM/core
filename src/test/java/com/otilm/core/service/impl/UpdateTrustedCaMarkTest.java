@@ -18,7 +18,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +63,7 @@ class UpdateTrustedCaMarkTest extends BaseSpringBootTest {
     }
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired

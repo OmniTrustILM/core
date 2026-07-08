@@ -13,7 +13,7 @@ import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.logging.LoggingHelper;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -163,10 +163,10 @@ public class CmpServiceImpl implements CmpExternalService {
 
     // -- OTHERS
     private AttributeEngine attributeEngine;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
-    private void setCertificateService(CertificateService certificateService) {
+    private void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

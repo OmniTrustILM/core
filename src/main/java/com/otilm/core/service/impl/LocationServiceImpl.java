@@ -46,7 +46,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.PermissionEvaluator;
@@ -89,7 +89,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private RaProfileRepository raProfileRepository;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private ClientOperationInternalService clientOperationService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
@@ -132,7 +132,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

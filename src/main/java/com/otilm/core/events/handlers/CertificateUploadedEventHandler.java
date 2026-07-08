@@ -3,6 +3,7 @@ package com.otilm.core.events.handlers;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.EventException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.events.data.CertificateEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
@@ -25,7 +26,7 @@ import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.X509ObjectToString;
 import org.bouncycastle.asn1.x509.Extension;
@@ -39,6 +40,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.List;
+import java.util.Objects;
 
 @Component(ResourceEvent.Codes.CERTIFICATE_UPLOADED)
 public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
@@ -46,7 +49,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     private static final Logger logger = LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
 
     private final CertificateRepository certificateRepository;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
     private TriggerHistoryRepository triggerHistoryRepository;
@@ -63,7 +66,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 
@@ -126,8 +129,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         CertificateUtil.prepareIssuedCertificate(certificate, x509Certificate);
         certificate.setFingerprint(fingerprint);
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);
+        // Always a non-null list, even if the request omitted custom attributes entirely: a real Java null passed down to the
+        // evaluator means "this caller doesn't support pending-attribute evaluation", which would wrongly make CUSTOM EMPTY
+        // conditions fail to match on an unpersisted certificate (no UUID) instead of correctly evaluating to true.
+        List<RequestAttribute> pendingCustomAttributes = Objects.requireNonNullElse(eventMessageData.customAttributes(), List.of());
         try {
-            if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory)) {
+            if (evaluateIgnoreTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory, pendingCustomAttributes)) {
                 saveEventHistory(eventHistory, EventStatus.FINISHED);
                 return;
             }
@@ -136,7 +143,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             // Retroactively link trigger histories of the ignore triggers to the certificate
             triggerHistoryRepository.updateObjectUuidAndObjectResource(certificate.getUuid(), Resource.CERTIFICATE, eventHistory.getUuid());
 
-            evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory);
+            evaluateTriggers(context, context.getPlatformTriggers(), certificate, eventData, eventHistory, pendingCustomAttributes);
         } catch (Exception e) {
             logger.error("Unable to process triggers for {} object {}. Message: {}", context.getResource().getLabel(), certificate.toStringShort(), e.getMessage());
             saveEventHistory(eventHistory, EventStatus.FAILED);

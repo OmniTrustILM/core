@@ -63,7 +63,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
 
     private UserManagementApiClient userManagementApiClient;
 
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private CertificateUploadService certificateUploadService;
     private GroupExternalService groupService;
     private ResourceObjectAssociationService objectAssociationService;
@@ -101,7 +101,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

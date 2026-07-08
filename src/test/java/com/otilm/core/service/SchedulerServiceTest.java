@@ -93,7 +93,7 @@ class SchedulerServiceTest extends BaseSpringBootTest {
     private TriggerAssociationRepository triggerAssociationRepository;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired

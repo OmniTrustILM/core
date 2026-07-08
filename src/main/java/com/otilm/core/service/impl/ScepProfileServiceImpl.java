@@ -51,7 +51,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
     private final ScepProfileRepository scepProfileRepository;
     private RaProfileInternalService raProfileService;
     private ExtendedAttributeService extendedAttributeService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private AttributeEngine attributeEngine;
     private ProtocolCertificateAssociationsRepository certificateAssociationRepository;
 
@@ -81,7 +81,7 @@ public class ScepProfileServiceImpl implements ScepProfileExternalService, ScepP
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

@@ -80,7 +80,7 @@ import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.RaProfileInternalService;
@@ -126,7 +126,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     private SigningProfileServiceImpl self;
     private CryptographicOperationInternalService cryptographicOperationService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private ConnectorInternalService connectorService;
     private TokenProfileInternalService tokenProfileService;
     private RaProfileInternalService raProfileService;
@@ -981,7 +981,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 
