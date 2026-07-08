@@ -6,11 +6,11 @@ import static org.mockito.Mockito.when;
 
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
-import org.springframework.security.access.method.P;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.otilm.api.model.scheduler.SchedulerJobExecutionMessage;
@@ -35,9 +35,11 @@ class SchedulerListenerITest extends BaseSpringBootTest {
     @Autowired
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
 
-    @Test
-    void testProcessMessage_CbomSyncTaskSkipped_DoesNotThrowUnexpectedRollbackException() throws CbomRepositoryException {
-        ScheduledJob scheduledJob = new ScheduledJob();
+    private ScheduledJob scheduledJob;
+
+    @BeforeEach
+    void setUp() {
+        scheduledJob = new ScheduledJob();
         scheduledJob.setJobName(CbomSyncTask.NAME);
         scheduledJob.setJobClassName(CbomSyncTask.class.getName());
         scheduledJob.setCronExpression("0 0 * ? * *");
@@ -45,7 +47,10 @@ class SchedulerListenerITest extends BaseSpringBootTest {
         scheduledJob.setOneTime(false);
         scheduledJob.setSystem(true);
         scheduledJobsRepository.save(scheduledJob);
+    }
 
+    @Test
+    void testProcessMessage_CbomClientNotConfigured_DoesNotThrowUnexpectedRollbackException() {
         when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
         SchedulerJobExecutionMessage message = new SchedulerJobExecutionMessage(CbomSyncTask.NAME, CbomSyncTask.class.getName());
@@ -53,10 +58,14 @@ class SchedulerListenerITest extends BaseSpringBootTest {
         assertDoesNotThrow(() -> schedulerListener.processMessage(message));
         verify(cbomService).isCbomRepositoryClientConfigured();
         assertFalse(scheduledJobHistoryRepository.existsByScheduledJobUuid(scheduledJob.getUuid()));
+    }
 
-        // Mock path when cbom is configured
+    @Test
+    void testProcessMessage_CbomSyncTaskThrowsException_DoesNotThrowUnexpectedRollbackException() throws CbomRepositoryException {
         when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
         when(cbomService.sync()).thenThrow(new CbomRepositoryException(ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE)));
+
+        SchedulerJobExecutionMessage message = new SchedulerJobExecutionMessage(CbomSyncTask.NAME, CbomSyncTask.class.getName());
 
         assertDoesNotThrow(() -> schedulerListener.processMessage(message));
         verify(cbomService).sync();
