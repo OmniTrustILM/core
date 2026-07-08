@@ -155,14 +155,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         requestDto.setLastName(request.getLastName());
         requestDto.setDescription(request.getDescription());
 
-        List<NameAndUuidDto> groups = new ArrayList<>();
-        if (request.getGroupUuids() != null) {
-            for (String groupUuid : request.getGroupUuids()) {
-                GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
-                groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
-            }
-        }
-        requestDto.setGroups(groups);
+        requestDto.setGroups(resolveGroups(request.getGroupUuids()));
 
         UserDetailDto response = userManagementApiClient.createUser(requestDto);
         if (certificate != null) {
@@ -329,6 +322,18 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         getUser(uuid.toString());
     }
 
+    private List<NameAndUuidDto> resolveGroups(List<String> groupUuids) throws NotFoundException {
+        List<NameAndUuidDto> groups = new ArrayList<>();
+        if (groupUuids == null) {
+            return groups;
+        }
+        for (String groupUuid : groupUuids) {
+            GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
+            groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
+        }
+        return groups;
+    }
+
     private Certificate addUserCertificate(String userUuid, String certificateUuid, String certificateData, List<RequestAttribute> certificateCustomAttributes) throws CertificateException, NotFoundException {
         Certificate certificate = null;
         boolean uploadCertificate = false;
@@ -393,12 +398,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         requestDto.setLastName(request.getLastName());
 
         if (request.getGroupUuids() != null) {
-            List<NameAndUuidDto> groups = new ArrayList<>();
-            for (String groupUuid : request.getGroupUuids()) {
-                GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
-                groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
-            }
-            requestDto.setGroups(groups);
+            requestDto.setGroups(resolveGroups(request.getGroupUuids()));
         }
 
         UserDetailDto response = userManagementApiClient.updateUser(userUuid, requestDto);
