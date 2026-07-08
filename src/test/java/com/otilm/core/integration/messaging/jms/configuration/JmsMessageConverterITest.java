@@ -1,5 +1,6 @@
-package com.otilm.core.messaging.jms.configuration;
+package com.otilm.core.integration.messaging.jms.configuration;
 
+import com.otilm.core.messaging.jms.configuration.JmsConfig;
 import com.otilm.core.util.BaseSpringBootTest;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
@@ -24,7 +25,7 @@ import static org.mockito.Mockito.when;
  * <p>This test verifies that the MessageConverter bean configured in {@link JmsConfig}
  * correctly handles Java 8 date/time types (OffsetDateTime, LocalDateTime, etc.).</p>
  */
-class JmsMessageConverterTest extends BaseSpringBootTest {
+class JmsMessageConverterITest extends BaseSpringBootTest {
 
     @Autowired
     private MessageConverter messageConverter;
