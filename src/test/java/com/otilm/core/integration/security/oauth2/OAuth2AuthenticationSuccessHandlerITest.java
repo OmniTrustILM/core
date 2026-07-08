@@ -1,10 +1,11 @@
-package com.otilm.core.security.oauth2;
+package com.otilm.core.integration.security.oauth2;
 
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.core.auth.oauth2.PlatformAuthenticationSuccessHandler;
 import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.security.oauth2.OAuth2TestUtil;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
 import com.nimbusds.jose.JOSEException;
@@ -36,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 
 @SpringBootTest
-class OAuth2AuthenticationSuccessHandlerTest {
+class OAuth2AuthenticationSuccessHandlerITest {
 
     @MockitoBean
     OAuth2AuthorizedClientService clientService;

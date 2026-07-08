@@ -1,4 +1,4 @@
-package com.otilm.core.security.authz;
+package com.otilm.core.integration.security.authz;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
@@ -23,6 +23,10 @@ import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
+import com.otilm.core.security.authz.ExternalMethodAuthorizationManager;
+import com.otilm.core.security.authz.SecuredResource;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.ComplianceExternalService;
@@ -42,7 +46,7 @@ import java.util.UUID;
  * AOP stack: the {@code dynamicAuthorizationManagerBeforeMethodInterception} advisor wired in {@code MethodSecurityConfig},
  * the {@link ExternalMethodAuthorizationManager}, and {@link OpaSecuredAnnotationMetadataExtractor}.
  */
-class ExternalAuthorizationDynamicIntegrationTest extends BaseSpringBootTest {
+class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
 
     @Autowired
     private ResourceExternalService resourceService;
