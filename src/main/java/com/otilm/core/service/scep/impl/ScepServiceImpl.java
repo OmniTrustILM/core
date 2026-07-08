@@ -484,7 +484,7 @@ public class ScepServiceImpl implements ScepExternalService {
         try {
             response = clientOperationService.issueCertificate(raProfile.getAuthorityInstanceReference().getSecuredParentUuid(), raProfile.getSecuredUuid(), requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
         } catch (RequestAttributePolicyViolationException e) {
-            throw new ScepException(e.getMessage(), FailInfo.BAD_REQUEST); // platform-authored, safe
+            throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | CertificateOperationException e) {
             throw new ScepException("Unable to issue certificate", e, FailInfo.BAD_REQUEST);
         } catch (NoSuchAlgorithmException e) {
@@ -550,7 +550,7 @@ public class ScepServiceImpl implements ScepExternalService {
         try {
             response = clientOperationService.submitCertificateRequest(requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
         } catch (RequestAttributePolicyViolationException e) {
-            throw new ScepException(e.getMessage(), FailInfo.BAD_REQUEST); // platform-authored, safe
+            throw new ScepException(e.getMessage(), e, FailInfo.BAD_REQUEST); // platform-authored, safe
         } catch (CertificateException | NotFoundException | NoSuchAlgorithmException | AttributeException |
                  ConnectorException | CertificateRequestException e) {
             throw new ScepException("Unable to submit certificate request", e, FailInfo.BAD_REQUEST);

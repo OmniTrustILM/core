@@ -58,6 +58,8 @@ public class ProtocolRequestAttributeValidator {
                 String reason = e instanceof NotFoundException
                         ? "the request-attribute set is not configured on the authority connector"
                         : "the authority connector is unavailable";
+                log.warn("Could not resolve request-attribute set (RA profile {}); strict validation cannot proceed ({})",
+                        raProfile.getName(), reason, e);
                 throw new CertificateException(
                         "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the request (%s)"
                                 .formatted(raProfile.getName(), reason), e);
