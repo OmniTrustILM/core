@@ -58,7 +58,7 @@ public interface CertificateExternalService {
     /**
      * Initiates the compliance check for the certificates in the request
      *
-     * @param request List of uuids of the certificate
+     * @param uuids List of uuids of the certificate
      */
     void checkCompliance(List<SecuredUUID> uuids) throws NotFoundException;
 
