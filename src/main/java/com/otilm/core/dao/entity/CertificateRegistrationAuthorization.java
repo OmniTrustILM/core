@@ -15,10 +15,10 @@ import java.util.UUID;
 
 /**
  * Durable authorization for a pre-registered certificate: the challenge, issuance window, failed-attempt lockout,
- * and lifecycle state that let a later renew or rekey prove it is the registered subject. It coexists with the
- * transient {@link CertificateRegistration} register->issue binding but, unlike that binding, survives issuance —
- * the binding is cleared when the certificate is first issued, while this record remains to authorize follow-up
- * operations.
+ * and lifecycle state used to authorize a later renew or rekey.
+ *
+ * <p>Unlike the transient {@link CertificateRegistration} register-to-issue binding, which is cleared once the
+ * certificate is first issued, this record survives issuance so it can authorize follow-up operations.
  */
 @Getter
 @Setter

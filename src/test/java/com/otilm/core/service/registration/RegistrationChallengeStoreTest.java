@@ -57,4 +57,10 @@ class RegistrationChallengeStoreTest extends BaseSpringBootTest {
         assertThatThrownBy(() -> challengeStore.store(row, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> challengeStore.store(row, "   ")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void resolvePlaintextRejectsUnpopulatedRow() {
+        assertThatThrownBy(() -> challengeStore.resolvePlaintext(new CertificateRegistrationAuthorization()))
+                .isInstanceOf(IllegalStateException.class);
+    }
 }

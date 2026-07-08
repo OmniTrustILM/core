@@ -5,8 +5,8 @@ import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import org.springframework.stereotype.Service;
 
-import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Encrypts, verifies, and reveals the registration challenge of a {@link CertificateRegistrationAuthorization}.
@@ -48,6 +48,11 @@ public class RegistrationChallengeStore {
      * payload (SCEP / CMP); never exposed by any API.
      */
     public String resolvePlaintext(CertificateRegistrationAuthorization row) {
+        // Consistent with verify()'s guard: a clear domain error beats an NPE inside SecretsUtil if this is ever
+        // called on an unpopulated row. The NOT NULL challenge column keeps it unreachable for a persisted row.
+        if (row.getChallenge() == null) {
+            throw new IllegalStateException("Registration authorization has no stored challenge to resolve");
+        }
         return SecretsUtil.decodeAndDecryptSecretString(row.getChallenge(), SecretEncodingVersion.V1);
     }
 }
