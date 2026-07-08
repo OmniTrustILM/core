@@ -1,6 +1,8 @@
-package com.otilm.core.security.authn.client;
+package com.otilm.core.integration.security.authn.client;
 
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.security.authn.client.CredentialVerificationCache;
+import com.otilm.core.security.authn.client.SecretRefIndex;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,7 +15,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class CredentialVerificationCacheTest extends BaseSpringBootTest {
+class CredentialVerificationCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private CredentialVerificationCache cache;
