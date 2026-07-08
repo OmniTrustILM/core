@@ -109,12 +109,12 @@ public class AuthHelper {
      * itself for one bounded step (resolving an authority's own infrastructure references) while the rest of the
      * request stays under the original principal.
      * <p>
-     * A fresh {@code SecurityContext} is installed for the elevation window (because
-     * {@code authenticateAsSystemUser} overwrites the current context and the actor MDC in place). Afterwards both are
-     * put back exactly as the caller left them: the caller's {@code Authentication} is restored, or the holder is
-     * cleared when the caller had none (so no system principal lingers on a principal-less pooled thread — the async
-     * status-poll listener runs with no {@code SecurityContext}); and the actor MDC snapshot is restored, so an
-     * operator/protocol caller keeps its own audit attribution and an actor-less caller is left actor-less.
+     * <b>SecurityContext:</b> a fresh empty context is installed for the elevation window; on exit the caller's
+     * {@code Authentication} is restored, or the holder is cleared if the caller had none — so no system principal
+     * lingers on a principal-less pooled thread (the async status-poll listener runs with no context).
+     * <p>
+     * <b>Actor MDC:</b> the caller's actor snapshot is restored on exit, so an operator/protocol caller keeps its own
+     * audit attribution and an actor-less caller stays actor-less.
      */
     public <T, E extends Exception> T runAsSystem(String systemUsername, ThrowingSupplier<T, E> action) throws E {
         SecurityContext previous = SecurityContextHolder.getContext();

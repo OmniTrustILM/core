@@ -53,12 +53,13 @@ public class ConnectorRequestAttributesBuilder {
      * {@code OperationAttributeResolver}, which elevates to the platform's attribute-content-resolver system identity
      * for the duration of this call (authorized at the operation level, not per acting caller).
      * <p>
-     * This method itself does not arm the callback path's outbound-secret value-echo containment. For
-     * issue/renew/revoke/register the connector response is certificate data, not a caller-reflected surface. The
-     * attribute-list endpoints (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content
-     * to the operator, so {@code AuthorityProviderV3Adapter} routes those responses through
-     * {@code OutboundSecretContainment} — recording the secrets resolved into the request and failing closed if the
-     * connector echoes any of them back.
+     * This method itself does not arm the callback path's outbound-secret value-echo containment. The attribute-list
+     * endpoints (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content to the operator,
+     * so {@code AuthorityProviderV3Adapter} routes those responses through {@code OutboundSecretContainment} —
+     * recording the secrets resolved into the request and failing closed if the connector echoes any back. The
+     * operation responses (issue/renew/revoke/register/issueRegistered certificate data + the connector-owned
+     * {@code meta} bag those and pollStatus return) are deliberately not scanned — see
+     * {@code AuthorityProviderV3Adapter#contained} for the rationale.
      */
     public List<RequestAttribute> dereferenceForConnectorRequest(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         return resolveContent(connectorUuid, requestAttributes);

@@ -36,6 +36,7 @@ public class LoggingHelper {
     private static final String LOG_ACTOR_AUTH_METHOD = "log_actor_authMethod";
     private static final String LOG_ACTOR_UUID = "log_actor_uuid";
     private static final String LOG_ACTOR_NAME = "log_actor_name";
+    private static final String[] ACTOR_KEYS = {LOG_ACTOR_TYPE, LOG_ACTOR_AUTH_METHOD, LOG_ACTOR_UUID, LOG_ACTOR_NAME};
 
     private static final String LOG_SOURCE_METHOD = "log_source_method";
     private static final String LOG_SOURCE_PATH = "log_source_path";
@@ -149,8 +150,6 @@ public class LoggingHelper {
         MDC.remove(LOG_ACTOR_UUID);
         MDC.remove(LOG_ACTOR_NAME);
     }
-
-    private static final String[] ACTOR_KEYS = {LOG_ACTOR_TYPE, LOG_ACTOR_AUTH_METHOD, LOG_ACTOR_UUID, LOG_ACTOR_NAME};
 
     /**
      * Captures the actor attribution MDC keys so a scoped elevation can restore the caller's attribution afterwards.

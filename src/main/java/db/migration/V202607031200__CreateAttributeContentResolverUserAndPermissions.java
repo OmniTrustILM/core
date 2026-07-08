@@ -20,13 +20,15 @@ import java.util.Map;
  * connector receives usable content without gating on the acting caller (operator, protocol robot, or the
  * principal-less status-poll thread).
  * <p>
- * The role covers every referenceable {@code AttributeResource} kind — including AUTHORITY/ENTITY/LOCATION, which
- * currently resolve through an unguarded engine read — so that when those reads are eventually guarded the resolver
- * fails safe (it already holds the grant) rather than starting to deny. Beyond those kinds, {@code CONNECTOR:DETAIL}
- * and {@code VAULT_PROFILE:MEMBERS} are needed transitively by a SECRET dereference — it loads the secret's vault
- * connector and checks vault-profile membership. The granted pairs are seeded into the auth service before the role is
- * created: Core's catalog sync runs only after Flyway, so on a fresh install the auth service would otherwise reject
- * the role for a not-yet-known resource/action.
+ * <b>Broad coverage (fail-safe):</b> the role covers every referenceable {@code AttributeResource} kind, including
+ * AUTHORITY/ENTITY/LOCATION which currently resolve through an unguarded engine read — so if those reads are later
+ * guarded the resolver already holds the grant rather than starting to deny.
+ * <p>
+ * <b>Transitive grants:</b> {@code CONNECTOR:DETAIL} and {@code VAULT_PROFILE:MEMBERS} are required by a SECRET
+ * dereference, which loads the secret's vault connector and checks vault-profile membership.
+ * <p>
+ * <b>Seed order:</b> the granted pairs are seeded before the role is created — the auth service rejects a role
+ * naming an unknown resource/action, and Core's catalog sync runs only after Flyway.
  */
 // Flyway mandates the V<version>__<Description> class-name format, which cannot match Sonar's S101 identifier pattern.
 @SuppressWarnings("java:S101")

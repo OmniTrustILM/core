@@ -85,6 +85,22 @@ class OperationAttributeResolverTest {
     }
 
     @Test
+    void propagatesConnectorExceptionFromDerefUnwrapped() throws Exception {
+        // ConnectorException is the one checked type deliberately NOT caught in the lambda, so a ConnectorException
+        // from the deref must pass through as the same instance, not be re-wrapped in another ConnectorException.
+        runElevationInline();
+        UUID connectorUuid = UUID.randomUUID();
+        List<RequestAttribute> stored = List.of(referenceAttribute());
+        ConnectorException original = new ConnectorException("connector unreachable");
+        when(connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored))
+                .thenThrow(original);
+
+        ConnectorException thrown = assertThrows(ConnectorException.class,
+                () -> resolver.resolveForConnectorRequestAsSystem(connectorUuid, stored));
+        assertSame(original, thrown, "a ConnectorException from the deref must propagate unwrapped, not double-wrapped");
+    }
+
+    @Test
     void wrapsUnresolvableReferenceValidationAsConnectorException() throws Exception {
         runElevationInline();
         UUID connectorUuid = UUID.randomUUID();

@@ -213,9 +213,16 @@ public class AuthorityProviderV3Adapter
     }
 
     /**
-     * Fail closed if the connector echoed back a secret Core expanded into the request. The v3 attribute-list
-     * responses flow to the operator's attribute-selection UI (unlike issue/revoke/register, whose response is
-     * certificate data), so they get the same outbound-secret containment the callback path applies.
+     * Fail closed if the connector echoed back a secret Core expanded into the request. Applied to the four
+     * attribute-list responses only: they flow to the operator's attribute-selection UI and are fetched
+     * pre-commitment (read-only), so refusing on an echo is safe.
+     * <p>
+     * The operation responses are deliberately NOT scanned — issue/renew/revoke/register/issueRegistered return
+     * certificate data plus a connector-owned {@code meta} bag (also returned by {@code pollStatus}) that Core
+     * persists and shows operators. That {@code meta} is connector-controlled, but the connector is the legitimate
+     * holder of the resolved secret (an echo is no new disclosure to an untrusted party), and — unlike the read-only
+     * list fetch — failing closed after the connector has already committed the operation would diverge Core's state
+     * from the connector's. {@code cancel} returns no connector content.
      */
     @SafeVarargs
     private List<BaseAttribute> contained(List<BaseAttribute> response, List<RequestAttribute>... sentAttributes) {
@@ -368,12 +375,13 @@ public class AuthorityProviderV3Adapter
     }
 
     /**
-     * v3 connectors are stateless: the stored authority/ra-profile attributes carry references (CREDENTIAL, RESOURCE
-     * incl. SECRET) the connector cannot resolve itself. Core resolves them to inline content via
-     * {@link OperationAttributeResolver} under the platform's attribute-content-resolver system identity — authorized at the
-     * operation level, not per acting caller (so it works for operators, protocol robots, and the principal-less
-     * status-poll path alike). v2 stays stateful and is untouched — the base adapter's non-dereferencing helpers
-     * still serve it.
+     * v3 connectors are stateless, so stored authority/ra-profile attributes carry CREDENTIAL/RESOURCE (incl. SECRET)
+     * references the connector cannot resolve itself.
+     * <p>
+     * <b>Resolution:</b> Core inlines them via {@link OperationAttributeResolver} (see its Javadoc for the
+     * system-identity trust model).
+     * <p>
+     * <b>v2:</b> unchanged — the base adapter's non-dereferencing helpers still serve the stateful v2 path.
      */
     private List<RequestAttribute> authorityAttributesFor(AuthorityInstanceReference authority) throws ConnectorException {
         List<RequestAttribute> stored = attributeEngine.getRequestObjectDataAttributesContent(
