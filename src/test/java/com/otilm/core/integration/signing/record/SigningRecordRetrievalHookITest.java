@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
@@ -10,6 +10,7 @@ import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
+import com.otilm.core.signing.record.SigningRecordRetrievalHook;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -26,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class SigningRecordRetrievalHookTest extends BaseSpringBootTest {
+class SigningRecordRetrievalHookITest extends BaseSpringBootTest {
 
     @Autowired
     private SigningRecordRetrievalHook hook;

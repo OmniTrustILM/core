@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
@@ -17,6 +17,10 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningRecordExternalService;
+import com.otilm.core.signing.record.SigningRecordBestEffortFlusher;
+import com.otilm.core.signing.record.SigningRecordInputSources;
+import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
+import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.util.BaseSpringBootTest;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -38,8 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * {@link SigningRecordPersistenceMode}: a write goes through the {@link SigningRecordStrategyFactory}-selected
  * strategy and ends up as a {@code signing_record} row, by whichever route the mode dictates. Each strategy, the
  * outbox drainer and the best-effort flusher are pinned in isolation elsewhere
- * ({@code ImmediateSigningRecordStrategyTest}, {@code DeferredDurableSigningRecordStrategyTest},
- * {@code SigningRecordOutboxDrainerTest}, {@code BestEffortSigningRecordStrategyTest}); what these tests alone
+ * ({@code ImmediateSigningRecordStrategyITest}, {@code DeferredDurableSigningRecordStrategyITest},
+ * {@code SigningRecordOutboxDrainerITest}, {@code BestEffortSigningRecordStrategyITest}); what these tests alone
  * prove is that the factory routes each mode to the right strategy, the mode's stages chain into one persisted
  * record, and the mode's lifecycle counters advance:
  *
@@ -51,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  *         {@link SigningRecordBestEffortFlusher} thread.</li>
  * </ul>
  */
-class SigningRecordEndToEndTest extends BaseSpringBootTest {
+class SigningRecordEndToEndITest extends BaseSpringBootTest {
 
     private static final Duration FLUSH_DEADLINE = Duration.ofSeconds(10);
 

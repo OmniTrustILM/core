@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -12,6 +12,9 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
+import com.otilm.core.signing.record.SigningRecordOutboxBuilder;
+import com.otilm.core.signing.record.SigningRecordOutboxDrainScheduler;
+import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "signing-record.outbox.max-batch-size=2",
         "signing-record.outbox.poison-threshold=3"
 })
-class SigningRecordOutboxDrainerTest extends BaseSpringBootTest {
+class SigningRecordOutboxDrainerITest extends BaseSpringBootTest {
 
     private static final int MAX_BATCH_SIZE = 2;
     private static final int POISON_THRESHOLD = 3;
