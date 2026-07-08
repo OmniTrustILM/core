@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -43,7 +42,7 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
 
     // @formatter:off
-    String RAW_DATA = "{" +
+    private static final String RAW_DATA = "{" +
             "\"authenticated\": true," +
             "\"data\": {" +
             "\"user\": {" +
@@ -117,7 +116,7 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
                 List.of("ROLE_ADMINISTRATOR", "ROLE_USER"),
                 info.getAuthorities().stream()
                         .map(GrantedAuthority::getAuthority)
-                        .collect(Collectors.toList())
+                        .toList()
         );
 
     }

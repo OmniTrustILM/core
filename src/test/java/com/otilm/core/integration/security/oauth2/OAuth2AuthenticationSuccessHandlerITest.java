@@ -12,7 +12,6 @@ import com.nimbusds.jose.JOSEException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -35,6 +34,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class OAuth2AuthenticationSuccessHandlerITest {
@@ -73,7 +74,7 @@ class OAuth2AuthenticationSuccessHandlerITest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, "username");
         idTokenClaims.put("sub", "sub");
@@ -88,7 +89,7 @@ class OAuth2AuthenticationSuccessHandlerITest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, List.of("audience"), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, "username");
         idTokenClaims.put("sub", "sub");
@@ -104,7 +105,7 @@ class OAuth2AuthenticationSuccessHandlerITest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put("sub", "sub");
         OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusMillis(100), idTokenClaims);
@@ -120,7 +121,7 @@ class OAuth2AuthenticationSuccessHandlerITest {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, null), Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
-        Mockito.when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
+        when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
         Map<String, Object> idTokenClaims = new HashMap<>();
         idTokenClaims.put("sub", "sub");
