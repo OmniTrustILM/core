@@ -1074,11 +1074,9 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificate.setArchived(true);
             certificateRepository.save(certificate);
             ComplianceStatus oldComplianceStatus = certificate.getComplianceStatus();
-            CertificateComplianceCheckDto request = new CertificateComplianceCheckDto();
-            request.setCertificateUuids(List.of(certificate.getUuid().toString()));
 
             // when
-            certificateService.checkCompliance(request);
+            certificateService.checkCompliance(List.of(SecuredUUID.fromUUID(certificate.getUuid())));
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).get().getComplianceStatus()).isEqualTo(oldComplianceStatus);

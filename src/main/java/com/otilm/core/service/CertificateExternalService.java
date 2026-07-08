@@ -60,7 +60,7 @@ public interface CertificateExternalService {
      *
      * @param request List of uuids of the certificate
      */
-    void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException;
+    void checkCompliance(List<SecuredUUID> uuids) throws NotFoundException;
 
     /**
      * Update the Certificate Objects contents

@@ -76,8 +76,8 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
+import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CertificateInternalService;
@@ -149,7 +149,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     // ──────────────────────────────────────────────────────────────────────────
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.LIST)
     @Transactional(readOnly = true)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.SIGNING_PROFILE, false);
@@ -167,7 +167,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<SigningProtocol> listSupportedProtocols(SigningWorkflowType workflowType) {
         return List.copyOf(SUPPORTED_PROTOCOLS.getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class)));
     }
@@ -219,16 +219,16 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.LIST)
     public List<CertificateDto> listSigningCertificates(SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp) {
         return certificateService.listDigitalSigningCertificates(SecurityFilter.create(), signingWorkflowType, qualifiedTimestamp);
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     @Transactional(readOnly = true)
-    public List<BaseAttribute> listSignatureAttributesForCertificate(UUID certificateUuid) throws NotFoundException {
-        Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
+    public List<BaseAttribute> listSignatureAttributesForCertificate(SecuredUUID certificateUuid) throws NotFoundException {
+        Certificate certificate = certificateService.getCertificateEntity(certificateUuid);
         if (certificate.getKey() == null) {
             return List.of();
         }
