@@ -154,7 +154,7 @@ public class CertificateControllerImpl implements CertificateController {
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.CHECK_COMPLIANCE)
     public void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException {
-        certificateService.checkCompliance(request);
+        certificateService.checkCompliance(SecuredUUID.fromList(request.getCertificateUuids()));
     }
 
     @Override

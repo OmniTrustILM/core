@@ -29,8 +29,8 @@ import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
@@ -312,7 +312,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @AnyPrincipalEndpoint
     public List<Resource> getResources() {
         return Resource.getCustomAttributesResources();
     }

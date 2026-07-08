@@ -344,7 +344,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
         UUID rsaCertificateUuid = defaultSigningCertificate.getUuid();
 
         // when
-        Executable listAttributes = () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificateUuid);
+        Executable listAttributes = () -> signingProfileService.listSignatureAttributesForCertificate(SecuredUUID.fromUUID(rsaCertificateUuid));
 
         // then
         assertThrows(AccessDeniedException.class, listAttributes);
@@ -456,7 +456,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
 
             // when
             List<com.otilm.api.model.common.attribute.common.BaseAttribute> attrs =
-                    signingProfileService.listSignatureAttributesForCertificate(defaultSigningCertificate.getUuid());
+                    signingProfileService.listSignatureAttributesForCertificate(SecuredUUID.fromUUID(defaultSigningCertificate.getUuid()));
 
             // then
             assertNotNull(attrs);
@@ -470,7 +470,7 @@ class SigningProfileServiceImplTest extends BaseSpringBootTest {
             UUID rsaCertificateUuid = defaultSigningCertificate.getUuid();
 
             // when
-            Executable listAttributes = () -> signingProfileService.listSignatureAttributesForCertificate(rsaCertificateUuid);
+            Executable listAttributes = () -> signingProfileService.listSignatureAttributesForCertificate(SecuredUUID.fromUUID(rsaCertificateUuid));
 
             // then
             assertThrows(AccessDeniedException.class, listAttributes);
