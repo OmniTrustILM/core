@@ -1,4 +1,4 @@
-package com.otilm.core.util;
+package com.otilm.core.integration.util;
 
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
@@ -43,6 +43,8 @@ import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.FilterPredicatesBuilder;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import jakarta.persistence.EntityManager;
@@ -83,7 +85,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aSearch
  * Tests for class {@link FilterPredicatesBuilder}
  */
 @SpringBootTest
-class FilterPredicatesBuilderTest extends BaseSpringBootTest {
+class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @Autowired
     private EntityManager entityManager;
