@@ -40,6 +40,34 @@ public class ConnectorRequestAttributesBuilder {
 
     public List<RequestAttribute> prepareRequestAttributesForConnectorRequest(UUID connectorUuid, List<BaseAttribute> attributeDefinitions, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         attributeEngine.validateUpdateDataAttributes(connectorUuid, null, attributeDefinitions, requestAttributes);
+        return resolveContent(connectorUuid, requestAttributes);
+    }
+
+    /**
+     * Dereferences CREDENTIAL + RESOURCE (incl. SECRET) references in attributes that were already stored and
+     * validated, so a stateless connector receives inline content on the operation path. Unlike
+     * {@link #prepareRequestAttributesForConnectorRequest}, this skips the definition-drift check
+     * ({@code validateUpdateDataAttributes}) — the attributes were validated when persisted and no attribute
+     * definitions are supplied here; per-attribute content validation still runs inside
+     * {@code getDataAttributesByContent}. Callers resolving an authority's own infrastructure references go through
+     * {@code OperationAttributeResolver}, which elevates to the platform's attribute-content-resolver system identity
+     * for the duration of this call (authorized at the operation level, not per acting caller).
+     * <p>
+     * This method itself does not arm the callback path's outbound-secret value-echo containment. The attribute-list
+     * endpoints (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content to the operator,
+     * so {@code AuthorityProviderV3Adapter} routes those responses through {@code OutboundSecretContainment} —
+     * recording the secrets resolved into the request and failing closed if the connector echoes any back. The
+     * operation responses (issue/renew/revoke/register/issueRegistered certificate data + the connector-owned
+     * {@code meta} bag those and pollStatus return) are deliberately not scanned — see
+     * {@code AuthorityProviderV3Adapter#contained} for the rationale.
+     */
+    public List<RequestAttribute> dereferenceForConnectorRequest(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
+        return resolveContent(connectorUuid, requestAttributes);
+    }
+
+    /** Shared skeleton: resolve request-attribute content against the connector's definitions, dereferencing
+     * CREDENTIAL + RESOURCE (incl. SECRET) references in place, then map back to client attributes. */
+    private List<RequestAttribute> resolveContent(UUID connectorUuid, List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine.getDataAttributesByContent(connectorUuid, requestAttributes);
         credentialService.loadFullCredentialData(dataAttributes);
         resourceService.loadResourceObjectContentData(dataAttributes);
