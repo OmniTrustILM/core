@@ -1,5 +1,7 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV2;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
@@ -9,6 +11,7 @@ import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
@@ -20,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,6 +49,25 @@ class OutboundSecretContainmentTest {
         Object response = Map.of("attributes", List.of(Map.of("value", "super-secret-token-123")));
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(response, expandedSecrets));
+    }
+
+    @Test
+    void recordsExpandedSecretsFromResolvedRequestAttributes() {
+        // The operation path records from the resolved request attributes it is about to send the connector (not from
+        // a content blob): a resolved SECRET reference carries a ResourceObjectContent -> ResourceSecretContentData.
+        ResourceObjectContent secretContent = new ResourceObjectContent();
+        secretContent.setData(new ResourceSecretContentData("u", "n", new ApiKeySecretContent("s3cr3t-token")));
+        RequestAttribute resolved = new RequestAttributeV3(UUID.randomUUID(), "oauthClient",
+                AttributeContentType.RESOURCE, List.<BaseAttributeContentV3<?>>of(secretContent));
+
+        Set<String> expandedSecrets = new HashSet<>();
+        containment.recordExpandedSecretsFromRequest(List.of(resolved), expandedSecrets);
+
+        assertEquals(Set.of("s3cr3t-token"), expandedSecrets,
+                "the secret value in a resolved request attribute must be recorded for the outbound echo check");
+        Object echoResponse = Map.of("attributes", List.of(Map.of("default", "s3cr3t-token")));
+        assertThrows(OutboundSecretLeakException.class,
+                () -> containment.assertNoExpandedSecretOutbound(echoResponse, expandedSecrets));
     }
 
     @Test
