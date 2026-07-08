@@ -104,7 +104,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         // Filter out pending custom attributes that are not allowed for the user
-        pendingCustomAttributes = attributeEngine.applySecurityFilterForRequestAttributes(pendingCustomAttributes);
+        if (pendingCustomAttributes != null) {
+            pendingCustomAttributes = attributeEngine.applySecurityFilterForRequestAttributes(pendingCustomAttributes);
+        }
 
         // Rule evaluated is check if any rule has been evaluated, no rules will be evaluated if all rules in the list have incompatible resource
         boolean ruleEvaluated = false;
