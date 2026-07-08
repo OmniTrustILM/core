@@ -33,8 +33,9 @@ class CsrAttrsEncoderExtensionRequestTest {
         List<ASN1ObjectIdentifier> requested = extensionRequestOids(CsrAttrsEncoder.encode(definitions, Map.of()));
 
         // then — SAN is requested under id-ce-subjectAltName (2.5.29.17), as a bare OID
-        assertThat(requested).as("extensionRequest attribute must be present").isNotNull();
-        assertThat(requested).contains(Extension.subjectAlternativeName);
+        assertThat(requested).as("extensionRequest attribute must be present")
+                .isNotNull()
+                .contains(Extension.subjectAlternativeName);
     }
 
     @Test
@@ -47,8 +48,7 @@ class CsrAttrsEncoderExtensionRequestTest {
         List<ASN1ObjectIdentifier> requested = extensionRequestOids(CsrAttrsEncoder.encode(definitions, Map.of()));
 
         // then
-        assertThat(requested).isNotNull();
-        assertThat(requested).contains(new ASN1ObjectIdentifier(ekuOid));
+        assertThat(requested).isNotNull().contains(new ASN1ObjectIdentifier(ekuOid));
     }
 
     @Test

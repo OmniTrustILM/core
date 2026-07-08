@@ -2072,7 +2072,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             CertificateRequest request = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
             protocolRequestAttributeValidator.validate(request, raProfile);
-        } catch (CertificateRequestException e) {
+        } catch (CertificateRequestException | IllegalArgumentException e) {
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
             throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
         }

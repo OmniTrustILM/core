@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -51,11 +52,12 @@ public final class CsrAttrsEncoder {
      */
     public static byte[] encode(List<? extends BaseAttribute> definitions, Map<String, String> codeToOid) throws IOException {
         List<MappedField> fields = x509Fields(definitions);
+        Map<String, String> caseInsensitiveCodeToOid = caseInsensitive(codeToOid);
 
         Set<ASN1ObjectIdentifier> rdnOids = fields.stream()
                 .filter(RdnMappedField.class::isInstance)
                 .map(RdnMappedField.class::cast)
-                .map(rdn -> resolveOid(rdn.getRdn(), codeToOid))
+                .map(rdn -> resolveOid(rdn.getRdn(), caseInsensitiveCodeToOid))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         Set<ASN1ObjectIdentifier> extensionOids = fields.stream()
@@ -94,6 +96,18 @@ public final class CsrAttrsEncoder {
         ASN1EncodableVector values = new ASN1EncodableVector();
         extensionOids.forEach(values::add);
         return new Attribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, new DERSet(values));
+    }
+
+    /**
+     * Wraps {@code codeToOid} in a case-insensitive view so RDN-code resolution matches {@link CertificateRequestContentValidator}.
+     */
+    private static Map<String, String> caseInsensitive(Map<String, String> codeToOid) {
+        if (codeToOid == null) {
+            return null;
+        }
+        Map<String, String> ci = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        ci.putAll(codeToOid);
+        return ci;
     }
 
     static FieldMapping mappingOf(BaseAttribute def) {
