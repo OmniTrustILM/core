@@ -863,7 +863,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
         // A non-null but EMPTY pending list (the request explicitly supplied zero custom attributes) means the same thing:
         // no content is possible, so EMPTY is satisfied. This is the case CertificateUploadedEventHandler must produce
-        // when eventMessageData.customAttributes() is null, by normalizing to List.of() rather than passing null through (see Task 4).
+        // when eventMessageData.customAttributes() is null, by normalizing to List.of() rather than passing null through.
         Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE, List.of()));
 
         // Without any pending list at all (a true Java null, meaning "this caller does not support pending-attribute

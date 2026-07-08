@@ -715,13 +715,14 @@ class EventHandlersITest extends BaseSpringBootTest {
         // Test setting actions
         certificateService.deleteCertificate(uploadedCertificate.getSecuredUuid());
 
+        // Creates a trigger that sets custom attribute value to "important"
         createCertificateTriggerAssociation(ResourceEvent.CERTIFICATE_UPLOADED, null, null, false);
         Assertions.assertDoesNotThrow(() -> certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
         uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
         CertificateDetailDto certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
 
-        // Test setting actions with custom attributes in the request and user UUID
+        // Test setting actions with custom attributes in the request and user UUID, and that it overrides the value from the trigger execution
         RequestAttributeV3 requestAttributeV3 = new RequestAttributeV3();
         requestAttributeV3.setUuid(UUID.fromString(CERTIFICATE_CUSTOM_ATTRIBUTE_UUID));
         requestAttributeV3.setName(CERTIFICATE_CUSTOM_ATTRIBUTE_NAME);

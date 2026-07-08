@@ -77,10 +77,6 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     @Override
-    public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory) throws RuleException {
-        return evaluateTrigger(trigger, triggerAssociation, object, referenceObjectUuid, data, eventHistory, null);
-    }
-
     public TriggerHistory evaluateTrigger(Trigger trigger, TriggerAssociation triggerAssociation, T object, UUID referenceObjectUuid, Object data, EventHistory eventHistory, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         TriggerHistory triggerHistory = triggerService.createTriggerHistory(trigger.getUuid(), triggerAssociation, object.getUuid(), referenceObjectUuid, eventHistory, trigger.getResource());
         if (evaluateRules(triggerHistory, trigger.getRules(), object, pendingCustomAttributes)) {
@@ -101,15 +97,14 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     @Override
-    public boolean evaluateRules(TriggerHistory triggerHistory, Set<Rule> rules, T object) throws RuleException {
-        return evaluateRules(triggerHistory, rules, object, null);
-    }
-
     public boolean evaluateRules(TriggerHistory triggerHistory, Set<Rule> rules, T object, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         // if trigger has no rules, return true as it is trigger that should perform actions on all objects
         if (rules.isEmpty()) {
             return true;
         }
+
+        // Filter out pending custom attributes that are not allowed for the user
+        pendingCustomAttributes = attributeEngine.applySecurityFilterForRequestAttributes(pendingCustomAttributes);
 
         // Rule evaluated is check if any rule has been evaluated, no rules will be evaluated if all rules in the list have incompatible resource
         boolean ruleEvaluated = false;
@@ -159,10 +154,6 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     }
 
     @Override
-    public boolean evaluateConditionItem(ConditionItem conditionItem, T object, Resource resource) throws RuleException {
-        return evaluateConditionItem(conditionItem, object, resource, null);
-    }
-
     public boolean evaluateConditionItem(ConditionItem conditionItem, T object, Resource resource, List<RequestAttribute> pendingCustomAttributes) throws RuleException {
         FilterFieldSource fieldSource = conditionItem.getFieldSource();
         String fieldIdentifier = conditionItem.getFieldIdentifier();
