@@ -7,16 +7,20 @@ import com.otilm.api.model.client.connector.v2.ConnectorInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.HealthDto;
 import com.otilm.api.model.common.HealthStatus;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.v3.GroupAttributeV3;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.proxy.ProxyStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
@@ -70,6 +74,8 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     private ProxyRepository proxyRepository;
     @Autowired
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @MockitoBean
     private ProxyClient proxyClient;
@@ -359,6 +365,23 @@ class ConnectorServiceTest extends BaseSpringBootTest {
         SecuredUUID connectorSecuredUuid = connector.getSecuredUuid();
         ValidationException exception = Assertions.assertThrows(ValidationException.class, () -> connectorService.deleteConnector(connectorSecuredUuid));
         Assertions.assertTrue(exception.getMessage().contains(notificationInstance.getName()));
+    }
+
+    @Test
+    void testForceRemoveConnector_withGroupAttributeDefinitions_deletesConnector() throws AttributeException {
+        GroupAttributeV3 groupAttribute = new GroupAttributeV3();
+        groupAttribute.setUuid(UUID.randomUUID().toString());
+        groupAttribute.setName("testGroupAttribute");
+        AttributeCallback callback = new AttributeCallback();
+        callback.setCallbackContext("/callback");
+        callback.setCallbackMethod("GET");
+        groupAttribute.setAttributeCallback(callback);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(groupAttribute));
+
+        List<BulkActionMessageDto> messages = connectorServiceV2.forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        Assertions.assertTrue(messages.isEmpty(), "Force delete must not fail on dependent attribute_definition rows: " + messages);
+        Assertions.assertTrue(connectorRepository.findByUuid(connector.getUuid()).isEmpty());
     }
 
     @Test

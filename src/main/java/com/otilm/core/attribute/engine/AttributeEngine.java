@@ -1413,6 +1413,12 @@ public class AttributeEngine {
         Long deletedDefinitions = attributeDefinitionRepository.deleteByTypeAndConnectorUuid(AttributeType.DATA, connectorUuid);
         logger.debug("Deleted {} data attribute definitions for connector with UUID {}", deletedDefinitions, connectorUuid);
 
+        // delete group attributes, since the attribute content items are not never created for GROUP attributes,
+        // it is enough to delete the attribute definitions
+        logger.debug("Deleting group attribute definitions for connector with UUID {}", connectorUuid);
+        Long deletedGroupDefinitions = attributeDefinitionRepository.deleteByTypeAndConnectorUuid(AttributeType.GROUP, connectorUuid);
+        logger.debug("Deleted {} group attribute definitions for connector with UUID {}", deletedGroupDefinitions, connectorUuid);
+
         // remove connector reference from metadata definitions and content
         // WARNING: connector uuid is removed from all content disregarding attribute type since connector data attributes content was already removed in step before and custom attributes are not linked to connector so it is safe
         attributeDefinitionRepository.removeConnectorByTypeAndConnectorUuid(AttributeType.META, connectorUuid);
