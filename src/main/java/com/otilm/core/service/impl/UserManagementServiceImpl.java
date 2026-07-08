@@ -1,6 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.*;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.auth.AddUserRequestDto;
 import com.otilm.api.model.client.auth.UpdateUserRequestDto;
 import com.otilm.api.model.client.auth.UserIdentificationRequestDto;
@@ -142,8 +143,8 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         }
         UserRequestDto requestDto = new UserRequestDto();
         Certificate certificate = null;
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
-            certificate = addUserCertificate(null, request.getCertificateUuid(), request.getCertificateData());
+        if (StringUtils.isNotBlank(request.getCertificateUuid()) || StringUtils.isNotBlank(request.getCertificateData())) {
+            certificate = addUserCertificate(null, request.getCertificateUuid(), request.getCertificateData(), request.getCertificateCustomAttributes());
             requestDto.setCertificateUuid(certificate.getUuid().toString());
             requestDto.setCertificateFingerprint(certificate.getFingerprint());
         }
@@ -154,12 +155,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         requestDto.setLastName(request.getLastName());
         requestDto.setDescription(request.getDescription());
 
-        List<NameAndUuidDto> groups = new ArrayList<>();
-        for (String groupUuid : request.getGroupUuids()) {
-            GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
-            groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
-        }
-        requestDto.setGroups(groups);
+        requestDto.setGroups(resolveGroups(request.getGroupUuids()));
 
         UserDetailDto response = userManagementApiClient.createUser(requestDto);
         if (certificate != null) {
@@ -326,7 +322,19 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         getUser(uuid.toString());
     }
 
-    private Certificate addUserCertificate(String userUuid, String certificateUuid, String certificateData) throws CertificateException, NotFoundException {
+    private List<NameAndUuidDto> resolveGroups(List<String> groupUuids) throws NotFoundException {
+        List<NameAndUuidDto> groups = new ArrayList<>();
+        if (groupUuids == null) {
+            return groups;
+        }
+        for (String groupUuid : groupUuids) {
+            GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
+            groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
+        }
+        return groups;
+    }
+
+    private Certificate addUserCertificate(String userUuid, String certificateUuid, String certificateData, List<RequestAttribute> certificateCustomAttributes) throws CertificateException, NotFoundException {
         Certificate certificate = null;
         boolean uploadCertificate = false;
         if (StringUtils.isNotBlank(certificateUuid)) {
@@ -348,13 +356,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         }
 
         if (uploadCertificate) {
-            try {
-                String fingerprint = certificateUploadService.upload(certificateData, null, true);
-                certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
-                logger.getLogger().debug("New Certificate uploaded for the user");
-            } catch (Exception e) {
-                throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
-            }
+            certificate = uploadCertificate(certificateData, certificateCustomAttributes);
         } else {
             if (certificate.isArchived())
                 throw new ValidationException("Cannot assign archived certificate to the user.");
@@ -364,6 +366,24 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
             if (certificate.getUserUuid() != null && !certificate.getUserUuid().toString().equals(userUuid)) {
                 throw new ValidationException(ValidationError.create("Cannot assign certificate to the user because it is already assigned to other user"));
             }
+            if (certificateCustomAttributes != null && !certificateCustomAttributes.isEmpty()) {
+                logger.getLogger().warn("Certificate custom attributes were provided but ignored because certificate {} already exists in the inventory and was not uploaded", certificate.getUuid());
+            }
+        }
+        return certificate;
+    }
+
+    private Certificate uploadCertificate(String certificateData, List<RequestAttribute> certificateCustomAttributes) throws CertificateException {
+        Certificate certificate;
+        try {
+            String fingerprint = certificateUploadService.upload(certificateData, certificateCustomAttributes, true);
+            certificate = certificateService.getCertificateEntityByFingerprint(fingerprint);
+            logger.getLogger().debug("New Certificate uploaded for the user");
+        } catch (ValidationException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            throw new CertificateException("Cannot upload certificate that should be assigned to the user: " + e.getMessage());
         }
         return certificate;
     }
@@ -372,8 +392,8 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         Certificate certificate = null;
         UserUpdateRequestDto requestDto = new UserUpdateRequestDto();
 
-        if ((request.getCertificateUuid() != null && !request.getCertificateUuid().isEmpty()) || (request.getCertificateData() != null && !request.getCertificateData().isEmpty())) {
-            certificate = addUserCertificate(userUuid, request.getCertificateUuid(), request.getCertificateData());
+        if (StringUtils.isNotBlank(request.getCertificateUuid()) || StringUtils.isNotBlank(request.getCertificateData())) {
+            certificate = addUserCertificate(userUuid, request.getCertificateUuid(), request.getCertificateData(), request.getCertificateCustomAttributes());
             requestDto.setCertificateUuid(certificate.getUuid().toString());
             requestDto.setCertificateFingerprint(certificate.getFingerprint());
         } else {
@@ -387,12 +407,7 @@ public class UserManagementServiceImpl implements UserManagementExternalService,
         requestDto.setLastName(request.getLastName());
 
         if (request.getGroupUuids() != null) {
-            List<NameAndUuidDto> groups = new ArrayList<>();
-            for (String groupUuid : request.getGroupUuids()) {
-                GroupDto groupDto = groupService.getGroup(SecuredUUID.fromString(groupUuid));
-                groups.add(new NameAndUuidDto(groupDto.getUuid(), groupDto.getName()));
-            }
-            requestDto.setGroups(groups);
+            requestDto.setGroups(resolveGroups(request.getGroupUuids()));
         }
 
         UserDetailDto response = userManagementApiClient.updateUser(userUuid, requestDto);
