@@ -12,11 +12,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @NoArgsConstructor
-@Transactional
 public class CbomSyncTask implements ScheduledJobTask {
 
     public static final String NAME = "CbomSyncTask";
@@ -51,6 +51,7 @@ public class CbomSyncTask implements ScheduledJobTask {
     }
 
     @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
         if (!cbomService.isCbomRepositoryClientConfigured()) {
             throw new ScheduledJobSkippedException();
