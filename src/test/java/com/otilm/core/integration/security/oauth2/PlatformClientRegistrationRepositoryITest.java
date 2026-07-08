@@ -1,4 +1,4 @@
-package com.otilm.core.security.oauth2;
+package com.otilm.core.integration.security.oauth2;
 
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-class PlatformClientRegistrationRepositoryTest extends BaseSpringBootTest {
+class PlatformClientRegistrationRepositoryITest extends BaseSpringBootTest {
 
     @Autowired
     private PlatformClientRegistrationRepository clientRegistrationRepository;
