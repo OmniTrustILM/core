@@ -4,17 +4,22 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.auth.AddUserRequestDto;
+import com.otilm.api.model.client.auth.UpdateUserRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.auth.UserRequestDto;
+import com.otilm.api.model.core.auth.UserUpdateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -45,6 +50,9 @@ class UserManagementServiceTest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateContentRepository certificateContentRepository;
+
+    @Autowired
+    private GroupRepository groupRepository;
 
     @Autowired
     private UserManagementExternalService userManagementService;
@@ -155,6 +163,63 @@ class UserManagementServiceTest extends BaseSpringBootTest {
         ArgumentCaptor<UserRequestDto> requestCaptor = ArgumentCaptor.forClass(UserRequestDto.class);
         Mockito.verify(userManagementApiClient).createUser(requestCaptor.capture());
         Assertions.assertTrue(requestCaptor.getValue().getGroups().isEmpty());
+    }
+
+    @Test
+    void testUploadValidationErrorPropagatesAsValidationException() throws Exception {
+        X509Certificate x509Certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=rejected-user-cert");
+        Mockito.when(certificateUploadService.upload(Mockito.anyString(), Mockito.anyList(), Mockito.anyBoolean()))
+                .thenThrow(new ValidationException("Certificate custom attributes are not valid."));
+
+        AddUserRequestDto request = new AddUserRequestDto();
+        request.setUsername("userWithRejectedCertificate");
+        request.setCertificateData(Base64.getEncoder().encodeToString(x509Certificate.getEncoded()));
+        request.setCertificateCustomAttributes(List.of(certificateCustomAttribute()));
+
+        Assertions.assertThrows(ValidationException.class, () -> userManagementService.createUser(request));
+    }
+
+    @Test
+    void testUpdateUserWithExistingCertificate() throws Exception {
+        Certificate existingCertificate = saveCertificate("update-existing-fingerprint");
+        Mockito.when(userManagementApiClient.updateUser(Mockito.anyString(), Mockito.any())).thenReturn(userDetailDto());
+
+        UpdateUserRequestDto request = new UpdateUserRequestDto();
+        request.setCertificateUuid(existingCertificate.getUuid().toString());
+
+        String userUuid = UUID.randomUUID().toString();
+        userManagementService.updateUser(userUuid, request);
+
+        ArgumentCaptor<UserUpdateRequestDto> requestCaptor = ArgumentCaptor.forClass(UserUpdateRequestDto.class);
+        Mockito.verify(userManagementApiClient).updateUser(Mockito.eq(userUuid), requestCaptor.capture());
+        Assertions.assertEquals(existingCertificate.getUuid().toString(), requestCaptor.getValue().getCertificateUuid());
+        Assertions.assertEquals(existingCertificate.getFingerprint(), requestCaptor.getValue().getCertificateFingerprint());
+    }
+
+    @Test
+    void testUpdateUserWithGroupUuidsResolvesGroups() throws Exception {
+        Group firstGroup = saveGroup("first-group");
+        Group secondGroup = saveGroup("second-group");
+        Mockito.when(userManagementApiClient.updateUser(Mockito.anyString(), Mockito.any())).thenReturn(userDetailDto());
+
+        UpdateUserRequestDto request = new UpdateUserRequestDto();
+        request.setGroupUuids(List.of(firstGroup.getUuid().toString(), secondGroup.getUuid().toString()));
+
+        String userUuid = UUID.randomUUID().toString();
+        userManagementService.updateUser(userUuid, request);
+
+        ArgumentCaptor<UserUpdateRequestDto> requestCaptor = ArgumentCaptor.forClass(UserUpdateRequestDto.class);
+        Mockito.verify(userManagementApiClient).updateUser(Mockito.eq(userUuid), requestCaptor.capture());
+        Assertions.assertEquals(
+                List.of(new NameAndUuidDto(firstGroup.getUuid(), firstGroup.getName()), new NameAndUuidDto(secondGroup.getUuid(), secondGroup.getName())),
+                requestCaptor.getValue().getGroups());
+    }
+
+    private Group saveGroup(String name) {
+        Group group = new Group();
+        group.setName(name);
+        groupRepository.save(group);
+        return group;
     }
 
     private Certificate saveCertificate(String fingerprint) {
