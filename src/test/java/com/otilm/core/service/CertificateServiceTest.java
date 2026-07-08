@@ -1087,9 +1087,10 @@ class CertificateServiceTest extends BaseSpringBootTest {
         void deniesCheckCompliance_whenUnauthorized() {
             // given - the caller is denied the CERTIFICATE CHECK_COMPLIANCE resource action
             denyResourceAccess(Resource.CERTIFICATE, ResourceAction.CHECK_COMPLIANCE);
+            List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(certificate.getUuid()));
 
             // when / then - @ExternalAuthorization rejects before the method body runs
-            assertThatThrownBy(() -> certificateService.checkCompliance(List.of(SecuredUUID.fromUUID(certificate.getUuid()))))
+            assertThatThrownBy(() -> certificateService.checkCompliance(uuids))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
