@@ -143,7 +143,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateRepository certificateRepository;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private ComplianceInternalService complianceService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
@@ -249,7 +249,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

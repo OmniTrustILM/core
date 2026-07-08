@@ -2,16 +2,11 @@ package com.otilm.core.service;
 
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.certificate.*;
 import com.otilm.api.model.client.dashboard.StatisticsDto;
-import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.api.model.core.location.LocationDto;
-import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
 import com.otilm.core.dao.entity.Certificate;
@@ -23,7 +18,6 @@ import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 
-import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
@@ -33,11 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-public interface CertificateService extends ResourceExtensionService {
-
-    CertificateResponseDto listCertificates(SecurityFilter filter, CertificateSearchRequestDto request);
-
-    CertificateDetailDto getCertificate(SecuredUUID uuid) throws NotFoundException, CertificateException, IOException;
+public interface CertificateInternalService extends ResourceExtensionService {
 
     Certificate getCertificateEntity(SecuredUUID uuid) throws NotFoundException;
 
@@ -50,8 +40,6 @@ public interface CertificateService extends ResourceExtensionService {
     Optional<Certificate> findCertificateEntityByUserUuid(UUID userUuid);
 
     boolean checkCertificateExistsByFingerprint(String fingerprint);
-
-    void deleteCertificate(SecuredUUID uuid) throws NotFoundException;
 
     Certificate createCertificateEntity(X509Certificate certificate);
 
@@ -91,19 +79,6 @@ public interface CertificateService extends ResourceExtensionService {
      */
     SigningCertificate getSigningCertificate(UUID certificateUuid) throws NotFoundException;
 
-    CertificateChainDownloadResponseDto downloadCertificateChain(SecuredUUID uuid, CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding) throws NotFoundException, CertificateException;
-
-    CertificateDownloadResponseDto downloadCertificate(UUID uuid, CertificateFormat certificateFormat, CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException;
-
-    /**
-     * Function to get the validation result of the certificate
-     *
-     * @param uuid UUID of the certificate
-     * @return Certificate Validation result
-     * @throws NotFoundException
-     */
-    CertificateValidationResultDto getCertificateValidationResult(SecuredUUID uuid) throws NotFoundException, CertificateException;
-
     void validate(Certificate certificate);
 
     /**
@@ -115,10 +90,6 @@ public interface CertificateService extends ResourceExtensionService {
      */
     Certificate createCertificate(String certificateData, CertificateType certificateType) throws com.otilm.api.exception.CertificateException;
 
-    FingerprintDto uploadAsync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
-
-    UuidDto uploadSync(UploadCertificateRequestDto request) throws CertificateException, AlreadyExistException;
-
     Certificate checkCreateCertificate(String certificate) throws AlreadyExistException, CertificateException, NoSuchAlgorithmException;
 
     void uploadCertificateKey(PublicKey publicKey, Certificate certificate, byte[] altPublicKeyEncoded);
@@ -129,19 +100,6 @@ public interface CertificateService extends ResourceExtensionService {
 
     // TODO AUTH - unable to check access based on certificate serial number. Make private? Special permission? Call opa in method?
     void revokeCertificate(String serialNumber);
-
-    List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup();
-
-    void bulkDeleteCertificate(SecurityFilter filter, RemoveCertificateDto request) throws NotFoundException, NotSupportedException;
-
-    /**
-     * List all locations associated with the certificate
-     *
-     * @param certificateUuid
-     * @return List of locations
-     * @throws NotFoundException
-     */
-    List<LocationDto> listLocations(SecuredUUID certificateUuid) throws NotFoundException;
 
     /**
      * List the available certificates that are associated with the RA Profile
@@ -160,27 +118,11 @@ public interface CertificateService extends ResourceExtensionService {
     List<Certificate> listCertificatesForRaProfileAndNonNullComplianceStatus(RaProfile raProfile);
 
     /**
-     * Initiates the compliance check for the certificates in the request
-     *
-     * @param request List of uuids of the certificate
-     */
-    void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException;
-
-    /**
      * Update the Certificate Entity
      *
      * @param certificate Certificate entity to be updated
      */
     void updateCertificateEntity(Certificate certificate);
-
-    /**
-     * Update the Certificate Objects contents
-     *
-     * @param uuid    UUID of the certificate
-     * @param request Request for the certificate objects update
-     */
-    void updateCertificateObjects(SecuredUUID uuid, CertificateUpdateObjectsDto request) throws NotFoundException, CertificateOperationException, AttributeException;
-
 
     /**
      * Method to switch RA profile of a Certificate
@@ -198,7 +140,6 @@ public interface CertificateService extends ResourceExtensionService {
      */
     void updateCertificateGroups(SecuredUUID uuid, Set<UUID> groupUuids) throws NotFoundException;
 
-
     /**
      * Method to change Owner for a Certificate
      *
@@ -206,14 +147,6 @@ public interface CertificateService extends ResourceExtensionService {
      * @param ownerUuid UUID of the certificate owner
      */
     void updateOwner(SecuredUUID uuid, String ownerUuid) throws NotFoundException;
-
-
-    /**
-     * Method to update the Objects of multiple certificates
-     *
-     * @param request Request to update multiple objects
-     */
-    void bulkUpdateCertificatesObjects(SecurityFilter filter, MultipleCertificateObjectUpdateDto request) throws NotFoundException, NotSupportedException;
 
     /**
      * Function to update status of certificates by scheduled event
@@ -274,13 +207,6 @@ public interface CertificateService extends ResourceExtensionService {
     void checkRevokePermissions();
 
     /**
-     * Get the list of attributes to generate the CSR
-     *
-     * @return List of attributes to generate the CSR in core
-     */
-    List<BaseAttribute> getCsrGenerationAttributes();
-
-    /**
      * Unassociate the given key from all the certificates.
      *
      * @param keyUuid UUID of the key object or alternative key object to be unassociated
@@ -302,14 +228,6 @@ public interface CertificateService extends ResourceExtensionService {
      * @throws NotFoundException
      */
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
-
-    /**
-     * Get the list of the certificate contents for the provided certificate UUIDs
-     *
-     * @param uuids UUIDs of the certificate
-     * @return List of certificate contents
-     */
-    List<CertificateContentDto> getCertificateContent(List<UUID> uuids);
 
     /**
      * Create certificate request entity and certificate in status New, store it in the database ready for issuing
@@ -373,35 +291,6 @@ public interface CertificateService extends ResourceExtensionService {
      */
     int handleExpiringCertificates();
 
-    /**
-     * Archives a single certificate by its UUID.
-     *
-     * @param uuid the UUID of the certificate to archive
-     */
-    void archiveCertificate(UUID uuid) throws NotFoundException;
-
-    /**
-     * Unarchives a single certificate by its UUID.
-     *
-     * @param uuid the UUID of the certificate to unarchive
-     */
-    void unarchiveCertificate(UUID uuid) throws NotFoundException;
-
-    /**
-     * Archives a list of certificates by their UUIDs.
-     *
-     * @param uuids the list of UUIDs of certificates to archive
-     */
-    void bulkArchiveCertificates(List<UUID> uuids);
-
-    /**
-     * Unarchives a list of certificates by their UUIDs.
-     *
-     * @param uuids the list of UUIDs of certificates to unarchive
-     */
-    void bulkUnarchiveCertificates(List<UUID> uuids);
-
-
     /***
      * Update Subject DN and Issuer DN in certificates when there is a change in code
      * @param oid of RDN to change
@@ -410,28 +299,4 @@ public interface CertificateService extends ResourceExtensionService {
      */
     void updateCertificateDNs(String oid, String newCode, String oldCode);
 
-
-    /**
-     * Retrieves the relations for the given certificate.
-     *
-     * @param uuid UUID of the certificate whose relations should be retrieved.
-     * @return {@link CertificateRelationsDto} containing related certificates.
-     */
-    CertificateRelationsDto getCertificateRelations(UUID uuid) throws NotFoundException;
-
-    /**
-     * Associates the given certificate with the subject certificate.
-     *
-     * @param uuid            UUID of the subject certificate.
-     * @param certificateUuid UUID of the certificate to associate.
-     */
-    void associateCertificates(UUID uuid, UUID certificateUuid) throws NotFoundException;
-
-    /**
-     * Removes the association between the given certificates
-     *
-     * @param uuid            UUID of the subject certificate.
-     * @param certificateUuid UUID of the certificate
-     */
-    void removeCertificateAssociation(UUID uuid, UUID certificateUuid) throws NotFoundException;
 }

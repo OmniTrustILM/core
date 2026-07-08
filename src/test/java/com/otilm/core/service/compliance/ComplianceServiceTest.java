@@ -33,7 +33,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.ComplianceExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
@@ -61,7 +61,7 @@ class ComplianceServiceTest extends BaseComplianceTest {
     private ComplianceExternalService complianceExternalService;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;

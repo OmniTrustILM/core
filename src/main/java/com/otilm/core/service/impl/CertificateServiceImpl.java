@@ -71,6 +71,7 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -130,7 +131,7 @@ import java.util.stream.Collectors;
 @Service(Resource.Codes.CERTIFICATE)
 @Transactional
 @Slf4j
-public class CertificateServiceImpl implements CertificateService, AttributeResourceService {
+public class CertificateServiceImpl implements CertificateExternalService, CertificateInternalService, AttributeResourceService {
 
     private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
 
@@ -790,6 +791,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
     }
 
     @Override
+    @ExternalAuthorizationMissing
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformationByGroup() {
         final List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = attributeEngine.getResourceSearchableFields(Resource.CERTIFICATE, false);
 
@@ -1368,6 +1370,7 @@ public class CertificateServiceImpl implements CertificateService, AttributeReso
 
     @Override
     @Async
+    @ExternalAuthorizationMissing
     public void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException {
         for (String uuid : request.getCertificateUuids()) {
             try {

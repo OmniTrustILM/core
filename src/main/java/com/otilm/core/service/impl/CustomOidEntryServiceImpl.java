@@ -24,7 +24,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CustomOidEntryExternalService;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -51,10 +51,10 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
 
     public static final String OID_ENTRY = "OID Entry";
     private final CustomOidEntryRepository customOidEntryRepository;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

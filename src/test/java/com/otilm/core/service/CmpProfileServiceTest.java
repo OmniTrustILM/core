@@ -51,7 +51,7 @@ class CmpProfileServiceTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateExternalService certificateService;
 
     @Autowired
     private CmpProfileExternalService cmpProfileService;

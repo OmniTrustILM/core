@@ -9,6 +9,7 @@ import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -39,7 +40,7 @@ import java.util.UUID;
 class CertificateChainCacheTest extends BaseSpringBootTest {
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateServiceImpl certificateService;
 
     @MockitoSpyBean
     private CertificateRepository certificateRepository;
