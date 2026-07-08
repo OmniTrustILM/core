@@ -575,7 +575,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Route a pre-registered placeholder to the register-bound path; the binding row is the discriminator.
         // That path re-locks and re-asserts state, so this only picks the route; the v2 path below claims its own lock.
         if (certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
-            Certificate placeholder = certificateRepository.findWithAssociationsByUuid(certificateUuid)
+            Certificate placeholder = certificateRepository.findWithAuthorityAssociationsByUuid(certificateUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
             if (placeholder.getRaProfile() != null
                     && adapterFactory.forAuthority(placeholder.getRaProfile().getAuthorityInstanceReference())

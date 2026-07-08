@@ -51,6 +51,11 @@ public interface CertificateRepository extends SecurityFilterRepository<Certific
     @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items", "raProfile"})
     Optional<Certificate> findWithAssociationsByUuid(UUID uuid);
 
+    @EntityGraph(attributePaths = {"certificateContent", "key", "key.items", "groups", "owner", "altKey", "altKey.items",
+            "raProfile", "raProfile.authorityInstanceReference", "raProfile.authorityInstanceReference.connectorInterface",
+            "raProfile.authorityInstanceReference.connector"})
+    Optional<Certificate> findWithAuthorityAssociationsByUuid(UUID uuid);
+
     /**
      * Polling-listener finder. The listener runs outside any transaction (deliberate — no tx
      * held across the HTTP call to the connector), so every association the listener touches
