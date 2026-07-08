@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * caller. For {@code deleteExpiredBatch} the {@code limit} bounds a single batch, which is the signal the
  * sweeper uses to detect a full batch and keep looping; {@code deleteByUuid} removes the single
  * operator-selected row. The writer's inbound and drain paths are covered through the strategy integration
- * tests and {@code SigningRecordOutboxDrainerTest}.
+ * tests and {@code SigningRecordOutboxDrainerITest}.
  */
 class SigningRecordWriterTest extends BaseSpringBootTest {
 

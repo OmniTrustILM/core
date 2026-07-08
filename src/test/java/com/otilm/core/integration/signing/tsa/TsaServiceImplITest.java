@@ -1,4 +1,4 @@
-package com.otilm.core.signing.tsa;
+package com.otilm.core.integration.signing.tsa;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
@@ -25,6 +25,9 @@ import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.signing.tsa.ManagedTimestampEngine;
+import com.otilm.core.signing.tsa.TimestampTokenTestUtil;
+import com.otilm.core.signing.tsa.TsaExternalService;
 import com.otilm.core.signing.tsa.messages.TspRequest;
 import com.otilm.core.signing.tsa.messages.TspResponse;
 import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
@@ -67,7 +70,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>The formatting returns a pre-built, structurally valid timestamp token; the profiles disable
  * token-signature validation, so the token need not cryptographically verify against the signing certificate.
  */
-class TsaServiceImplTest extends BaseSpringBootTest {
+class TsaServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private TsaExternalService tsaService;

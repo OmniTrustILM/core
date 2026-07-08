@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
@@ -13,6 +13,9 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningRecordExternalService;
+import com.otilm.core.signing.record.ImmediateSigningRecordStrategy;
+import com.otilm.core.signing.record.SigningRecordInput;
+import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * a real database can prove lives here: a recorded input lands directly in {@code signing_record} and reads
  * back field-for-field through the jsonb and {@code byte[]} columns a mocked writer would only echo.
  */
-class ImmediateSigningRecordStrategyTest extends BaseSpringBootTest {
+class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
 
     @Autowired
     private ImmediateSigningRecordStrategy strategy;
