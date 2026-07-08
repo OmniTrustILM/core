@@ -16,7 +16,7 @@ import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
 import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.TimeQualityConfigurationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
@@ -40,12 +40,12 @@ import java.util.UUID;
 @Component
 public class StaticKeyManagedTimestampingResolver implements SigningProfileResolver {
 
-    private final CertificateService certificateService;
+    private final CertificateInternalService certificateService;
     private final CryptographicKeyInternalService cryptographicKeyService;
     private final TimeQualityConfigurationInternalService timeQualityConfigurationService;
     private final ConnectorInternalService connectorService;
 
-    public StaticKeyManagedTimestampingResolver(CertificateService certificateService,
+    public StaticKeyManagedTimestampingResolver(CertificateInternalService certificateService,
                                                 CryptographicKeyInternalService cryptographicKeyService,
                                                 TimeQualityConfigurationInternalService timeQualityConfigurationService,
                                                 ConnectorInternalService connectorService) {

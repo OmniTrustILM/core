@@ -41,7 +41,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -95,7 +95,7 @@ class FilterPredicatesBuilderTest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
 
     @Autowired
-    private CertificateService certificateService;
+    private CertificateServiceImpl certificateService;
 
     @Autowired
     private CertificateRepository certificateRepository;

@@ -28,7 +28,7 @@ import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CertificateService;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CmpProfileExternalService;
 import com.otilm.core.service.CmpProfileInternalService;
 import com.otilm.core.service.RaProfileInternalService;
@@ -61,7 +61,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     private CmpProfileRepository cmpProfileRepository;
     private RaProfileInternalService raProfileService;
     private ExtendedAttributeService extendedAttributeService;
-    private CertificateService certificateService;
+    private CertificateInternalService certificateService;
     private AttributeEngine attributeEngine;
     private ProtocolCertificateAssociationsRepository certificateAssociationRepository;
 
@@ -91,7 +91,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     }
 
     @Autowired
-    public void setCertificateService(CertificateService certificateService) {
+    public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
 

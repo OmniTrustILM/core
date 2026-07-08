@@ -1,4 +1,4 @@
-package com.otilm.core.api.web;
+package com.otilm.core.integration.api.web;
 
 import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.otilm.core.dao.entity.Proxy;
@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @AutoConfigureMockMvc
-class ProxyControllerTest extends BaseSpringBootTest {
+class ProxyControllerITest extends BaseSpringBootTest {
 
     @Autowired
     private MockMvc mockMvc;
