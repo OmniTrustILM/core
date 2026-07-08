@@ -30,7 +30,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * strategy it has no queue and does not swallow persistence failures — they propagate to the caller, and the
  * failure ticks both the stage-2 {@code persist.failed} and the stage-1 {@code intake.failed{persist_error}}.
  * Persistence wiring (mapper output, columns, transaction) is covered against the real context in
- * {@link ImmediateSigningRecordStrategyTest}.
+ * {@link com.otilm.core.integration.signing.record.ImmediateSigningRecordStrategyITest}.
  */
 class ImmediateSigningRecordStrategyUnitTest {
 

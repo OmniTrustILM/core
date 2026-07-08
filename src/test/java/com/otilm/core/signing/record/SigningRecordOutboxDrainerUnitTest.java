@@ -45,7 +45,7 @@ import static org.mockito.Mockito.when;
  * {@link SigningRecordWriter#recordFailure(java.util.UUID, String)} while healthy rows are still drained. A batch
  * whose bulk load returns empty (all rows already gone) is skipped without touching the writer. Poison exclusion
  * lives in the claim query; per-row transaction isolation, idempotent copy, and field fidelity are covered
- * against a real database in {@link SigningRecordOutboxDrainerTest}.
+ * against a real database in {@link com.otilm.core.integration.signing.record.SigningRecordOutboxDrainerITest}.
  */
 class SigningRecordOutboxDrainerUnitTest {
 

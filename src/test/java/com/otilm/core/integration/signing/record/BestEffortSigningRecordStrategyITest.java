@@ -1,4 +1,4 @@
-package com.otilm.core.signing.record;
+package com.otilm.core.integration.signing.record;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -9,6 +9,9 @@ import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
+import com.otilm.core.signing.record.BestEffortSigningRecordStrategy;
+import com.otilm.core.signing.record.SigningRecordBestEffortFlusher;
+import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * foreign key) and reads back field-for-field — through the jsonb and {@code byte[]} columns a mocked repository
  * would only echo.
  */
-class BestEffortSigningRecordStrategyTest extends BaseSpringBootTest {
+class BestEffortSigningRecordStrategyITest extends BaseSpringBootTest {
 
     private static final Duration FLUSH_DEADLINE = Duration.ofSeconds(10);
 
