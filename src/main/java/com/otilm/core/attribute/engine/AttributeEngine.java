@@ -1338,6 +1338,19 @@ public class AttributeEngine {
         return responseAttributes;
     }
 
+    public List<RequestAttribute> applySecurityFilterForRequestAttributes(List<RequestAttribute> requestAttributes) {
+        SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
+        if (securityResourceFilter == null) {
+            return requestAttributes;
+        }
+
+        if (securityResourceFilter.areOnlySpecificObjectsAllowed()) {
+            return requestAttributes.stream().filter(a -> securityResourceFilter.getAllowedObjects().contains(a.getUuid())).toList();
+        } else {
+            return requestAttributes.stream().filter(a -> !securityResourceFilter.getForbiddenObjects().contains(a.getUuid())).toList();
+        }
+    }
+
     public void validateCustomAttributesContent(Resource resource, List<RequestAttribute> attributes) throws ValidationException {
         logger.debug("Validating custom attributes: {}", attributes);
         SecurityResourceFilter securityResourceFilter = loadCustomAttributesSecurityResourceFilter();
