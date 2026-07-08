@@ -148,6 +148,19 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
         return DefaultRequestAttributeSet.resolve(setting == null ? null : setting.getValue());
     }
 
+    @Override
+    public boolean resolveExternalCsrValidationStrict(RaProfile raProfile) {
+        Boolean perProfile = getConfiguration(raProfile).getExternalCsrValidationStrict();
+        if (perProfile != null) {
+            return perProfile;
+        }
+        Setting strict = settingRepository.findBySectionAndCategoryAndName(
+                SettingsSection.PLATFORM,
+                SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode(),
+                DefaultRequestAttributeSet.STRICT_SETTING_NAME);
+        return strict != null && strict.getValue() != null && Boolean.parseBoolean(strict.getValue().trim());
+    }
+
     private List<BaseAttribute> deserializeOrEmpty(String serialized) {
         if (serialized == null || serialized.isBlank()) {
             return new ArrayList<>();
