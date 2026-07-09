@@ -23,7 +23,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -192,7 +192,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(body));
 
-        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         assertEquals("issuedCert==", result.certificateData());
@@ -208,7 +208,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(body));
 
-        adapter.issue(cert, new ClientCertificateSignRequestDto());
+        adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         // The certificate-scoped attribute load must carry operation=CERTIFICATE_ISSUE, otherwise the
         // engine returns unscoped attributes. (Other captured calls are AUTHORITY/RA_PROFILE-scoped.)
@@ -245,7 +245,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));
 
-        adapter.issue(cert, new ClientCertificateSignRequestDto());
+        adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         ArgumentCaptor<CertificateSignRequestDtoV3> wireCaptor = ArgumentCaptor.forClass(CertificateSignRequestDtoV3.class);
         verify(certClientV3).issue(eq(connectorInfo), wireCaptor.capture());
@@ -317,7 +317,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenReturn(ResponseEntity.status(202).body(body));
 
-        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
         assertTrue(result.isAsync());
@@ -341,7 +341,7 @@ class AuthorityProviderV3AdapterTest {
                 .thenReturn(faultyResponse);
 
         assertThrows(ConnectorAcceptedButLocalFailureException.class,
-                () -> adapter.issue(cert, new ClientCertificateSignRequestDto()));
+                () -> adapter.issue(cert, new ClientCertificateIssueRequestDto()));
     }
 
     // ---- issue: pre-acceptance connector failure propagates raw (no acceptance guard wrap) ----
@@ -353,7 +353,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.issue(eq(connectorInfo), any(CertificateSignRequestDtoV3.class)))
                 .thenThrow(connectorFailure);
 
-        ClientCertificateSignRequestDto request = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> adapter.issue(cert, request));
         assertSame(connectorFailure, thrown);
     }
