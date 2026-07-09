@@ -11,6 +11,7 @@ import com.otilm.api.model.core.connector.v2.ConnectorApiClientDtoV2;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.DtoMapper;
 import com.otilm.core.util.MetaDefinitions;
@@ -98,6 +99,11 @@ public class Connector extends UniquelyIdentifiedAndAudited implements Serializa
     @JsonIgnore
     @ToString.Exclude
     private Set<VaultInstance> vaultInstances = new HashSet<>();
+
+    @OneToMany(mappedBy = "connector", fetch = FetchType.LAZY)
+    @JsonIgnore
+    @ToString.Exclude
+    private Set<NotificationInstanceReference> notificationInstanceReferences = new HashSet<>();
 
     public ConnectorDto mapToListDto() {
         ConnectorDto dto = new ConnectorDto();
