@@ -16,7 +16,6 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.common.content.data.AttributeContentData;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
@@ -645,16 +644,12 @@ public class AttributeEngine {
     }
 
     private static DataAttribute copyWithoutContent(DataAttribute dataAttribute) {
-        DataAttribute copy;
-        if (dataAttribute instanceof DataAttributeV3 v3) {
-            copy = new DataAttributeV3(v3);
-        } else if (dataAttribute instanceof DataAttributeV2 v2) {
-            copy = new DataAttributeV2(v2);
-        } else {
-            // Force a future DataAttribute subtype to add a copy constructor rather than silently
-            // regressing to in-place mutation of the caller's object.
-            throw new IllegalStateException("Unsupported DataAttribute type for content-free copy: "
-                    + dataAttribute.getClass().getName());
+        // Reuse the version-aware copy; fail loud (rather than mutate the caller in place) if a future
+        // DataAttribute version has no copy support, so the regression can't slip in silently.
+        DataAttribute copy = AttributeVersionHelper.copyDataAttribute(dataAttribute);
+        if (copy == null) {
+            throw new IllegalStateException("Unsupported DataAttribute version for content-free copy: "
+                    + dataAttribute.getVersion());
         }
         copy.setContent(null);
         return copy;

@@ -394,6 +394,27 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateDataAttributeDefinitionsFailsLoudOnUnsupportedVersionExtensibleList() {
+        // Guard: an extensible-list attribute whose version has no copy support must fail loudly
+        // rather than silently mutating the caller's attribute in place.
+        DataAttributeV2 unsupported = new DataAttributeV2();
+        unsupported.setUuid(UUID.randomUUID().toString());
+        unsupported.setName("unsupportedVersionExtensible");
+        unsupported.setContentType(AttributeContentType.STRING);
+        unsupported.setContent(List.of(new StringAttributeContentV2("x")));
+        unsupported.setVersion(99);
+        DataAttributeProperties props = new DataAttributeProperties();
+        props.setLabel("Unsupported version");
+        props.setList(true);
+        props.setExtensibleList(true);
+        props.setReadOnly(false);
+        unsupported.setProperties(props);
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> attributeEngine.updateDataAttributeDefinitions(null, null, List.of(unsupported)));
+    }
+
+    @Test
     void updateObjectDataAttributesContentAcceptsNullContentForNonRequiredAttribute() throws AttributeException {
         // Regression: a connector legitimately returning content=null for an optional attribute
         // used to NPE deep in createObjectAttributeContent (attributeContentItems.size() on null),
