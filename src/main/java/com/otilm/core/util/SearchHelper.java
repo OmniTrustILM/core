@@ -15,7 +15,13 @@ import jakarta.persistence.metamodel.Attribute;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 public class SearchHelper {
 
@@ -67,7 +73,7 @@ public class SearchHelper {
     public static SearchFieldDataDto prepareSearchForJSON(final SearchFieldObject attributeSearchInfo, final boolean hasDuplicateInList) {
         final SearchFieldTypeEnum searchFieldTypeEnum = retrieveSearchFieldTypeEnumByContentType(attributeSearchInfo.getAttributeContentType(), attributeSearchInfo.isList());
         final SearchFieldDataDto fieldDataDto = new SearchFieldDataDto();
-        fieldDataDto.setFieldIdentifier(attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name());
+        fieldDataDto.setFieldIdentifier(buildFieldIdentifier(attributeSearchInfo));
         fieldDataDto.setFieldLabel(hasDuplicateInList ? String.format(SEARCH_LABEL_TEMPLATE, attributeSearchInfo.getLabel(), attributeSearchInfo.getAttributeContentType().getCode()) : attributeSearchInfo.getLabel());
         fieldDataDto.setMultiValue(attributeSearchInfo.isMultiSelect());
         List<FilterConditionOperator> conditionOperators = new ArrayList<>(searchFieldTypeEnum.getConditions());
@@ -99,20 +105,67 @@ public class SearchHelper {
     }
 
     public static List<SearchFieldDataDto> prepareSearchForJSON(final List<SearchFieldObject> searchFieldObjectList) {
-        final List<String> duplicatesOfNames = filterDuplicity(searchFieldObjectList);
-        return searchFieldObjectList.stream().map(attribute -> prepareSearchForJSON(attribute, duplicatesOfNames.contains(attribute.getAttributeName()))).sorted(new SearchFieldDataComparator()).toList();
+        final List<SearchFieldObject> mergedFields = mergeFieldsWithSameIdentifier(searchFieldObjectList);
+        final Set<String> duplicatesOfNames = filterDuplicity(mergedFields);
+        return mergedFields.stream().map(attribute -> prepareSearchForJSON(attribute, duplicatesOfNames.contains(attribute.getAttributeName()))).sorted(new SearchFieldDataComparator()).toList();
     }
 
-    private static List<String> filterDuplicity(final List<SearchFieldObject> searchFieldObjectList) {
-        final List<String> uniqueNames = new ArrayList<>();
-        final List<String> duplicatesOfNames = new ArrayList<>();
-        searchFieldObjectList.forEach(attr -> {
-            if (uniqueNames.contains(attr.getAttributeName())) {
-                duplicatesOfNames.add(attr.getAttributeName());
-            } else {
-                uniqueNames.add(attr.getAttributeName());
+    private static String buildFieldIdentifier(final SearchFieldObject attributeSearchInfo) {
+        return attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name();
+    }
+
+    /**
+     * Collapses attribute search fields that map to the same field identifier (attribute name and content type).
+     * The same attribute may be registered by multiple connectors, or by one connector repeatedly under new
+     * attribute UUIDs, yielding one definition row each. Filtering matches the content of all such definitions by
+     * name and content type, so they must be exposed as a single field with the union of their capabilities.
+     */
+    private static List<SearchFieldObject> mergeFieldsWithSameIdentifier(final List<SearchFieldObject> searchFieldObjectList) {
+        // The repository UNION carries no ORDER BY, so sort before merging to keep first-wins picks
+        // (label, content item order) stable across calls.
+        final List<SearchFieldObject> orderedFields = searchFieldObjectList.stream()
+                .sorted(Comparator.comparing(SearchHelper::buildFieldIdentifier)
+                        .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+        final Map<String, SearchFieldObject> mergedFields = new LinkedHashMap<>();
+        for (final SearchFieldObject field : orderedFields) {
+            mergedFields.merge(buildFieldIdentifier(field), field, SearchHelper::mergeDuplicateField);
+        }
+        return new ArrayList<>(mergedFields.values());
+    }
+
+    private static SearchFieldObject mergeDuplicateField(final SearchFieldObject merged, final SearchFieldObject other) {
+        // Value-based operators stay available if at least one definition is not encrypted; only its plain content is matchable.
+        if (other.getProtectionLevel() != ProtectionLevel.ENCRYPTED) {
+            merged.setProtectionLevel(other.getProtectionLevel());
+        }
+        // A fixed-choice list input is only correct if every definition is a list; otherwise free-form input must
+        // survive the merge, since a list rendering would make the free-form definitions' values un-enterable.
+        if (!other.isList()) {
+            merged.setList(false);
+            merged.setMultiSelect(false);
+            merged.setContentItems(null);
+        } else if (merged.isList()) {
+            if (other.isMultiSelect()) {
+                merged.setMultiSelect(true);
             }
-        });
+            if (other.getContentItems() != null) {
+                merged.setContentItems(merged.getContentItems() == null
+                        ? other.getContentItems()
+                        : Stream.concat(merged.getContentItems().stream(), other.getContentItems().stream()).distinct().toList());
+            }
+        }
+        return merged;
+    }
+
+    private static Set<String> filterDuplicity(final List<SearchFieldObject> searchFieldObjectList) {
+        final Set<String> uniqueNames = new HashSet<>();
+        final Set<String> duplicatesOfNames = new HashSet<>();
+        for (final SearchFieldObject attr : searchFieldObjectList) {
+            if (!uniqueNames.add(attr.getAttributeName())) {
+                duplicatesOfNames.add(attr.getAttributeName());
+            }
+        }
         return duplicatesOfNames;
     }
 
