@@ -657,14 +657,21 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         // For non-negated operators, attributes without content do not match the operator.
         if (missingContent) return false;
 
+        // A multi-select list attribute condition arrives as a JSON array of selected values; normalize a scalar
+        // value to a one-element list so EQUALS means "equals any of" (IN semantics), mirroring
+        // FilterPredicatesBuilder.prepareAttributeFilterValues. Collections.singletonList permits a null value.
+        List<Object> conditionValueList = conditionValue instanceof List ? (List<Object>) conditionValue : Collections.singletonList(conditionValue);
+
         // If the attribute is a list, iterate through each item and short-circuit on the first definitive result.
         // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
         for (AttributeContent attributeContent : content) {
             Object attributeValue = contentType.isFilterByData() ? attributeContent.getData() : attributeContent.getReference();
             try {
-                if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValue)))
-                    // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
-                    return !isNegated;
+                for (Object conditionValueItem : conditionValueList) {
+                    if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValueItem)))
+                        // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
+                        return !isNegated;
+                }
             } catch (Exception e) {
                 throw new RuleException("Cannot evaluate operator %s with condition value '%s' (contentType: %s): %s"
                         .formatted(operator, conditionValue, contentType, e.getMessage()));

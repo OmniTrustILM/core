@@ -602,6 +602,21 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         newCondition.setValue("other");
         Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
 
+        // EQUALS with a multi-value condition (multi-select list attribute — the FE sends the selected values as a
+        // JSON array): true if any attribute item equals any of the condition values
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue(List.of("data", "other"));
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue(List.of("other", "another"));
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_EQUALS with a multi-value condition: true only if no attribute item equals any of the condition values
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue(List.of("other", "another"));
+        Assertions.assertTrue(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue(List.of("data", "other"));
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
         // NOT_EQUALS: true only if no item equals the value — "data" is present so NOT_EQUALS "data" is false
         newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
         newCondition.setValue("other");
