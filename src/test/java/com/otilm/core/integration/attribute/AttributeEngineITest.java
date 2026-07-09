@@ -21,6 +21,7 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.GroupAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.*;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
@@ -623,6 +624,26 @@ class AttributeEngineITest extends BaseSpringBootTest {
         // Verify it's gone
         Assertions.assertTrue(attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorDiscovery.getUuid(), UUID.fromString(dataAttribute.getUuid()), dataAttribute.getName()).isEmpty());
         Assertions.assertTrue(attributeContent2ObjectRepository.getObjectDataAttributesContentNoOperation(AttributeType.DATA, connectorDiscovery.getUuid(), Resource.CERTIFICATE, certificate.getUuid(), null).isEmpty());
+    }
+
+    @Test
+    void testDeleteConnectorAttributeDefinitionsContent_removesGroupDefinitions() throws AttributeException {
+        GroupAttributeV3 groupAttribute = new GroupAttributeV3();
+        groupAttribute.setUuid(UUID.randomUUID().toString());
+        groupAttribute.setName("group_attr");
+        AttributeCallback callback = new AttributeCallback();
+        callback.setCallbackContext("/callback");
+        callback.setCallbackMethod("GET");
+        groupAttribute.setAttributeCallback(callback);
+
+        attributeEngine.updateDataAttributeDefinitions(connectorDiscovery.getUuid(), null, List.of(groupAttribute));
+
+        Assertions.assertTrue(attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.GROUP, connectorDiscovery.getUuid(), UUID.fromString(groupAttribute.getUuid()), groupAttribute.getName()).isPresent());
+
+        attributeEngine.deleteConnectorAttributeDefinitionsContent(connectorDiscovery.getUuid());
+
+        Assertions.assertTrue(attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.GROUP, connectorDiscovery.getUuid(), UUID.fromString(groupAttribute.getUuid()), groupAttribute.getName()).isEmpty(),
+                "GROUP attribute definitions must be removed with the connector, otherwise deleting the connector violates fk_attribute_definition_connector");
     }
 
     @Test
