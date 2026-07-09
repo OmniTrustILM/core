@@ -608,13 +608,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         logger.debug("Initiating issue Certificate for Order with ID: {}", order.getOrderId());
-        ClientCertificateIssueRequestDto certificateSignRequestDto = new ClientCertificateIssueRequestDto();
-        certificateSignRequestDto.setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
-        certificateSignRequestDto.setRequest(decodedCsr);
-        certificateSignRequestDto.setFormat(CertificateRequestFormat.PKCS10);
+        ClientCertificateIssueRequestDto certificateIssueRequestDto = new ClientCertificateIssueRequestDto();
+        certificateIssueRequestDto.setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
+        certificateIssueRequestDto.setRequest(decodedCsr);
+        certificateIssueRequestDto.setFormat(CertificateRequestFormat.PKCS10);
         order.setStatus(OrderStatus.PROCESSING);
         acmeOrderRepository.save(order);
-        createCert(order, certificateSignRequestDto);
+        createCert(order, certificateIssueRequestDto);
     }
 
     @Override
@@ -1195,16 +1195,16 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     }
 
-    private void createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateSignRequestDto) {
+    private void createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
         // check if certificate is not already requested (prevent calling finalize multiple times issuing more certificates)
         // not sure if it is necessary
         if (order.getCertificateReference() == null) {
             try {
                 // keep state as PROCESSING since issuing is async process
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Requesting Certificate for the Order: {} and certificate signing request: {}", order, certificateSignRequestDto);
+                    logger.debug("Requesting Certificate for the Order: {} and certificate signing request: {}", order, certificateIssueRequestDto);
                 }
-                ClientCertificateDataResponseDto certificateOutput = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()), order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateSignRequestDto,
+                ClientCertificateDataResponseDto certificateOutput = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()), order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
                         CertificateProtocolInfo.Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
                 order.setCertificateId(AcmeRandomGeneratorAndValidator.generateRandomId());
                 order.setCertificateReference(certificateService.getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid())));

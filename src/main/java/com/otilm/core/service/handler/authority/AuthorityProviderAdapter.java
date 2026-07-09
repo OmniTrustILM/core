@@ -24,7 +24,7 @@ public interface AuthorityProviderAdapter {
      *
      * @param cert the certificate to issue — provides the CSR ({@code getCertificateRequest()}) and
      *             the RA-profile association used to resolve connector attributes.
-     * @param req  the operator-level sign request DTO. Currently informational at the adapter layer:
+     * @param req  the operator-level issue request DTO. Currently informational at the adapter layer:
      *             the wire body is reconstructed from the persisted certificate plus the attribute
      *             engine (Core persists the operator's CSR + request attributes before the adapter
      *             runs, then the adapter re-reads them). Kept for contract symmetry with
