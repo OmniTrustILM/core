@@ -196,6 +196,27 @@ class SearchHelperITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testPrepareSearchForJSONMergeIsDeterministicWhenDuplicatesShareTheLabel() {
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(
+                List.of(listFieldObject(List.of("dev", "test")), listFieldObject(List.of("prod"))));
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper.prepareSearchForJSON(
+                List.of(listFieldObject(List.of("prod")), listFieldObject(List.of("dev", "test"))));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getValue())
+                .as("merged content item order must not depend on the (unordered) query result order")
+                .isEqualTo(fieldsReversed.getFirst().getValue());
+    }
+
+    private static SearchFieldObject listFieldObject(List<String> contentItems) {
+        SearchFieldObject field = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        field.setLabel("Environment");
+        field.setList(true);
+        field.setContentItems(contentItems);
+        return field;
+    }
+
+    @Test
     void testPrepareSearchCount() {
         Set<FilterField> shouldHaveCountOperator = Set.of(FilterField.CONNECTOR_FUNCTION_GROUP, FilterField.CONNECTOR_INTERFACE, FilterField.GROUP_NAME, FilterField.SUCCEEDING_CERTIFICATES, FilterField.PRECEDING_CERTIFICATES, FilterField.CERT_LOCATION_NAME, FilterField.CK_GROUP, FilterField.SECRET_SYNC_VAULT_PROFILE, FilterField.SECRET_GROUP_NAME);
         Set<FilterField> withCountOperator = new HashSet<>();

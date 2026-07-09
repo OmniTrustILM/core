@@ -114,6 +114,18 @@ public class SearchHelper {
         return attributeSearchInfo.getAttributeName() + "|" + attributeSearchInfo.getAttributeContentType().name();
     }
 
+    // Total order over every merge-relevant field: the repository UNION carries no ORDER BY, so duplicates must be
+    // sorted before merging to keep first-wins picks (label, content item order) stable across calls. Content items
+    // are flattened with a NUL separator so distinct lists cannot collide into a tie.
+    private static final Comparator<SearchFieldObject> DUPLICATE_MERGE_ORDER = Comparator
+            .comparing(SearchHelper::buildFieldIdentifier)
+            .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(SearchFieldObject::isList)
+            .thenComparing(SearchFieldObject::isMultiSelect)
+            .thenComparing(SearchFieldObject::getProtectionLevel, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(field -> field.getContentItems() == null ? null : String.join("\0", field.getContentItems()),
+                    Comparator.nullsLast(Comparator.naturalOrder()));
+
     /**
      * Collapses attribute search fields that map to the same field identifier (attribute name and content type).
      * The same attribute may be registered by multiple connectors, or by one connector repeatedly under new
@@ -121,12 +133,7 @@ public class SearchHelper {
      * name and content type, so they must be exposed as a single field with the union of their capabilities.
      */
     private static List<SearchFieldObject> mergeFieldsWithSameIdentifier(final List<SearchFieldObject> searchFieldObjectList) {
-        // The repository UNION carries no ORDER BY, so sort before merging to keep first-wins picks
-        // (label, content item order) stable across calls.
-        final List<SearchFieldObject> orderedFields = searchFieldObjectList.stream()
-                .sorted(Comparator.comparing(SearchHelper::buildFieldIdentifier)
-                        .thenComparing(SearchFieldObject::getLabel, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
+        final List<SearchFieldObject> orderedFields = searchFieldObjectList.stream().sorted(DUPLICATE_MERGE_ORDER).toList();
         final Map<String, SearchFieldObject> mergedFields = new LinkedHashMap<>();
         for (final SearchFieldObject field : orderedFields) {
             mergedFields.merge(buildFieldIdentifier(field), field, SearchHelper::mergeDuplicateField);
