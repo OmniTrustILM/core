@@ -16,7 +16,7 @@ import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -472,7 +472,7 @@ public class ScepServiceImpl implements ScepExternalService {
                     scepRequest
             );
         }
-        ClientCertificateSignRequestDto requestDto = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto requestDto = new ClientCertificateIssueRequestDto();
         try {
             requestDto.setRequest(new String(Base64.getEncoder().encode(scepRequest.getPkcs10Request().getEncoded())));
             requestDto.setFormat(CertificateRequestFormat.PKCS10);

@@ -26,7 +26,7 @@ import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
@@ -276,7 +276,7 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
                 .willReturn(WireMock.okJson("true")));
 
-        ClientCertificateSignRequestDto request = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
         request.setRequest(SAMPLE_PKCS10);
         request.setAttributes(List.of());
         Assertions.assertDoesNotThrow(() -> clientOperationService.issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(), request, null));
@@ -1802,13 +1802,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         doReturn(Optional.of(switchedAway))
                 .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
 
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
-        signRequest.setRequest(SAMPLE_PKCS10);
-        signRequest.setFormat(CertificateRequestFormat.PKCS10);
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(SAMPLE_PKCS10);
+        issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
         UUID certUuid = certificate.getUuid();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                certificateService.addCertificateRequestToExisting(certUuid, signRequest));
+                certificateService.addCertificateRequestToExisting(certUuid, issueRequest));
         Assertions.assertTrue(ex.getMessage().contains("RA profile changed"),
                 "expected the re-assert under the lock to reject on RA-profile change, got: " + ex.getMessage());
     }

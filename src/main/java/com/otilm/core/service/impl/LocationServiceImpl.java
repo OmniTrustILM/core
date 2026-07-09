@@ -32,7 +32,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -814,12 +814,12 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     private ClientCertificateDataResponseDto issueCertificateForLocation(Location location, String csr, List<RequestAttribute> issueAttributes, String raProfileUuid, List<RequestAttribute> certificateCustomAttributes) throws LocationException {
-        ClientCertificateSignRequestDto clientCertificateSignRequestDto = new ClientCertificateSignRequestDto();
-        clientCertificateSignRequestDto.setAttributes(issueAttributes);
+        ClientCertificateIssueRequestDto clientCertificateIssueRequestDto = new ClientCertificateIssueRequestDto();
+        clientCertificateIssueRequestDto.setAttributes(issueAttributes);
         // TODO: support for different types of certificate
-        clientCertificateSignRequestDto.setRequest(csr);
-        clientCertificateSignRequestDto.setFormat(CertificateRequestFormat.PKCS10);
-        clientCertificateSignRequestDto.setCustomAttributes(certificateCustomAttributes);
+        clientCertificateIssueRequestDto.setRequest(csr);
+        clientCertificateIssueRequestDto.setFormat(CertificateRequestFormat.PKCS10);
+        clientCertificateIssueRequestDto.setCustomAttributes(certificateCustomAttributes);
         ClientCertificateDataResponseDto clientCertificateDataResponseDto;
         try {
             // TODO : introduces raProfileRepository, services probably need to be reorganized
@@ -828,7 +828,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 logger.debug("Failed to issue Certificate for Location {}, {}. RA profile is not existing or does not have set authority", location.getName(), location.getUuid());
                 throw new LocationException("Failed to issue Certificate for Location " + location.getName() + ". RA profile is not existing or does not have set authority");
             }
-            clientCertificateDataResponseDto = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(raProfile.get().getAuthorityInstanceReferenceUuid()), raProfile.get().getSecuredUuid(), clientCertificateSignRequestDto, null);
+            clientCertificateDataResponseDto = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(raProfile.get().getAuthorityInstanceReferenceUuid()), raProfile.get().getSecuredUuid(), clientCertificateIssueRequestDto, null);
         } catch (NotFoundException | java.security.cert.CertificateException | CertificateOperationException |
                  InvalidKeyException | IOException | NoSuchAlgorithmException | CertificateRequestException e) {
             logger.debug("Failed to issue Certificate for Location {}, {}: {}", location.getName(), location.getUuid(), e.getMessage());

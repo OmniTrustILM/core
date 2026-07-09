@@ -9,7 +9,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -78,7 +78,7 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
         // -- process issue (asynchronous) operation
         CertReqMessages crmf = (CertReqMessages) request.getBody().getContent();
         try {
-            ClientCertificateSignRequestDto dto = new ClientCertificateSignRequestDto();
+            ClientCertificateIssueRequestDto dto = new ClientCertificateIssueRequestDto();
             dto.setRequest(Base64.getEncoder().encodeToString(crmf.getEncoded()));
             dto.setFormat(CertificateRequestFormat.CRMF);
             RaProfile raProfile = configuration.getRaProfile();

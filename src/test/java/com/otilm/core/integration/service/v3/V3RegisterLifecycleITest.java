@@ -7,7 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -246,17 +246,17 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
 
         // Step 3: issue the registered certificate
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
-        signRequest.setRequest(base64Csr);
-        signRequest.setFormat(CertificateRequestFormat.PKCS10);
-        signRequest.setAttributes(List.of());
-        signRequest.setCustomAttributes(List.of());
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(base64Csr);
+        issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+        issueRequest.setAttributes(List.of());
+        issueRequest.setCustomAttributes(List.of());
 
         clientOperationService.issueExistingCertificate(
                 SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
                 fixture.raProfile().getSecuredUuid(),
                 registerResponse.getUuid(),
-                signRequest);
+                issueRequest);
 
         // Step 4: assert final state
         Certificate certAfterIssue = reloadCert(registerResponse.getUuid());
@@ -298,18 +298,18 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         String base64Csr = Base64.getEncoder().encodeToString(csr.getEncoded());
         V3ConnectorStubs.stubV3IssueAsync(wireMockServer);
 
-        ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
-        signRequest.setRequest(base64Csr);
-        signRequest.setFormat(CertificateRequestFormat.PKCS10);
-        signRequest.setAttributes(List.of());
-        signRequest.setCustomAttributes(List.of());
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(base64Csr);
+        issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+        issueRequest.setAttributes(List.of());
+        issueRequest.setCustomAttributes(List.of());
 
         // Step 3: issue → the register-bound v3 issue returns 202 (async)
         clientOperationService.issueExistingCertificate(
                 SecuredParentUUID.fromUUID(fixture.authority().getUuid()),
                 fixture.raProfile().getSecuredUuid(),
                 registerResponse.getUuid(),
-                signRequest);
+                issueRequest);
 
         // Step 4: accepted-but-async → PENDING_ISSUE + exactly one ISSUE status-poll row scheduled
         Assertions.assertEquals(CertificateState.PENDING_ISSUE, reloadCert(registerResponse.getUuid()).getState(),
