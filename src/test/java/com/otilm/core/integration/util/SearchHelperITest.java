@@ -1,4 +1,4 @@
-package com.otilm.core.util;
+package com.otilm.core.integration.util;
 
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -13,7 +13,8 @@ import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.SearchFieldObject;
-import org.junit.jupiter.api.Assertions;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SearchHelper;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -21,19 +22,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-class SearchHelperTest extends BaseSpringBootTest {
+import static org.assertj.core.api.Assertions.assertThat;
+
+class SearchHelperITest extends BaseSpringBootTest {
 
     @Test
     void testPrepareSearchForJSON() {
         SearchFieldObject attributeSearchInfo = new SearchFieldObject(AttributeContentType.TIME);
         SearchFieldDataDto searchFieldDataDto = SearchHelper.prepareSearchForJSON(attributeSearchInfo, false);
-        Assertions.assertFalse(searchFieldDataDto.getConditions().isEmpty());
-        Assertions.assertFalse(searchFieldDataDto.getConditions().contains(FilterConditionOperator.IN_NEXT), "Condition should not contain IN_NEXT operator");
-        Assertions.assertFalse(searchFieldDataDto.getConditions().contains(FilterConditionOperator.IN_PAST), "Condition should not contain IN_PAST operator");
+        assertThat(searchFieldDataDto.getConditions()).isNotEmpty();
+        assertThat(searchFieldDataDto.getConditions()).as("Condition should not contain IN_NEXT operator").doesNotContain(FilterConditionOperator.IN_NEXT);
+        assertThat(searchFieldDataDto.getConditions()).as("Condition should not contain IN_PAST operator").doesNotContain(FilterConditionOperator.IN_PAST);
 
         attributeSearchInfo.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         searchFieldDataDto = SearchHelper.prepareSearchForJSON(attributeSearchInfo, false);
-        Assertions.assertEquals(List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY), searchFieldDataDto.getConditions());
+        assertThat(searchFieldDataDto.getConditions()).isEqualTo(List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY));
     }
 
     @Test
@@ -47,18 +50,18 @@ class SearchHelperTest extends BaseSpringBootTest {
         attributeV3.setContentType(AttributeContentType.DATE);
         attributeV3.setProperties(dataAttributeProperties);
         SearchFieldObject searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(), AttributeType.DATA, "label", attributeV3);
-        Assertions.assertEquals(List.of(now.toString()), searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of(now.toString()));
 
         dataAttributeProperties.setList(false);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(), AttributeType.DATA, "label", attributeV3);
-        Assertions.assertNull(searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isNull();
 
         dataAttributeProperties.setList(true);
         dataAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         attributeV3.setProperties(dataAttributeProperties);
         searchFieldObject = new SearchFieldObject(attributeV3.getName(), attributeV3.getContentType(), AttributeType.DATA, "label", attributeV3);
-        Assertions.assertNull(searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isNull();
 
         CustomAttributeV3 customAttributeV3 = new CustomAttributeV3();
         customAttributeV3.setName("name");
@@ -68,17 +71,17 @@ class SearchHelperTest extends BaseSpringBootTest {
         customAttributeV3.setContentType(AttributeContentType.DATE);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(), AttributeType.CUSTOM, "label", customAttributeV3);
-        Assertions.assertEquals(List.of("string"), searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isEqualTo(List.of("string"));
 
         customAttributeProperties.setList(false);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(), AttributeType.CUSTOM, "label", customAttributeV3);
-        Assertions.assertNull(searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isNull();
         customAttributeProperties.setList(true);
         customAttributeProperties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         customAttributeV3.setProperties(customAttributeProperties);
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(), AttributeType.CUSTOM, "label", customAttributeV3);
-        Assertions.assertNull(searchFieldObject.getContentItems());
+        assertThat(searchFieldObject.getContentItems()).isNull();
 
     }
 
@@ -91,7 +94,7 @@ class SearchHelperTest extends BaseSpringBootTest {
             if (searchFieldDataDto.getConditions().containsAll(Set.of(FilterConditionOperator.COUNT_EQUAL, FilterConditionOperator.COUNT_NOT_EQUAL, FilterConditionOperator.COUNT_GREATER_THAN, FilterConditionOperator.COUNT_LESS_THAN)))
                 withCountOperator.add(filterField);
             }
-        Assertions.assertEquals(shouldHaveCountOperator, withCountOperator);
+        assertThat(withCountOperator).isEqualTo(shouldHaveCountOperator);
     }
 
     @Test
@@ -99,8 +102,8 @@ class SearchHelperTest extends BaseSpringBootTest {
         Set<FilterField> jsonArrays = Set.of(FilterField.AUDIT_LOG_RESOURCE_NAME, FilterField.AUDIT_LOG_RESOURCE_UUID);
         for (FilterField filterField : jsonArrays) {
             SearchFieldDataDto searchFieldDataDto = SearchHelper.prepareSearch(filterField);
-            Assertions.assertEquals(Set.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.NOT_EMPTY, FilterConditionOperator.EMPTY),
-                    new HashSet<>(searchFieldDataDto.getConditions()));
+            assertThat(new HashSet<>(searchFieldDataDto.getConditions()))
+                    .isEqualTo(Set.of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.NOT_EMPTY, FilterConditionOperator.EMPTY));
         }
     }
 }
