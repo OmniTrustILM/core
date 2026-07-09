@@ -7,24 +7,30 @@ import com.otilm.api.model.client.connector.v2.ConnectorInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.HealthDto;
 import com.otilm.api.model.common.HealthStatus;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
+import com.otilm.api.model.common.attribute.v3.GroupAttributeV3;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.proxy.ProxyStatus;
+import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.Proxy;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.ProxyRepository;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -66,6 +72,10 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
     private ProxyRepository proxyRepository;
+    @Autowired
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
 
     @MockitoBean
     private ProxyClient proxyClient;
@@ -344,6 +354,58 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     @Test
     void testRemoveConnector_notFound() {
         Assertions.assertThrows(NotFoundException.class, () -> connectorService.deleteConnector(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
+    }
+
+    @Test
+    void testRemoveConnector_withNotificationInstanceReferences_throws() {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        SecuredUUID connectorSecuredUuid = connector.getSecuredUuid();
+        ValidationException exception = Assertions.assertThrows(ValidationException.class, () -> connectorService.deleteConnector(connectorSecuredUuid));
+        Assertions.assertTrue(exception.getMessage().contains(notificationInstance.getName()));
+    }
+
+    @Test
+    void testBulkRemoveConnector_withNotificationInstanceReferences_throws() throws NotFoundException {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        List<SecuredUUID> uuidList = List.of(connector.getSecuredUuid());
+        List<BulkActionMessageDto> messageDtos = connectorService.bulkDeleteConnector(uuidList);
+        Assertions.assertTrue(messageDtos.getFirst().getMessage().contains(notificationInstance.getName()));
+    }
+
+    @Test
+    void testForceRemoveConnector_withNotificationInstanceReferences_deletesConnector() throws NotFoundException {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        SecuredUUID connectorSecuredUuid = connector.getSecuredUuid();
+        connectorService.forceDeleteConnector(List.of(connectorSecuredUuid));
+        notificationInstance = notificationInstanceReferenceRepository.findByUuid(notificationInstance.getUuid()).orElse(null);
+        Assertions.assertNotNull(notificationInstance);
+        Assertions.assertNull(notificationInstance.getConnectorUuid());
+    }
+
+    @Test
+    void testForceRemoveConnector_withGroupAttributeDefinitions_deletesConnector() throws AttributeException {
+        GroupAttributeV3 groupAttribute = new GroupAttributeV3();
+        groupAttribute.setUuid(UUID.randomUUID().toString());
+        groupAttribute.setName("testGroupAttribute");
+        AttributeCallback callback = new AttributeCallback();
+        callback.setCallbackContext("/callback");
+        callback.setCallbackMethod("GET");
+        groupAttribute.setAttributeCallback(callback);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(groupAttribute));
+
+        List<BulkActionMessageDto> messages = connectorServiceV2.forceDeleteConnector(List.of(connector.getSecuredUuid()));
+
+        Assertions.assertTrue(messages.isEmpty(), "Force delete must not fail on dependent attribute_definition rows: " + messages);
+        Assertions.assertTrue(connectorRepository.findByUuid(connector.getUuid()).isEmpty());
     }
 
     @Test
