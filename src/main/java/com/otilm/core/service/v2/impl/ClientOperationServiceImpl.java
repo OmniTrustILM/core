@@ -593,7 +593,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Post-commit code uses data captured here because the entity detaches on commit.
         Certificate certificate;
         AuthorityInstanceReference authority;
-        ClientCertificateSignRequestDto req = new ClientCertificateSignRequestDto();
+        ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
         List<CertificateLocationId> locationIds;
         TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
@@ -643,7 +643,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * (the certificate is now detached), then finalize.
      */
     private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
-            ClientCertificateSignRequestDto req, AuthorityInstanceReference authority,
+            ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority,
             List<CertificateLocationId> locationIds) throws CertificateOperationException, NotFoundException {
         AdapterOperationResult result;
         try {
