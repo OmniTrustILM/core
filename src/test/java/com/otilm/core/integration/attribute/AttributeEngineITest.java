@@ -349,6 +349,30 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateDataAttributeDefinitionsKeepsExtensibleListOptionsOnResponse() throws AttributeException {
+        // Registering the definition must not strip the connector-provided options from the returned
+        // attribute: a listing endpoint returns that same object and the UI needs the options as
+        // suggestions for the extensible list (the definition itself is still stored without them).
+        DataAttributeV3 extensible = new DataAttributeV3();
+        extensible.setUuid(UUID.randomUUID().toString());
+        extensible.setName("extensibleListWithOptions");
+        extensible.setContentType(AttributeContentType.STRING);
+        extensible.setContent(List.of(new StringAttributeContentV3("team-a")));
+        DataAttributeProperties props = new DataAttributeProperties();
+        props.setLabel("Extensible list with options");
+        props.setList(true);
+        props.setExtensibleList(true);
+        props.setReadOnly(false);
+        extensible.setProperties(props);
+
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(extensible));
+
+        Assertions.assertNotNull(extensible.getContent(), "extensible-list options must survive for the response");
+        Assertions.assertEquals(1, extensible.getContent().size());
+        Assertions.assertEquals("team-a", ((StringAttributeContentV3) extensible.getContent().get(0)).getData());
+    }
+
+    @Test
     void updateObjectDataAttributesContentAcceptsNullContentForNonRequiredAttribute() throws AttributeException {
         // Regression: a connector legitimately returning content=null for an optional attribute
         // used to NPE deep in createObjectAttributeContent (attributeContentItems.size() on null),

@@ -16,6 +16,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.common.content.data.AttributeContentData;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
@@ -631,13 +632,29 @@ public class AttributeEngine {
         encryptOrDecryptExistingContent(attributeDefinition, dataAttribute.getProperties().getProtectionLevel());
         attributeDefinition.setProtectionLevel(dataAttribute.getProperties().getProtectionLevel());
 
-        // we need content only for readonly attribute
+        // Persist the definition without extensible-list options, but do NOT strip them from the
+        // caller's attribute: a listing endpoint returns that same object and the UI needs the
+        // options as suggestions. (Secret containment on callback responses is handled separately.)
         if (!Boolean.TRUE.equals(attributeDefinition.isReadOnly()) && dataAttribute.getProperties().isExtensibleList()) {
-            dataAttribute.setContent(null);
-        } else
+            attributeDefinition.setDefinition(copyWithoutContent(dataAttribute));
+        } else {
             dataAttribute.setContent(encryptDefaultAttributeContent(dataAttribute, attributeDefinition, dataAttribute.getProperties().getProtectionLevel()));
-        attributeDefinition.setDefinition(dataAttribute);
+            attributeDefinition.setDefinition(dataAttribute);
+        }
         attributeDefinitionRepository.save(attributeDefinition);
+    }
+
+    private static DataAttribute copyWithoutContent(DataAttribute dataAttribute) {
+        DataAttribute copy;
+        if (dataAttribute instanceof DataAttributeV3 v3) {
+            copy = new DataAttributeV3(v3);
+        } else if (dataAttribute instanceof DataAttributeV2 v2) {
+            copy = new DataAttributeV2(v2);
+        } else {
+            copy = dataAttribute; // legacy models without a copy constructor: unchanged behavior
+        }
+        copy.setContent(null);
+        return copy;
     }
 
     public AttributeDefinition updateMetadataAttributeDefinition(MetadataAttribute metadataAttribute, UUID connectorUuid) throws AttributeException {
