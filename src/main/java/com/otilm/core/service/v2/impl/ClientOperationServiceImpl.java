@@ -37,19 +37,13 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
-import com.otilm.api.model.core.settings.CertificateSettingsDto;
 import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
 import com.otilm.core.attribute.CsrAttributes;
-import com.otilm.core.certificate.request.CertificateRequestContentValidator;
+import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
-import com.otilm.core.certificate.request.ParsedRequestContent;
-import com.otilm.core.certificate.request.RequestAttributePolicy;
-import com.otilm.core.certificate.request.RequestAttributeValidationResult;
-import com.otilm.core.certificate.request.X509RequestContentParser;
+import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.oid.OidHandler;
-import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
-import com.otilm.core.service.SettingInternalService;
 import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -163,17 +157,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private AuthorityProviderAdapterFactory adapterFactory;
     private CertificateStateMachine stateMachine;
     private ConnectorCapabilityService capabilityService;
-    private RaProfileCertificateRequestAttributeService requestAttributeService;
-    private SettingInternalService settingService;
+    private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
 
     @Autowired
-    public void setRequestAttributeService(RaProfileCertificateRequestAttributeService requestAttributeService) {
-        this.requestAttributeService = requestAttributeService;
-    }
-
-    @Autowired
-    public void setSettingService(SettingInternalService settingService) {
-        this.settingService = settingService;
+    public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
+        this.protocolRequestAttributeValidator = protocolRequestAttributeValidator;
     }
 
     @Autowired
@@ -348,7 +336,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final ClientCertificateSignRequestDto request, final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
+    public ClientCertificateDataResponseDto issueCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request, final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -376,6 +364,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             certificate = submitCertificateRequest(certificateRequestDto, protocolInfo);
             transactionManager.commit(status);
+        } catch (RequestAttributePolicyViolationException e) {
+            transactionManager.rollback(status);
+            // A client-facing validation failure; must reach the protocol unchanged.
+            throw e;
         } catch (Exception e) {
             transactionManager.rollback(status);
             throw new CertificateOperationException("Failed to submit certificate request: " + e.getMessage());
@@ -1033,7 +1025,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateSignRequestDto request) throws NotFoundException {
+    public ClientCertificateDataResponseDto issueExistingCertificate(final SecuredParentUUID authorityUuid, final SecuredUUID raProfileUuid, final String certificateUuid, final ClientCertificateIssueRequestDto request) throws NotFoundException {
         // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
         // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
         RaProfile raProfile = raProfileRepository.findByUuid(raProfileUuid.getValue())
@@ -1120,6 +1112,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             newCertificate = submitCertificateRequest(certificateRequestDto, null);
             transactionManager.commit(status);
+        } catch (RequestAttributePolicyViolationException e) {
+            transactionManager.rollback(status);
+            // a client-facing validation failure
+            throw e;
         } catch (Exception e) {
             transactionManager.rollback(status);
             throw new CertificateOperationException("Failed to submit certificate request for certificate renewal: " + e.getMessage());
@@ -1283,6 +1279,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             newCertificate = submitCertificateRequest(certificateRequestDto, null);
             transactionManager.commit(status);
+        } catch (RequestAttributePolicyViolationException e) {
+            transactionManager.rollback(status);
+            // a client-facing validation failure
+            throw e;
         } catch (Exception e) {
             transactionManager.rollback(status);
             throw new CertificateOperationException("Failed to submit certificate request for certificate rekey: " + e.getMessage());
@@ -2061,83 +2061,21 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Parse the uploaded CSR into typed content and validate it against the resolved request-attribute set under the RA-Profile policy.
-     * Strict rejects with a shaped message; lenient logs warnings and proceeds. The resolved-set lookup calls the authority connector.
+     * Parse the uploaded CSR into typed content and delegate request-attribute policy validation to the shared
+     * {@link ProtocolRequestAttributeValidator}. A policy violation propagates as {@link RequestAttributePolicyViolationException} unchanged.
      */
     private void validateUploadedRequestAttributes(String csr, CertificateRequestFormat requestFormat, RaProfile raProfile)
             throws CertificateException {
         if (raProfile == null) {
             return;
         }
-        List<BaseAttribute> definitions;
-        try {
-            definitions = requestAttributeService.resolveIssueAttributeSet(raProfile);
-        } catch (ConnectorException | NotFoundException e) {
-            if (resolveExternalCsrValidationStrict(raProfile)) {
-                String reason = e instanceof NotFoundException
-                        ? "the request-attribute set is not configured on the authority connector"
-                        : "the authority connector is unavailable";
-                logger.warn("Could not resolve request-attribute set for uploaded-CSR validation; strict RA profile {} rejects issuance ({})",
-                        raProfile.getName(), reason, e);
-                throw new CertificateException(
-                        "Request-attribute set is unavailable; strict RA profile '%s' cannot validate the uploaded certificate request (%s)"
-                                .formatted(raProfile.getName(), reason), e);
-            }
-            // Lenient policy tolerates an availability failure and proceeds unvalidated.
-            logger.warn("Could not resolve request-attribute set for uploaded-CSR validation (RA profile {}); lenient validation skipped",
-                    raProfile.getName(), e);
-            return;
-        }
-        if (definitions == null || definitions.isEmpty()) {
-            return;
-        }
-        boolean strict = resolveExternalCsrValidationStrict(raProfile);
         try {
             CertificateRequest request = CertificateRequestUtils.createCertificateRequest(csr, requestFormat);
-            ParsedRequestContent parsed = X509RequestContentParser.parse(request);
-            RequestAttributeValidationResult result =
-                    CertificateRequestContentValidator.validate(definitions, parsed, new RequestAttributePolicy(strict, strict /* whitelist: strict mode enforces whitelist */));
-
-            // Kernel routes violations by policy: strict -> errors (blocking), lenient -> warnings (non-blocking).
-            // Lenient mode does NOT run the whitelist check.
-            if (!result.getWarnings().isEmpty()) {
-                logger.warn("Request-attribute validation (lenient) for uploaded CSR (RA profile {}): {}",
-                        raProfile.getName(), result.getWarnings());
-            }
-            if (result.hasErrors()) {
-                logger.warn("Request-attribute validation failed for uploaded CSR (RA profile {}): {}",
-                        raProfile.getName(), result.getErrors());
-                throw new CertificateRequestValidationException(
-                        "Uploaded certificate request does not satisfy the request-attribute policy of RA profile '%s'"
-                                .formatted(raProfile.getName()),
-                        result.getErrors());
-            }
-        } catch (CertificateRequestException e) {
+            protocolRequestAttributeValidator.validate(request, raProfile);
+        } catch (CertificateRequestException | IllegalArgumentException e) {
             logger.debug("Failed to parse uploaded CSR for request-attribute validation", e);
             throw new CertificateException("Uploaded certificate request could not be parsed for validation", e);
-        } catch (CertificateRequestValidationException e) {
-            // A policy violation is a client error (the uploaded CSR is invalid).
-            List<ValidationError> errors = e.getDetails().stream().map(ValidationError::create).toList();
-            throw new ValidationException(e.getMessage(), errors);
-        } catch (RuntimeException e) {
-            // Malformed ASN.1 that escapes the typed parse exceptions is still bad client input, not a server fault.
-            logger.warn("Uploaded CSR could not be processed for request-attribute validation (RA profile {})", raProfile.getName(), e);
-            throw new ValidationException("Uploaded certificate request could not be processed for validation");
         }
-    }
-
-    /** Effective strictness: per-RA-Profile value, else the platform default, else lenient. */
-    private boolean resolveExternalCsrValidationStrict(RaProfile raProfile) {
-        Boolean perProfile = requestAttributeService.getConfiguration(raProfile).getExternalCsrValidationStrict();
-        if (perProfile != null) {
-            return perProfile;
-        }
-        CertificateSettingsDto certificates = settingService.getPlatformSettingsInternal().getCertificates();
-        if (certificates != null && certificates.getRequestAttributes() != null
-                && certificates.getRequestAttributes().getExternalCsrValidationStrict() != null) {
-            return certificates.getRequestAttributes().getExternalCsrValidationStrict();
-        }
-        return false;
     }
 
     private String generateBase64EncodedCsr(String uploadedRequest, CertificateRequestFormat requestFormat, List<RequestAttribute> csrAttributes, UUID keyUUid, UUID tokenProfileUuid, List<RequestAttribute> signatureAttributes,

@@ -31,7 +31,7 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.*;
@@ -73,6 +73,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertySource;
@@ -1074,14 +1075,23 @@ class CertificateServiceTest extends BaseSpringBootTest {
             certificate.setArchived(true);
             certificateRepository.save(certificate);
             ComplianceStatus oldComplianceStatus = certificate.getComplianceStatus();
-            CertificateComplianceCheckDto request = new CertificateComplianceCheckDto();
-            request.setCertificateUuids(List.of(certificate.getUuid().toString()));
 
             // when
-            certificateService.checkCompliance(request);
+            certificateService.checkCompliance(List.of(SecuredUUID.fromUUID(certificate.getUuid())));
 
             // then
             assertThat(certificateRepository.findByUuid(certificate.getUuid()).get().getComplianceStatus()).isEqualTo(oldComplianceStatus);
+        }
+
+        @Test
+        void deniesCheckCompliance_whenUnauthorized() {
+            // given - the caller is denied the CERTIFICATE CHECK_COMPLIANCE resource action
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.CHECK_COMPLIANCE);
+            List<SecuredUUID> uuids = List.of(SecuredUUID.fromUUID(certificate.getUuid()));
+
+            // when / then - @ExternalAuthorization rejects before the method body runs
+            assertThatThrownBy(() -> certificateService.checkCompliance(uuids))
+                    .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
@@ -1945,12 +1955,12 @@ class CertificateServiceTest extends BaseSpringBootTest {
             Certificate pendingIssue = certificateRepository.save(
                     aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
             UUID uuid = pendingIssue.getUuid();
-            ClientCertificateSignRequestDto signRequest = new ClientCertificateSignRequestDto();
-            signRequest.setRequest(SAMPLE_PKCS10);
-            signRequest.setFormat(CertificateRequestFormat.PKCS10);
+            ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(SAMPLE_PKCS10);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when / then — the locked read re-asserts state under the lock; only REGISTERED may accept a CSR
-            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, signRequest))
+            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, issueRequest))
                     .isInstanceOf(ValidationException.class);
         }
     }

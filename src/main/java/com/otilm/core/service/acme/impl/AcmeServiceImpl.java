@@ -2,6 +2,7 @@ package com.otilm.core.service.acme.impl;
 
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -15,10 +16,12 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
+import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.acme.*;
@@ -27,6 +30,8 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.*;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
+import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
@@ -104,10 +109,16 @@ public class AcmeServiceImpl implements AcmeExternalService {
     private ClientOperationInternalService clientOperationService;
     private CertificateInternalService certificateService;
     private AttributeEngine attributeEngine;
+    private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
+        this.protocolRequestAttributeValidator = protocolRequestAttributeValidator;
     }
 
     @Autowired
@@ -597,13 +608,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         logger.debug("Initiating issue Certificate for Order with ID: {}", order.getOrderId());
-        ClientCertificateSignRequestDto certificateSignRequestDto = new ClientCertificateSignRequestDto();
-        certificateSignRequestDto.setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
-        certificateSignRequestDto.setRequest(decodedCsr);
-        certificateSignRequestDto.setFormat(CertificateRequestFormat.PKCS10);
+        ClientCertificateIssueRequestDto certificateIssueRequestDto = new ClientCertificateIssueRequestDto();
+        certificateIssueRequestDto.setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
+        certificateIssueRequestDto.setRequest(decodedCsr);
+        certificateIssueRequestDto.setFormat(CertificateRequestFormat.PKCS10);
         order.setStatus(OrderStatus.PROCESSING);
         acmeOrderRepository.save(order);
-        createCert(order, certificateSignRequestDto);
+        createCert(order, certificateIssueRequestDto);
     }
 
     @Override
@@ -1136,6 +1147,19 @@ public class AcmeServiceImpl implements AcmeExternalService {
         if (!new HashSet<>(dnsIdentifiers).containsAll(identifiersDns)) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR);
         }
+
+        try {
+            CertificateRequest parsed = new Pkcs10CertificateRequest(csr.getEncoded());
+            RaProfile raProfile = order.getAcmeAccount().getRaProfile();
+            protocolRequestAttributeValidator.validate(parsed, raProfile);
+        } catch (RequestAttributePolicyViolationException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR, e.getMessage());
+        } catch (CertificateException e) {
+            // Availability failure resolving the request-attribute set: server-side, not a bad CSR.
+            throw new AcmeProblemDocumentException(HttpStatus.INTERNAL_SERVER_ERROR, Problem.SERVER_INTERNAL);
+        } catch (CertificateRequestException | IOException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.BAD_CSR);
+        }
     }
 
     private String JcaPKCS10CertificationRequestToString(JcaPKCS10CertificationRequest csr) throws IOException {
@@ -1171,16 +1195,16 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     }
 
-    private void createCert(AcmeOrder order, ClientCertificateSignRequestDto certificateSignRequestDto) {
+    private void createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
         // check if certificate is not already requested (prevent calling finalize multiple times issuing more certificates)
         // not sure if it is necessary
         if (order.getCertificateReference() == null) {
             try {
                 // keep state as PROCESSING since issuing is async process
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Requesting Certificate for the Order: {} and certificate signing request: {}", order, certificateSignRequestDto);
+                    logger.debug("Requesting Certificate for the Order: {} and issue request: {}", order, certificateIssueRequestDto);
                 }
-                ClientCertificateDataResponseDto certificateOutput = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()), order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateSignRequestDto,
+                ClientCertificateDataResponseDto certificateOutput = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()), order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
                         CertificateProtocolInfo.Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
                 order.setCertificateId(AcmeRandomGeneratorAndValidator.generateRandomId());
                 order.setCertificateReference(certificateService.getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid())));

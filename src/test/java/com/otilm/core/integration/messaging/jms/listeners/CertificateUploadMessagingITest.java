@@ -1,4 +1,4 @@
-package com.otilm.core.messaging.jms.listeners;
+package com.otilm.core.integration.messaging.jms.listeners;
 
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -22,11 +22,11 @@ import static org.awaitility.Awaitility.await;
  * <p>Flow: {@link CertificateExternalService#uploadAsync} → EventProducer → RabbitMQ exchange/queue →
  * EventListener → CertificateUploadedEventHandler → certificate persisted in DB.</p>
  *
- * <p>Kept separate from {@link JmsListenerIntegrationTest} because that class mocks
+ * <p>Kept separate from {@link JmsListenerITest} because that class mocks
  * {@code EventListener} at the bean level, which prevents the real handler chain from running.</p>
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
-class CertificateUploadMessagingIntTest extends BaseMessagingIntTest {
+class CertificateUploadMessagingITest extends BaseMessagingIntTest {
 
     @Autowired
     private CertificateExternalService certificateService;

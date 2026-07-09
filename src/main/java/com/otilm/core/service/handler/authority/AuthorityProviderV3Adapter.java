@@ -27,7 +27,7 @@ import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
@@ -88,7 +88,7 @@ public class AuthorityProviderV3Adapter
     // ---- AuthorityProviderAdapter ----
 
     @Override
-    public AdapterOperationResult issue(Certificate cert, ClientCertificateSignRequestDto req) throws ConnectorException {
+    public AdapterOperationResult issue(Certificate cert, ClientCertificateIssueRequestDto req) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);

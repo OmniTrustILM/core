@@ -54,8 +54,8 @@ import static org.awaitility.Awaitility.await;
  * <p>{@code @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)} is required:
  * the base {@code "test"} profile disables {@code PollJmsEndpointConfig}
  * ({@code @Profile("!test")}); overriding prevents that profile from being inherited so the poll
- * listener container starts. Mirror of the pattern used by {@code JmsListenerIntegrationTest} and
- * {@code CertificateUploadMessagingIntTest}.
+ * listener container starts. Mirror of the pattern used by {@code JmsListenerITest} and
+ * {@code CertificateUploadMessagingITest}.
  *
  * <p>{@code provider.status-poll.by-kind.REGISTER.max-attempts=2} is set via
  * {@link TestPropertySource} so the timeout scenario completes in exactly two sweeps instead of
