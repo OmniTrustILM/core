@@ -1,4 +1,4 @@
-package com.otilm.core.util;
+package com.otilm.core.integration.util;
 
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
@@ -16,6 +16,12 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.cmp.CmpEntityUtil;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CertificateEligibilityUtil;
+import com.otilm.core.util.CertificateTestData;
+import com.otilm.core.util.CertificateTestUtil;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.MetaDefinitions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -30,7 +36,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DigitalSigningCertQueryTest extends BaseSpringBootTest {
+class DigitalSigningCertQueryITest extends BaseSpringBootTest {
 
     @Autowired private CertificateRepository certificateRepository;
     @Autowired private CertificateContentRepository certificateContentRepository;
