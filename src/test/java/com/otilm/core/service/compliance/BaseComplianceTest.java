@@ -28,7 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.List;
 import java.util.UUID;
 
-class BaseComplianceTest extends BaseSpringBootTest {
+public abstract class BaseComplianceTest extends BaseSpringBootTest {
 
     protected static final String KIND_V1 = "kindV1";
     protected static final String KIND_V2 = "kindV2";
@@ -101,7 +101,7 @@ class BaseComplianceTest extends BaseSpringBootTest {
     protected final UUID complianceV2Group2Uuid = UUID.randomUUID();
 
     @BeforeEach
-    void setUp() throws AlreadyExistException {
+    protected void setUp() throws AlreadyExistException {
         mockServer = new WireMockServer(0);
         mockServer.start();
 
@@ -511,7 +511,7 @@ class BaseComplianceTest extends BaseSpringBootTest {
     }
 
     @AfterEach
-    void tearDown() {
+    protected void tearDown() {
         mockServer.stop();
     }
 

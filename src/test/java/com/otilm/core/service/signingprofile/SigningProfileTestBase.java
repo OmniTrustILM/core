@@ -81,7 +81,7 @@ import java.util.UUID;
 
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 
-abstract class SigningProfileTestBase extends BaseSpringBootTest {
+public abstract class SigningProfileTestBase extends BaseSpringBootTest {
 
     protected static final String CUSTOM_ATTR_UUID = "a1b2c3d4-0001-0002-0003-000000000003";
     protected static final String CUSTOM_ATTR_NAME = "signingProfileTestAttribute";
