@@ -55,7 +55,7 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * for issuance. The registration identity already on the row (subject DN / SAN) is preserved; the issued
      * certificate's identity is written from the CA response at issuance.
      */
-    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto signRequest)
+    void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException;
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate) throws NotFoundException;

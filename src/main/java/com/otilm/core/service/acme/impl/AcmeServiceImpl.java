@@ -1202,7 +1202,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
             try {
                 // keep state as PROCESSING since issuing is async process
                 if (logger.isDebugEnabled()) {
-                    logger.debug("Requesting Certificate for the Order: {} and certificate signing request: {}", order, certificateIssueRequestDto);
+                    logger.debug("Requesting Certificate for the Order: {} and issue request: {}", order, certificateIssueRequestDto);
                 }
                 ClientCertificateDataResponseDto certificateOutput = clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()), order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
                         CertificateProtocolInfo.Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));

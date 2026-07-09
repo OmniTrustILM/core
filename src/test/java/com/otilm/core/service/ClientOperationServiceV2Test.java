@@ -1802,13 +1802,13 @@ class ClientOperationServiceV2Test extends BaseSpringBootTest {
         doReturn(Optional.of(switchedAway))
                 .when(certificateRepository).findAndLockWithAssociationsByUuid(certificate.getUuid());
 
-        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-        signRequest.setRequest(SAMPLE_PKCS10);
-        signRequest.setFormat(CertificateRequestFormat.PKCS10);
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(SAMPLE_PKCS10);
+        issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
         UUID certUuid = certificate.getUuid();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                certificateService.addCertificateRequestToExisting(certUuid, signRequest));
+                certificateService.addCertificateRequestToExisting(certUuid, issueRequest));
         Assertions.assertTrue(ex.getMessage().contains("RA profile changed"),
                 "expected the re-assert under the lock to reject on RA-profile change, got: " + ex.getMessage());
     }

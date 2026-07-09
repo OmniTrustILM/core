@@ -1122,12 +1122,12 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Transactional
-    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto signRequest)
+    public void addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
             throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
-        if (signRequest == null || signRequest.getRequest() == null || signRequest.getRequest().isBlank()) {
+        if (issueRequest == null || issueRequest.getRequest() == null || issueRequest.getRequest().isBlank()) {
             throw new CertificateRequestException("A certificate signing request is required to complete a registered certificate");
         }
-        if (signRequest.getFormat() == null) {
+        if (issueRequest.getFormat() == null) {
             throw new CertificateRequestException("A certificate signing request format (PKCS10 or CRMF) is required");
         }
         // Authorize before locking WITHOUT managing the entity: the RA-profile check makes an external OPA
@@ -1157,11 +1157,11 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
         byte[] decodedCsr;
         try {
-            decodedCsr = Base64.getDecoder().decode(signRequest.getRequest());
+            decodedCsr = Base64.getDecoder().decode(issueRequest.getRequest());
         } catch (IllegalArgumentException e) {
             throw new CertificateRequestException("Certificate signing request is not valid Base64", e);
         }
-        CertificateRequest request = CertificateRequestUtils.createCertificateRequest(decodedCsr, signRequest.getFormat());
+        CertificateRequest request = CertificateRequestUtils.createCertificateRequest(decodedCsr, issueRequest.getFormat());
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
         // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
@@ -1170,9 +1170,9 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         final String fingerprint = CertificateUtil.getThumbprint(decodedCsr);
         CertificateRequestEntity certificateRequestEntity = certificateRequestRepository.findByFingerprint(fingerprint).orElse(null);
         if (certificateRequestEntity == null) {
-            certificateRequestEntity = certificate.prepareCertificateRequest(signRequest.getFormat());
+            certificateRequestEntity = certificate.prepareCertificateRequest(issueRequest.getFormat());
             certificateRequestEntity.setFingerprint(fingerprint);
-            certificateRequestEntity.setContent(signRequest.getRequest());
+            certificateRequestEntity.setContent(issueRequest.getRequest());
             setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
             certificateRequestRepository.save(certificateRequestEntity);
         }

@@ -1955,12 +1955,12 @@ class CertificateServiceTest extends BaseSpringBootTest {
             Certificate pendingIssue = certificateRepository.save(
                     aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
             UUID uuid = pendingIssue.getUuid();
-            ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-            signRequest.setRequest(SAMPLE_PKCS10);
-            signRequest.setFormat(CertificateRequestFormat.PKCS10);
+            ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(SAMPLE_PKCS10);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when / then — the locked read re-asserts state under the lock; only REGISTERED may accept a CSR
-            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, signRequest))
+            assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, issueRequest))
                     .isInstanceOf(ValidationException.class);
         }
     }

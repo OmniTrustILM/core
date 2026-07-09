@@ -386,12 +386,12 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void issueRegisteredCertificateAttachesOperatorCsr() throws Exception {
         String certUuid = registerSyncRegistered();
-        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-        signRequest.setRequest(generateCsrBase64());
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(generateCsrBase64());
 
         clientOperationService.issueExistingCertificate(
                 authorityParent,
-                securedRaProfile, certUuid, signRequest);
+                securedRaProfile, certUuid, issueRequest);
 
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
         Assertions.assertNotNull(cert.getCertificateRequest(), "operator CSR should be attached to the registered placeholder");
@@ -488,12 +488,12 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         otherRaProfile.setEnabled(true);
         otherRaProfile = raProfileRepository.save(otherRaProfile);
 
-        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-        signRequest.setRequest("ignored-rejected-before-parse");
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("ignored-rejected-before-parse");
         SecuredParentUUID otherAuthority = SecuredParentUUID.fromUUID(otherRaProfile.getAuthorityInstanceReferenceUuid());
         SecuredUUID otherRa = otherRaProfile.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
-                otherAuthority, otherRa, certUuid, signRequest));
+                otherAuthority, otherRa, certUuid, issueRequest));
     }
 
     @Test
@@ -532,11 +532,11 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
     @Test
     void issueRegisteredCertificateRejectsMalformedCsr() throws Exception {
         String certUuid = registerSyncRegistered();
-        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-        signRequest.setRequest("!!!not-valid-base64!!!");
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("!!!not-valid-base64!!!");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
-                securedRaProfile, certUuid, signRequest));
+                securedRaProfile, certUuid, issueRequest));
     }
 
     @Test
@@ -570,11 +570,11 @@ class ClientOperationServiceRegisterTest extends BaseSpringBootTest {
         String certUuid = registerSyncRegistered();
         raProfile.setEnabled(false);
         raProfileRepository.save(raProfile);
-        ClientCertificateIssueRequestDto signRequest = new ClientCertificateIssueRequestDto();
-        signRequest.setRequest("x");
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("x");
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
-                securedRaProfile, certUuid, signRequest));
+                securedRaProfile, certUuid, issueRequest));
     }
 
     @Test
