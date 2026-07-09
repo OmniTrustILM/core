@@ -54,6 +54,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.mockito.Mockito.when;
+
 class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
@@ -366,7 +368,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Test
     void checkResourceObjectsComplianceValidationDeniedWhenOpaRejectsCheckCompliance() {
-        Mockito.when(opaClient.checkResourceAccess(Mockito.any(),
+        when(opaClient.checkResourceAccess(Mockito.any(),
                         Mockito.argThat(req -> isRequestFor(req, Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE)), Mockito.any(), Mockito.any()))
                 .thenReturn(OpaResourceAccessResult.unauthorized());
 

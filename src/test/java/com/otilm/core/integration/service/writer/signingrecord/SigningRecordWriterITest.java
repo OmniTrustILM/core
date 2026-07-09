@@ -83,7 +83,7 @@ class SigningRecordWriterITest extends BaseSpringBootTest {
         int deleted = writer.deleteExpiredBatch(LIMIT_LARGER_THAN_FIXTURES);
 
         // then
-        assertThat(deleted).isEqualTo(0);
+        assertThat(deleted).isZero();
         assertThat(recordRepository.existsById(fresh.getUuid())).isTrue();
     }
 
@@ -126,7 +126,7 @@ class SigningRecordWriterITest extends BaseSpringBootTest {
         // then
         assertThat(firstBatch).isEqualTo(batchLimit);
         assertThat(secondBatch).isEqualTo(expiredRecordCount - batchLimit);
-        assertThat(recordRepository.count()).isEqualTo(0);
+        assertThat(recordRepository.count()).isZero();
     }
 
     private SigningProfile insertProfileWithRetention(String name, int retentionDays) {

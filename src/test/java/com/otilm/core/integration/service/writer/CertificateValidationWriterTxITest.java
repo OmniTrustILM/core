@@ -68,7 +68,7 @@ class CertificateValidationWriterTxITest extends BaseSpringBootTest {
 
         int rows = validationWriter.markRevokedIfStillIssued(cert.getUuid());
 
-        assertThat(rows).as("rows updated must be 0 when state is not ISSUED").isEqualTo(0);
+        assertThat(rows).as("rows updated must be 0 when state is not ISSUED").isZero();
         Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
         assertThat(reloaded.getState())
                 .as("state must remain PENDING_REVOKE — the conditional UPDATE must not overwrite it")

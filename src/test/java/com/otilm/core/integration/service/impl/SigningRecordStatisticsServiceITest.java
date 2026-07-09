@@ -168,12 +168,12 @@ class SigningRecordStatisticsServiceITest extends BaseSpringBootTest {
 
     private void insertRecord(SigningProfile profile, String requestedByUsername, Instant signingTime,
                               SigningProtocol protocol) {
-        SigningRecord record = new SigningRecord();
-        record.setSigningProfileUuid(profile.getUuid());
-        record.setSigningProfileVersion(1);
-        record.setSigningTime(signingTime);
-        record.setRequestedByUsername(requestedByUsername);
-        record.setProtocol(protocol);
-        signingRecordRepository.saveAndFlush(record);
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setSigningProfileUuid(profile.getUuid());
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(signingTime);
+        signingRecord.setRequestedByUsername(requestedByUsername);
+        signingRecord.setProtocol(protocol);
+        signingRecordRepository.saveAndFlush(signingRecord);
     }
 }

@@ -62,7 +62,7 @@ class CryptographicProviderITest {
     private WireMockServer mockServer;
 
     @BeforeEach
-    public void setUp() {
+    void setUp() {
         mockServer = new WireMockServer(0);
         mockServer.start();
 
@@ -131,7 +131,7 @@ class CryptographicProviderITest {
     }
 
     @AfterEach
-    public void tearDown() {
+    void tearDown() {
         mockServer.stop();
     }
 

@@ -96,9 +96,9 @@ class CrlInsertVsValidateITest extends BaseSpringBootTest {
         String issuerSerial = caCert.getSerialNumber().toString(16);
 
         // Pre-condition: no CRL row yet for this issuer.
-        assertThat(crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerial).orElse(null))
+        assertThat(crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerial))
                 .as("fixture must start with no CRL row for the test issuer")
-                .isNull();
+                .isEmpty();
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch fire = new CountDownLatch(1);
