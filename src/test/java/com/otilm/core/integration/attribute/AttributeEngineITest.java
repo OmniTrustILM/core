@@ -350,27 +350,47 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void updateDataAttributeDefinitionsKeepsExtensibleListOptionsOnResponse() throws AttributeException {
-        // Registering the definition must not strip the connector-provided options from the returned
-        // attribute: a listing endpoint returns that same object and the UI needs the options as
-        // suggestions for the extensible list (the definition itself is still stored without them).
-        DataAttributeV3 extensible = new DataAttributeV3();
-        extensible.setUuid(UUID.randomUUID().toString());
-        extensible.setName("extensibleListWithOptions");
-        extensible.setContentType(AttributeContentType.STRING);
-        extensible.setContent(List.of(new StringAttributeContentV3("team-a")));
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel("Extensible list with options");
-        props.setList(true);
-        props.setExtensibleList(true);
-        props.setReadOnly(false);
-        extensible.setProperties(props);
+    void updateDataAttributeDefinitionsKeepsExtensibleListOptionsOnResponseButNotInStorage() throws AttributeException {
+        // The connector-provided options must survive on the returned attribute (a listing endpoint
+        // returns that same object and the UI needs them as suggestions), while the persisted
+        // definition is stored without them. Covers both copyWithoutContent branches (v3 and v2).
+        DataAttributeV3 v3 = new DataAttributeV3();
+        v3.setUuid(UUID.randomUUID().toString());
+        v3.setName("extensibleListV3");
+        v3.setContentType(AttributeContentType.STRING);
+        v3.setContent(List.of(new StringAttributeContentV3("team-a")));
+        DataAttributeProperties p3 = new DataAttributeProperties();
+        p3.setLabel("Extensible list v3");
+        p3.setList(true);
+        p3.setExtensibleList(true);
+        p3.setReadOnly(false);
+        v3.setProperties(p3);
 
-        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(extensible));
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(v3));
 
-        Assertions.assertNotNull(extensible.getContent(), "extensible-list options must survive for the response");
-        Assertions.assertEquals(1, extensible.getContent().size());
-        Assertions.assertEquals("team-a", ((StringAttributeContentV3) extensible.getContent().get(0)).getData());
+        Assertions.assertNotNull(v3.getContent(), "v3 options must survive for the response");
+        Assertions.assertEquals("team-a", ((StringAttributeContentV3) v3.getContent().get(0)).getData());
+        AttributeDefinition def3 = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(null, UUID.fromString(v3.getUuid())).orElseThrow();
+        Assertions.assertNull(def3.getDefinition().getContent(), "v3 definition must be stored without options");
+
+        DataAttributeV2 v2 = new DataAttributeV2();
+        v2.setUuid(UUID.randomUUID().toString());
+        v2.setName("extensibleListV2");
+        v2.setContentType(AttributeContentType.STRING);
+        v2.setContent(List.of(new StringAttributeContentV2("team-b")));
+        DataAttributeProperties p2 = new DataAttributeProperties();
+        p2.setLabel("Extensible list v2");
+        p2.setList(true);
+        p2.setExtensibleList(true);
+        p2.setReadOnly(false);
+        v2.setProperties(p2);
+
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(v2));
+
+        Assertions.assertNotNull(v2.getContent(), "v2 options must survive for the response");
+        Assertions.assertEquals("team-b", ((StringAttributeContentV2) v2.getContent().get(0)).getData());
+        AttributeDefinition def2 = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(null, UUID.fromString(v2.getUuid())).orElseThrow();
+        Assertions.assertNull(def2.getDefinition().getContent(), "v2 definition must be stored without options");
     }
 
     @Test

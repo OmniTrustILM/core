@@ -651,7 +651,10 @@ public class AttributeEngine {
         } else if (dataAttribute instanceof DataAttributeV2 v2) {
             copy = new DataAttributeV2(v2);
         } else {
-            copy = dataAttribute; // legacy models without a copy constructor: unchanged behavior
+            // Force a future DataAttribute subtype to add a copy constructor rather than silently
+            // regressing to in-place mutation of the caller's object.
+            throw new IllegalStateException("Unsupported DataAttribute type for content-free copy: "
+                    + dataAttribute.getClass().getName());
         }
         copy.setContent(null);
         return copy;
