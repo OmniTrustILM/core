@@ -454,7 +454,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
         boolean valueProvided = request.getSharedSecret() != null && !request.getSharedSecret().isBlank();
         if (valueProvided) {
             cmpProfile.setSharedSecret(request.getSharedSecret());
-        } else if (cmpProfile.getSharedSecret() == null) {
+        } else if (cmpProfile.getSharedSecret() == null || cmpProfile.getSharedSecret().isBlank()) {
             throw new ValidationException(ValidationError.create(
                     "Shared secret is required when request protection method is " + ProtectionMethod.SHARED_SECRET.getCode()));
         }
