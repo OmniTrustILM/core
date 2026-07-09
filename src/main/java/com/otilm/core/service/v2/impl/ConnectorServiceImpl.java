@@ -24,7 +24,9 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.*;
+import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.repository.*;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
@@ -84,6 +86,12 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private TransactionHandler transactionHandler;
 
     private CacheEvictor cacheEvictor;
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
+    }
 
     @Autowired
     public void setCacheEvictor(CacheEvictor cacheEvictor) {
@@ -559,6 +567,16 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             connectorRepository.save(connector);
         }
 
+        if (!connector.getNotificationInstanceReferences().isEmpty()) {
+            for (NotificationInstanceReference ref : connector.getNotificationInstanceReferences()) {
+                ref.setConnector(null);
+                ref.setConnectorUuid(null);
+                notificationInstanceReferenceRepository.save(ref);
+            }
+            connector.getNotificationInstanceReferences().removeAll(connector.getNotificationInstanceReferences());
+            connectorRepository.save(connector);
+        }
+
         // delete connector associations to compliance profiles rules
         complianceProfileRuleRepository.deleteByConnectorUuid(connector.getUuid());
     }
@@ -613,6 +631,10 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
         if (!connector.getVaultInstances().isEmpty()) {
             errors.add("Dependent Vault Instances: " + String.join(", ", connector.getVaultInstances().stream().map(VaultInstance::getName).collect(Collectors.toSet())));
+        }
+
+        if (!connector.getNotificationInstanceReferences().isEmpty()) {
+            errors.add("Dependent Notification Instances: " + String.join(", ", connector.getNotificationInstanceReferences().stream().map(NotificationInstanceReference::getName).collect(Collectors.toSet())));
         }
 
         Set<String> complianceProfileNames = complianceProfileRepository.findDistinctByComplianceRulesConnectorUuid(connector.getUuid()).stream().map(ComplianceProfile::getName).collect(Collectors.toSet());
