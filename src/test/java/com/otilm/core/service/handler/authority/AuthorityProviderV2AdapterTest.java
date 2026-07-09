@@ -14,7 +14,7 @@ import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
-import com.otilm.api.model.core.v2.ClientCertificateSignRequestDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -118,7 +118,7 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
                 .thenReturn(ResponseEntity.ok(responseBody));
 
-        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         assertEquals("issuedCertData==", result.certificateData());
@@ -132,7 +132,7 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
                 .thenReturn(ResponseEntity.ok(responseBody));
 
-        adapter.issue(cert, new ClientCertificateSignRequestDto());
+        adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         ArgumentCaptor<CertificateSignRequestDto> captor = ArgumentCaptor.forClass(CertificateSignRequestDto.class);
         verify(certClient).issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
@@ -148,7 +148,7 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
                 .thenReturn(ResponseEntity.ok(new CertificateDataResponseDto()));
 
-        adapter.issue(cert, new ClientCertificateSignRequestDto());
+        adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         ArgumentCaptor<CertificateSignRequestDto> captor = ArgumentCaptor.forClass(CertificateSignRequestDto.class);
         verify(certClient).issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
@@ -216,7 +216,7 @@ class AuthorityProviderV2AdapterTest {
         when(certClient.issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
                 .thenReturn(ResponseEntity.status(202).body(responseBody));
 
-        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateSignRequestDto());
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateIssueRequestDto());
 
         assertEquals(AdapterOperationOutcome.ASYNC_ACCEPTED, result.outcome());
         assertTrue(result.isAsync());

@@ -22,7 +22,7 @@ public interface ClientOperationInternalService {
     ClientCertificateDataResponseDto issueCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
-            ClientCertificateSignRequestDto request,
+            ClientCertificateIssueRequestDto request,
             CertificateProtocolInfo protocolInfo
     ) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 

@@ -38,13 +38,13 @@ public interface ClientOperationExternalService {
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             String certificateUuid,
-            ClientCertificateSignRequestDto request
+            ClientCertificateIssueRequestDto request
     ) throws NotFoundException;
 
     ClientCertificateDataResponseDto issueCertificate(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
-            ClientCertificateSignRequestDto request,
+            ClientCertificateIssueRequestDto request,
             CertificateProtocolInfo protocolInfo
     ) throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 
