@@ -35,7 +35,6 @@ import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorAuthInternalService;
-import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
