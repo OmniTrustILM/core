@@ -368,6 +368,30 @@ class ConnectorServiceTest extends BaseSpringBootTest {
     }
 
     @Test
+    void testBulkRemoveConnector_withNotificationInstanceReferences_throws() throws NotFoundException {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        List<SecuredUUID> uuidList = List.of(connector.getSecuredUuid());
+        List<BulkActionMessageDto> messageDtos = connectorService.bulkDeleteConnector(uuidList);
+        Assertions.assertTrue(messageDtos.getFirst().getMessage().contains(notificationInstance.getName()));
+    }
+
+    @Test
+    void testForceRemoveConnector_withNotificationInstanceReferences_deletesConnector() throws NotFoundException {
+        NotificationInstanceReference notificationInstance = new NotificationInstanceReference();
+        notificationInstance.setName("testNotificationInstance");
+        notificationInstance.setConnectorUuid(connector.getUuid());
+        notificationInstanceReferenceRepository.save(notificationInstance);
+        SecuredUUID connectorSecuredUuid = connector.getSecuredUuid();
+        connectorService.forceDeleteConnector(List.of(connectorSecuredUuid));
+        notificationInstance = notificationInstanceReferenceRepository.findByUuid(notificationInstance.getUuid()).orElse(null);
+        Assertions.assertNotNull(notificationInstance);
+        Assertions.assertNull(notificationInstance.getConnectorUuid());
+    }
+
+    @Test
     void testForceRemoveConnector_withGroupAttributeDefinitions_deletesConnector() throws AttributeException {
         GroupAttributeV3 groupAttribute = new GroupAttributeV3();
         groupAttribute.setUuid(UUID.randomUUID().toString());

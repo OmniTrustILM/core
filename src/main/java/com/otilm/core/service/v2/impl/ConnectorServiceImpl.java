@@ -26,6 +26,7 @@ import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.repository.*;
+import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
@@ -34,6 +35,7 @@ import com.otilm.core.security.authz.ExternalAuthorizationMissing;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorAuthInternalService;
+import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
@@ -86,6 +88,12 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private TransactionHandler transactionHandler;
 
     private CacheEvictor cacheEvictor;
+    private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
+
+    @Autowired
+    public void setNotificationInstanceReferenceRepository(NotificationInstanceReferenceRepository notificationInstanceReferenceRepository) {
+        this.notificationInstanceReferenceRepository = notificationInstanceReferenceRepository;
+    }
 
     @Autowired
     public void setCacheEvictor(CacheEvictor cacheEvictor) {
@@ -558,6 +566,16 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
                 vaultInstanceRepository.save(vaultInstance);
             }
             connector.getVaultInstances().clear();
+            connectorRepository.save(connector);
+        }
+
+        if (!connector.getNotificationInstanceReferences().isEmpty()) {
+            for (NotificationInstanceReference ref : connector.getNotificationInstanceReferences()) {
+                ref.setConnector(null);
+                ref.setConnectorUuid(null);
+                notificationInstanceReferenceRepository.save(ref);
+            }
+            connector.getNotificationInstanceReferences().removeAll(connector.getNotificationInstanceReferences());
             connectorRepository.save(connector);
         }
 
