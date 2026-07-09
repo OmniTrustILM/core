@@ -47,7 +47,7 @@ import java.time.Period;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
 
 @Component
 @Transactional
@@ -231,11 +231,11 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 if (objectValue != null && filterField.getEnumClass() != null) {
                     objectValue = ((IPlatformEnum) objectValue).getCode();
                 }
-                return fieldTypeToOperatorActionMap.get(fieldType).get(operator).apply(objectValue, conditionValue);
+                return fieldTypeToOperatorActionMap.get(fieldType).get(operator).test(objectValue, conditionValue);
             }
 
             if (listSpecificOperatorsFunctionMap.get(operator) != null)
-                return listSpecificOperatorsFunctionMap.get(operator).apply(objectValues, conditionValue);
+                return listSpecificOperatorsFunctionMap.get(operator).test(objectValues, conditionValue);
 
             return evaluateItemsInCollection(operator, conditionValue, objectValues, nestedJoinAttributes, filterField, fieldType);
         } catch (Exception e) {
@@ -251,9 +251,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute());
             }
 
-            boolean eval = Boolean.TRUE.equals(
-                    fieldTypeToOperatorActionMap.get(fieldType).get(operator).apply(item, conditionValue)
-            );
+            boolean eval = fieldTypeToOperatorActionMap.get(fieldType).get(operator).test(item, conditionValue);
 
             // For EQUALS: succeed if any true
             // For NOT_EQUALS: fail if any false
@@ -500,15 +498,15 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
     }
 
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> commonOperatorFunctionMap;
-    private static final Map<FilterFieldType, Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>>> fieldTypeToOperatorActionMap;
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> stringOperatorFunctionMap;
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> numberOperatorFunctionMap;
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> listOperatorFunctionMap;
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> dateOperatorFunctionMap;
-    private static final Map<FilterConditionOperator, BiFunction<Object, Object, Boolean>> datetimeOperatorFunctionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> commonOperatorFunctionMap;
+    private static final Map<FilterFieldType, Map<FilterConditionOperator, BiPredicate<Object, Object>>> fieldTypeToOperatorActionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> stringOperatorFunctionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> numberOperatorFunctionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> listOperatorFunctionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> dateOperatorFunctionMap;
+    private static final Map<FilterConditionOperator, BiPredicate<Object, Object>> datetimeOperatorFunctionMap;
 
-    private static final Map<FilterConditionOperator, BiFunction<Collection<?>, Object, Boolean>> listSpecificOperatorsFunctionMap =
+    private static final Map<FilterConditionOperator, BiPredicate<Collection<?>, Object>> listSpecificOperatorsFunctionMap =
             Map.of(
                     FilterConditionOperator.EMPTY, (list, value) -> list.isEmpty(),
                     FilterConditionOperator.NOT_EMPTY, (list, value) -> !list.isEmpty(),
@@ -660,15 +658,16 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         // A multi-select list attribute condition arrives as a JSON array of selected values; normalize a scalar
         // value to a one-element list so EQUALS means "equals any of" (IN semantics), mirroring
         // FilterPredicatesBuilder.prepareAttributeFilterValues. Collections.singletonList permits a null value.
-        List<Object> conditionValueList = conditionValue instanceof List ? (List<Object>) conditionValue : Collections.singletonList(conditionValue);
+        List<?> conditionValueList = conditionValue instanceof List ? (List<?>) conditionValue : Collections.singletonList(conditionValue);
 
         // If the attribute is a list, iterate through each item and short-circuit on the first definitive result.
         // If the attribute is not a list, there is only one item in the content list, so only one check will be done.
+        BiPredicate<Object, Object> conditionEvaluator = fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator);
         for (AttributeContent attributeContent : content) {
             Object attributeValue = contentType.isFilterByData() ? attributeContent.getData() : attributeContent.getReference();
             try {
                 for (Object conditionValueItem : conditionValueList) {
-                    if (Boolean.TRUE.equals(fieldTypeToOperatorActionMap.get(contentTypeToFieldType(contentType)).get(effectiveOperator).apply(attributeValue, conditionValueItem)))
+                    if (conditionEvaluator.test(attributeValue, conditionValueItem))
                         // Positive match found: for non-negated ops return true, for negated ops return false (a match disqualifies NOT_EQUALS/NOT_CONTAINS/NOT_MATCHES)
                         return !isNegated;
                 }
