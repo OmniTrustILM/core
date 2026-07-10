@@ -40,10 +40,10 @@ class ExternalAuthorizationCore {
 
     private final Log log = LogFactory.getLog(this.getClass());
 
-    private static final String NAME_PROP_NAME = "name";
-    private static final String ACTION_PROP_NAME = "action";
-    private static final String PARENT_NAME_PROP_NAME = "parentName";
-    private static final String PARENT_ACTION_PROP_NAME = "parentAction";
+    private static final String NAME_PROP_NAME = AuthorizationProperties.NAME;
+    private static final String ACTION_PROP_NAME = AuthorizationProperties.ACTION;
+    private static final String PARENT_NAME_PROP_NAME = AuthorizationProperties.PARENT_NAME;
+    private static final String PARENT_ACTION_PROP_NAME = AuthorizationProperties.PARENT_ACTION;
 
     private final OpaClient opaClient;
     private final ObjectMapper om;

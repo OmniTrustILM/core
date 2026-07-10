@@ -32,10 +32,10 @@ public record AuthorizationRequest(
      */
     public static AuthorizationRequest forDirectCheck(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) {
         Map<String, String> properties = Map.of(
-                "action", action.getCode(),
-                "name", resource.getCode(),
-                "parentAction", ResourceAction.NONE.getCode(),
-                "parentName", Resource.NONE.getCode());
+                AuthorizationProperties.ACTION, action.getCode(),
+                AuthorizationProperties.NAME, resource.getCode(),
+                AuthorizationProperties.PARENT_ACTION, ResourceAction.NONE.getCode(),
+                AuthorizationProperties.PARENT_NAME, Resource.NONE.getCode());
         return new AuthorizationRequest(
                 properties,
                 objectUuids,

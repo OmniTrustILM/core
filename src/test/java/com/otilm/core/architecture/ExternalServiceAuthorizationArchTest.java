@@ -1,6 +1,7 @@
 package com.otilm.core.architecture;
 
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.ExternalAuthorizationMissing;
@@ -30,6 +31,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 @AnalyzeClasses(packages = "com.otilm.core", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -128,6 +130,32 @@ public class ExternalServiceAuthorizationArchTest {
                     noMethods()
                             .that().areDeclaredInClassesThat(IMPLEMENTS_EXTERNAL_SERVICE)
                             .should().beAnnotatedWith(ExternalAuthorizationMissing.class));
+
+    /**
+     * A {@code @ExternalAuthorizationProgrammatic} method declares the resource/action pair for the auth-service
+     * sync but enforces imperatively, by calling {@link AuthorizationEnforcer#enforce} in its body. If that call
+     * is dropped, the action stays registered with the auth service while no longer being enforced — a silent
+     * authorization gap. This rule fails the build when such a method has no call to {@code enforce}. It does not
+     * check that the call's arguments match the declared pair; keeping them in sync remains a code-review concern.
+     */
+    @ArchTest
+    static final ArchRule programmatic_auth_methods_must_call_enforce =
+            methods()
+                    .that().areAnnotatedWith(ExternalAuthorizationProgrammatic.class)
+                    .should(new ArchCondition<>("call AuthorizationEnforcer.enforce in their body") {
+                        @Override
+                        public void check(JavaMethod method, ConditionEvents events) {
+                            boolean callsEnforce = method.getMethodCallsFromSelf().stream()
+                                    .anyMatch(call -> "enforce".equals(call.getTarget().getName())
+                                            && call.getTarget().getOwner().isAssignableTo(AuthorizationEnforcer.class));
+                            if (!callsEnforce) {
+                                events.add(SimpleConditionEvent.violated(method, String.format(
+                                        "%s is annotated @ExternalAuthorizationProgrammatic but does not call AuthorizationEnforcer.enforce; "
+                                                + "the action stays registered with the auth service while no longer being enforced",
+                                        method.getFullName())));
+                            }
+                        }
+                    });
 
     @ArchTest
     static void each_external_service_is_implemented_by_exactly_one_class(JavaClasses classes) {

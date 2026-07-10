@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <p><b>Runtime cost:</b> every call performs a blocking outbound HTTP request to OPA, and a denied direct check falls
  * back to owner/group repository reads plus one additional OPA request per object UUID. Do not hold a database row
- * lock or long transaction across a call (see CLAUDE.md, "Transactions and external calls").
+ * lock or long transaction across a call.
  */
 public interface AuthorizationEnforcer {
 
