@@ -43,6 +43,14 @@ public class CertificateStatusPollWriter {
         pollRepository.reschedule(certificateUuid, attempt, nextPollAt);
     }
 
+    /**
+     * Resets a poll row's attempt counter down to {@code attempt}.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void resetAttempt(UUID certificateUuid, int attempt) {
+        pollRepository.resetAttemptTo(certificateUuid, attempt);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void delete(UUID certificateUuid) {
         pollRepository.deleteByCertificateUuid(certificateUuid);

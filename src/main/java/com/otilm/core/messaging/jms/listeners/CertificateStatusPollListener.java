@@ -42,9 +42,10 @@ import java.util.List;
  * <ol>
  *   <li>Read cert without lock. Drop (and delete the poll row) if not found or no longer pending.</li>
  *   <li>Call {@link AsyncOperationCapability#pollStatus} <em>outside any transaction</em>.</li>
- *   <li>On IN_PROGRESS: leave the poll row in place — the {@code certificate_status_poll} sweep has
- *       already advanced its {@code next_poll_at}, so the next poll fires when due. Only when the last
- *       allowed attempt is reached does this apply a timeout.</li>
+ *   <li>On IN_PROGRESS: reset the attempt counter back down to where the backoff reaches its slowest
+ *       delay, and keep the poll row — the CA saying "still working" refreshes the timeout budget, so
+ *       {@code maxAttempts} limits only how many polls in a row get no answer from the CA. The next
+ *       poll fires at that slowest delay.</li>
  *   <li>On COMPLETED / FAILED: open an explicit transaction, re-read with pessimistic lock,
  *       assert still pending, apply terminal transition via state machine.</li>
  * </ol>
@@ -117,14 +118,13 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         if (status.status() == CertificateOperationStatus.IN_PROGRESS) {
-            if (isLastAttempt(msg)) {
-                applyFailure(cert, msg.op(), timeoutReason(msg.op()));
-            }
-            // Otherwise still in progress — leave the poll row for the sweep's next due tick.
+            // The CA's own "still working" is authoritative — an operation the CA reports IN_PROGRESS is never timed out.
+            // Reset the attempt counter back down to where the backoff reaches its slowest delay.
+            pollWriter.resetAttempt(cert.getUuid(), statusPollProperties.scheduleFor(msg.op()).ceilingAttempt());
             return;
         }
 
-        applyTerminalTransition(cert, msg.op(), status);
+        applyTerminalTransition(cert, msg.op(), status, isLastAttempt(msg));
     }
 
     /** True when this poll is the final attempt allowed by the backoff schedule for the operation. */
@@ -136,7 +136,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         return "Operation " + op + " timed out after the maximum poll attempts";
     }
 
-    private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
+    private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status, boolean lastAttempt) {
         // Hold the row lock only for the local transition; the post-commit side effects run outside it.
         Resolution resolution;
         try {
@@ -154,6 +154,13 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             applyFailure(cert, op, e.getMessage());
             return;
         } catch (RuntimeException e) {
+            if (lastAttempt) {
+                logger.warn("Async {} terminal transition for cert {} still failing on the last poll attempt; resolving to failure state",
+                        op, cert.getUuid(), e);
+                applyFailure(cert, op, "Async " + op + " reported " + status.status().getLabel().toLowerCase()
+                        + " but the outcome could not be applied locally; reconcile manually");
+                return;
+            }
             // Add cert/op context — the JMS adapter logs only the bare exception. The rollback left the poll
             // row, so the sweep retries (a transient blip recovers; a should-not-happen error retries to maxAttempts).
             throw new IllegalStateException(
@@ -230,7 +237,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         } catch (Exception e) {
             if (isTransient(e)) {
                 // Propagate so the locked tx rolls back and the row survives; the sweep re-polls (the adapter
-                // swallows the throw, so retry is sweep-driven, not JMS redelivery).
+                // swallows the throw, so retry is sweep-driven, not JMS redelivery) until max attempts are reached.
                 throw new IllegalStateException(
                         "Transient failure persisting async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
             }
