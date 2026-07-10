@@ -42,7 +42,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -168,8 +171,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         binding = new CertificateRegistration();
         binding.setCertificateUuid(certUuid);
 
-        when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
-        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findWithAuthorityAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
         // The dispatch discriminator (non-locking) and the locked read in the register-bound path both resolve the
         // binding by certificate UUID — a pre-registered placeholder has one.
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
@@ -233,18 +236,34 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(transactionManager, never()).commit(ArgumentMatchers.any());
     }
 
-    @Test
-    void racedStateIsRejectedWithoutConnectorCall() {
+    // Any non-issuable state observed under the lock is rejected before any connector call.
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"FAILED", "PENDING_ISSUE"})
+    void racedStateIsRejectedWithoutConnectorCall(CertificateState racedState) {
         RegisterCapability adapter = registerCapableAdapter();
         Certificate racedRead = new Certificate();
-        racedRead.setState(CertificateState.FAILED);
-        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(racedRead));
+        racedRead.setState(racedState);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageContaining("raced");
 
         Mockito.verifyNoInteractions(adapter);
+    }
+
+    @Test
+    void claimsPendingIssueBeforeCallingConnector() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+
+        issue();
+
+        InOrder inOrder = Mockito.inOrder(stateMachine, adapter);
+        inOrder.verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any());
+        inOrder.verify(adapter).issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test
@@ -328,11 +347,9 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED), ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
-        // The audit message names the actual entry-state label (here "Registered"), not a hardcoded state, so a
-        // PENDING_APPROVAL placeholder taking this same branch would be reported correctly.
         verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
-                ArgumentMatchers.contains("left " + CertificateState.REGISTERED.getLabel() + " for reconciliation"), ArgumentMatchers.eq(""));
+                ArgumentMatchers.contains("left " + CertificateState.PENDING_ISSUE.getLabel() + " for reconciliation"), ArgumentMatchers.eq(""));
     }
 
     @Test
@@ -341,6 +358,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
         when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
 
@@ -359,6 +377,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new IllegalStateException(leakySecret));
         when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -394,11 +413,31 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(certificateEventHistoryService).addEventHistory(
                 ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.eq(CertificateEventStatus.FAILED),
                 ArgumentMatchers.argThat(msg -> msg.contains("completing local state failed")
-                        && msg.contains("register-bound issuance failed")
+                        && msg.contains("issuance completion failed")
                         && !msg.contains(leakySecret)),
                 ArgumentMatchers.eq(""));
         // Best-effort binding cleanup (step 4) is skipped because completing local state threw.
         verify(certificateRegistrationWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    @Test
+    void syncOkWithEmptyBodyLeavesCertificateClaimedForReconciliation() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
+
+        assertThatThrownBy(this::issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining("reconcile manually");
+
+        verify(certificateService, never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(stateMachine, never()).transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateRegistrationWriter, never()).clear(ArgumentMatchers.any());
+        verify(certificateEventHistoryService).addEventHistory(
+                ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
     }
 
     // The binding, not the state, is the dispatch discriminator: a placeholder moved to PENDING_APPROVAL still
@@ -419,20 +458,20 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     // A normal PENDING_APPROVAL issue has no binding, so it must NOT route to the register-bound path even on a
     // register-capable authority — proving the binding, not the state, gates dispatch.
     @Test
-    void pendingApprovalWithoutBindingDoesNotDispatchToRegisterBoundPath() {
+    void pendingApprovalWithoutBindingDoesNotDispatchToRegisterBoundPath() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         certificate.setState(CertificateState.PENDING_APPROVAL);
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
 
-        // No binding -> register-bound branch skipped -> falls through to the (unmocked) v2 path. Absorb its
-        // downstream failure; this test pins that dispatch skipped the register-bound path, not the v2 throw.
+        // No binding -> register-bound branch skipped -> falls through to the plain path.
         try {
             issue();
-        } catch (Exception expectedFromUnmockedV2Path) {
+        } catch (Exception expectedFromPartiallyStubbedPlainPath) {
             // ignored — see above
         }
 
-        Mockito.verifyNoInteractions(adapter);
+        verify(adapter, never())
+                .issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         verify(certificateRegistrationRepository, never()).findAndLockByCertificateUuid(ArgumentMatchers.any());
     }
 

@@ -1190,16 +1190,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     /**
-     * When the connector returns an error (no certificate data) on a synchronous issue call,
-     * the certificate must end in FAILED and the audit history must contain an ISSUE/FAILED row.
-     * The failure-from-state is PENDING_ISSUE (the pre-connector transition already ran), so this
-     * exercises the pre-existing PENDING_ISSUE -> FAILED arc that sync connector errors now route
-     * through (previously the sync failure ran from REQUESTED); no new transition rows are added.
+     * A 200 on a synchronous issue call asserts the authority issued, and the interfaces contract
+     * requires certificateData on it. A 200 with an empty body is therefore a post-acceptance
+     * contract violation: the certificate must stay claimed in PENDING_ISSUE for reconciliation
+     * (not FAILED — the CA may hold a live certificate), with an ISSUE/FAILED audit row pointing
+     * the operator at manual reconciliation.
      */
     @Test
-    void issueCertificateAction_transitionsToFailed_onSyncConnectorError() throws Exception {
+    void issueCertificateAction_staysPendingIssueForReconciliation_onSync200WithoutCertificateData() throws Exception {
         UUID certUuid = prepareCertificateForIssuance();
-        // Connector returns 200 but with an empty body — no certificate data
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
                 .willReturn(WireMock.okJson("{}")));
@@ -1207,7 +1206,38 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions.assertThrows(
                 CertificateOperationException.class,
                 () -> clientOperationInternalService.issueCertificateAction(certUuid, true),
-                "sync issue with no certificate data must throw");
+                "sync 200 without certificate data must throw");
+
+        Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, fetched.getState(),
+                "cert must stay claimed in PENDING_ISSUE after a sync 200 without certificate data");
+
+        var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(fetched);
+        Assertions.assertTrue(
+                history.stream().anyMatch(h ->
+                        h.getEvent() == CertificateEvent.ISSUE
+                                && h.getStatus() == CertificateEventStatus.FAILED
+                                && h.getMessage() != null && h.getMessage().contains("reconcile manually")),
+                "an ISSUE/FAILED reconcile-manually audit row must be written for the malformed 200");
+    }
+
+    /**
+     * When the connector itself fails a synchronous issue call (HTTP 500 — pre-acceptance, nothing
+     * committed upstream), the certificate must end in FAILED and the audit history must contain an
+     * ISSUE/FAILED row. The failure-from-state is PENDING_ISSUE (the pre-connector transition
+     * already ran), so this exercises the PENDING_ISSUE -> FAILED arc.
+     */
+    @Test
+    void issueCertificateAction_transitionsToFailed_onSyncConnectorError() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                .willReturn(WireMock.aResponse().withStatus(500)));
+
+        Assertions.assertThrows(
+                CertificateOperationException.class,
+                () -> clientOperationInternalService.issueCertificateAction(certUuid, true),
+                "sync issue failing with a connector error must throw");
 
         Certificate fetched = certificateRepository.findByUuid(certUuid).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, fetched.getState(),
