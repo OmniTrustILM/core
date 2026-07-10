@@ -1,2 +1,0 @@
-Method <com.otilm.core.signing.tsa.impl.TsaServiceImpl.processTspRequestForSigningProfile(java.lang.String, com.otilm.core.signing.tsa.messages.TspRequest)> is annotated with @ExternalAuthorizationMissing in (TsaServiceImpl.java:71)
-Method <com.otilm.core.signing.tsa.impl.TsaServiceImpl.processTspRequestForTspProfile(java.lang.String, com.otilm.core.signing.tsa.messages.TspRequest)> is annotated with @ExternalAuthorizationMissing in (TsaServiceImpl.java:51)

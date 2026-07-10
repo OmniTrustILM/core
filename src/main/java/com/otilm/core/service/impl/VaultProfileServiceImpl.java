@@ -26,11 +26,11 @@ import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
@@ -61,13 +61,13 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
 
     private ConnectorExternalService connectorService;
     private AttributeEngine attributeEngine;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
 
     private ConnectorApiFactory connectorApiFactory;
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -255,7 +255,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     @ExternalAuthorization(resource = Resource.VAULT_PROFILE, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         VaultProfile vaultProfile = vaultProfileRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(VaultProfile.class, objectUuid));
-        permissionEvaluator.vaultInstance(vaultProfile.getVaultInstance().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.VAULT, ResourceAction.DETAIL, vaultProfile.getVaultInstance().getSecuredUuid());
         return new NameAndUuidDto(objectUuid.getValue(), vaultProfile.getName());
     }
 
@@ -271,7 +271,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     @ExternalAuthorization(resource = Resource.VAULT_PROFILE, action = ResourceAction.UPDATE)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         VaultProfile vaultProfile = vaultProfileRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(VaultProfile.class, uuid));
-        permissionEvaluator.vaultInstance(vaultProfile.getVaultInstance().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.VAULT, ResourceAction.DETAIL, vaultProfile.getVaultInstance().getSecuredUuid());
     }
 
     @Override
