@@ -43,7 +43,7 @@ import java.util.UUID;
  * excluded under the {@code "test"} profile via {@code @Profile("!test")}.</p>
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
-abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest {
+public abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest {
 
     /**
      * Fixed UUID used for the approver so the approval profile step can reference it. Each test uses a
