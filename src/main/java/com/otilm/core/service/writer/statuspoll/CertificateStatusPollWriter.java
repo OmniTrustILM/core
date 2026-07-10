@@ -44,7 +44,7 @@ public class CertificateStatusPollWriter {
     }
 
     /**
-     * Resets a poll row's attempt counter down to {@code attempt}.
+     * Lowers a poll row's attempt counter to {@code attempt} if it is above {@code attempt}.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void resetAttempt(UUID certificateUuid, int attempt) {

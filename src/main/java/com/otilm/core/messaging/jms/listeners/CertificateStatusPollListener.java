@@ -42,10 +42,8 @@ import java.util.List;
  * <ol>
  *   <li>Read cert without lock. Drop (and delete the poll row) if not found or no longer pending.</li>
  *   <li>Call {@link AsyncOperationCapability#pollStatus} <em>outside any transaction</em>.</li>
- *   <li>On IN_PROGRESS: reset the attempt counter back down to where the backoff reaches its slowest
- *       delay, and keep the poll row — the CA saying "still working" refreshes the timeout budget, so
- *       {@code maxAttempts} limits only how many polls in a row get no answer from the CA. The next
- *       poll fires at that slowest delay.</li>
+ *   <li>On IN_PROGRESS: pin the attempt counter at the ceiling attempt and keep the poll row. The CA saying
+ *       "still working" refreshes the timeout budget, so a run of IN_PROGRESS answers never times out.</li>
  *   <li>On COMPLETED / FAILED: open an explicit transaction, re-read with pessimistic lock,
  *       assert still pending, apply terminal transition via state machine.</li>
  * </ol>
