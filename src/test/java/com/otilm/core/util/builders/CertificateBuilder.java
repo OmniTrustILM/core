@@ -5,6 +5,7 @@ import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 
@@ -47,6 +48,8 @@ public class CertificateBuilder {
     private UUID keyUuid;
     private CryptographicKey altKey;
     private UUID altKeyUuid;
+    private CertificateRequestEntity certificateRequest;
+    private UUID certificateRequestUuid;
 
     public static CertificateBuilder aCertificate() {
         return new CertificateBuilder();
@@ -167,6 +170,16 @@ public class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withCertificateRequest(CertificateRequestEntity certificateRequest) {
+        this.certificateRequest = certificateRequest;
+        return this;
+    }
+
+    public CertificateBuilder withCertificateRequestUuid(UUID certificateRequestUuid) {
+        this.certificateRequestUuid = certificateRequestUuid;
+        return this;
+    }
+
     public Certificate build() {
         Certificate certificate = new Certificate();
         if (uuid != null) certificate.setUuid(uuid);
@@ -192,6 +205,8 @@ public class CertificateBuilder {
         if (keyUuid != null) certificate.setKeyUuid(keyUuid);
         if (altKey != null) certificate.setAltKey(altKey);
         if (altKeyUuid != null) certificate.setAltKeyUuid(altKeyUuid);
+        if (certificateRequest != null) certificate.setCertificateRequest(certificateRequest);
+        if (certificateRequestUuid != null) certificate.setCertificateRequestUuid(certificateRequestUuid);
         return certificate;
     }
 }
