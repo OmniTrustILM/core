@@ -22,11 +22,11 @@ import com.otilm.core.dao.entity.TokenProfile_;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
@@ -52,7 +52,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     // --------------------------------------------------------------------------------
     // Services & API Clients
     // --------------------------------------------------------------------------------
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
     private AttributeEngine attributeEngine;
@@ -88,8 +88,8 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     //-------------------------------------------------------------------------------------
@@ -276,7 +276,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     @ExternalAuthorization(resource = Resource.TOKEN_PROFILE, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         TokenProfile profile = getTokenProfileEntity(objectUuid);
-        permissionEvaluator.tokenInstance(profile.getTokenInstanceReference().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, profile.getTokenInstanceReference().getSecuredUuid());
         return new NameAndUuidDto(profile.getUuid(), profile.getName());
     }
 
@@ -294,7 +294,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
             return;
         }
         // Parent Permission evaluation - Token Instance
-        permissionEvaluator.tokenInstance(profile.getTokenInstanceReference().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, profile.getTokenInstanceReference().getSecuredUuid());
 
     }
 

@@ -3,9 +3,12 @@ package com.otilm.core.signing.tsa.impl;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.workflow.DelegatedTimestampingWorkflow;
-import com.otilm.core.service.PermissionEvaluator;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
@@ -32,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -51,7 +55,7 @@ class TsaServiceImplUnitTest {
     @Mock
     TspRequestValidator tspRequestValidator;
     @Mock
-    PermissionEvaluator permissionEvaluator;
+    AuthorizationEnforcer authorizationEnforcer;
 
     @InjectMocks
     TsaServiceImpl tsaService;
@@ -227,10 +231,10 @@ class TsaServiceImplUnitTest {
 
         @Test
         void propagatesAuthorizationDenial() throws Exception {
-            // given — the @ExternalAuthorization aspect denies access; the service propagates the denial unchanged so
+            // given — the AuthorizationEnforcer denies access; the service propagates the denial unchanged so
             // the controller can collapse it into the same generic not-found rejection (enumeration defense)
             doThrow(new AccessDeniedException("Access is denied"))
-                    .when(permissionEvaluator).tspProfileTimestamping(any());
+                    .when(authorizationEnforcer).enforce(eq(Resource.TSP_PROFILE), eq(ResourceAction.TIMESTAMP), any(SecuredUUID.class));
             when(tspProfileService.getTspProfile("tsp-profile"))
                     .thenReturn(aTspProfile().withDefaultSigningProfileName("signing-profile").build());
 
@@ -430,10 +434,10 @@ class TsaServiceImplUnitTest {
 
         @Test
         void propagatesAuthorizationDenial() throws Exception {
-            // given — the @ExternalAuthorization aspect denies access; the service propagates the denial unchanged so
+            // given — the AuthorizationEnforcer denies access; the service propagates the denial unchanged so
             // the controller can collapse it into the same generic not-found rejection (enumeration defense)
             doThrow(new AccessDeniedException("Access is denied"))
-                    .when(permissionEvaluator).tspProfileTimestamping(any());
+                    .when(authorizationEnforcer).enforce(eq(Resource.TSP_PROFILE), eq(ResourceAction.TIMESTAMP), any(SecuredUUID.class));
             doReturn(aDefaultSigningProfile()).when(signingProfileService).getSigningProfileModel("signing-profile");
 
             // when

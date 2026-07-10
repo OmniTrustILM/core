@@ -35,10 +35,10 @@ public class ObjectFilterAspect {
 
     protected final Log logger = LogFactory.getLog(this.getClass());
 
-    private static final String NAME = "name";
-    private static final String ACTION = "action";
-    private static final String PARENT_NAME = "parentName";
-    private static final String PARENT_ACTION = "parentAction";
+    private static final String NAME = AuthorizationProperties.NAME;
+    private static final String ACTION = AuthorizationProperties.ACTION;
+    private static final String PARENT_NAME = AuthorizationProperties.PARENT_NAME;
+    private static final String PARENT_ACTION = AuthorizationProperties.PARENT_ACTION;
 
     private final OpaClient opaClient;
 

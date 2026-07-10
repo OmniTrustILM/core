@@ -29,10 +29,10 @@ import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.util.SearchHelper;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.SigningRecordInternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
@@ -71,18 +71,18 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
     private final SigningRecordWriter signingRecordWriter;
     private final SigningProfileRepository signingProfileRepository;
     private final AttributeEngine attributeEngine;
-    private final PermissionEvaluator permissionEvaluator;
+    private final AuthorizationEnforcer authorizationEnforcer;
 
     public SigningRecordServiceImpl(SigningRecordRepository signingRecordRepository,
                                     SigningRecordWriter signingRecordWriter,
                                     SigningProfileRepository signingProfileRepository,
                                     AttributeEngine attributeEngine,
-                                    PermissionEvaluator permissionEvaluator) {
+                                    AuthorizationEnforcer authorizationEnforcer) {
         this.signingRecordRepository = signingRecordRepository;
         this.signingRecordWriter = signingRecordWriter;
         this.signingProfileRepository = signingProfileRepository;
         this.attributeEngine = attributeEngine;
-        this.permissionEvaluator = permissionEvaluator;
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Override
@@ -286,8 +286,8 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
      * Authorizes that the caller may access the signing profile the record was produced under,
      * so signing-record visibility follows signing-profile access.
      */
-    private void evaluateConnectedSigningProfileAccess(SigningRecord signingRecord) throws NotFoundException {
-        permissionEvaluator.signingProfile(SecuredUUID.fromUUID(signingRecord.getSigningProfileUuid()));
+    private void evaluateConnectedSigningProfileAccess(SigningRecord signingRecord) {
+        authorizationEnforcer.enforce(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(signingRecord.getSigningProfileUuid()));
     }
 
     /**
@@ -300,6 +300,6 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
                 .distinct()
                 .map(SecuredUUID::fromUUID)
                 .toList();
-        permissionEvaluator.signingProfiles(signingProfileUuids);
+        authorizationEnforcer.enforce(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, signingProfileUuids);
     }
 }

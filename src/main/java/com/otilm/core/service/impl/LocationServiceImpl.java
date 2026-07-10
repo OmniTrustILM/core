@@ -41,6 +41,7 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -49,7 +50,6 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.LocationInternalService;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -93,7 +93,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     private ClientOperationInternalService clientOperationService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private AttributeEngine attributeEngine;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private ApplicationEventPublisher applicationEventPublisher;
 
     @Autowired
@@ -152,8 +152,8 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -745,7 +745,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
     @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         Location location = locationRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
-        permissionEvaluator.authorityInstance(location.getEntityInstanceReference().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.AUTHORITY, ResourceAction.DETAIL, location.getEntityInstanceReference().getSecuredUuid());
         return new NameAndUuidDto(String.valueOf(objectUuid), location.getName());
     }
 
@@ -761,7 +761,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository.findByUuid(objectUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
         if (location.getEntityInstanceReference() != null) {
-            permissionEvaluator.entityInstance(location.getEntityInstanceReference().getSecuredUuid());
+            authorizationEnforcer.enforce(Resource.ENTITY, ResourceAction.DETAIL, location.getEntityInstanceReference().getSecuredUuid());
         }
         ResourceSimpleContentData data = new ResourceSimpleContentData(AttributeResource.LOCATION);
         data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(Resource.LOCATION, location.getUuid()));
@@ -786,7 +786,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
             return;
         }
         // Parent Permission evaluation - Entity Instance
-        permissionEvaluator.authorityInstance(location.getEntityInstanceReference().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.AUTHORITY, ResourceAction.DETAIL, location.getEntityInstanceReference().getSecuredUuid());
 
     }
 
