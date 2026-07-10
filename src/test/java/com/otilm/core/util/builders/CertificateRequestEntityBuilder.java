@@ -14,6 +14,9 @@ public class CertificateRequestEntityBuilder {
 
     private CertificateRequestFormat format = CertificateRequestFormat.PKCS10;
     private String content;
+    private String subjectDn;
+    private String publicKeyAlgorithm;
+    private String signatureAlgorithm;
 
     public static CertificateRequestEntityBuilder aCertificateRequest() {
         return new CertificateRequestEntityBuilder();
@@ -24,9 +27,27 @@ public class CertificateRequestEntityBuilder {
         return this;
     }
 
+    public CertificateRequestEntityBuilder withSubjectDn(String subjectDn) {
+        this.subjectDn = subjectDn;
+        return this;
+    }
+
+    public CertificateRequestEntityBuilder withPublicKeyAlgorithm(String publicKeyAlgorithm) {
+        this.publicKeyAlgorithm = publicKeyAlgorithm;
+        return this;
+    }
+
+    public CertificateRequestEntityBuilder withSignatureAlgorithm(String signatureAlgorithm) {
+        this.signatureAlgorithm = signatureAlgorithm;
+        return this;
+    }
+
     public CertificateRequestEntity build() {
         CertificateRequestEntity entity = new CertificateRequestEntity();
         entity.setCertificateRequestFormat(format);
+        if (subjectDn != null) entity.setSubjectDn(subjectDn);
+        if (publicKeyAlgorithm != null) entity.setPublicKeyAlgorithm(publicKeyAlgorithm);
+        if (signatureAlgorithm != null) entity.setSignatureAlgorithm(signatureAlgorithm);
         if (content != null) {
             // setContent fingerprints the content and so declares NoSuchAlgorithmException; wrap it unchecked
             try {
