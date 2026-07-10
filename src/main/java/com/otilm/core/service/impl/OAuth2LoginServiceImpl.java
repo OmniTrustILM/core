@@ -1,24 +1,37 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
+import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginExternalService;
-import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import com.otilm.core.settings.SettingsCache;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.util.List;
 
 @Service
-@Transactional
-public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService, OAuth2LoginInternalService {
+public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService {
 
-    @Override
-    public boolean isOAuth2ProviderValid(OAuth2ProviderSettingsDto settingsDto) {
+    private AuditLogInternalService auditLogService;
+
+    @Autowired
+    public void setAuditLogService(AuditLogInternalService auditLogService) {
+        this.auditLogService = auditLogService;
+    }
+
+    /**
+     * Checks if the OAuth2 provider is valid and has all required settings.
+     * @param settingsDto OAuth2 provider settings
+     * @return true if the provider is valid
+     */
+    private boolean isOAuth2ProviderValid(OAuth2ProviderSettingsDto settingsDto) {
         return (settingsDto.getClientId() != null) &&
                 (settingsDto.getClientSecret() != null) &&
                 (settingsDto.getAuthorizationUrl() != null) &&
@@ -40,8 +53,12 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService, OAuth
                 .toList();
     }
 
-    @Override
-    public OAuth2ProviderSettingsDto getOAuth2ProviderSettings(String providerName) {
+    /**
+     * Get OAuth2 provider settings by name
+     * @param providerName OAuth2 provider name
+     * @return OAuth2 provider settings or null if not found
+     */
+    private OAuth2ProviderSettingsDto getOAuth2ProviderSettings(String providerName) {
         AuthenticationSettingsDto authenticationSettings = SettingsCache.getSettings(SettingsSection.AUTHENTICATION);
         if (authenticationSettings.getOAuth2Providers() == null) {
             return null;
@@ -71,5 +88,29 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService, OAuth
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    @Override
+    @UnauthenticatedEndpoint
+    public OAuth2ProviderSettingsDto resolveProviderOrThrow(String providerName, String sessionAccessToken) {
+        OAuth2ProviderSettingsDto providerSettings = getOAuth2ProviderSettings(providerName);
+        if (providerSettings == null) {
+            String message = "Unknown OAuth2 Provider with name '%s' for authentication with OAuth2 flow".formatted(providerName);
+            auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message, sessionAccessToken);
+            throw new PlatformAuthenticationException(message);
+        }
+        return providerSettings;
+    }
+
+    @Override
+    @UnauthenticatedEndpoint
+    public String validateRedirectOrThrow(String redirectUrl) {
+        String validatedRedirectUrl = validateAndNormalizeRedirect(redirectUrl);
+        if (validatedRedirectUrl == null) {
+            String errorMessage = "Missing or invalid redirect URL. Please start the login from the beginning.";
+            auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, errorMessage, null);
+            throw new PlatformAuthenticationException(errorMessage);
+        }
+        return validatedRedirectUrl;
     }
 }

@@ -1,8 +1,11 @@
 package com.otilm.core.service;
 
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.impl.OAuth2LoginServiceImpl;
 import com.otilm.core.settings.SettingsCache;
 import org.junit.jupiter.api.Assertions;
@@ -12,10 +15,19 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest
 class OAuth2LoginServiceImplTest {
@@ -26,6 +38,12 @@ class OAuth2LoginServiceImplTest {
     @Autowired
     private SettingsCache settingsCache;
 
+    @MockitoBean
+    private AuditLogInternalService auditLogService;
+
+    @MockitoBean
+    private AuditLogExternalService auditLogExternalService;
+
     @BeforeEach
     void setUp() {
         // Reset cache before each test
@@ -33,67 +51,66 @@ class OAuth2LoginServiceImplTest {
     }
 
     @Test
-    void testIsOAuth2ProviderValid_Success() {
-        OAuth2ProviderSettingsDto settings = createValidProvider("test");
-        Assertions.assertTrue(service.isOAuth2ProviderValid(settings));
+    void testProviderValid_Success() {
+        Assertions.assertTrue(isConsideredValid(createValidProvider("test")));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingClientId() {
+    void testProviderValid_MissingClientId() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setClientId(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingClientSecret() {
+    void testProviderValid_MissingClientSecret() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setClientSecret(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingAuthUrl() {
+    void testProviderValid_MissingAuthUrl() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setAuthorizationUrl(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingTokenUrl() {
+    void testProviderValid_MissingTokenUrl() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setTokenUrl(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingJwkSet() {
+    void testProviderValid_MissingJwkSet() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setJwkSetUrl(null);
         settings.setJwkSet(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_HasJwkSetContent() {
+    void testProviderValid_HasJwkSetContent() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setJwkSetUrl(null);
         settings.setJwkSet("{\"keys\":[]}");
-        Assertions.assertTrue(service.isOAuth2ProviderValid(settings));
+        Assertions.assertTrue(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingLogoutUrl() {
+    void testProviderValid_MissingLogoutUrl() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setLogoutUrl(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
-    void testIsOAuth2ProviderValid_MissingPostLogoutUrl() {
+    void testProviderValid_MissingPostLogoutUrl() {
         OAuth2ProviderSettingsDto settings = createValidProvider("test");
         settings.setPostLogoutUrl(null);
-        Assertions.assertFalse(service.isOAuth2ProviderValid(settings));
+        Assertions.assertFalse(isConsideredValid(settings));
     }
 
     @Test
@@ -125,22 +142,42 @@ class OAuth2LoginServiceImplTest {
     }
 
     @Test
-    void testGetOAuth2ProviderSettings_Success() {
-        AuthenticationSettingsDto authSettings = new AuthenticationSettingsDto();
-        Map<String, OAuth2ProviderSettingsDto> providers = new HashMap<>();
+    void testResolveProviderOrThrow_Success() {
         OAuth2ProviderSettingsDto expected = createValidProvider("test");
-        providers.put("test", expected);
-        authSettings.setOAuth2Providers(providers);
-        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, authSettings);
+        cacheProviders(Map.of("test", expected));
 
-        OAuth2ProviderSettingsDto actual = service.getOAuth2ProviderSettings("test");
+        OAuth2ProviderSettingsDto actual = service.resolveProviderOrThrow("test", null);
+
         Assertions.assertEquals(expected, actual);
+        verify(auditLogService, never()).logAuthentication(any(), any(), any(), any());
     }
 
     @Test
-    void testGetOAuth2ProviderSettings_NotFound() {
-        OAuth2ProviderSettingsDto actual = service.getOAuth2ProviderSettings("unknown");
-        Assertions.assertNull(actual);
+    void testResolveProviderOrThrow_UnknownProviderAuditsAndThrows() {
+        PlatformAuthenticationException exception = Assertions.assertThrows(PlatformAuthenticationException.class,
+                () -> service.resolveProviderOrThrow("unknown", "session-access-token"));
+
+        Assertions.assertTrue(exception.getMessage().contains("Unknown OAuth2 Provider"));
+        verify(auditLogService, times(1)).logAuthentication(
+                eq(Operation.LOGIN), eq(OperationResult.FAILURE), contains("Unknown OAuth2 Provider"), eq("session-access-token"));
+    }
+
+    @Test
+    void testValidateRedirectOrThrow_Success() {
+        String result = service.validateRedirectOrThrow("/ui/dashboard");
+
+        Assertions.assertEquals("/ui/dashboard", result);
+        verify(auditLogService, never()).logAuthentication(any(), any(), any(), any());
+    }
+
+    @Test
+    void testValidateRedirectOrThrow_InvalidAuditsAndThrows() {
+        PlatformAuthenticationException exception = Assertions.assertThrows(PlatformAuthenticationException.class,
+                () -> service.validateRedirectOrThrow("//malicious.com"));
+
+        Assertions.assertTrue(exception.getMessage().contains("redirect URL"));
+        verify(auditLogService, times(1)).logAuthentication(
+                eq(Operation.LOGIN), eq(OperationResult.FAILURE), contains("redirect URL"), isNull());
     }
 
     @ParameterizedTest
@@ -161,6 +198,21 @@ class OAuth2LoginServiceImplTest {
     void testValidateAndNormalizeRedirect_Null() {
         String result = service.validateAndNormalizeRedirect(null);
         Assertions.assertNull(result);
+    }
+
+    /**
+     * Exercises the private provider-validation logic through the public surface:
+     * a provider is valid exactly when {@link OAuth2LoginServiceImpl#getValidOAuth2Providers()} returns it.
+     */
+    private boolean isConsideredValid(OAuth2ProviderSettingsDto provider) {
+        cacheProviders(Map.of(provider.getName(), provider));
+        return service.getValidOAuth2Providers().stream().anyMatch(p -> p.getName().equals(provider.getName()));
+    }
+
+    private void cacheProviders(Map<String, OAuth2ProviderSettingsDto> providers) {
+        AuthenticationSettingsDto authSettings = new AuthenticationSettingsDto();
+        authSettings.setOAuth2Providers(new HashMap<>(providers));
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, authSettings);
     }
 
     private OAuth2ProviderSettingsDto createValidProvider(String name) {
