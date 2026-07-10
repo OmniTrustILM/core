@@ -631,13 +631,28 @@ public class AttributeEngine {
         encryptOrDecryptExistingContent(attributeDefinition, dataAttribute.getProperties().getProtectionLevel());
         attributeDefinition.setProtectionLevel(dataAttribute.getProperties().getProtectionLevel());
 
-        // we need content only for readonly attribute
+        // Persist the definition without extensible-list options, but do NOT strip them from the
+        // caller's attribute: a listing endpoint returns that same object and the UI needs the
+        // options as suggestions. (Secret containment on callback responses is handled separately.)
         if (!Boolean.TRUE.equals(attributeDefinition.isReadOnly()) && dataAttribute.getProperties().isExtensibleList()) {
-            dataAttribute.setContent(null);
-        } else
+            attributeDefinition.setDefinition(copyWithoutContent(dataAttribute));
+        } else {
             dataAttribute.setContent(encryptDefaultAttributeContent(dataAttribute, attributeDefinition, dataAttribute.getProperties().getProtectionLevel()));
-        attributeDefinition.setDefinition(dataAttribute);
+            attributeDefinition.setDefinition(dataAttribute);
+        }
         attributeDefinitionRepository.save(attributeDefinition);
+    }
+
+    private static DataAttribute copyWithoutContent(DataAttribute dataAttribute) {
+        // Reuse the version-aware copy; fail loud (rather than mutate the caller in place) if a future
+        // DataAttribute version has no copy support, so the regression can't slip in silently.
+        DataAttribute copy = AttributeVersionHelper.copyDataAttribute(dataAttribute);
+        if (copy == null) {
+            throw new IllegalStateException("Unsupported DataAttribute version for content-free copy: "
+                    + dataAttribute.getVersion());
+        }
+        copy.setContent(null);
+        return copy;
     }
 
     public AttributeDefinition updateMetadataAttributeDefinition(MetadataAttribute metadataAttribute, UUID connectorUuid) throws AttributeException {
