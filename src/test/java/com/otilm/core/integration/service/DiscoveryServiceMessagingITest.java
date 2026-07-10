@@ -29,7 +29,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
 @ActiveProfiles({"messaging-int-test"})
-class DiscoveryServiceIntITest extends BaseMessagingIntTest {
+class DiscoveryServiceMessagingITest extends BaseMessagingIntTest {
 
     private static final String DISCOVERY_NAME = "testDiscovery1";
 

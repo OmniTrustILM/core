@@ -29,7 +29,7 @@ import static org.mockito.Mockito.*;
  * Each test populates the real Caffeine cache, triggers a service operation, then asserts that
  * the affected entries are evicted and the loader is re-invoked on the next authentication request.
  */
-class AuthenticationCacheIntegrationITest extends BaseSpringBootTest {
+class AuthenticationCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private AuthenticationCache authenticationCache;
