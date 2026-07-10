@@ -61,9 +61,10 @@ class AuthorizationEnforcerImplTest {
     void throwsAccessDeniedWhenCoreDenies() {
         // given
         when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(false));
+        SecuredUUID uuid = SecuredUUID.fromUUID(UUID.randomUUID());
 
         // when + then
-        assertThatThrownBy(() -> enforcer.enforce(Resource.TOKEN, ResourceAction.MEMBERS, SecuredUUID.fromUUID(UUID.randomUUID())))
+        assertThatThrownBy(() -> enforcer.enforce(Resource.TOKEN, ResourceAction.MEMBERS, uuid))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -122,9 +123,10 @@ class AuthorizationEnforcerImplTest {
         // hand the null through rather than fabricate an authentication or throw before delegating)
         SecurityContextHolder.clearContext();
         when(core.decide(isNull(), any())).thenReturn(new AuthorizationDecision(false));
+        SecuredUUID uuid = SecuredUUID.fromUUID(UUID.randomUUID());
 
         // when + then: the core's null-authentication denial surfaces as AccessDeniedException
-        assertThatThrownBy(() -> enforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, SecuredUUID.fromUUID(UUID.randomUUID())))
+        assertThatThrownBy(() -> enforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, uuid))
                 .isInstanceOf(AccessDeniedException.class);
         verify(core).decide(isNull(), any());
     }

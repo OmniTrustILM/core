@@ -286,7 +286,7 @@ public class SigningRecordServiceImpl implements SigningRecordExternalService, S
      * Authorizes that the caller may access the signing profile the record was produced under,
      * so signing-record visibility follows signing-profile access.
      */
-    private void evaluateConnectedSigningProfileAccess(SigningRecord signingRecord) throws NotFoundException {
+    private void evaluateConnectedSigningProfileAccess(SigningRecord signingRecord) {
         authorizationEnforcer.enforce(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(signingRecord.getSigningProfileUuid()));
     }
 

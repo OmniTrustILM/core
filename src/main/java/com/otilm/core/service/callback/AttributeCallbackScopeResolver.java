@@ -128,7 +128,7 @@ public class AttributeCallbackScopeResolver {
      * its {@code <KIND>:DETAIL} {@link AuthorizationEnforcer} check, which throws {@code AccessDeniedException}
      * (fail closed) when the operator is not entitled. A kind with no mapping is a wiring error and is rejected.
      */
-    private void authorizeScopeStep(ScopeStep step) throws NotFoundException {
+    private void authorizeScopeStep(ScopeStep step) {
         if (step.objectUuid() == null) {
             return;
         }
