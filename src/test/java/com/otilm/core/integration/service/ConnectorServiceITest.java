@@ -476,7 +476,8 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
     @Test
     void testApproveConnector_ValidationFail() {
-        Assertions.assertThrows(ValidationException.class, () -> connectorService.approve(connector.getSecuredUuid()));
+        var securedUuid = connector.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class, () -> connectorService.approve(securedUuid));
     }
 
     @Test
@@ -522,10 +523,11 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
     @Test
     void testGetAttributes_validationFail() {
+        var securedUuid = connector.getSecuredUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> connectorService.getAttributes(
-                        connector.getSecuredUuid(),
+                        securedUuid,
                         FunctionGroupCode.LEGACY_AUTHORITY_PROVIDER,
                         null
                 )
@@ -558,9 +560,10 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
     @Test
     void testValidateAttributes_validationFail() {
+        var securedUuid = connector.getSecuredUuid();
         Assertions.assertThrows(ValidationException.class,
                 () -> connectorService.validateAttributes(
-                        connector.getSecuredUuid(),
+                        securedUuid,
                         FunctionGroupCode.LEGACY_AUTHORITY_PROVIDER,
                         null,
                         null

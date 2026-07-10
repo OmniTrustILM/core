@@ -1,5 +1,13 @@
 package com.otilm.core.integration.service;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.contains;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -35,7 +43,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -785,12 +792,12 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(cryptographicKeyRepository.findById(keyNoToken.getUuid()).isEmpty());
         Assertions.assertTrue(cryptographicKeyItemRepository.findById(itemNoToken.getUuid()).isEmpty());
 
-        Mockito.verify(notificationProducer, Mockito.times(1)).produceInternalNotificationMessage(
-                Mockito.eq(Resource.CRYPTOGRAPHIC_KEY_ITEM),
-                Mockito.eq(nonExistingUuid),
-                Mockito.any(),
-                Mockito.contains("Unable to delete cryptographic key item"),
-                Mockito.anyString()
+        verify(notificationProducer, times(1)).produceInternalNotificationMessage(
+                eq(Resource.CRYPTOGRAPHIC_KEY_ITEM),
+                eq(nonExistingUuid),
+                any(),
+                contains("Unable to delete cryptographic key item"),
+                anyString()
         );
     }
 
@@ -801,12 +808,12 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         List<UUID> keyUuids = new ArrayList<>();
 
         for (int i = 0; i < 100; i++) {
-            CryptographicKey key = createKey("bulkKey" + i, tokenProfile, tokenInstanceReference);
-            CryptographicKeyItem item = createKeyItem(key, KeyType.SECRET_KEY, KeyState.ACTIVE, true);
-            key.setItems(Set.of(item));
-            cryptographicKeyRepository.saveAndFlush(key);
+            CryptographicKey createdKey = createKey("bulkKey" + i, tokenProfile, tokenInstanceReference);
+            CryptographicKeyItem item = createKeyItem(createdKey, KeyType.SECRET_KEY, KeyState.ACTIVE, true);
+            createdKey.setItems(Set.of(item));
+            cryptographicKeyRepository.saveAndFlush(createdKey);
             uuidsToDelete.add(item.getUuid());
-            keyUuids.add(key.getUuid());
+            keyUuids.add(createdKey.getUuid());
         }
 
         mockConnectorDeleteKey();
@@ -908,11 +915,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     private CryptographicKey createKey(String name, TokenProfile tokenProfile, TokenInstanceReference tokenInstanceReference) {
-        CryptographicKey key = new CryptographicKey();
-        key.setName(name);
-        key.setTokenProfile(tokenProfile);
-        key.setTokenInstanceReference(tokenInstanceReference);
-        return cryptographicKeyRepository.saveAndFlush(key);
+        CryptographicKey newKey = new CryptographicKey();
+        newKey.setName(name);
+        newKey.setTokenProfile(tokenProfile);
+        newKey.setTokenInstanceReference(tokenInstanceReference);
+        return cryptographicKeyRepository.saveAndFlush(newKey);
     }
 
     private CryptographicKeyItem createKeyItem(CryptographicKey key, KeyType type, KeyState state, boolean enabled) {
@@ -931,14 +938,14 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         OpaObjectAccessResult objectAccessResult = new OpaObjectAccessResult();
         objectAccessResult.setAllowedObjects(allowed);
         objectAccessResult.setForbiddenObjects(forbidden);
-        Mockito.when(
+        when(
                 opaClient.checkObjectAccess(
-                        Mockito.any(),
-                        Mockito.argThat(requestedResource ->
+                        any(),
+                        argThat(requestedResource ->
                                 isObjectAccessRequestForResource(requestedResource, resource.getCode(), action.getCode())
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(objectAccessResult);
     }

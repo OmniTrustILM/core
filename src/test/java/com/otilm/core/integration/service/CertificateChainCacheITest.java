@@ -1,5 +1,8 @@
 package com.otilm.core.integration.service;
 
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import com.otilm.api.model.client.certificate.RemoveCertificateDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.config.cache.CacheConfig;
@@ -19,7 +22,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -97,13 +99,13 @@ class CertificateChainCacheITest extends BaseSpringBootTest {
 
         // Discard invocations made during upload so the verify() below counts only the
         // two getCertificateChainForSigning calls under test.
-        Mockito.clearInvocations(certificateRepository);
+        clearInvocations(certificateRepository);
 
         List<X509Certificate> first = certificateService.getCertificateChainForSigning(uuid, true);
         List<X509Certificate> second = certificateService.getCertificateChainForSigning(uuid, true);
 
         Assertions.assertEquals(first, second, "second call must return the same chain contents");
-        Mockito.verify(certificateRepository, Mockito.times(1))
+        verify(certificateRepository, times(1))
                 .findCertificateChainContents(ArgumentMatchers.eq(uuid), ArgumentMatchers.anyInt());
     }
 

@@ -6,6 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -21,7 +27,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -152,7 +157,7 @@ class CbomServiceITest extends BaseSpringBootTest {
     void tearDown() {
         mockServer.stop();
         settingsCache.cacheSettings(SettingsSection.PLATFORM, originalSettings);
-        Mockito.reset(cbomRepositorySpy);
+        reset(cbomRepositorySpy);
     }
 
     @Test
@@ -974,7 +979,7 @@ class CbomServiceITest extends BaseSpringBootTest {
     void testGetSearchableFieldInformationByGroup() {
         // given
         List<SearchFieldDataByGroupDto> attributeFields = new ArrayList<>();
-        Mockito.when(attributeEngine.getResourceSearchableFields(Resource.CBOM, false))
+        when(attributeEngine.getResourceSearchableFields(Resource.CBOM, false))
                 .thenReturn(attributeFields);
 
         // when
@@ -985,7 +990,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         assertFalse(result.isEmpty());
 
         // Verify attributeEngine was called
-        Mockito.verify(attributeEngine).getResourceSearchableFields(Resource.CBOM, false);
+        verify(attributeEngine).getResourceSearchableFields(Resource.CBOM, false);
 
         // Get the last group (which should be the property group we added)
         SearchFieldDataByGroupDto propertyGroup = result.get(result.size() - 1);
@@ -1364,7 +1369,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         mockSearchResponse(List.of(entry));
         mockEntrySpecVersionSource(entry, "1.6", "source");
 
-        Mockito.doReturn(false)  // validateSyncedCbomEntry: passes
+        doReturn(false)  // validateSyncedCbomEntry: passes
                .doReturn(true)   // createCbomEntry: already exists
                .when(cbomRepositorySpy).existsBySerialNumberAndVersion(serialNumber, version);
 
@@ -1387,10 +1392,10 @@ class CbomServiceITest extends BaseSpringBootTest {
         mockSearchResponse(List.of(entry));
         mockEntrySpecVersionSource(entry, "1.6", "source");
 
-        Mockito.doReturn(false)
+        doReturn(false)
                .when(cbomRepositorySpy).existsBySerialNumberAndVersion(serialNumber, version);
-        Mockito.doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"))
-               .when(cbomRepositorySpy).save(Mockito.any(Cbom.class));
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"))
+               .when(cbomRepositorySpy).save(any(Cbom.class));
 
         // When
         String result = cbomInternalService.sync();
@@ -1488,7 +1493,7 @@ class CbomServiceITest extends BaseSpringBootTest {
         cbom = cbomRepository.save(cbom);
         final UUID savedUuid = cbom.getUuid();
 
-        Mockito.doThrow(new RuntimeException("DB delete error"))
+        doThrow(new RuntimeException("DB delete error"))
                 .when(cbomRepositorySpy).deleteById(savedUuid);
 
         List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(savedUuid));
