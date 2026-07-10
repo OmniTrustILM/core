@@ -239,7 +239,7 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         var attributes = tokenInstanceService.listTokenProfileAttributes(tokenInstanceReference.getSecuredUuid());
-        Assertions.assertNotNull(attributes);
+        Assertions.assertTrue(attributes.isEmpty());
     }
 
     @Test
@@ -249,7 +249,7 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         var attributes = tokenInstanceService.listTokenInstanceActivationAttributes(tokenInstanceReference.getSecuredUuid());
-        Assertions.assertNotNull(attributes);
+        Assertions.assertTrue(attributes.isEmpty());
     }
 
     @Test
