@@ -125,9 +125,9 @@ class CiTestSplitTest {
      * Bare segment names (matched against the package segment after com/otilm/core), NOT path
      * fragments — a substring match would wrongly exempt e.g. any path merely containing "api".
      * <p>
-     * Every sub-package is now migrated, so this set has reached its terminal empty state: guard
-     * (3) is fully strict for all sub-packages, and {@link #ROOT_LEVEL_PENDING_MIGRATION} is the
-     * only remaining exemption (root-level files, pending the final root-sweep PR).
+     * This set is empty, so guard (3) is strict for all sub-packages.
+     * {@link #ROOT_LEVEL_PENDING_MIGRATION} is the only remaining exemption, covering
+     * root-level files.
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of();
 
