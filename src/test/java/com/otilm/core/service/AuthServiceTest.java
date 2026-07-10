@@ -9,6 +9,7 @@ import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.auth.UserProfileDetailDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.auth.ContextRefreshListener;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.auth.ResourceSyncRequestDto;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -72,6 +73,24 @@ class AuthServiceTest extends BaseSpringBootTest {
         List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
 
         Assertions.assertEquals(resources.size(), authResources.size());
+    }
+
+    /**
+     * TSP request processing enforces TSP_PROFILE:TIMESTAMP programmatically (via AuthorizationEnforcer),
+     * so the action is visible to the startup annotation scan only through @ExternalAuthorizationProgrammatic
+     * on TsaServiceImpl. If it drops out of the sync payload, the auth service deletes the action together
+     * with all permissions granted on it.
+     */
+    @Test
+    void tspProfileTimestampActionIsRegisteredForAuthServiceSync() {
+        List<String> tspProfileActions = contextRefreshListener.getResources().stream()
+                .filter(r -> Resource.TSP_PROFILE.getCode().equals(r.getName().getCode()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("TSP_PROFILE missing from auth-service sync payload"))
+                .getActions();
+
+        Assertions.assertTrue(tspProfileActions.contains(ResourceAction.TIMESTAMP.getCode()),
+                "TSP_PROFILE actions must include TIMESTAMP, got: " + tspProfileActions);
     }
 
     @Test

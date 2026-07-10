@@ -14,8 +14,9 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.PermissionEvaluator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -26,6 +27,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 /**
  * Pins the per-kind scope-walk + the fail-closed per-object {@code <KIND>:DETAIL} authorization that runs BEFORE any
@@ -36,7 +38,7 @@ class AttributeCallbackScopeResolverTest {
 
     private AttributeEngine attributeEngine;
     private AttributeReferenceExpander expander;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private AuthorityInstanceReferenceRepository authorityRepo;
     private RaProfileRepository raProfileRepo;
     private TokenProfileRepository tokenProfileRepo;
@@ -47,12 +49,12 @@ class AttributeCallbackScopeResolverTest {
     void setUp() {
         attributeEngine = Mockito.mock(AttributeEngine.class);
         expander = Mockito.mock(AttributeReferenceExpander.class);
-        permissionEvaluator = Mockito.mock(PermissionEvaluator.class);
+        authorizationEnforcer = Mockito.mock(AuthorizationEnforcer.class);
         authorityRepo = Mockito.mock(AuthorityInstanceReferenceRepository.class);
         raProfileRepo = Mockito.mock(RaProfileRepository.class);
         tokenProfileRepo = Mockito.mock(TokenProfileRepository.class);
         entityRepo = Mockito.mock(EntityInstanceReferenceRepository.class);
-        resolver = new AttributeCallbackScopeResolver(attributeEngine, expander, permissionEvaluator,
+        resolver = new AttributeCallbackScopeResolver(attributeEngine, expander, authorizationEnforcer,
                 authorityRepo, raProfileRepo, tokenProfileRepo, entityRepo);
     }
 
@@ -84,8 +86,8 @@ class AttributeCallbackScopeResolverTest {
 
         resolver.resolveScopeChain(Resource.CERTIFICATE, raProfileUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).authorityInstance(any(SecuredUUID.class));
-        Mockito.verify(permissionEvaluator).raProfile(any(SecuredUUID.class));
+        Mockito.verify(authorizationEnforcer).enforce(eq(Resource.AUTHORITY), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
+        Mockito.verify(authorizationEnforcer).enforce(eq(Resource.RA_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 
     @Test
@@ -102,8 +104,8 @@ class AttributeCallbackScopeResolverTest {
 
         resolver.resolveScopeChain(Resource.CRYPTOGRAPHIC_KEY, tokenProfileUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).tokenInstance(any(SecuredUUID.class));
-        Mockito.verify(permissionEvaluator).tokenProfile(any(SecuredUUID.class));
+        Mockito.verify(authorizationEnforcer).enforce(eq(Resource.TOKEN), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
+        Mockito.verify(authorizationEnforcer).enforce(eq(Resource.TOKEN_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 
     @Test
@@ -117,6 +119,6 @@ class AttributeCallbackScopeResolverTest {
 
         resolver.resolveScopeChain(Resource.LOCATION, entityUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).entityInstance(any(SecuredUUID.class));
+        Mockito.verify(authorizationEnforcer).enforce(eq(Resource.ENTITY), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 }

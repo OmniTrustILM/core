@@ -4,6 +4,7 @@ import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.ExternalAuthorizationMissing;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.security.authz.SelfPrincipalEndpoint;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
@@ -39,6 +40,7 @@ public class ExternalServiceAuthorizationArchTest {
             ExternalAuthorization.class.getName(),
             ExternalAuthorizationDynamic.class.getName(),
             ExternalAuthorizationMissing.class.getName(),
+            ExternalAuthorizationProgrammatic.class.getName(),
             ProtocolEndpoint.class.getName(),
             SelfPrincipalEndpoint.class.getName(),
             UnauthenticatedEndpoint.class.getName()
