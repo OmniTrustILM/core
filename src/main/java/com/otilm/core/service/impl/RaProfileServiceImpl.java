@@ -687,7 +687,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityInstanceRef);
 
         // validate first by connector
-        if (Boolean.FALSE.equals(adapter.validateRAProfileAttributes(authorityInstanceRef, attributes))) {
+        if (!Boolean.TRUE.equals(adapter.validateRAProfileAttributes(authorityInstanceRef, attributes))) {
             throw new ValidationException(ValidationError.create("RA profile attributes validation failed."));
         }
 
