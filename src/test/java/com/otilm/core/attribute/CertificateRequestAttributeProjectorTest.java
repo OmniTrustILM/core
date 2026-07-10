@@ -269,13 +269,30 @@ class CertificateRequestAttributeProjectorTest {
         // given — two values feeding one extension OID: cannot render to valid RFC 5280 Extensions
         var uuid = UUID.randomUUID();
         var def = dataAttribute(uuid, extensionMapping(REGISTERED_EXT_OID));
+        var defs = List.of(def);
         var values = List.of(multiStringValue(uuid, "value-one", "value-two"));
 
         // when / then
-        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(List.of(def), values))
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(REGISTERED_EXT_OID)
                 .hasMessageContaining(def.getName());
+    }
+
+    @Test
+    void rejectsDuplicateExtensionOidAcrossDefinitions() {
+        // given — two definitions mapping the same extension OID, each supplying a single value
+        var uuidA = UUID.randomUUID();
+        var uuidB = UUID.randomUUID();
+        var defA = dataAttribute(uuidA, extensionMapping(REGISTERED_EXT_OID));
+        var defB = dataAttribute(uuidB, extensionMapping(REGISTERED_EXT_OID));
+        var defs = List.of(defA, defB);
+        var values = List.of(stringValue(uuidA, "value-a"), stringValue(uuidB, "value-b"));
+
+        // when / then — an extension OID may appear only once (RFC 5280)
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(REGISTERED_EXT_OID);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────

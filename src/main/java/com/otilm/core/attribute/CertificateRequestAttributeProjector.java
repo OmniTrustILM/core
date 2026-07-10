@@ -42,62 +42,87 @@ public class CertificateRequestAttributeProjector {
      * <p>String content values are projected, including multi-valued attributes mapped to RDN or SAN.
      * Within each definition, entries are ordered by {@code MappedField.order}, then by content-list
      * order within a field; across definitions they follow the order the definitions are supplied in.
-     * Multi-valued attributes mapped to an {@code EXTENSION} field are rejected (RFC 5280).
+     * Multi-valued attributes mapped to an {@code EXTENSION} field are rejected, as is the same
+     * extension OID being mapped more than once — an extension may appear at most once (RFC 5280).
      *
      * @param definitions v3 attribute definitions carrying {@link FieldMapping}
      * @param values      request-time attribute values
-     * @throws ValidationException when a multi-valued attribute maps to an EXTENSION field
+     * @throws ValidationException when a multi-valued attribute maps to an EXTENSION field, or when
+     *                             the same extension OID is mapped by more than one field
      * @return populated {@link X509RequestContent}; never null
      */
     public static X509RequestContent project(List<DataAttributeV3> definitions, List<? extends RequestAttribute> values) {
         Map<UUID, List<String>> valuesByUuid = extractStringValues(values);
-
-        List<RdnEntry> subject = new ArrayList<>();
-        List<GeneralNameEntry> subjectAltNames = new ArrayList<>();
-        List<RequestedExtension> extensions = new ArrayList<>();
+        ProjectionSink sink = new ProjectionSink();
 
         for (DataAttributeV3 def : definitions) {
             FieldMapping fm = def.getFieldMapping();
             List<String> attributeValues = getValuesFromMapping(def, fm, valuesByUuid);
             if (attributeValues.isEmpty()) continue;
 
-            List<MappedField> sortedFields = fm.getFields().stream()
-                    .sorted(Comparator.comparingInt(f -> f.getOrder() != null ? f.getOrder() : 0))
-                    .toList();
-
-            for (MappedField field : sortedFields) {
-                switch (field) {
-                    case RdnMappedField rdn -> {
-                        for (String value : attributeValues) {
-                            subject.add(new RdnEntry(rdn.getRdn(), value));
-                        }
-                    }
-                    case SanMappedField san -> {
-                        for (String value : attributeValues) {
-                            subjectAltNames.add(new GeneralNameEntry(san.getGeneralNameType(), value, san.getGeneralNameType() == GeneralNameType.OTHER_NAME ? san.getOtherNameOid() : null, san.getOtherNameValueEncoding()));
-                        }
-                    }
-                    case ExtensionMappedField ext -> {
-                        // An extension may appear only once in a request (RFC 5280).
-                        if (attributeValues.size() != 1) {
-                            throw new ValidationException(
-                                    "Attribute '%s' supplies %d values for certificate extension OID %s; an extension must map to exactly one value (RFC 5280)"
-                                            .formatted(def.getName(), attributeValues.size(), ext.getExtensionOid()));
-                        }
-                        extensions.add(toRequestedExtension(ext.getExtensionOid(), attributeValues.getFirst()));
-                    }
-                    default ->
-                            throw new IllegalStateException("Unexpected MappedField subtype: " + field.getClass().getSimpleName());
-                }
+            for (MappedField field : sortFields(fm)) {
+                applyMappedField(field, attributeValues, def, sink);
             }
         }
 
         X509RequestContent content = new X509RequestContent();
         content.setCertificateType(CertificateType.X509);
-        content.setSubject(subject.isEmpty() ? null : subject);
-        content.setSubjectAltNames(subjectAltNames.isEmpty() ? null : subjectAltNames);
-        content.setExtensions(extensions.isEmpty() ? null : extensions);
+        content.setSubject(sink.subject.isEmpty() ? null : sink.subject);
+        content.setSubjectAltNames(sink.subjectAltNames.isEmpty() ? null : sink.subjectAltNames);
+        content.setExtensions(sink.extensions.isEmpty() ? null : sink.extensions);
         return content;
+    }
+
+    private static List<MappedField> sortFields(FieldMapping fm) {
+        return fm.getFields().stream()
+                .sorted(Comparator.comparingInt(f -> f.getOrder() != null ? f.getOrder() : 0))
+                .toList();
+    }
+
+    private static void applyMappedField(MappedField field, List<String> attributeValues, DataAttributeV3 def, ProjectionSink sink) {
+        switch (field) {
+            case RdnMappedField rdn -> {
+                for (String value : attributeValues) {
+                    sink.subject.add(new RdnEntry(rdn.getRdn(), value));
+                }
+            }
+            case SanMappedField san -> {
+                for (String value : attributeValues) {
+                    sink.subjectAltNames.add(toGeneralNameEntry(san, value));
+                }
+            }
+            case ExtensionMappedField ext -> projectExtension(ext, attributeValues, def, sink);
+            default ->
+                    throw new IllegalStateException("Unexpected MappedField subtype: " + field.getClass().getSimpleName());
+        }
+    }
+
+    private static GeneralNameEntry toGeneralNameEntry(SanMappedField san, String value) {
+        String otherNameOid = san.getGeneralNameType() == GeneralNameType.OTHER_NAME ? san.getOtherNameOid() : null;
+        return new GeneralNameEntry(san.getGeneralNameType(), value, otherNameOid, san.getOtherNameValueEncoding());
+    }
+
+    private static void projectExtension(ExtensionMappedField ext, List<String> attributeValues, DataAttributeV3 def, ProjectionSink sink) {
+        // An extension may appear only once in a request (RFC 5280).
+        if (attributeValues.size() != 1) {
+            throw new ValidationException(
+                    "Attribute '%s' supplies %d values for certificate extension OID %s; an extension must map to exactly one value (RFC 5280)"
+                            .formatted(def.getName(), attributeValues.size(), ext.getExtensionOid()));
+        }
+        if (!sink.seenExtensionOids.add(ext.getExtensionOid())) {
+            throw new ValidationException(
+                    "Certificate extension OID %s is mapped by more than one attribute field; an extension may appear only once (RFC 5280)"
+                            .formatted(ext.getExtensionOid()));
+        }
+        sink.extensions.add(toRequestedExtension(ext.getExtensionOid(), attributeValues.getFirst()));
+    }
+
+    /** Mutable accumulator for the entries projected across all definitions, plus the extension OIDs already emitted. */
+    private static final class ProjectionSink {
+        final List<RdnEntry> subject = new ArrayList<>();
+        final List<GeneralNameEntry> subjectAltNames = new ArrayList<>();
+        final List<RequestedExtension> extensions = new ArrayList<>();
+        final Set<String> seenExtensionOids = new HashSet<>();
     }
 
     /**
