@@ -13,6 +13,7 @@ import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -80,6 +81,9 @@ class TsaServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private TspProfileExternalService tspProfileService;
+
+    @Autowired
+    private TspProfileRepository tspProfileRepository;
 
     @Autowired
     private SigningRecordExternalService signingRecordService;
@@ -256,6 +260,25 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             // then
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
             assertThat(((TspResponse.Granted) response).timestampBytes()).isNotEmpty();
+        }
+
+        @Test
+        void grantsTimestamp_afterLinkedTspProfileRenamed() throws Exception {
+            // given — a signing profile linked to an enabled TSP profile (already cached)
+            SigningProfileDto profile = createTimestampingSigningProfile("rename-sp");
+            assertThat(tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspResponse.Granted.class);
+
+            // when — the linked TSP profile is renamed
+            var linkedTspProfile = tspProfileRepository.findByName("rename-sp-tsp").orElseThrow();
+            tspProfileService.updateTspProfile(
+                    SecuredUUID.fromUUID(linkedTspProfile.getUuid()),
+                    aTspProfileRequest().withName("rename-sp-tsp-renamed").build(),
+                    "http://localhost");
+
+            // then — a request through the same signing profile with renamed TSP profile still succeeds
+            TspResponse response = tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
         }
 
         @Test
