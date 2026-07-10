@@ -14,11 +14,11 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.PermissionEvaluator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -26,6 +26,10 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Pins the per-kind scope-walk + the fail-closed per-object {@code <KIND>:DETAIL} authorization that runs BEFORE any
@@ -36,7 +40,7 @@ class AttributeCallbackScopeResolverTest {
 
     private AttributeEngine attributeEngine;
     private AttributeReferenceExpander expander;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private AuthorityInstanceReferenceRepository authorityRepo;
     private RaProfileRepository raProfileRepo;
     private TokenProfileRepository tokenProfileRepo;
@@ -45,20 +49,20 @@ class AttributeCallbackScopeResolverTest {
 
     @BeforeEach
     void setUp() {
-        attributeEngine = Mockito.mock(AttributeEngine.class);
-        expander = Mockito.mock(AttributeReferenceExpander.class);
-        permissionEvaluator = Mockito.mock(PermissionEvaluator.class);
-        authorityRepo = Mockito.mock(AuthorityInstanceReferenceRepository.class);
-        raProfileRepo = Mockito.mock(RaProfileRepository.class);
-        tokenProfileRepo = Mockito.mock(TokenProfileRepository.class);
-        entityRepo = Mockito.mock(EntityInstanceReferenceRepository.class);
-        resolver = new AttributeCallbackScopeResolver(attributeEngine, expander, permissionEvaluator,
+        attributeEngine = mock(AttributeEngine.class);
+        expander = mock(AttributeReferenceExpander.class);
+        authorizationEnforcer = mock(AuthorizationEnforcer.class);
+        authorityRepo = mock(AuthorityInstanceReferenceRepository.class);
+        raProfileRepo = mock(RaProfileRepository.class);
+        tokenProfileRepo = mock(TokenProfileRepository.class);
+        entityRepo = mock(EntityInstanceReferenceRepository.class);
+        resolver = new AttributeCallbackScopeResolver(attributeEngine, expander, authorizationEnforcer,
                 authorityRepo, raProfileRepo, tokenProfileRepo, entityRepo);
     }
 
     private Connector connectorWithUuid() {
-        Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(connector.getUuid()).thenReturn(UUID.randomUUID());
+        Connector connector = mock(Connector.class);
+        when(connector.getUuid()).thenReturn(UUID.randomUUID());
         return connector;
     }
 
@@ -74,49 +78,49 @@ class AttributeCallbackScopeResolverTest {
     void certificateIssuanceAuthorizesAuthorityThenRaProfile() throws Exception {
         UUID raProfileUuid = UUID.randomUUID();
         Connector connector = connectorWithUuid();
-        AuthorityInstanceReference authority = Mockito.mock(AuthorityInstanceReference.class);
-        Mockito.when(authority.getUuid()).thenReturn(UUID.randomUUID());
-        Mockito.when(authority.getConnector()).thenReturn(connector);
-        RaProfile raProfile = Mockito.mock(RaProfile.class);
-        Mockito.when(raProfile.getUuid()).thenReturn(raProfileUuid);
-        Mockito.when(raProfile.getAuthorityInstanceReference()).thenReturn(authority);
-        Mockito.when(raProfileRepo.findByUuid(raProfileUuid)).thenReturn(Optional.of(raProfile));
+        AuthorityInstanceReference authority = mock(AuthorityInstanceReference.class);
+        when(authority.getUuid()).thenReturn(UUID.randomUUID());
+        when(authority.getConnector()).thenReturn(connector);
+        RaProfile raProfile = mock(RaProfile.class);
+        when(raProfile.getUuid()).thenReturn(raProfileUuid);
+        when(raProfile.getAuthorityInstanceReference()).thenReturn(authority);
+        when(raProfileRepo.findByUuid(raProfileUuid)).thenReturn(Optional.of(raProfile));
 
         resolver.resolveScopeChain(Resource.CERTIFICATE, raProfileUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).authorityInstance(any(SecuredUUID.class));
-        Mockito.verify(permissionEvaluator).raProfile(any(SecuredUUID.class));
+        verify(authorizationEnforcer).enforce(eq(Resource.AUTHORITY), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
+        verify(authorizationEnforcer).enforce(eq(Resource.RA_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 
     @Test
     void cryptographicKeyAuthorizesTokenInstanceThenTokenProfile() throws Exception {
         UUID tokenProfileUuid = UUID.randomUUID();
         Connector connector = connectorWithUuid();
-        TokenInstanceReference tokenInstance = Mockito.mock(TokenInstanceReference.class);
-        Mockito.when(tokenInstance.getUuid()).thenReturn(UUID.randomUUID());
-        Mockito.when(tokenInstance.getConnector()).thenReturn(connector);
-        TokenProfile tokenProfile = Mockito.mock(TokenProfile.class);
-        Mockito.when(tokenProfile.getUuid()).thenReturn(tokenProfileUuid);
-        Mockito.when(tokenProfile.getTokenInstanceReference()).thenReturn(tokenInstance);
-        Mockito.when(tokenProfileRepo.findByUuid(tokenProfileUuid)).thenReturn(Optional.of(tokenProfile));
+        TokenInstanceReference tokenInstance = mock(TokenInstanceReference.class);
+        when(tokenInstance.getUuid()).thenReturn(UUID.randomUUID());
+        when(tokenInstance.getConnector()).thenReturn(connector);
+        TokenProfile tokenProfile = mock(TokenProfile.class);
+        when(tokenProfile.getUuid()).thenReturn(tokenProfileUuid);
+        when(tokenProfile.getTokenInstanceReference()).thenReturn(tokenInstance);
+        when(tokenProfileRepo.findByUuid(tokenProfileUuid)).thenReturn(Optional.of(tokenProfile));
 
         resolver.resolveScopeChain(Resource.CRYPTOGRAPHIC_KEY, tokenProfileUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).tokenInstance(any(SecuredUUID.class));
-        Mockito.verify(permissionEvaluator).tokenProfile(any(SecuredUUID.class));
+        verify(authorizationEnforcer).enforce(eq(Resource.TOKEN), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
+        verify(authorizationEnforcer).enforce(eq(Resource.TOKEN_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 
     @Test
     void locationAuthorizesEntity() throws Exception {
         UUID entityUuid = UUID.randomUUID();
         Connector connector = connectorWithUuid();
-        EntityInstanceReference entity = Mockito.mock(EntityInstanceReference.class);
-        Mockito.when(entity.getUuid()).thenReturn(entityUuid);
-        Mockito.when(entity.getConnector()).thenReturn(connector);
-        Mockito.when(entityRepo.findByUuid(entityUuid)).thenReturn(Optional.of(entity));
+        EntityInstanceReference entity = mock(EntityInstanceReference.class);
+        when(entity.getUuid()).thenReturn(entityUuid);
+        when(entity.getConnector()).thenReturn(connector);
+        when(entityRepo.findByUuid(entityUuid)).thenReturn(Optional.of(entity));
 
         resolver.resolveScopeChain(Resource.LOCATION, entityUuid, new HashSet<>());
 
-        Mockito.verify(permissionEvaluator).entityInstance(any(SecuredUUID.class));
+        verify(authorizationEnforcer).enforce(eq(Resource.ENTITY), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
 }
