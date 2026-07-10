@@ -23,7 +23,7 @@ public record AuthorizationRequest(
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         objectUuids = objectUuids == null ? List.of() : List.copyOf(objectUuids);
         parentUuids = parentUuids == null ? List.of() : List.copyOf(parentUuids);
-        parentUuidGetterClass = Objects.requireNonNull(parentUuidGetterClass,
+        Objects.requireNonNull(parentUuidGetterClass,
                 "parentUuidGetterClass must not be null; pass Optional.empty()");
     }
 
