@@ -190,7 +190,7 @@ class EntityInstanceServiceITest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         var attributes = entityInstanceService.listLocationAttributes(entityInstance.getSecuredUuid());
-        Assertions.assertNotNull(attributes);
+        Assertions.assertTrue(attributes.isEmpty());
     }
 
     @Test

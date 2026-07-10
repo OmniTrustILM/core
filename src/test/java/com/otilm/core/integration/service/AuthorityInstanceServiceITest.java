@@ -221,7 +221,7 @@ class AuthorityInstanceServiceITest extends BaseSpringBootTest {
                 .willReturn(WireMock.ok()));
 
         var attributes = authorityInstanceService.listRAProfileAttributes(authorityInstance.getSecuredUuid());
-        Assertions.assertNotNull(attributes);
+        Assertions.assertTrue(attributes.isEmpty());
     }
 
     @Test
