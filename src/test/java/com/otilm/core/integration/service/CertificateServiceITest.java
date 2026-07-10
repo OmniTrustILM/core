@@ -377,40 +377,48 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(certificateEntities.getCertificates()).hasSize(1);
 
             CertificateDto dto = certificateEntities.getCertificates().getFirst();
-            assertThat(dto.getUuid()).isEqualTo(certificate.getUuid().toString());
-            assertThat(dto.getCommonName()).isEqualTo(CertificateUtil.formatCommonName(certificate.getCommonName()));
-            assertThat(dto.getSerialNumber()).isEqualTo(certificate.getSerialNumber());
-            assertThat(dto.getIssuerCommonName()).isEqualTo(certificate.getIssuerCommonName());
-            assertThat(dto.getIssuerDn()).isEqualTo(certificate.getIssuerDn());
-            assertThat(dto.getSubjectDn()).isEqualTo(certificate.getSubjectDn());
-            assertThat(dto.getNotBefore()).isEqualTo(certificate.getNotBefore());
-            assertThat(dto.getNotAfter()).isEqualTo(certificate.getNotAfter());
-            assertThat(dto.getPublicKeyAlgorithm()).isEqualTo(certificate.getPublicKeyAlgorithm());
-            assertThat(dto.getAltPublicKeyAlgorithm()).isEqualTo(certificate.getAltPublicKeyAlgorithm());
-            assertThat(dto.getSignatureAlgorithm()).isEqualTo(certificate.getSignatureAlgorithm());
-            assertThat(dto.getAltSignatureAlgorithm()).isEqualTo(certificate.getAltSignatureAlgorithm());
-            assertThat(dto.isHybridCertificate()).isEqualTo(certificate.isHybridCertificate());
-            assertThat(dto.getKeySize()).isEqualTo(certificate.getKeySize());
-            assertThat(dto.getAltKeySize()).isEqualTo(certificate.getAltKeySize());
-            assertThat(dto.getState()).isEqualTo(certificate.getState());
-            assertThat(dto.getValidationStatus()).isEqualTo(certificate.getValidationStatus());
-            assertThat(dto.getFingerprint()).isEqualTo(certificate.getFingerprint());
-            assertThat(dto.getOwner()).isEqualTo(certificate.getOwner().getOwnerUsername());
-            assertThat(dto.getOwnerUuid()).isEqualTo(certificate.getOwner().getOwnerUuid().toString());
-            assertThat(dto.getCertificateType()).isEqualTo(certificate.getCertificateType());
-            assertThat(dto.getIssuerSerialNumber()).isEqualTo(certificate.getIssuerSerialNumber());
-            assertThat(dto.getComplianceStatus()).isEqualTo(certificate.getComplianceStatus());
-            assertThat(dto.getIssuerCertificateUuid()).isEqualTo(certificate.getIssuerCertificateUuid().toString());
-            assertThat(dto.getTrustedCa()).isEqualTo(certificate.getTrustedCa());
-            assertThat(dto.isArchived()).isEqualTo(certificate.isArchived());
-            assertThat(dto.isPrivateKeyAvailability()).isFalse();
-            assertThat(dto.getRaProfile()).isNotNull();
-            assertThat(dto.getRaProfile().getName()).isEqualTo(certificate.getRaProfile().getName());
-            assertThat(dto.getGroups()).isNotNull();
-            assertThat(dto.getGroups()).hasSize(1);
+            assertCertificateDtoMatches(dto, certificate);
 
             Group expectedGroup = certificate.getGroups().stream().toList().getFirst();
             GroupDto actualGroup = dto.getGroups().stream().toList().getFirst();
+            assertGroupDtoMatches(actualGroup, expectedGroup);
+        }
+
+        private void assertCertificateDtoMatches(CertificateDto actualDto, Certificate expectedCertificate) {
+            assertThat(actualDto.getUuid()).isEqualTo(expectedCertificate.getUuid().toString());
+            assertThat(actualDto.getCommonName()).isEqualTo(CertificateUtil.formatCommonName(expectedCertificate.getCommonName()));
+            assertThat(actualDto.getSerialNumber()).isEqualTo(expectedCertificate.getSerialNumber());
+            assertThat(actualDto.getIssuerCommonName()).isEqualTo(expectedCertificate.getIssuerCommonName());
+            assertThat(actualDto.getIssuerDn()).isEqualTo(expectedCertificate.getIssuerDn());
+            assertThat(actualDto.getSubjectDn()).isEqualTo(expectedCertificate.getSubjectDn());
+            assertThat(actualDto.getNotBefore()).isEqualTo(expectedCertificate.getNotBefore());
+            assertThat(actualDto.getNotAfter()).isEqualTo(expectedCertificate.getNotAfter());
+            assertThat(actualDto.getPublicKeyAlgorithm()).isEqualTo(expectedCertificate.getPublicKeyAlgorithm());
+            assertThat(actualDto.getAltPublicKeyAlgorithm()).isEqualTo(expectedCertificate.getAltPublicKeyAlgorithm());
+            assertThat(actualDto.getSignatureAlgorithm()).isEqualTo(expectedCertificate.getSignatureAlgorithm());
+            assertThat(actualDto.getAltSignatureAlgorithm()).isEqualTo(expectedCertificate.getAltSignatureAlgorithm());
+            assertThat(actualDto.isHybridCertificate()).isEqualTo(expectedCertificate.isHybridCertificate());
+            assertThat(actualDto.getKeySize()).isEqualTo(expectedCertificate.getKeySize());
+            assertThat(actualDto.getAltKeySize()).isEqualTo(expectedCertificate.getAltKeySize());
+            assertThat(actualDto.getState()).isEqualTo(expectedCertificate.getState());
+            assertThat(actualDto.getValidationStatus()).isEqualTo(expectedCertificate.getValidationStatus());
+            assertThat(actualDto.getFingerprint()).isEqualTo(expectedCertificate.getFingerprint());
+            assertThat(actualDto.getOwner()).isEqualTo(expectedCertificate.getOwner().getOwnerUsername());
+            assertThat(actualDto.getOwnerUuid()).isEqualTo(expectedCertificate.getOwner().getOwnerUuid().toString());
+            assertThat(actualDto.getCertificateType()).isEqualTo(expectedCertificate.getCertificateType());
+            assertThat(actualDto.getIssuerSerialNumber()).isEqualTo(expectedCertificate.getIssuerSerialNumber());
+            assertThat(actualDto.getComplianceStatus()).isEqualTo(expectedCertificate.getComplianceStatus());
+            assertThat(actualDto.getIssuerCertificateUuid()).isEqualTo(expectedCertificate.getIssuerCertificateUuid().toString());
+            assertThat(actualDto.getTrustedCa()).isEqualTo(expectedCertificate.getTrustedCa());
+            assertThat(actualDto.isArchived()).isEqualTo(expectedCertificate.isArchived());
+            assertThat(actualDto.isPrivateKeyAvailability()).isFalse();
+            assertThat(actualDto.getRaProfile()).isNotNull();
+            assertThat(actualDto.getRaProfile().getName()).isEqualTo(expectedCertificate.getRaProfile().getName());
+            assertThat(actualDto.getGroups()).isNotNull();
+            assertThat(actualDto.getGroups()).hasSize(1);
+        }
+
+        private void assertGroupDtoMatches(GroupDto actualGroup, Group expectedGroup) {
             assertThat(actualGroup.getUuid()).isEqualTo(expectedGroup.getUuid().toString());
             assertThat(actualGroup.getName()).isEqualTo(expectedGroup.getName());
             assertThat(actualGroup.getDescription()).isEqualTo(expectedGroup.getDescription());
@@ -2014,7 +2022,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             String pemCert = X509ObjectToString.toPem(eeX509);
 
             // when / then
-            assertThatThrownBy(() -> certificateService.issueRequestedCertificate(cert.getUuid(), pemCert, null))
+            var certUuid = cert.getUuid();
+            assertThatThrownBy(() -> certificateService.issueRequestedCertificate(certUuid, pemCert, null))
                     .isInstanceOf(InvalidTransitionException.class);
         }
     }

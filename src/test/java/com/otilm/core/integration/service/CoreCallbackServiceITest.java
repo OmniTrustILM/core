@@ -1,5 +1,8 @@
 package com.otilm.core.integration.service;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.when;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.NameAndUuidDto;
@@ -25,7 +28,6 @@ import com.otilm.core.service.impl.CoreCallbackServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
@@ -270,13 +272,13 @@ class CoreCallbackServiceITest extends BaseSpringBootTest {
         restricted.setActionAllowedForGroupOfObjects(false);
         restricted.setAllowedObjects(allowedUuids);
         restricted.setForbiddenObjects(List.of());
-        Mockito.when(opaClient.checkObjectAccess(
-                Mockito.any(),
-                Mockito.argThat(req -> req != null
+        when(opaClient.checkObjectAccess(
+                any(),
+                argThat(req -> req != null
                         && req.getProperties() != null
                         && resource.getCode().equals(req.getProperties().get("name"))
                         && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
-                Mockito.any(), Mockito.any())
+                any(), any())
         ).thenReturn(restricted);
     }
 
