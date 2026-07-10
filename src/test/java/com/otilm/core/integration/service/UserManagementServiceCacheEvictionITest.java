@@ -11,13 +11,17 @@ import com.otilm.core.util.SessionTableHelper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
 
@@ -50,7 +54,7 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
     void updateUser_evictsUserCache() throws Exception {
         // given
         UUID userUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.updateUser(Mockito.eq(userUuid.toString()), Mockito.any()))
+        when(userManagementApiClient.updateUser(eq(userUuid.toString()), any()))
                 .thenReturn(userDetailDto(userUuid.toString()));
 
         UpdateUserRequestDto request = new UpdateUserRequestDto();
@@ -60,21 +64,21 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
         userManagementService.updateUser(userUuid.toString(), request);
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
     void updateUserInternal_evictsUserCache() throws Exception {
         // given
         UUID userUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.updateUser(Mockito.eq(userUuid.toString()), Mockito.any()))
+        when(userManagementApiClient.updateUser(eq(userUuid.toString()), any()))
                 .thenReturn(userDetailDto(userUuid.toString()));
 
         // when
         userManagementInternalService.updateUserInternal(userUuid.toString(), new UpdateUserRequestDto(), "", "");
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
@@ -86,34 +90,34 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
         userManagementService.deleteUser(userUuid.toString());
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
     void disableUser_evictsUserCache() {
         // given
         UUID userUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.disableUser(userUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
+        when(userManagementApiClient.disableUser(userUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
 
         // when
         userManagementService.disableUser(userUuid.toString());
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
     void updateRoles_evictsUserCache() {
         // given
         UUID userUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.updateRoles(Mockito.eq(userUuid.toString()), Mockito.any()))
+        when(userManagementApiClient.updateRoles(eq(userUuid.toString()), any()))
                 .thenReturn(userDetailDto(userUuid.toString()));
 
         // when
         userManagementService.updateRoles(userUuid.toString(), List.of());
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
@@ -121,13 +125,13 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
         // given
         UUID userUuid = UUID.randomUUID();
         UUID roleUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.updateRole(userUuid.toString(), roleUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
+        when(userManagementApiClient.updateRole(userUuid.toString(), roleUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
 
         // when
         userManagementService.updateRole(userUuid.toString(), roleUuid.toString());
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     @Test
@@ -135,13 +139,13 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
         // given
         UUID userUuid = UUID.randomUUID();
         UUID roleUuid = UUID.randomUUID();
-        Mockito.when(userManagementApiClient.removeRole(userUuid.toString(), roleUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
+        when(userManagementApiClient.removeRole(userUuid.toString(), roleUuid.toString())).thenReturn(userDetailDto(userUuid.toString()));
 
         // when
         userManagementService.removeRole(userUuid.toString(), roleUuid.toString());
 
         // then
-        Mockito.verify(authenticationCache).evictByUserUuid(userUuid);
+        verify(authenticationCache).evictByUserUuid(userUuid);
     }
 
     private static UserDetailDto userDetailDto(String uuid) {

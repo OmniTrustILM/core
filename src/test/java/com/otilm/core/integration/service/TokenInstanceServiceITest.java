@@ -238,7 +238,8 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
                 .get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/tokenProfile/attributes"))
                 .willReturn(WireMock.ok()));
 
-        tokenInstanceService.listTokenProfileAttributes(tokenInstanceReference.getSecuredUuid());
+        var attributes = tokenInstanceService.listTokenProfileAttributes(tokenInstanceReference.getSecuredUuid());
+        Assertions.assertNotNull(attributes);
     }
 
     @Test
@@ -247,11 +248,12 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
                 .get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/activate/attributes"))
                 .willReturn(WireMock.ok()));
 
-        tokenInstanceService.listTokenInstanceActivationAttributes(tokenInstanceReference.getSecuredUuid());
+        var attributes = tokenInstanceService.listTokenInstanceActivationAttributes(tokenInstanceReference.getSecuredUuid());
+        Assertions.assertNotNull(attributes);
     }
 
     @Test
-    void testActivateTokenInstance() throws ConnectorException, NotFoundException {
+    void testActivateTokenInstance() {
         mockServer.stubFor(WireMock
                 .get(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/activate/attributes"))
                 .willReturn(WireMock.ok()));
@@ -264,16 +266,18 @@ class TokenInstanceServiceITest extends BaseSpringBootTest {
                 .patch(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/activate"))
                 .willReturn(WireMock.ok()));
 
-        tokenInstanceService.activateTokenInstance(tokenInstanceReference.getSecuredUuid(), List.of());
+        var securedUuid = tokenInstanceReference.getSecuredUuid();
+        Assertions.assertDoesNotThrow(() -> tokenInstanceService.activateTokenInstance(securedUuid, List.of()));
     }
 
     @Test
-    void testDeactivateTokenInstance() throws ConnectorException, NotFoundException {
+    void testDeactivateTokenInstance() {
         mockServer.stubFor(WireMock
                 .patch(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/deactivate"))
                 .willReturn(WireMock.ok()));
 
-        tokenInstanceService.deactivateTokenInstance(tokenInstanceReference.getSecuredUuid());
+        var securedUuid = tokenInstanceReference.getSecuredUuid();
+        Assertions.assertDoesNotThrow(() -> tokenInstanceService.deactivateTokenInstance(securedUuid));
     }
 
     @Test
