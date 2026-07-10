@@ -6,14 +6,15 @@ import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
-import com.otilm.core.security.authz.ExternalAuthorizationMissing;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.signing.tsa.ManagedTimestampEngine;
@@ -34,24 +35,24 @@ public class TsaServiceImpl implements TsaExternalService {
     private final SigningProfileInternalService signingProfileService;
     private final SigningProfileResolverFactory signingProfileResolverFactory;
     private final ManagedTimestampEngine managedTimestampEngine;
-    private final PermissionEvaluator permissionEvaluator;
+    private final AuthorizationEnforcer authorizationEnforcer;
 
-    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileInternalService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileInternalService tspProfileService, ManagedTimestampEngine managedTimestampEngine, PermissionEvaluator permissionEvaluator) {
+    public TsaServiceImpl(TspRequestValidator tspRequestValidator, SigningProfileInternalService signingProfileService, SigningProfileResolverFactory signingProfileResolverFactory, TspProfileInternalService tspProfileService, ManagedTimestampEngine managedTimestampEngine, AuthorizationEnforcer authorizationEnforcer) {
         this.tspRequestValidator = tspRequestValidator;
         this.signingProfileService = signingProfileService;
         this.signingProfileResolverFactory = signingProfileResolverFactory;
         this.tspProfileService = tspProfileService;
         this.managedTimestampEngine = managedTimestampEngine;
-        this.permissionEvaluator = permissionEvaluator;
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorizationProgrammatic(resource = Resource.TSP_PROFILE, action = ResourceAction.TIMESTAMP)
     public TspResponse processTspRequestForTspProfile(String tspProfileName, TspRequest request) throws NotFoundException, TspException {
         TspProfileModel tspProfile = tspProfileService.getTspProfile(tspProfileName);
         LoggingHelper.putLogResourceInfo(Resource.TSP_PROFILE, true, tspProfile.uuid().toString(), tspProfile.name());
 
-        permissionEvaluator.tspProfileTimestamping(SecuredUUID.fromUUID(tspProfile.uuid()));
+        authorizationEnforcer.enforce(Resource.TSP_PROFILE, ResourceAction.TIMESTAMP, SecuredUUID.fromUUID(tspProfile.uuid()));
         return processForTspProfile(tspProfile, request);
     }
 
@@ -66,7 +67,7 @@ public class TsaServiceImpl implements TsaExternalService {
     }
 
     @Override
-    @ExternalAuthorizationMissing
+    @ExternalAuthorizationProgrammatic(resource = Resource.TSP_PROFILE, action = ResourceAction.TIMESTAMP)
     public TspResponse processTspRequestForSigningProfile(String signingProfileName, TspRequest request) throws NotFoundException, TspException {
         SigningProfileModel<?, ?> signingProfile = signingProfileService.getSigningProfileModel(signingProfileName);
         LoggingHelper.putLogResourceInfo(Resource.SIGNING_PROFILE, true, signingProfile.uuid().toString(), signingProfile.name());
@@ -76,7 +77,7 @@ public class TsaServiceImpl implements TsaExternalService {
             throw new TspException(TspFailureInfo.BAD_REQUEST, message, message);
         }
 
-        permissionEvaluator.tspProfileTimestamping(SecuredUUID.fromUUID(signingProfile.tspProfileUuid()));
+        authorizationEnforcer.enforce(Resource.TSP_PROFILE, ResourceAction.TIMESTAMP, SecuredUUID.fromUUID(signingProfile.tspProfileUuid()));
         return processForSigningProfile(signingProfile, request);
     }
 

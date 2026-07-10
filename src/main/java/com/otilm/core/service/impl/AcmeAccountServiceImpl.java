@@ -15,13 +15,13 @@ import com.otilm.core.dao.entity.acme.AcmeAccount_;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AcmeAccountExternalService;
 import com.otilm.core.service.AcmeAccountInternalService;
-import com.otilm.core.service.PermissionEvaluator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,11 +42,11 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
 
     private AcmeAccountRepository acmeAccountRepository;
     private AcmeOrderRepository acmeOrderRepository;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -182,7 +182,7 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
     @ExternalAuthorization(resource = Resource.ACME_ACCOUNT, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         AcmeAccount account = getAcmeAccountEntity(objectUuid);
-        permissionEvaluator.acmeProfile(account.getAcmeProfile().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.ACME_PROFILE, ResourceAction.DETAIL, account.getAcmeProfile().getSecuredUuid());
         return new NameAndUuidDto(account.getUuid(), account.getAccountId());
     }
 

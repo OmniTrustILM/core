@@ -3,6 +3,8 @@ package com.otilm.core.security.authz;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.config.OpaSecuredAnnotationMetadataExtractor;
+import com.otilm.core.dao.repository.GroupAssociationRepository;
+import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -16,10 +18,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.aopalliance.intercept.MethodInvocation;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -44,14 +46,26 @@ class ExternalMethodAuthorizationManagerTest {
     @Mock
     OpaSecuredAnnotationMetadataExtractor metadataExtractor;
 
+    @Mock
+    GroupAssociationRepository groupAssociationRepository;
+
+    @Mock
+    OwnerAssociationRepository ownerAssociationRepository;
+
     @Spy
     ObjectMapper om = new ObjectMapper();
 
-    @InjectMocks
+    ExternalAuthorizationCore core;
     ExternalMethodAuthorizationManager manager;
 
     PlatformAuthenticationToken authentication = createPlatformAuthentication();
     TestClass target = new TestClass();
+
+    @BeforeEach
+    void setUpManager() {
+        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository);
+        manager = new ExternalMethodAuthorizationManager(metadataExtractor, core);
+    }
 
     @Test
     void accessIsGrantedWhenOpaAuthorizesIt() throws NoSuchMethodException {

@@ -37,6 +37,7 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -112,7 +113,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private ConnectorInternalService connectorService;
     private TokenInstanceInternalService tokenInstanceService;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private CertificateInternalService certificateService;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
@@ -179,8 +180,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -405,7 +406,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         CryptographicKey key = getCryptographicKeyEntity(uuid.getValue());
         UUID tokenInstanceUuid = key.getTokenInstanceReferenceUuid();
         if (tokenInstanceUuid != null)
-            permissionEvaluator.tokenInstanceMembers(SecuredUUID.fromUUID(tokenInstanceUuid));
+            authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.MEMBERS, SecuredUUID.fromUUID(tokenInstanceUuid));
 
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
 
@@ -572,7 +573,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             try {
                 CryptographicKey key = getCryptographicKeyEntity(UUID.fromString(uuid));
                 if (key.getTokenProfile() != null) {
-                    permissionEvaluator.tokenProfile(key.getTokenProfile().getSecuredUuid());
+                    authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, key.getTokenProfile().getSecuredUuid());
                 }
                 for (CryptographicKeyItem keyItem : key.getItems()) {
                     if (key.getTokenInstanceReference() != null) {
@@ -1025,7 +1026,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     public KeyItemDetailDto editKeyItem(SecuredUUID keyUuid, UUID keyItemUuid, EditKeyItemDto editKeyItemDto) throws NotFoundException {
         CryptographicKey key = getCryptographicKeyEntityWithAssociations(keyUuid.getValue());
         if (key.getTokenInstanceReferenceUuid() != null)
-            permissionEvaluator.tokenInstance(key.getTokenInstanceReference().getSecuredUuid());
+            authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, key.getTokenInstanceReference().getSecuredUuid());
         Optional<CryptographicKeyItem> keyItem = key.getItems().stream().filter(cki -> cki.getUuid().equals(keyItemUuid)).findFirst();
         if (keyItem.isEmpty())
             throw new NotFoundException("Key Item has not been found for Key with UUID %s.".formatted(keyUuid));
@@ -1422,10 +1423,10 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private CryptographicKeyItem getKeyItem(UUID uuid, boolean evaluateTokenPermission) throws NotFoundException {
         CryptographicKeyItem keyItem = getCryptographicKeyItem(uuid);
         if (keyItem.getKey().getTokenProfileUuid() != null) {
-            permissionEvaluator.tokenProfile(keyItem.getKey().getTokenProfile().getSecuredUuid());
+            authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, keyItem.getKey().getTokenProfile().getSecuredUuid());
         }
         if (evaluateTokenPermission && keyItem.getKey().getTokenInstanceReferenceUuid() != null) {
-            permissionEvaluator.tokenInstance(keyItem.getKey().getTokenInstanceReference().getSecuredUuid());
+            authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, keyItem.getKey().getTokenInstanceReference().getSecuredUuid());
         }
         return keyItem;
     }
@@ -1480,9 +1481,9 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         String tokenInstanceMessage = "";
         if (key.getTokenInstanceReferenceUuid() != null) {
             if (tokenMembersPermission) {
-                permissionEvaluator.tokenInstanceMembers(key.getTokenInstanceReference().getSecuredUuid());
+                authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.MEMBERS, key.getTokenInstanceReference().getSecuredUuid());
             } else {
-                permissionEvaluator.tokenInstance(key.getTokenInstanceReference().getSecuredUuid());
+                authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, key.getTokenInstanceReference().getSecuredUuid());
             }
             tokenInstanceMessage = " in token instance " + key.getTokenInstanceReferenceUuid();
         }
