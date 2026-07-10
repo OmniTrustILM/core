@@ -35,6 +35,8 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalProfileExternalService;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
@@ -86,6 +88,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     private CertificateContentRepository certificateContentRepository;
     private ApprovalProfileExternalService approvalProfileService;
+    private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.LIST)
@@ -681,15 +684,15 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
         }
 
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceRef.getConnectorUuid());
+        AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityInstanceRef);
 
         // validate first by connector
-        if (Boolean.FALSE.equals(connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).validateRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid(), attributes))) {
+        if (Boolean.FALSE.equals(adapter.validateRAProfileAttributes(authorityInstanceRef, attributes))) {
             throw new ValidationException(ValidationError.create("RA profile attributes validation failed."));
         }
 
         // list definitions
-        List<BaseAttribute> definitions = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).listRAProfileAttributes(connectorDto, authorityInstanceRef.getAuthorityInstanceUuid());
+        List<BaseAttribute> definitions = adapter.listRaProfileAttributes(authorityInstanceRef);
 
         // validate and update definitions with attribute engine
         attributeEngine.validateUpdateDataAttributes(authorityInstanceRef.getConnectorUuid(), null, definitions, attributes);
@@ -839,5 +842,10 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Autowired
     public void setRequestAttributeService(@Lazy RaProfileCertificateRequestAttributeService requestAttributeService) {
         this.requestAttributeService = requestAttributeService;
+    }
+
+    @Autowired
+    public void setAuthorityProviderAdapterFactory(AuthorityProviderAdapterFactory authorityProviderAdapterFactory) {
+        this.authorityProviderAdapterFactory = authorityProviderAdapterFactory;
     }
 }

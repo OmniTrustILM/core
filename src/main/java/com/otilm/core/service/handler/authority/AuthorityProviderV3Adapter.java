@@ -165,6 +165,13 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
+    public Boolean validateRAProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ConnectorException {
+        // v3 has no connector-side /validate; the caller validates structurally against the listed
+        // definitions (AttributeEngine.validateUpdateDataAttributes) — no connector round-trip.
+        return Boolean.TRUE;
+    }
+
+    @Override
     public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         CertificateAttributeListRequestDtoV3 request = attributeListRequest(authority, raProfile);

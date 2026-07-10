@@ -132,6 +132,13 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
+    public Boolean validateRAProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ConnectorException {
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        return connectorApiFactory.getAuthorityInstanceApiClient(connectorDto)
+                .validateRAProfileAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
+    }
+
+    @Override
     public List<BaseAttribute> listIssueAttributes(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         // v2 endpoint is keyed by authorityInstanceUuid alone — raProfile is unused (single per-authority schema).
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);

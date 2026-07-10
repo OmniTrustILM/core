@@ -340,6 +340,24 @@ class AuthorityProviderV2AdapterTest {
         verify(certClient).validateRevokeCertificateAttributes(connectorInfo, "auth-instance-uuid", attrs);
     }
 
+    @Test
+    void validateRAProfileAttributes_delegatesToAuthorityClient() throws Exception {
+        List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
+        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(true);
+
+        assertEquals(Boolean.TRUE, adapter.validateRAProfileAttributes(authority, attrs));
+
+        verify(authorityClient).validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs);
+    }
+
+    @Test
+    void validateRAProfileAttributes_passesThroughConnectorRejection() throws Exception {
+        List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
+        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(false);
+
+        assertEquals(Boolean.FALSE, adapter.validateRAProfileAttributes(authority, attrs));
+    }
+
     // --- error handling ---
 
     @Test
