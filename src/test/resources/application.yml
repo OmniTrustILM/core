@@ -202,7 +202,7 @@ settings:
 
 validation:
   ocsp:
-    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckTest
+    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckITest
     # (3 s) so the OCSP HTTP call waits for WireMock's response instead of timing out at the
     # 1 s default. The held OCSP call is what keeps validate()'s would-be row lock observable.
     read-timeout: 5000
