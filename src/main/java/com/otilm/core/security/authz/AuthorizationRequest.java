@@ -5,6 +5,7 @@ import com.otilm.core.model.auth.ResourceAction;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -22,7 +23,8 @@ public record AuthorizationRequest(
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         objectUuids = objectUuids == null ? List.of() : List.copyOf(objectUuids);
         parentUuids = parentUuids == null ? List.of() : List.copyOf(parentUuids);
-        parentUuidGetterClass = parentUuidGetterClass == null ? Optional.empty() : parentUuidGetterClass;
+        parentUuidGetterClass = Objects.requireNonNull(parentUuidGetterClass,
+                "parentUuidGetterClass must not be null; pass Optional.empty()");
     }
 
     /**
