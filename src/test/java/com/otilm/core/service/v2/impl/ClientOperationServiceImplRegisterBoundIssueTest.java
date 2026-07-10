@@ -172,7 +172,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         binding.setCertificateUuid(certUuid);
 
         when(certificateRepository.findWithAuthorityAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
-        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
         // The dispatch discriminator (non-locking) and the locked read in the register-bound path both resolve the
         // binding by certificate UUID — a pre-registered placeholder has one.
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
@@ -243,7 +243,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         RegisterCapability adapter = registerCapableAdapter();
         Certificate racedRead = new Certificate();
         racedRead.setState(racedState);
-        when(certificateRepository.findByUuid(certUuid)).thenReturn(Optional.of(racedRead));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -421,24 +421,22 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void syncOkWithEmptyBodyFailsTheCertificate() throws Exception {
+    void syncOkWithEmptyBodyLeavesCertificateClaimedForReconciliation() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
-        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
-        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
 
-        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+        assertThatThrownBy(this::issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining("reconcile manually");
 
-        // Empty body is a connector error, fail fast — same terminal arc as a pre-acceptance failure.
-        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
-                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
         verify(certificateService, never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
-        // Terminal failure clears the binding, same as the pre-acceptance ConnectorException branch.
-        verify(certificateRegistrationWriter).clear(certUuid);
-        // Must NOT be routed through the "reconcile manually" state-divergence path.
-        verify(certificateEventHistoryService, never()).addEventHistory(
-                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+        verify(stateMachine, never()).transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateRegistrationWriter, never()).clear(ArgumentMatchers.any());
+        verify(certificateEventHistoryService).addEventHistory(
+                ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                ArgumentMatchers.eq(CertificateEventStatus.FAILED),
                 ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
     }
 
@@ -460,20 +458,20 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     // A normal PENDING_APPROVAL issue has no binding, so it must NOT route to the register-bound path even on a
     // register-capable authority — proving the binding, not the state, gates dispatch.
     @Test
-    void pendingApprovalWithoutBindingDoesNotDispatchToRegisterBoundPath() {
+    void pendingApprovalWithoutBindingDoesNotDispatchToRegisterBoundPath() throws Exception {
         RegisterCapability adapter = registerCapableAdapter();
         certificate.setState(CertificateState.PENDING_APPROVAL);
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
 
-        // No binding -> register-bound branch skipped -> falls through to the (unmocked) v2 path. Absorb its
-        // downstream failure; this test pins that dispatch skipped the register-bound path, not the v2 throw.
+        // No binding -> register-bound branch skipped -> falls through to the plain path.
         try {
             issue();
-        } catch (Exception expectedFromUnmockedV2Path) {
+        } catch (Exception expectedFromPartiallyStubbedPlainPath) {
             // ignored — see above
         }
 
-        Mockito.verifyNoInteractions(adapter);
+        verify(adapter, never())
+                .issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
         verify(certificateRegistrationRepository, never()).findAndLockByCertificateUuid(ArgumentMatchers.any());
     }
 

@@ -648,19 +648,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         AdapterOperationResult result;
         try {
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
-            if (result.outcome() == AdapterOperationOutcome.SYNC_OK
-                    && (result.certificateData() == null || result.certificateData().isEmpty())) {
-                throw new CertificateOperationException("Response from authority did not contain certificate data");
-            }
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector accepted (v3 acceptance guard) but a local step failed: honour the state-divergence rule.
+            String pendingIssueLabel = CertificateState.PENDING_ISSUE.getLabel();
             certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.ISSUE,
                     CertificateEventStatus.FAILED,
-                    "Connector accepted the issue but a local step failed; left PENDING_ISSUE for reconciliation. Cause: "
-                            + safeMessage(e, "issuance failed"), "");
+                    "Connector accepted the issue but a local step failed; left %s for reconciliation. Cause: %s"
+                            .formatted(pendingIssueLabel, safeMessage(e, "issuance failed")), "");
             throw new CertificateOperationException(
-                    "Connector accepted the issue for certificate %s but a local step failed; left PENDING_ISSUE for reconciliation."
-                            .formatted(certificateUuid));
+                    "Connector accepted the issue for certificate %s but a local step failed; left %s for reconciliation."
+                            .formatted(certificateUuid, pendingIssueLabel));
         } catch (Exception e) {
             logger.warn("Pre-acceptance issuance failure for certificate {}; failing the claimed placeholder", certificateUuid, e);
             failClaimedCertificate(certificateUuid, e);
@@ -679,9 +676,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
     }
 
-    /**
-     * Shared finalize for certificate issuance.
-     */
     private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result,
             List<CertificateLocationId> locationIds) throws CertificateOperationException, NotFoundException {
         if (result.isAsync() || result.outcome() == AdapterOperationOutcome.SYNC_NO_CONTENT) {
@@ -689,7 +683,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return;
         }
         if (result.certificateData() == null || result.certificateData().isEmpty()) {
-            throw new CertificateOperationException("Response from authority did not contain certificate data");
+            throw new CertificateOperationException(
+                    "Response from authority did not contain certificate data; certificate %s left in %s for reconciliation."
+                            .formatted(certificateUuid, CertificateState.PENDING_ISSUE.getLabel()));
         }
         logger.info("Certificate {} was issued by authority", certificateUuid);
         try {
@@ -761,7 +757,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .orElseThrow(() -> new CertificateOperationException(
                             "Certificate %s has no registration binding; cannot issue against a missing registration (reconcile manually)."
                                     .formatted(certUuid)));
-            Certificate managed = certificateRepository.findByUuid(certUuid)
+            // Lock the certificate row too: the binding lock alone does not stop concurrent certificate mutators.
+            Certificate managed = certificateRepository.findAndLockWithAssociationsByUuid(certUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certUuid));
             CertificateState state = managed.getState();
             if (state != CertificateState.REGISTERED && state != CertificateState.PENDING_APPROVAL) {
@@ -825,14 +822,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void completeAcceptedRegisterBoundIssue(Certificate certificate, AdapterOperationResult result)
             throws CertificateOperationException {
         final UUID certUuid = certificate.getUuid();
-        if (result.outcome() == AdapterOperationOutcome.SYNC_OK
-                && (result.certificateData() == null || result.certificateData().isEmpty())) {
-            String reason = "Response from authority did not contain certificate data";
-            failClaimedCertificate(certUuid, new CertificateOperationException(reason));
-            clearBindingBestEffort(certUuid);
-            throw new CertificateOperationException(
-                    "Failed to issue register-bound certificate %s: %s".formatted(certUuid, reason));
-        }
         try {
             finalizeIssuance(certUuid, certificate, result, List.of());
         } catch (Exception e) {

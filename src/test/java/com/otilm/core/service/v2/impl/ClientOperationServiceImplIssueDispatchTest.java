@@ -213,35 +213,41 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     @Test
-    void rejectsIssuance_whenSyncResultHasNoCertificateData() throws Exception {
+    void leavesCertificateClaimedForReconciliation_whenSyncResultHasNoCertificateData() throws Exception {
         // given
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(), null));
-        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
 
         // when / then
         assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageContaining("did not contain certificate data");
 
-        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
-                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
+        assertNoFailTransitionAndReconcileEventRecorded();
     }
 
     @Test
-    void rejectsIssuance_whenSyncResultHasEmptyCertificateData() throws Exception {
-        // given — an empty (non-null) body is the same connector-error shape as a null body
+    void leavesCertificateClaimedForReconciliation_whenSyncResultHasEmptyCertificateData() throws Exception {
+        // given
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("", List.of(), null));
-        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED))).thenReturn(true);
 
         // when / then
         assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageContaining("did not contain certificate data");
 
-        verify(stateMachine).transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
-                ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
+        assertNoFailTransitionAndReconcileEventRecorded();
+    }
+
+    private void assertNoFailTransitionAndReconcileEventRecorded() throws Exception {
+        verify(certificateService, never()).issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(stateMachine, never()).transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
+                ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateEventHistoryService).addEventHistory(
+                ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
     }
 
     @Test
