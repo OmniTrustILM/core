@@ -147,18 +147,18 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
-    public void validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
+    public Boolean validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
             throws ValidationException, ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        connectorApiFactory.getCertificateApiClientV2(connectorDto)
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto)
                 .validateIssueCertificateAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
     }
 
     @Override
-    public void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
+    public Boolean validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes)
             throws ValidationException, ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        connectorApiFactory.getCertificateApiClientV2(connectorDto)
+        return connectorApiFactory.getCertificateApiClientV2(connectorDto)
                 .validateRevokeCertificateAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
     }
 
