@@ -30,6 +30,7 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -38,7 +39,6 @@ import com.otilm.core.service.ApprovalProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
@@ -78,7 +78,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private ComplianceInternalService complianceService;
     private ComplianceProfileExternalService complianceProfileService;
     private AttributeEngine attributeEngine;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private RaProfileProtocolAttributeRepository raProfileProtocolAttributeRepository;
     private RaProfileCertificateRequestAttributeService requestAttributeService;
     private ScepProfileRepository scepProfileRepository;
@@ -567,7 +567,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuid(objectUuid).orElseThrow(() -> new NotFoundException(RaProfile.class, objectUuid.getValue()));
         if (raProfile.getAuthorityInstanceReference() != null) {
-            permissionEvaluator.authorityInstance(raProfile.getAuthorityInstanceReference().getSecuredUuid());
+            authorizationEnforcer.enforce(Resource.AUTHORITY, ResourceAction.DETAIL, raProfile.getAuthorityInstanceReference().getSecuredUuid());
         }
         return new NameAndUuidDto(String.valueOf(objectUuid), raProfile.getName());
     }
@@ -593,7 +593,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             return;
         }
         // Parent Permission evaluation - Authority Instance
-        permissionEvaluator.authorityInstance(profile.getAuthorityInstanceReference().getSecuredUuid());
+        authorizationEnforcer.enforce(Resource.AUTHORITY, ResourceAction.DETAIL, profile.getAuthorityInstanceReference().getSecuredUuid());
 
     }
 
@@ -797,8 +797,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired

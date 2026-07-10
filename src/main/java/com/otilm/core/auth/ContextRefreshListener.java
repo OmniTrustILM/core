@@ -5,8 +5,10 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.CoreAttributeDefinitions;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.auth.ResourceSyncRequestDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,12 +76,13 @@ public class ContextRefreshListener {
             for (Method m : methods) {
                 if (m.isAnnotationPresent(ExternalAuthorization.class)) {
                     ExternalAuthorization annotatedValue = m.getAnnotation(ExternalAuthorization.class);
-                    resourceToAction.computeIfAbsent(annotatedValue.resource(),
-                            k -> new HashSet<>()).add(annotatedValue.action().getCode());
-                    if (annotatedValue.parentResource() != null && annotatedValue.parentResource() != Resource.NONE) {
-                        resourceToAction.computeIfAbsent(annotatedValue.parentResource(),
-                                k -> new HashSet<>()).add(annotatedValue.parentAction().getCode());
-                    }
+                    registerResourceActions(resourceToAction, annotatedValue.resource(), annotatedValue.action(),
+                            annotatedValue.parentResource(), annotatedValue.parentAction());
+                }
+                if (m.isAnnotationPresent(ExternalAuthorizationProgrammatic.class)) {
+                    ExternalAuthorizationProgrammatic annotatedValue = m.getAnnotation(ExternalAuthorizationProgrammatic.class);
+                    registerResourceActions(resourceToAction, annotatedValue.resource(), annotatedValue.action(),
+                            annotatedValue.parentResource(), annotatedValue.parentAction());
                 }
 
                 saveCoreAttributes(beanName, m, applicationContext);
@@ -92,6 +95,14 @@ public class ContextRefreshListener {
             requestDto.setName(com.otilm.core.model.auth.Resource.findByCode(entry.getKey().getCode()));
             requestDto.setListObjectsEndpoint(listingEndpoints.get(entry.getKey()));
             resources.add(requestDto);
+        }
+    }
+
+    private static void registerResourceActions(Map<Resource, Set<String>> resourceToAction, Resource resource,
+                                                ResourceAction action, Resource parentResource, ResourceAction parentAction) {
+        resourceToAction.computeIfAbsent(resource, k -> new HashSet<>()).add(action.getCode());
+        if (parentResource != null && parentResource != Resource.NONE) {
+            resourceToAction.computeIfAbsent(parentResource, k -> new HashSet<>()).add(parentAction.getCode());
         }
     }
 

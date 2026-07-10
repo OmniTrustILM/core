@@ -70,6 +70,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -164,7 +165,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
     private CryptographicKeyInternalService cryptographicKeyService;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
     private ConnectorApiFactory connectorApiFactory;
@@ -329,8 +330,8 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -693,7 +694,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     private void bulkUpdateCertificateObjects(MultipleCertificateObjectUpdateDto request, SecuredUUID certificateUuid, Set<UUID> groupUuids, String ownerUuid, boolean removeRaProfile) throws NotFoundException, CertificateOperationException, AttributeException {
-        permissionEvaluator.certificate(certificateUuid);
+        authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, certificateUuid);
         if (groupUuids != null) updateCertificateGroups(certificateUuid, groupUuids);
         if (request.getOwnerUuid() != null) updateOwner(certificateUuid, ownerUuid);
         if (request.getRaProfileUuid() != null)
@@ -1625,7 +1626,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         for (UUID uuid : uuids) {
             try {
                 SecuredUUID securedUUID = SecuredUUID.fromUUID(uuid);
-                permissionEvaluator.certificate(securedUUID);
+                authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, securedUUID);
                 Certificate certificate = getCertificateEntity(securedUUID);
                 CertificateContentDto dto = new CertificateContentDto();
                 dto.setUuid(uuid.toString());
