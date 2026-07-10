@@ -264,16 +264,17 @@ class TsaServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void grantsTimestamp_afterLinkedTspProfileRenamed() throws Exception {
-            // given — a signing profile linked to an enabled TSP profile (already cached)
+            // given — a signing profile linked to an enabled TSP profile; the first request warms the profile cache
             SigningProfileDto profile = createTimestampingSigningProfile("rename-sp");
             assertThat(tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
                     .isInstanceOf(TspResponse.Granted.class);
 
             // when — the linked TSP profile is renamed
-            var linkedTspProfile = tspProfileRepository.findByName("rename-sp-tsp").orElseThrow();
+            String linkedTspProfileName = profile.getName() + "-tsp";
+            var linkedTspProfile = tspProfileRepository.findByName(linkedTspProfileName).orElseThrow();
             tspProfileService.updateTspProfile(
                     SecuredUUID.fromUUID(linkedTspProfile.getUuid()),
-                    aTspProfileRequest().withName("rename-sp-tsp-renamed").build(),
+                    aTspProfileRequest().withName(linkedTspProfileName + "-renamed").build(),
                     "http://localhost");
 
             // then — a request through the same signing profile with renamed TSP profile still succeeds
