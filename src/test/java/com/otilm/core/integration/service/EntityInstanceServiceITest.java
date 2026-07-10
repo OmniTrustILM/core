@@ -189,7 +189,8 @@ class EntityInstanceServiceITest extends BaseSpringBootTest {
                 .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/location/attributes"))
                 .willReturn(WireMock.ok()));
 
-        entityInstanceService.listLocationAttributes(entityInstance.getSecuredUuid());
+        var attributes = entityInstanceService.listLocationAttributes(entityInstance.getSecuredUuid());
+        Assertions.assertNotNull(attributes);
     }
 
     @Test

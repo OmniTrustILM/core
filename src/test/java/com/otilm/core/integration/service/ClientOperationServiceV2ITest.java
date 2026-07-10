@@ -293,7 +293,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     void testIssueCertificate_validationFail_disabledRaProfile() {
         raProfile.setEnabled(false);
         raProfile = raProfileRepository.save(raProfile);
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()), raProfile.getSecuredUuid(), null, null));
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueCertificate(authorityUuid, raProfileSecuredUuid, null, null));
     }
 
     @Test
@@ -323,7 +325,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         raProfile2.setEnabled(true);
         raProfileRepository.save(raProfile2);
 
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.renewCertificate(SecuredParentUUID.fromUUID(raProfile2.getAuthorityInstanceReferenceUuid()), raProfile2.getSecuredUuid(), certificate.getUuid().toString(), null));
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile2.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile2.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.renewCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, null));
 
         raProfileRepository.delete(raProfile2);
     }
@@ -1609,12 +1614,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificateRepository.save(certificate);
 
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.renewCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        request));
+                clientOperationService.renewCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1625,12 +1629,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificateRepository.save(certificate);
 
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.rekeyCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        request));
+                clientOperationService.rekeyCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1642,12 +1645,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.revokeCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        request));
+                clientOperationService.revokeCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1659,12 +1661,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.revokeCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        request));
+                clientOperationService.revokeCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, request));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1674,9 +1675,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setState(CertificateState.PENDING_ISSUE);
         certificateRepository.save(certificate);
 
+        SecuredUUID certSecuredUuid = certificate.getSecuredUuid();
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                certificateService.switchRaProfile(certificate.getSecuredUuid(),
-                        raProfile.getSecuredUuid()));
+                certificateService.switchRaProfile(certSecuredUuid, raProfileSecuredUuid));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1686,9 +1688,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setState(CertificateState.PENDING_REVOKE);
         certificateRepository.save(certificate);
 
+        SecuredUUID certSecuredUuid = certificate.getSecuredUuid();
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                certificateService.switchRaProfile(certificate.getSecuredUuid(),
-                        raProfile.getSecuredUuid()));
+                certificateService.switchRaProfile(certSecuredUuid, raProfileSecuredUuid));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error message to mention pending state, got: " + ex.getMessage());
     }
@@ -1765,12 +1768,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         req.setCertificate("dGVzdA==");
         req.setCustomAttributes(List.of());
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyIssueCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        req));
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending_issue"),
                 "expected error mentioning PENDING_ISSUE state, got: " + ex.getMessage());
     }
@@ -1863,12 +1865,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         req.setCertificate(mismatchedCertBase64);
         req.setCustomAttributes(List.of());
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyIssueCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        req));
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("public key"),
                 "expected error mentioning public key mismatch, got: " + ex.getMessage());
     }
@@ -1984,11 +1985,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         // certificate is ISSUED from setUp()
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(), req));
+                clientOperationService.cancelPendingCertificateOperation(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending"),
                 "expected error mentioning pending state, got: " + ex.getMessage());
     }
@@ -2052,11 +2053,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(), req));
+                clientOperationService.cancelPendingCertificateOperation(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().contains("past the point of no return"),
                 "expected upstream reason in error message, got: " + ex.getMessage());
 
@@ -2082,11 +2083,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(), req));
+                clientOperationService.cancelPendingCertificateOperation(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().contains("403") || ex.getMessage().toLowerCase().contains("rejected"),
                 "expected error mentioning the connector's 403 rejection, got: " + ex.getMessage());
 
@@ -2148,11 +2149,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void manuallyConfirmRevoke_blocksWhenCertNotInPendingRevoke() {
         // certificate is in ISSUED state from setUp()
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyConfirmRevoke(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString()));
+                clientOperationService.manuallyConfirmRevoke(authorityUuid, raProfileSecuredUuid, certUuidString));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("pending_revoke"),
                 "expected error mentioning PENDING_REVOKE state, got: " + ex.getMessage());
     }
@@ -2173,12 +2174,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         req.setCertificate(certBase64);
         req.setCustomAttributes(List.of());
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyIssueCertificate(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        req));
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().toLowerCase().contains("identify"),
                 "expected error mentioning connector identify, got: " + ex.getMessage());
     }
@@ -2403,11 +2403,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         CancelPendingCertificateRequestDto cancelReq = new CancelPendingCertificateRequestDto();
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(), cancelReq));
+                clientOperationService.cancelPendingCertificateOperation(authorityUuid, raProfileSecuredUuid, certUuidString, cancelReq));
         Assertions.assertTrue(ex.getMessage().contains("past the point of no return"),
                 "expected upstream reason in error message, got: " + ex.getMessage());
 
@@ -2445,12 +2445,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         req.setCertificate("dGVzdA==");
         req.setCustomAttributes(List.of());
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = foreignRaProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyIssueCertificate(
-                        SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid()),
-                        foreignRaProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(),
-                        req));
+                clientOperationService.manuallyIssueCertificate(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().contains("RA profile is different"),
                 "expected RA profile binding rejection, got: " + ex.getMessage());
 
@@ -2471,11 +2470,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         foreignRaProfile.setEnabled(true);
         raProfileRepository.save(foreignRaProfile);
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = foreignRaProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.manuallyConfirmRevoke(
-                        SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid()),
-                        foreignRaProfile.getSecuredUuid(),
-                        certificate.getUuid().toString()));
+                clientOperationService.manuallyConfirmRevoke(authorityUuid, raProfileSecuredUuid, certUuidString));
         Assertions.assertTrue(ex.getMessage().contains("RA profile is different"),
                 "expected RA profile binding rejection, got: " + ex.getMessage());
 
@@ -2496,11 +2495,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
 
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = foreignRaProfile.getSecuredUuid();
+        String certUuidString = certificate.getUuid().toString();
         ValidationException ex = Assertions.assertThrows(ValidationException.class, () ->
-                clientOperationService.cancelPendingCertificateOperation(
-                        SecuredParentUUID.fromUUID(foreignRaProfile.getAuthorityInstanceReferenceUuid()),
-                        foreignRaProfile.getSecuredUuid(),
-                        certificate.getUuid().toString(), req));
+                clientOperationService.cancelPendingCertificateOperation(authorityUuid, raProfileSecuredUuid, certUuidString, req));
         Assertions.assertTrue(ex.getMessage().contains("RA profile is different"),
                 "expected RA profile binding rejection, got: " + ex.getMessage());
 

@@ -220,7 +220,8 @@ class AuthorityInstanceServiceITest extends BaseSpringBootTest {
                 .get(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes"))
                 .willReturn(WireMock.ok()));
 
-        authorityInstanceService.listRAProfileAttributes(authorityInstance.getSecuredUuid());
+        var attributes = authorityInstanceService.listRAProfileAttributes(authorityInstance.getSecuredUuid());
+        Assertions.assertNotNull(attributes);
     }
 
     @Test
