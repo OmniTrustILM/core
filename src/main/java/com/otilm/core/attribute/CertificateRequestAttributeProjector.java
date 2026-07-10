@@ -2,6 +2,7 @@ package com.otilm.core.attribute;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
@@ -19,6 +20,7 @@ import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import org.bouncycastle.asn1.x509.Extension;
 
 import java.util.*;
 
@@ -42,13 +44,14 @@ public class CertificateRequestAttributeProjector {
      * <p>String content values are projected, including multi-valued attributes mapped to RDN or SAN.
      * Within each definition, entries are ordered by {@code MappedField.order}, then by content-list
      * order within a field; across definitions they follow the order the definitions are supplied in.
-     * Multi-valued attributes mapped to an {@code EXTENSION} field are rejected, as is the same
-     * extension OID being mapped more than once — an extension may appear at most once (RFC 5280).
+     * ValidationException is thrown when an extension OID would be mapped more than once (RFC 5280).
      *
      * @param definitions v3 attribute definitions carrying {@link FieldMapping}
      * @param values      request-time attribute values
-     * @throws ValidationException when a multi-valued attribute maps to an EXTENSION field, or when
-     *                             the same extension OID is mapped by more than one field
+     * @throws ValidationException when a non-list attribute supplies multiple values,
+     *                             when a multi-valued  attribute maps to an EXTENSION field,
+     *                             when the same extension OID is mapped by more than one field,
+     *                             or when SAN entries collide with an explicit mapping to the subjectAltName extension OID
      * @return populated {@link X509RequestContent}; never null
      */
     public static X509RequestContent project(List<DataAttributeV3> definitions, List<? extends RequestAttribute> values) {
@@ -59,11 +62,14 @@ public class CertificateRequestAttributeProjector {
             FieldMapping fm = def.getFieldMapping();
             List<String> attributeValues = getValuesFromMapping(def, fm, valuesByUuid);
             if (attributeValues.isEmpty()) continue;
+            rejectMultiValuedNonListAttribute(def, attributeValues);
 
             for (MappedField field : sortFields(fm)) {
                 applyMappedField(field, attributeValues, def, sink);
             }
         }
+
+        rejectSanAndExplicitExtensionCollision(sink);
 
         X509RequestContent content = new X509RequestContent();
         content.setCertificateType(CertificateType.X509);
@@ -71,6 +77,34 @@ public class CertificateRequestAttributeProjector {
         content.setSubjectAltNames(sink.subjectAltNames.isEmpty() ? null : sink.subjectAltNames);
         content.setExtensions(sink.extensions.isEmpty() ? null : sink.extensions);
         return content;
+    }
+
+    /** OID of the subjectAltName extension; SAN entries render into this OID (RFC 5280 §4.2.1.6). */
+    private static final String SUBJECT_ALT_NAME_OID = Extension.subjectAlternativeName.getId();
+
+    /**
+     * Rejects a non-list attribute that carries more than one value.
+     */
+    private static void rejectMultiValuedNonListAttribute(DataAttributeV3 def, List<String> attributeValues) {
+        if (attributeValues.size() <= 1) return;
+        DataAttributeProperties props = def.getProperties();
+        if (props != null && !props.isList()) {
+            throw new ValidationException(
+                    "Attribute '%s' is not defined as a list but supplies %d values; a non-list attribute must map to at most one value"
+                            .formatted(def.getName(), attributeValues.size()));
+        }
+    }
+
+    /**
+     * Rejects mapping SAN entries alongside an explicit extension mapping to the subjectAltName OID.
+     * Both would render into the same {@code subjectAltName} extension, which may appear only once (RFC 5280).
+     */
+    private static void rejectSanAndExplicitExtensionCollision(ProjectionSink sink) {
+        if (!sink.subjectAltNames.isEmpty() && sink.seenExtensionOids.contains(SUBJECT_ALT_NAME_OID)) {
+            throw new ValidationException(
+                    "Subject alternative names are mapped both as SAN entries and as an explicit extension OID %s; the subjectAltName extension may appear only once (RFC 5280)"
+                            .formatted(SUBJECT_ALT_NAME_OID));
+        }
     }
 
     private static List<MappedField> sortFields(FieldMapping fm) {

@@ -5,6 +5,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
@@ -143,9 +144,9 @@ class CertificateRequestAttributeProjectorTest {
 
     @Test
     void projectsEveryValueOfMultiValuedAttribute_asRepeatedRdns() {
-        // given — one two-valued attribute mapped to OU (many→1: one attribute, repeated RDNs)
+        // given — one two-valued list attribute mapped to OU (many→1: one attribute, repeated RDNs)
         var uuid = UUID.randomUUID();
-        var def = dataAttribute(uuid, rdnMapping("OU"));
+        var def = listDataAttribute(uuid, rdnMapping("OU"));
         var values = List.of(multiStringValue(uuid, "unit-one", "unit-two"));
 
         // when
@@ -159,9 +160,9 @@ class CertificateRequestAttributeProjectorTest {
 
     @Test
     void projectsEveryValueOfMultiValuedAttribute_asMultipleSans() {
-        // given — one three-valued attribute mapped to a DNS SAN (many→1: one SAN entry per value)
+        // given — one three-valued list attribute mapped to a DNS SAN (many→1: one SAN entry per value)
         var uuid = UUID.randomUUID();
-        var def = dataAttribute(uuid, sanMapping(GeneralNameType.DNS));
+        var def = listDataAttribute(uuid, sanMapping(GeneralNameType.DNS));
         var values = List.of(multiStringValue(uuid, "a.example.com", "b.example.com", "c.example.com"));
 
         // when
@@ -232,9 +233,9 @@ class CertificateRequestAttributeProjectorTest {
 
     @Test
     void ordersProjectedEntries_byFieldOrderThenContentOrder() {
-        // given — two RDN fields declared in reverse of their explicit order, on a two-valued attribute
+        // given — two RDN fields declared in reverse of their explicit order, on a two-valued list attribute
         var uuid = UUID.randomUUID();
-        var def = dataAttribute(uuid, mappingOf(rdnField("OU", 2), rdnField("CN", 1)));
+        var def = listDataAttribute(uuid, mappingOf(rdnField("OU", 2), rdnField("CN", 1)));
         var values = List.of(multiStringValue(uuid, "first", "second"));
 
         // when
@@ -295,7 +296,40 @@ class CertificateRequestAttributeProjectorTest {
                 .hasMessageContaining(REGISTERED_EXT_OID);
     }
 
+    @Test
+    void rejectsNonListAttributeSupplyingMultipleValues() {
+        // given — a non-list CN attribute carrying two content items
+        var uuid = UUID.randomUUID();
+        var def = nonListDataAttribute(uuid, rdnMapping("CN"));
+        var defs = List.of(def);
+        var values = List.of(multiStringValue(uuid, "first.example.com", "second.example.com"));
+
+        // when / then — only list attributes may be multi-valued; a non-list CN must map to one value
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(def.getName());
+    }
+
+    @Test
+    void rejectsSanEntriesCollidingWithExplicitSubjectAltNameExtension() {
+        // given — one definition mapping a DNS SAN, another mapping an explicit extension to the SAN OID
+        var sanUuid = UUID.randomUUID();
+        var extUuid = UUID.randomUUID();
+        var sanDef = dataAttribute(sanUuid, sanMapping(GeneralNameType.DNS));
+        var extDef = dataAttribute(extUuid, extensionMapping(SUBJECT_ALT_NAME_OID));
+        var defs = List.of(sanDef, extDef);
+        var values = List.of(stringValue(sanUuid, "alt.example.com"), stringValue(extUuid, "ZHVtbXk="));
+
+        // when / then — both render into the subjectAltName extension, which may appear only once (RFC 5280)
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(SUBJECT_ALT_NAME_OID);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /** OID of the subjectAltName extension; SAN entries render into this OID. */
+    private static final String SUBJECT_ALT_NAME_OID = "2.5.29.17";
 
     private static final String REGISTERED_EXT_OID = "1.3.6.1.4.1.99999.1";
 
@@ -305,6 +339,21 @@ class CertificateRequestAttributeProjectorTest {
         attr.setName("attr-" + uuid);
         attr.setContentType(AttributeContentType.STRING);
         attr.setFieldMapping(fieldMapping);
+        return attr;
+    }
+
+    private static DataAttributeV3 listDataAttribute(UUID uuid, FieldMapping fieldMapping) {
+        return withList(dataAttribute(uuid, fieldMapping), true);
+    }
+
+    private static DataAttributeV3 nonListDataAttribute(UUID uuid, FieldMapping fieldMapping) {
+        return withList(dataAttribute(uuid, fieldMapping), false);
+    }
+
+    private static DataAttributeV3 withList(DataAttributeV3 attr, boolean list) {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setList(list);
+        attr.setProperties(properties);
         return attr;
     }
 
