@@ -1,5 +1,12 @@
 package com.otilm.core.integration.service;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.when;
 import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.ConnectorException;
@@ -37,7 +44,6 @@ import com.nimbusds.jose.util.Base64URL;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -305,184 +311,184 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
 
         // By default, reject all
-        Mockito.when(
-                opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
+        when(
+                opaClient.checkResourceAccess(any(), any(), any(), any())
         ).thenReturn(resourceAccessNotAllowed);
 
         // allow all ACME account actions
-        Mockito.when(
-                opaClient.checkResourceAccess(Mockito.any(), Mockito.argThat(req ->
+        when(
+                opaClient.checkResourceAccess(any(), argThat(req ->
                         req != null && req.getProperties().containsKey(Resource.ACME_ACCOUNT.getCode())
-                ), Mockito.any(), Mockito.any())
+                ), any(), any())
         ).thenReturn(resourceAccessAllowed);
 
         // allow all ACME Profile detail and list
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.ACME_PROFILE, ResourceAction.LIST)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.ACME_PROFILE, ResourceAction.DETAIL)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
         // Allow attribute members
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.ATTRIBUTE, ResourceAction.MEMBERS)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
         // Allow authorities detail, list and members
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.AUTHORITY, ResourceAction.LIST)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.AUTHORITY, ResourceAction.DETAIL)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.AUTHORITY, ResourceAction.MEMBERS)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
         // Allow certificates create, detail, issue, list, renew, revoke, update
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.LIST)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.CREATE)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.DETAIL)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.RENEW)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.REVOKE)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.CERTIFICATE, ResourceAction.UPDATE)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
         // Allow RA Profiles detail, list and members
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.RA_PROFILE, ResourceAction.LIST)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.RA_PROFILE, ResourceAction.DETAIL)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
-        Mockito.when(
+        when(
                 opaClient.checkResourceAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req ->
+                        any(),
+                        argThat(req ->
                                 isRequestForResourceAction(req, Resource.RA_PROFILE, ResourceAction.MEMBERS)
                         ),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        any()
                 )
         ).thenReturn(resourceAccessAllowed);
 
@@ -871,22 +877,24 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testRevokeCert_fail() throws URISyntaxException {
+    void testRevokeCert_fail() throws URISyntaxException, JOSEException {
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/revoke-cert");
+        var requestJson = buildRevokeCertRequestJSON_fail(requestUri, baseUri);
         Assertions.assertThrows(NullPointerException.class,
                 () -> acmeService.revokeCertificate(
-                        ACME_PROFILE_NAME, buildRevokeCertRequestJSON_fail(requestUri, baseUri), requestUri, false));
+                        ACME_PROFILE_NAME, requestJson, requestUri, false));
 
     }
 
     @Test
-    void testRevokeCert_fail_raProfileBased() throws URISyntaxException {
+    void testRevokeCert_fail_raProfileBased() throws URISyntaxException, JOSEException {
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/revoke-cert");
+        var requestJson = buildRevokeCertRequestJSON_fail(requestUri, baseUri);
         Assertions.assertThrows(NullPointerException.class,
                 () -> acmeService.revokeCertificate(
-                        RA_PROFILE_NAME, buildRevokeCertRequestJSON_fail(requestUri, baseUri), requestUri, true));
+                        RA_PROFILE_NAME, requestJson, requestUri, true));
 
     }
 
@@ -1155,17 +1163,17 @@ class AcmeServiceITest extends BaseSpringBootTest {
         final byte[] encodedHashOfExpectedKeyAuthorization = digest.digest(keyAuthorization.getBytes(StandardCharsets.UTF_8));
         String expectedDnsValidationToken = Base64URL.encode(encodedHashOfExpectedKeyAuthorization).toString();
 
-        try (var mockedContext = Mockito.mockConstruction(InitialDirContext.class, (mock, context) -> {
-            Attributes attrs = Mockito.mock(Attributes.class);
-            Attribute attr = Mockito.mock(Attribute.class);
+        try (var mockedContext = mockConstruction(InitialDirContext.class, (mock, context) -> {
+            Attributes attrs = mock(Attributes.class);
+            Attribute attr = mock(Attribute.class);
             @SuppressWarnings("unchecked")
-            NamingEnumeration<Attribute> enumeration = (NamingEnumeration<Attribute>) Mockito.mock(NamingEnumeration.class);
+            NamingEnumeration<Attribute> enumeration = (NamingEnumeration<Attribute>) mock(NamingEnumeration.class);
 
-            Mockito.when(mock.getAttributes(Mockito.anyString(), Mockito.any(String[].class))).thenReturn(attrs);
-            Mockito.doReturn(enumeration).when(attrs).getAll();
-            Mockito.when(enumeration.hasMore()).thenReturn(true, false);
-            Mockito.when(enumeration.next()).thenReturn(attr);
-            Mockito.when(attr.get()).thenReturn(expectedDnsValidationToken);
+            when(mock.getAttributes(anyString(), any(String[].class))).thenReturn(attrs);
+            doReturn(enumeration).when(attrs).getAll();
+            when(enumeration.hasMore()).thenReturn(true, false);
+            when(enumeration.next()).thenReturn(attr);
+            when(attr.get()).thenReturn(expectedDnsValidationToken);
         })) {
             URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/chall/" + challenge.getChallengeId());
             ResponseEntity<Challenge> response = acmeService.validateChallenge(ACME_PROFILE_NAME, challenge.getChallengeId(), requestUri, false);
