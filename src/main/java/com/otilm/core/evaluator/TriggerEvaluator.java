@@ -648,6 +648,13 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         };
         boolean isNegated = effectiveOperator != operator;
 
+        // Multi-value conditions carry "any of the selected values" (IN) semantics, which only equality supports:
+        // expanding CONTAINS/MATCHES/numeric/date comparisons to any-of would diverge from the query side
+        // (FilterPredicatesBuilder does not support multi-value for non-equality operators on custom attributes).
+        if (conditionValue instanceof List && effectiveOperator != FilterConditionOperator.EQUALS) {
+            throw new RuleException("Multi-value condition is supported only for operators EQUALS and NOT_EQUALS, got %s.".formatted(operator));
+        }
+
         // For negated operators, attributes without content also match the operator, mirroring FilterPredicatesBuilder's NOT EXISTS semantics.
         if (isNegated && missingContent) {
             return true;

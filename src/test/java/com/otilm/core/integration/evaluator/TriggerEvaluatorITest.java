@@ -617,6 +617,11 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         newCondition.setValue(List.of("data", "other"));
         Assertions.assertFalse(certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
 
+        // Multi-value conditions are restricted to EQUALS/NOT_EQUALS — any other operator is a configuration error
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue(List.of("data", "other"));
+        Assertions.assertThrows(RuleException.class, () -> certificateTriggerEvaluator.evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
         // NOT_EQUALS: true only if no item equals the value — "data" is present so NOT_EQUALS "data" is false
         newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
         newCondition.setValue("other");
