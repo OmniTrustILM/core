@@ -27,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.TransientDataAccessResourceException;
 
 import java.util.List;
 import java.util.Optional;
@@ -92,6 +93,7 @@ class CertificateStatusPollListenerTest {
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
+        lenient().when(schedule.ceilingAttempt()).thenReturn(2);
         lenient().when(statusPollProperties.scheduleFor(any())).thenReturn(schedule);
 
         // Execute the transaction body synchronously so the locked-transaction logic runs in-test —
@@ -145,30 +147,31 @@ class CertificateStatusPollListenerTest {
 
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
-        // Still in progress with attempts remaining: the sweep already advanced next_poll_at, so the
-        // listener neither transitions nor deletes the row.
+        // Still in progress: the sweep already advanced next_poll_at, so the listener neither transitions
+        // nor deletes the row.
+        verify(pollWriter).resetAttempt(CERT_UUID, 2);
         verify(pollWriter, never()).delete(any());
         verifyNoInteractions(stateMachine, transactionHandler);
     }
 
     // -----------------------------------------------------------------------
-    // inProgressLastAttemptTimesOut
+    // inProgressLastAttemptKeepsPolling
     // -----------------------------------------------------------------------
 
     @Test
-    void inProgressLastAttemptTimesOut() throws MessageHandlingException, ConnectorException {
+    void inProgressLastAttemptKeepsPolling() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.IN_PROGRESS, null, null, null));
-        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
-                .thenReturn(Optional.of(cert));
 
-        // attempt+1 >= maxAttempts(3) → timeout path
+        // attempt+1 >= maxAttempts(3), but the CA still reports: "I am still working."
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
 
-        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(pollWriter).delete(CERT_UUID);    }
+        verify(pollWriter).resetAttempt(CERT_UUID, 2);
+        verify(pollWriter, never()).delete(any());
+        verifyNoInteractions(stateMachine, transactionHandler);
+    }
 
     // -----------------------------------------------------------------------
     // completedIssueWithDataPersistsCertificate (ISSUE + cert data → issueRequestedCertificate)
@@ -229,7 +232,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(Optional.of(cert));
         // Transient persist failure must NOT become a terminal FAILED. It propagates — rolling back the locked
         // transition and leaving the poll row in place — so the sweep re-enqueues and retries on its next tick.
-        doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
+        doThrow(new TransientDataAccessResourceException("db blip"))
                 .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
 
         CertificateStatusPollMessage msg = pollMsg(CertificateOperation.ISSUE, 0);
@@ -237,6 +240,28 @@ class CertificateStatusPollListenerTest {
 
         verify(stateMachine, never()).transition(any(), any(), any(), any());
         verify(pollWriter, never()).delete(any());
+    }
+
+    // -----------------------------------------------------------------------
+    // completedIssueTransientPersistFailureLastAttemptFailsFast
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedIssueTransientPersistFailureLastAttemptFailsFast() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        doThrow(new TransientDataAccessResourceException("db blip"))
+                .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
+
+        // attempt+1 >= maxAttempts(3): retries are exhausted
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 2));
+
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
+        verify(pollWriter).delete(CERT_UUID);
     }
 
     // -----------------------------------------------------------------------
@@ -435,6 +460,33 @@ class CertificateStatusPollListenerTest {
     }
 
     // -----------------------------------------------------------------------
+    // completedRevokeApplyFailureLastAttemptNeverReturnsToIssued
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedRevokeApplyFailureLastAttemptNeverReturnsToIssued() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        // The REVOKED transition keeps failing locally, right up to the last poll attempt.
+        doThrow(new IllegalStateException("cannot apply revoked"))
+                .when(stateMachine).transition(eq(cert), eq(CertificateState.REVOKED), isNull(), anyString());
+
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 2));
+
+        // The CA has revoked the cert: it must never fall back to ISSUED, its pending-revoke fields must
+        // not be cleared, and its key must not be treated as retained-and-valid.
+        verify(stateMachine, never()).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        verify(revocationFinalizer, never()).clearPendingRevokeFields(cert);
+        verify(revocationFinalizer, never()).destroyKeyIfRequested(any(), any());
+        // Capped for manual reconciliation: polling stops, cert left in PENDING_REVOKE.
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
     // revokeTimeoutClearsPendingFields
     // -----------------------------------------------------------------------
 
@@ -443,11 +495,11 @@ class CertificateStatusPollListenerTest {
         Certificate cert = certInState(CertificateState.PENDING_REVOKE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
         when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
-                .thenReturn(new StatusPollResult(CertificateOperationStatus.IN_PROGRESS, null, null, null));
+                .thenThrow(new ConnectorException("network error"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
                 .thenReturn(Optional.of(cert));
 
-        // attempt+1 >= maxAttempts → timeout path returns the revoke to ISSUED.
+        // No CA answer and no attempts left → time out; the revoke returns to ISSUED with pending fields cleared.
         listener.processMessage(pollMsg(CertificateOperation.REVOKE, 2));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());

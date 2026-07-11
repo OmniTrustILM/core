@@ -82,6 +82,10 @@ provider:
         - PT30S
         - PT1M30S
         - PT5M
+      # Limits two things: how many polls in a row get no clear answer from the CA (connector
+      # errors), and how many retries a locally failing terminal transition gets. Reaching the
+      # limit times the operation out. A fresh "in progress" answer refreshes the count, so an
+      # operation the CA still reports as running never times out.
       max-attempts: 100
     by-kind:
       REGISTER:

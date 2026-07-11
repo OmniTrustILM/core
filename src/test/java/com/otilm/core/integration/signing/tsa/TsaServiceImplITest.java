@@ -1,6 +1,7 @@
 package com.otilm.core.integration.signing.tsa;
 
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.interfaces.core.tsp.error.TspException;
 import com.otilm.api.interfaces.core.tsp.error.TspFailureInfo;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
@@ -13,6 +14,7 @@ import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -80,6 +82,9 @@ class TsaServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private TspProfileExternalService tspProfileService;
+
+    @Autowired
+    private TspProfileRepository tspProfileRepository;
 
     @Autowired
     private SigningRecordExternalService signingRecordService;
@@ -256,6 +261,26 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             // then
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
             assertThat(((TspResponse.Granted) response).timestampBytes()).isNotEmpty();
+        }
+
+        @Test
+        void stopsGranting_afterLinkedTspProfileDisabled() throws Exception {
+            // given — a signing profile linked to an enabled TSP profile; cache is warmed up
+            SigningProfileDto profile = createTimestampingSigningProfile("disable-sp");
+            assertThat(tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspResponse.Granted.class);
+
+            // when — the linked TSP profile is disabled
+            String linkedTspProfileName = profile.getName() + "-tsp";
+            var linkedTspProfile = tspProfileRepository.findByName(linkedTspProfileName).orElseThrow();
+            tspProfileService.disableTspProfile(SecuredUUID.fromUUID(linkedTspProfile.getUuid()));
+
+            // then — the next request observes the disabled state and is rejected
+            assertThatThrownBy(() -> tsaService.processTspRequestForSigningProfile(profile.getName(), aTspRequest().build()))
+                    .isInstanceOf(TspException.class)
+                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.BAD_REQUEST))
+                    .hasMessageContaining("TSP profile")
+                    .hasMessageContaining("is disabled");
         }
 
         @Test
