@@ -221,7 +221,8 @@ class ProxyServiceITest extends BaseSpringBootTest {
         connectorRepository.save(connector);
 
         Proxy finalProxyWithConnector = proxyRepository.save(proxyWithConnector);
-        Assertions.assertThrows(ValidationException.class, () -> proxyService.deleteProxy(finalProxyWithConnector.getSecuredUuid()));
+        var securedUuid = finalProxyWithConnector.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class, () -> proxyService.deleteProxy(securedUuid));
     }
 
     @Test
@@ -293,7 +294,8 @@ class ProxyServiceITest extends BaseSpringBootTest {
                 .withStatus(500)
                 .withBody("Internal Server Error")));
 
+        var securedUuid = proxy.getSecuredUuid();
         Assertions.assertThrows(ProvisioningException.class,
-            () -> proxyService.getInstallationInstructions(proxy.getSecuredUuid()));
+            () -> proxyService.getInstallationInstructions(securedUuid));
     }
 }

@@ -146,10 +146,11 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     @Test
     void testAddTokenProfile_validationFail() {
         AddTokenProfileRequestDto request = new AddTokenProfileRequestDto();
+        var securedParentUuid = tokenInstanceReference.getSecuredParentUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> tokenProfileService.createTokenProfile(
-                        tokenInstanceReference.getSecuredParentUuid(),
+                        securedParentUuid,
                         request
                 )
         );
