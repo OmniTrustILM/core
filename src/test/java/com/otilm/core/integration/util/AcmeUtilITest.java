@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.integration.util;
 
 import com.otilm.core.util.AcmePublicKeyProcessor;
 import com.otilm.core.util.AcmeRandomGeneratorAndValidator;
@@ -13,7 +13,7 @@ import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
 
 @SpringBootTest
-public class AcmeUtilTest {
+public class AcmeUtilITest {
 
     @Test
     public void testNonceGeneration(){
