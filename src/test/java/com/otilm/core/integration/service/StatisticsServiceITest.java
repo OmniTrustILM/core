@@ -17,7 +17,6 @@ import com.otilm.core.util.CertificateUtil;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.Rollback;
@@ -28,6 +27,9 @@ import org.springframework.util.SerializationUtils;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Transactional
@@ -101,15 +103,15 @@ class StatisticsServiceITest extends BaseSpringBootTest {
     private void mockOpaResponses(List<String> forbiddenObjects) {
         OpaResourceAccessResult resourceAccessNotAllowed = new OpaResourceAccessResult(false, List.of());
         // By default, reject all
-        Mockito.when(
-                opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())
+        when(
+                opaClient.checkResourceAccess(any(), any(), any(), any())
         ).thenReturn(resourceAccessNotAllowed);
         OpaObjectAccessResult opaObjectAccessResult = new OpaObjectAccessResult();
         opaObjectAccessResult.setAllowedObjects(List.of());
         // OPA denies both, but ownership grants access to certificateOwned — this is the low-privilege path being verified
         opaObjectAccessResult.setForbiddenObjects(forbiddenObjects);
-        Mockito.when(
-                        opaClient.checkObjectAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+        when(
+                        opaClient.checkObjectAccess(any(), any(), any(), any()))
                 .thenReturn(opaObjectAccessResult);
     }
 

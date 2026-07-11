@@ -45,11 +45,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -681,7 +681,8 @@ class ScepProfileServiceITest extends BaseSpringBootTest {
     @Test
     void testEditScepProfile_validationFail() {
         ScepProfileEditRequestDto request = new ScepProfileEditRequestDto();
-        Assertions.assertThrows(ValidationException.class, () -> scepProfileService.editScepProfile(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"), request));
+        var securedUuid = SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002");
+        Assertions.assertThrows(ValidationException.class, () -> scepProfileService.editScepProfile(securedUuid, request));
     }
 
     @Test
@@ -783,7 +784,7 @@ class ScepProfileServiceITest extends BaseSpringBootTest {
         RaProfile linkedRaProfile = new RaProfile();
         linkedRaProfile.setName("linkedRaProfile");
         SecuredList<RaProfile> nonEmptyList = new SecuredList<>(List.of(new SecuredItem<>(linkedRaProfile, true)));
-        Mockito.doReturn(nonEmptyList)
+        doReturn(nonEmptyList)
                 .when(raProfileService)
                 .listRaProfilesAssociatedWithScepProfile(scepProfile.getUuid().toString(), SecurityFilter.create());
 
