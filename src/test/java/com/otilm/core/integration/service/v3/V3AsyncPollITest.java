@@ -56,16 +56,13 @@ import static org.awaitility.Awaitility.await;
  * ({@code @Profile("!test")}); overriding prevents that profile from being inherited so the poll
  * listener container starts. Mirror of the pattern used by {@code JmsListenerITest} and
  * {@code CertificateUploadMessagingITest}.
- *
- * <p>{@code provider.status-poll.by-kind.REGISTER.max-attempts=2} is set via
- * {@link TestPropertySource} so the timeout scenario completes in exactly two sweeps instead of
- * the production default of 50.
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
-// Poll timing is driven by makePollDueNow() back-dating, not by configured delays.
-// max-attempts=2 is load-bearing: limits the timeout test to exactly two sweeps.
-// delays[0] initialises the required non-null delays list; the value is irrelevant because
-// makePollDueNow() back-dates the row rather than relying on the configured interval.
+// Poll timing comes from makePollDueNow() back-dating the row, not from the configured delays.
+// max-attempts=2 matters: it is a low limit. The "IN_PROGRESS never times out" scenario sweeps three
+// times, past that limit, to prove an in-progress cert is never failed by running out of attempts.
+// delays[0] just fills the required non-null delays list. Its value does not matter, because
+// makePollDueNow() back-dates the row instead of waiting for the configured interval.
 @TestPropertySource(properties = {
         "provider.status-poll.by-kind.REGISTER.delays[0]=PT0S",
         "provider.status-poll.by-kind.REGISTER.max-attempts=2"

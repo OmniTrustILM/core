@@ -153,10 +153,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             return;
         } catch (RuntimeException e) {
             if (lastAttempt) {
-                logger.warn("Async {} terminal transition for cert {} still failing on the last poll attempt; resolving to failure state",
-                        op, cert.getUuid(), e);
-                applyFailure(cert, op, "Async " + op + " reported " + status.status().getLabel().toLowerCase()
-                        + " but the outcome could not be applied locally; reconcile manually");
+                resolveExhaustedTerminalFailure(cert, op, status, e);
                 return;
             }
             // Add cert/op context — the JMS adapter logs only the bare exception. The rollback left the poll
@@ -174,6 +171,27 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
         stopPolling(cert, op);
+    }
+
+    /**
+     * Last-attempt fallback when the local terminal transition keeps failing after a connector poll answer.
+     *
+     * <p>A connector-reported COMPLETED revoke must never fall back to REVOKE's failure state (ISSUED):
+     * that would present a certificate the CA has already revoked as valid and skip key destruction. Leave
+     * the cert in PENDING_REVOKE and stop polling.</p>
+     */
+    private void resolveExhaustedTerminalFailure(
+            Certificate cert, CertificateOperation op, StatusPollResult status, RuntimeException cause) {
+        if (status.status() == CertificateOperationStatus.COMPLETED && op == CertificateOperation.REVOKE) {
+            logger.error("Async REVOKE for cert {} completed at the authority but could not be applied locally "
+                    + "after the last poll attempt; leaving it PENDING_REVOKE for manual reconciliation", cert.getUuid(), cause);
+            stopPolling(cert, op);
+            return;
+        }
+        logger.warn("Async {} terminal transition for cert {} still failing on the last poll attempt; resolving to failure state",
+                op, cert.getUuid(), cause);
+        applyFailure(cert, op, "Async " + op + " reported " + status.status().getLabel().toLowerCase()
+                + " but the outcome could not be applied locally; reconcile manually");
     }
 
     /** Outcome of the locked terminal transition: whether it was applied, and any post-commit key cleanup. */

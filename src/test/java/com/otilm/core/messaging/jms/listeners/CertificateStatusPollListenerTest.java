@@ -27,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.TransientDataAccessResourceException;
 
 import java.util.List;
 import java.util.Optional;
@@ -231,7 +232,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(Optional.of(cert));
         // Transient persist failure must NOT become a terminal FAILED. It propagates — rolling back the locked
         // transition and leaving the poll row in place — so the sweep re-enqueues and retries on its next tick.
-        doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
+        doThrow(new TransientDataAccessResourceException("db blip"))
                 .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
 
         CertificateStatusPollMessage msg = pollMsg(CertificateOperation.ISSUE, 0);
@@ -253,7 +254,7 @@ class CertificateStatusPollListenerTest {
                 .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
         when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
                 .thenReturn(Optional.of(cert));
-        doThrow(new org.springframework.dao.TransientDataAccessResourceException("db blip"))
+        doThrow(new TransientDataAccessResourceException("db blip"))
                 .when(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
 
         // attempt+1 >= maxAttempts(3): retries are exhausted
@@ -455,6 +456,33 @@ class CertificateStatusPollListenerTest {
         verify(stateMachine).transition(eq(cert), eq(CertificateState.REVOKED), isNull(), anyString());
         // Key destruction runs post-commit, outside the lock, from the captured cleanup decision.
         verify(revocationFinalizer).destroyKeyIfRequested(cleanup, CERT_UUID);
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    // -----------------------------------------------------------------------
+    // completedRevokeApplyFailureLastAttemptNeverReturnsToIssued
+    // -----------------------------------------------------------------------
+
+    @Test
+    void completedRevokeApplyFailureLastAttemptNeverReturnsToIssued() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID))
+                .thenReturn(Optional.of(cert));
+        // The REVOKED transition keeps failing locally, right up to the last poll attempt.
+        doThrow(new IllegalStateException("cannot apply revoked"))
+                .when(stateMachine).transition(eq(cert), eq(CertificateState.REVOKED), isNull(), anyString());
+
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 2));
+
+        // The CA has revoked the cert: it must never fall back to ISSUED, its pending-revoke fields must
+        // not be cleared, and its key must not be treated as retained-and-valid.
+        verify(stateMachine, never()).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        verify(revocationFinalizer, never()).clearPendingRevokeFields(cert);
+        verify(revocationFinalizer, never()).destroyKeyIfRequested(any(), any());
+        // Capped for manual reconciliation: polling stops, cert left in PENDING_REVOKE.
         verify(pollWriter).delete(CERT_UUID);
     }
 
