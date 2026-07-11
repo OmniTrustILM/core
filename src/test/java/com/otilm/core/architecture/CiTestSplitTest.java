@@ -126,17 +126,16 @@ class CiTestSplitTest {
      * fragments — a substring match would wrongly exempt e.g. any path merely containing "api".
      * <p>
      * This set is empty, so guard (3) is strict for all sub-packages.
-     * {@link #ROOT_LEVEL_PENDING_MIGRATION} is the only remaining exemption, covering
-     * root-level files.
+     * {@link #ROOT_LEVEL_PENDING_MIGRATION} is {@code false} as well, so no exemption remains.
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of();
 
     /**
-     * Root-level test files live directly in com/otilm/core (no sub-package) — e.g. ApplicationTests,
-     * AcmeUtilTest, JmsNetworkChaosTest — and are migrated in the final root-sweep PR. Guard (3)
-     * exempts them until then. Set to false in that final PR to make the guard strict.
+     * Whether root-level test files (directly under com/otilm/core, no sub-package) are exempt from
+     * guard (3). The root sweep relocated the last such tests into the integration taxonomy, so this
+     * is {@code false}: guard (3) is strict for root-level files too, and no exemption remains.
      */
-    private static final boolean ROOT_LEVEL_PENDING_MIGRATION = true;
+    private static final boolean ROOT_LEVEL_PENDING_MIGRATION = false;
 
     private static final Path TEST_ROOT = Path.of("src/test/java");
     private static final Path INTEGRATION_ROOT = TEST_ROOT.resolve("com/otilm/core/integration");
