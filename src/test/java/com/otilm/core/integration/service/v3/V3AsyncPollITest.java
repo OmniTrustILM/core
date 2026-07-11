@@ -56,16 +56,13 @@ import static org.awaitility.Awaitility.await;
  * ({@code @Profile("!test")}); overriding prevents that profile from being inherited so the poll
  * listener container starts. Mirror of the pattern used by {@code JmsListenerITest} and
  * {@code CertificateUploadMessagingITest}.
- *
- * <p>{@code provider.status-poll.by-kind.REGISTER.max-attempts=2} is set via
- * {@link TestPropertySource} so the timeout scenario completes in exactly two sweeps instead of
- * the production default of 50.
  */
 @ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
-// Poll timing is driven by makePollDueNow() back-dating, not by configured delays.
-// max-attempts=2 is load-bearing: limits the timeout test to exactly two sweeps.
-// delays[0] initialises the required non-null delays list; the value is irrelevant because
-// makePollDueNow() back-dates the row rather than relying on the configured interval.
+// Poll timing comes from makePollDueNow() back-dating the row, not from the configured delays.
+// max-attempts=2 matters: it is a low limit. The "IN_PROGRESS never times out" scenario sweeps three
+// times, past that limit, to prove an in-progress cert is never failed by running out of attempts.
+// delays[0] just fills the required non-null delays list. Its value does not matter, because
+// makePollDueNow() back-dates the row instead of waiting for the configured interval.
 @TestPropertySource(properties = {
         "provider.status-poll.by-kind.REGISTER.delays[0]=PT0S",
         "provider.status-poll.by-kind.REGISTER.max-attempts=2"
@@ -199,22 +196,14 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
                 });
     }
 
-    // ── Scenario 2: Timeout ───────────────────────────────────────────────────
+    // ── Scenario 2: IN_PROGRESS never times out ───────────────────────────────
 
     /**
-     * Timeout scenario: status stub always returns IN_PROGRESS. With max-attempts=2 the listener
-     * applies a timeout failure on the second poll (attempt 1: {@code 1 + 1 >= 2}).
-     *
-     * <ol>
-     *   <li>Seed a PENDING_REGISTRATION cert with a poll row due now.</li>
-     *   <li>First {@code sweep()}: listener → IN_PROGRESS, attempt 0 → not yet timed out → row
-     *       survives, cert stays PENDING_REGISTRATION.</li>
-     *   <li>Second {@code sweep()}: listener → IN_PROGRESS, attempt 1 → last attempt → cert
-     *       transitions to FAILED, row deleted.</li>
-     * </ol>
+     * The listener must never fail a cert for which CA reports "IN_PROGRESS" by attempt exhaustion —
+     * each poll resets the attempt back down to the backoff ceiling and leaves the row in place.
      */
     @Test
-    void registerAsync_timeoutFlow_reachesFailed() throws Exception {
+    void registerAsync_alwaysInProgress_neverTimesOut() throws Exception {
         AuthorityFixtures.Fixture fixture = buildV3Fixture(
                 FeatureFlag.CERTIFICATE_REGISTRATION,
                 FeatureFlag.CERTIFICATE_STATUS_POLLING);
@@ -223,7 +212,7 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
         V3ConnectorStubs.stubRegisterAsync(wireMockServer, null);
         V3ConnectorStubs.stubRegisterStatusAlwaysInProgress(wireMockServer);
 
-        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=poll-timeout,O=Test");
+        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=poll-in-progress,O=Test");
         UUID certUuid = UUID.fromString(response.getUuid());
 
         // Pre-condition: cert is PENDING_REGISTRATION with poll row
@@ -233,37 +222,25 @@ class V3AsyncPollITest extends BaseMessagingIntTest {
         Assertions.assertEquals(1L, countPollRows(certUuid),
                 "Pre-condition: async register with both flags must create exactly one poll row");
 
-        makePollDueNow(certUuid);
+        int sweepsPastMaxAttempts = 3;
+        for (int sweep = 1; sweep <= sweepsPastMaxAttempts; sweep++) {
+            makePollDueNow(certUuid);
+            sweeper.sweep();
 
-        // First sweep → IN_PROGRESS at attempt 0 → not last attempt (0+1 < 2) → row survives.
-        // Await until the stub was called once to confirm the listener ran before the second sweep.
-        sweeper.sweep();
-        await().atMost(5, TimeUnit.SECONDS)
-                .pollInterval(200, TimeUnit.MILLISECONDS)
-                .untilAsserted(() -> {
-                    // Confirm the status endpoint was called at least once (listener has run)
-                    wireMockServer.verify(moreThanOrExactly(1), postRequestedFor(urlEqualTo(V3ConnectorStubs.REGISTER_STATUS)));
-                    Certificate current = reloadCert(certUuid);
-                    Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, current.getState(),
-                            "After first sweep (IN_PROGRESS, not timed out): cert must remain PENDING_REGISTRATION");
-                    Assertions.assertEquals(1L, countPollRows(certUuid),
-                            "After first sweep (IN_PROGRESS, not timed out): poll row must survive");
-                });
-
-        makePollDueNow(certUuid);
-
-        // Second sweep → IN_PROGRESS at attempt 1 → last attempt (1+1 >= 2) → FAILED, row deleted
-        sweeper.sweep();
-        await().atMost(5, TimeUnit.SECONDS)
-                .pollInterval(200, TimeUnit.MILLISECONDS)
-                .untilAsserted(() -> {
-                    Certificate current = reloadCert(certUuid);
-                    long rowCount = countPollRows(certUuid);
-                    Assertions.assertEquals(CertificateState.FAILED, current.getState(),
-                            "After second sweep (IN_PROGRESS at max attempts): cert must reach FAILED");
-                    Assertions.assertEquals(0L, rowCount,
-                            "After second sweep (timeout): poll row must be deleted");
-                });
+            final int minStatusCalls = sweep;
+            await().atMost(5, TimeUnit.SECONDS)
+                    .pollInterval(200, TimeUnit.MILLISECONDS)
+                    .untilAsserted(() -> {
+                        // Confirm the listener has run this sweep (status endpoint called at least once per sweep)
+                        wireMockServer.verify(moreThanOrExactly(minStatusCalls),
+                                postRequestedFor(urlEqualTo(V3ConnectorStubs.REGISTER_STATUS)));
+                        Certificate current = reloadCert(certUuid);
+                        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, current.getState(),
+                                "IN_PROGRESS must never time out: cert must stay PENDING_REGISTRATION");
+                        Assertions.assertEquals(1L, countPollRows(certUuid),
+                                "IN_PROGRESS must never delete the poll row");
+                    });
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
