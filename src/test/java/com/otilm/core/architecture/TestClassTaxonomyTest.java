@@ -67,11 +67,11 @@ class TestClassTaxonomyTest {
 
     @Test
     void loadsContextViaDirectSpringBootTestAnnotation() {
-        // ApplicationTests is annotated @SpringBootTest and is neither a CONTEXT_ROOT nor extends one,
+        // ApplicationITest is annotated @SpringBootTest and is neither a CONTEXT_ROOT nor extends one,
         // so a true verdict can only come from the direct-annotation branch of loadsContext.
         Map<String,String> graph = TestClassTaxonomy.parseExtends(TEST_ROOT);
         assertThat(TestClassTaxonomy.loadsContext(
-                TEST_ROOT.resolve("com/otilm/core/ApplicationTests.java"), graph)).isTrue();
+                TEST_ROOT.resolve("com/otilm/core/integration/ApplicationITest.java"), graph)).isTrue();
     }
 
     @Test
