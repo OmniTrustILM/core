@@ -46,10 +46,13 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.oid.OidHandler;
@@ -522,6 +525,18 @@ class AuthorityProviderV3AdapterTest {
                 ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
         verify(certClientV3).register(eq(connectorInfo), captor.capture());
         assertSame(projected, captor.getValue().getRequestContent());
+    }
+
+    @Test
+    void registerFailsClosedWhenStructuredContentCannotRideFlatWire() {
+        // A connector without CERTIFICATE_REQUEST_STRUCTURED carries only the flat wire; content it cannot
+        // represent (here a non-DER extension) must be rejected, not silently dropped.
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(false);
+        X509RequestContent content = new X509RequestContent();
+        content.setExtensions(List.of(new RequestedExtension("1.2.3.4", false, ExtensionValueEncoding.UTF8_STRING, "Zm9v")));
+
+        assertThrows(ValidationException.class,
+                () -> adapter.register(cert, new ClientCertificateRegistrationDto(), content));
     }
 
     // ---- issueRegistered: register-bound issue ----

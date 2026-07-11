@@ -13,7 +13,6 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -27,8 +26,8 @@ import java.util.stream.Stream;
  * Resolves the issuance attribute definitions for a certificate request: the connector-supplied v3
  * definitions (which carry {@link FieldMapping}) merged over the static {@link CsrAttributes} default set.
  *
- * <p>Shared by the platform-built issue path ({@code ClientOperationServiceImpl}) and the register path
- * ({@code AuthorityProviderV3Adapter}) so both project structured attribute values against an identical
+ * <p>Shared by the platform-built issue path and the register path — both orchestrated in
+ * {@code ClientOperationServiceImpl} — so both project structured attribute values against an identical
  * definition set.
  */
 @Component
@@ -38,13 +37,7 @@ public class IssuanceDefinitionResolver {
 
     private final ExtendedAttributeService extendedAttributeService;
 
-    /**
-     * {@code ExtendedAttributeService} is injected {@link Lazy}: {@code AuthorityProviderV3Adapter} depends on
-     * this resolver, and the service transitively depends back on that adapter (through
-     * {@code AuthorityProviderAdapterFactory}). A lazy proxy breaks the construction-time cycle — the real
-     * service is resolved on first use, long after the context is built.
-     */
-    public IssuanceDefinitionResolver(@Lazy ExtendedAttributeService extendedAttributeService) {
+    public IssuanceDefinitionResolver(ExtendedAttributeService extendedAttributeService) {
         this.extendedAttributeService = extendedAttributeService;
     }
 

@@ -506,13 +506,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         if (!hasStructuredIdentity(request.getCsrAttributes())) {
             return null;
         }
+        // The gate tolerates null elements (anyMatch); drop them before validation/projection so a
+        // partially-null list projects the real attributes instead of NPE-ing in the projector.
+        List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
         List<DataAttributeV3> definitions = issuanceDefinitionResolver.resolve(raProfile);
         try {
-            attributeEngine.validateUpdateDataAttributes(null, null, definitions, request.getCsrAttributes());
+            attributeEngine.validateUpdateDataAttributes(null, null, definitions, csrAttributes);
         } catch (AttributeException e) {
             throw new ValidationException("Invalid csrAttributes for certificate registration: " + e.getMessage());
         }
-        return CertificateRequestAttributeProjector.project(definitions, request.getCsrAttributes());
+        return CertificateRequestAttributeProjector.project(definitions, csrAttributes);
     }
 
     private static boolean hasStructuredIdentity(List<RequestAttribute> csrAttributes) {

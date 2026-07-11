@@ -87,6 +87,9 @@ public final class RegisterWireBuilder {
         if (connectorSupportsStructured) {
             dto.setRequestContent(content);
         } else {
+            // No structured wire carries the content here, so anything the flat wire cannot represent would be
+            // silently dropped — fail closed rather than register an identity reduced below the operator's request.
+            assertFlatRepresentable(content);
             dto.setExtensions(renderFlatExtensions(content.getExtensions()));
         }
         return dto;
@@ -233,6 +236,35 @@ public final class RegisterWireBuilder {
             return null;
         }
         return "otherName:" + entry.getOtherNameOid() + ";UTF8:" + entry.getValue();
+    }
+
+    /**
+     * Fails closed when the request content carries an entry the flat register wire cannot represent — a non-DER
+     * extension value, or an otherName SAN with a non-UTF8 value encoding. Reached only for connectors without
+     * {@code CERTIFICATE_REQUEST_STRUCTURED}, where the flat renderers would otherwise drop such entries with only
+     * a warn log, reducing the registered identity below what the operator requested. Flat operator input never
+     * trips this — {@link #buildContent} forces DER extensions and UTF8 otherNames.
+     */
+    private static void assertFlatRepresentable(X509RequestContent content) {
+        if (content.getExtensions() != null) {
+            for (RequestedExtension ext : content.getExtensions()) {
+                if (ext.getEncoding() != null && ext.getEncoding() != ExtensionValueEncoding.DER) {
+                    throw new ValidationException(("Extension %s has %s value encoding, which the flat register wire "
+                            + "cannot represent; the authority must advertise CERTIFICATE_REQUEST_STRUCTURED")
+                            .formatted(ext.getOid(), ext.getEncoding()));
+                }
+            }
+        }
+        if (content.getSubjectAltNames() != null) {
+            for (GeneralNameEntry san : content.getSubjectAltNames()) {
+                if (san.getType() == GeneralNameType.OTHER_NAME
+                        && san.getValueEncoding() != null && san.getValueEncoding() != ExtensionValueEncoding.UTF8_STRING) {
+                    throw new ValidationException(("otherName SAN %s has %s value encoding, which the flat register "
+                            + "wire cannot represent; the authority must advertise CERTIFICATE_REQUEST_STRUCTURED")
+                            .formatted(san.getOtherNameOid(), san.getValueEncoding()));
+                }
+            }
+        }
     }
 
     private static List<CertificateExtension> renderFlatExtensions(List<RequestedExtension> extensions) {

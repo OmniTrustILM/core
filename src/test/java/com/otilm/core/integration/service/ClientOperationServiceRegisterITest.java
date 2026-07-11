@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -13,6 +14,13 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -20,6 +28,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
@@ -55,6 +64,7 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -125,6 +135,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // so the other register tests are unaffected.
     @MockitoBean
     private AttributeEngine attributeEngine;
+
+    // Mocked so the structured-register test supplies canned issuance definitions without a connector round-trip;
+    // the flat register tests never call resolve(), so the default no-op mock is inert for them.
+    @MockitoBean
+    private IssuanceDefinitionResolver issuanceDefinitionResolver;
 
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
@@ -567,6 +582,39 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
                 authorityParent, securedRaProfile, request));
         Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on an ambiguous request");
+    }
+
+    @Test
+    void registerProjectsStructuredCsrAttributesAndForwardsContent() throws Exception {
+        // Structured identity: a csrAttribute mapping the CN RDN. The orchestrator resolves definitions, projects
+        // the attributes once, derives the placeholder DN from that content, and forwards the content to register().
+        UUID cnUuid = UUID.randomUUID();
+        DataAttributeV3 cnDef = new DataAttributeV3();
+        cnDef.setUuid(cnUuid.toString());
+        cnDef.setName("commonName");
+        RdnMappedField rdn = new RdnMappedField();
+        rdn.setFieldType(FieldType.RDN);
+        rdn.setRdn("2.5.4.3");
+        FieldMapping fieldMapping = new FieldMapping();
+        fieldMapping.setFields(List.of(rdn));
+        cnDef.setFieldMapping(fieldMapping);
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(cnDef));
+
+        ArgumentCaptor<X509RequestContent> contentCaptor = ArgumentCaptor.forClass(X509RequestContent.class);
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), contentCaptor.capture()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(), CertificateType.X509));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9")))));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        // The projected structured content (subject from the attribute, not a flat DN) is forwarded to register().
+        Assertions.assertEquals("device-9", contentCaptor.getValue().getSubject().get(0).getValue());
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
     }
 
     @Test
