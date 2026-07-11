@@ -14,7 +14,7 @@ public class JsonFormatMapperTestConfig {
 
     @Bean
     HibernatePropertiesCustomizer jsonFormatMapperCustomizer(ObjectMapper objectMapper) {
-        return (properties) -> properties.put(AvailableSettings.JSON_FORMAT_MAPPER,
+        return properties -> properties.put(AvailableSettings.JSON_FORMAT_MAPPER,
                 new JacksonJsonFormatMapper(objectMapper));
     }
 }
