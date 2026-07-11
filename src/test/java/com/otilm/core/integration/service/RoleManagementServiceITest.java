@@ -7,12 +7,16 @@ import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.service.RoleManagementExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class RoleManagementServiceITest extends BaseSpringBootTest {
 
@@ -30,7 +34,7 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         // given
         String roleUuid = UUID.randomUUID().toString();
         RoleDetailDto roleDetailDto = roleDetailDto(roleUuid, false);
-        Mockito.when(roleManagementApiClient.updateRole(Mockito.eq(roleUuid), Mockito.any())).thenReturn(roleDetailDto);
+        when(roleManagementApiClient.updateRole(eq(roleUuid), any())).thenReturn(roleDetailDto);
 
         RoleRequestDto request = new RoleRequestDto();
         request.setName("test-role");
@@ -40,7 +44,7 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         roleManagementService.updateRole(roleUuid, request);
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
@@ -52,22 +56,22 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         roleManagementService.deleteRole(roleUuid);
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
     void addPermissions_evictsEntireCache() {
         // given
         String roleUuid = UUID.randomUUID().toString();
-        Mockito.when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
-        Mockito.when(roleManagementApiClient.savePermissions(Mockito.eq(roleUuid), Mockito.any()))
+        when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
+        when(roleManagementApiClient.savePermissions(eq(roleUuid), any()))
                 .thenReturn(new SubjectPermissionsDto());
 
         // when
         roleManagementService.addPermissions(roleUuid, new RolePermissionsRequestDto());
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
@@ -75,13 +79,13 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         // given
         String roleUuid = UUID.randomUUID().toString();
         String resourceUuid = UUID.randomUUID().toString();
-        Mockito.when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
+        when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
 
         // when
         roleManagementService.addResourcePermissionObjects(roleUuid, resourceUuid, List.of());
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
@@ -90,13 +94,13 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         String roleUuid = UUID.randomUUID().toString();
         String resourceUuid = UUID.randomUUID().toString();
         String objectUuid = UUID.randomUUID().toString();
-        Mockito.when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
+        when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
 
         // when
         roleManagementService.updateResourcePermissionObjects(roleUuid, resourceUuid, objectUuid, new ObjectPermissionsRequestDto());
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
@@ -105,27 +109,27 @@ class RoleManagementServiceITest extends BaseSpringBootTest {
         String roleUuid = UUID.randomUUID().toString();
         String resourceUuid = UUID.randomUUID().toString();
         String objectUuid = UUID.randomUUID().toString();
-        Mockito.when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
+        when(roleManagementApiClient.getRoleDetail(roleUuid)).thenReturn(roleDetailDto(roleUuid, false));
 
         // when
         roleManagementService.removeResourcePermissionObjects(roleUuid, resourceUuid, objectUuid);
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     @Test
     void updateUsers_evictsEntireCache() {
         // given
         String roleUuid = UUID.randomUUID().toString();
-        Mockito.when(roleManagementApiClient.updateUsers(Mockito.eq(roleUuid), Mockito.any()))
+        when(roleManagementApiClient.updateUsers(eq(roleUuid), any()))
                 .thenReturn(roleDetailDto(roleUuid, false));
 
         // when
         roleManagementService.updateUsers(roleUuid, List.of());
 
         // then
-        Mockito.verify(authenticationCache).evictAll();
+        verify(authenticationCache).evictAll();
     }
 
     private static RoleDetailDto roleDetailDto(String uuid, boolean systemRole) {
