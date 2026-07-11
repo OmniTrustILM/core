@@ -46,4 +46,13 @@ class StatusPollPropertiesTest {
                 List.of(Duration.ofSeconds(1), Duration.ofSeconds(3)), 10);
         assertEquals(Duration.ofSeconds(1), s.delayFor(0));
     }
+
+    @Test
+    void ceilingAttemptIsTheRampLength() {
+        StatusPollProperties.PollSchedule s = new StatusPollProperties.PollSchedule(
+                List.of(Duration.ofSeconds(1), Duration.ofSeconds(3)), 10);
+        // Resetting a row's attempt to this value keeps the next delay at the final (ceiling) entry.
+        assertEquals(2, s.ceilingAttempt());
+        assertEquals(s.delayFor(s.ceilingAttempt() + 1), s.delayFor(999));
+    }
 }
