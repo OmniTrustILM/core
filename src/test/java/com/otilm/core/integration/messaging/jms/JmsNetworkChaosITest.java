@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.integration.messaging.jms;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. RETRY COUNT ASSERTIONS: Verify number of retries, not timing
  * 4. CLEAR SEPARATION: Each test has a single responsibility
  */
-public class JmsNetworkChaosTest extends JmsResilienceTests {
+public class JmsNetworkChaosITest extends AbstractJmsResilienceITest {
 
     @Autowired
     private MessagingProperties messagingProperties;

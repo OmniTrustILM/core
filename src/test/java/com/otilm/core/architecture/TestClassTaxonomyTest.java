@@ -31,7 +31,7 @@ class TestClassTaxonomyTest {
     @Test
     void abstractBaseIsNotRunnable() {
         assertThat(TestClassTaxonomy.isRunnableTest(
-                TEST_ROOT.resolve("com/otilm/core/JmsResilienceTests.java"))).isFalse();
+                TEST_ROOT.resolve("com/otilm/core/integration/messaging/jms/AbstractJmsResilienceITest.java"))).isFalse();
     }
 
     @Test
