@@ -53,4 +53,11 @@ class CertificateStatusPollWriterTest {
 
         verify(pollRepository).deleteByCertificateUuid(CERT_UUID);
     }
+
+    @Test
+    void resetAttempt_delegatesToRepository() {
+        writer.resetAttempt(CERT_UUID, 6);
+
+        verify(pollRepository).resetAttemptTo(CERT_UUID, 6);
+    }
 }

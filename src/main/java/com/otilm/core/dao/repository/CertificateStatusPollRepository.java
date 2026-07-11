@@ -44,6 +44,13 @@ public interface CertificateStatusPollRepository extends JpaRepository<Certifica
                     @Param("attempt") int attempt,
                     @Param("nextPollAt") OffsetDateTime nextPollAt);
 
+    /**
+     * Lowers a poll row's attempt counter to {@code attempt} when it is currently above it.
+     */
+    @Modifying
+    @Query("UPDATE CertificateStatusPoll p SET p.attempt = :attempt WHERE p.certificateUuid = :certificateUuid AND p.attempt > :attempt")
+    void resetAttemptTo(@Param("certificateUuid") UUID certificateUuid, @Param("attempt") int attempt);
+
     @Modifying
     @Query("DELETE FROM CertificateStatusPoll p WHERE p.certificateUuid = :certificateUuid")
     void deleteByCertificateUuid(@Param("certificateUuid") UUID certificateUuid);
