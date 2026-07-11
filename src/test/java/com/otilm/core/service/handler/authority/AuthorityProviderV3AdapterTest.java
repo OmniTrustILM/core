@@ -534,9 +534,9 @@ class AuthorityProviderV3AdapterTest {
         when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(false);
         X509RequestContent content = new X509RequestContent();
         content.setExtensions(List.of(new RequestedExtension("1.2.3.4", false, ExtensionValueEncoding.UTF8_STRING, "Zm9v")));
+        ClientCertificateRegistrationDto req = new ClientCertificateRegistrationDto();
 
-        assertThrows(ValidationException.class,
-                () -> adapter.register(cert, new ClientCertificateRegistrationDto(), content));
+        assertThrows(ValidationException.class, () -> adapter.register(cert, req, content));
     }
 
     // ---- issueRegistered: register-bound issue ----

@@ -239,13 +239,18 @@ public final class RegisterWireBuilder {
     }
 
     /**
-     * Fails closed when the request content carries an entry the flat register wire cannot represent — a non-DER
-     * extension value, or an otherName SAN with a non-UTF8 value encoding. Reached only for connectors without
-     * {@code CERTIFICATE_REQUEST_STRUCTURED}, where the flat renderers would otherwise drop such entries with only
-     * a warn log, reducing the registered identity below what the operator requested. Flat operator input never
-     * trips this — {@link #buildContent} forces DER extensions and UTF8 otherNames.
+     * Fails closed when projected content cannot be represented on the flat register wire.
+     *
+     * <p>Rejects a non-DER extension value, or an otherName SAN with a non-UTF8 encoding — throwing
+     * rather than dropping it.
+     *
+     * <p><b>Only reached</b> for connectors without {@code CERTIFICATE_REQUEST_STRUCTURED}, where the
+     * flat renderers would otherwise silently drop such entries (warn-log only) and register an identity
+     * weaker than the operator asked for.
+     *
+     * <p>Flat operator input never trips this — {@link #buildContent} forces DER extensions and UTF8 otherNames.
      */
-    private static void assertFlatRepresentable(X509RequestContent content) {
+    public static void assertFlatRepresentable(X509RequestContent content) {
         if (content.getExtensions() != null) {
             for (RequestedExtension ext : content.getExtensions()) {
                 if (ext.getEncoding() != null && ext.getEncoding() != ExtensionValueEncoding.DER) {

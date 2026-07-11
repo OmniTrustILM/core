@@ -524,6 +524,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(
                     "csrAttributes did not yield a subject or subjectAltName for the pre-registration identity");
         }
+        // A connector without CERTIFICATE_REQUEST_STRUCTURED carries only the flat wire; content it cannot
+        // represent (a non-DER extension or non-UTF8 otherName that only structured csrAttributes can produce)
+        // is rejected here, before the placeholder, so a purely-local rejection leaves no row — uniform with the
+        // sibling rejectAmbiguousRegistrationIdentity and empty-projection validations. The adapter re-checks
+        // when it builds the flat wire, so this hoist is a consistency guard, not the sole enforcement.
+        if (!capabilityService.supports(raProfile.getAuthorityInstanceReference(), FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)) {
+            RegisterWireBuilder.assertFlatRepresentable(content);
+        }
         return content;
     }
 

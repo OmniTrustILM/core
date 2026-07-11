@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -620,15 +621,40 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Test
     void registerRejectsStructuredCsrAttributesThatProjectNoIdentity() throws Exception {
         // Unmapped/extension-only csrAttributes project to no subject and no SAN — reject before placeholder creation.
+        // The adapter must be register-capable so the flow passes the capability gate and actually reaches the
+        // empty-projection check (otherwise the gate's ValidationException would satisfy the assertion by accident).
+        registeringAdapter();
         when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of());
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
         request.setCsrAttributes(List.of(new RequestAttributeV3(UUID.randomUUID(), "unmapped",
                 AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("x")))));
 
-        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
-                authorityParent, securedRaProfile, request));
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().contains("did not yield a subject or subjectAltName"),
+                "must fail on the empty-projection check, not the upstream capability gate");
         Assertions.assertEquals(0, certificateRepository.count(),
                 "no placeholder should be persisted when structured identity projects empty");
+    }
+
+    @Test
+    void registerWrapsCsrAttributeValidationFailure() throws Exception {
+        // An AttributeException from the attribute engine's validation must surface as a client-facing
+        // ValidationException ("Invalid csrAttributes...") and leave no placeholder behind.
+        registeringAdapter();
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of());
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .validateUpdateDataAttributes(Mockito.any(), Mockito.any(), Mockito.anyList(), Mockito.anyList());
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(UUID.randomUUID(), "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9")))));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().startsWith("Invalid csrAttributes for certificate registration"),
+                "the AttributeException must be wrapped as a csrAttributes validation error");
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be persisted when csrAttributes validation fails");
     }
 
     @Test
