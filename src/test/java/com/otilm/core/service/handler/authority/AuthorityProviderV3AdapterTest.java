@@ -420,7 +420,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.register(eq(connectorInfo), any()))
                 .thenReturn(ResponseEntity.ok(body));
 
-        AdapterOperationResult result = adapter.register(cert, new ClientCertificateRegistrationDto());
+        AdapterOperationResult result = adapter.register(cert, new ClientCertificateRegistrationDto(), null);
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         verify(certClientV3).register(eq(connectorInfo), any());
@@ -446,7 +446,7 @@ class AuthorityProviderV3AdapterTest {
         body.setMeta(List.of());
         when(certClientV3.register(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
 
-        adapter.register(cert, req);
+        adapter.register(cert, req, null);
 
         ArgumentCaptor<CertificateRegistrationRequestDtoV3> captor =
                 ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
@@ -501,6 +501,27 @@ class AuthorityProviderV3AdapterTest {
         assertNotNull(wire.getAttributes());
         assertNotNull(wire.getAuthorityAttributes());
         assertNotNull(wire.getRaProfileAttributes());
+    }
+
+    // ---- register: forwards the orchestrator's pre-built identity content ----
+
+    @Test
+    void registerForwardsPreBuiltIdentityContentVerbatim() throws ConnectorException {
+        // Structured csrAttributes are projected by the orchestrator and handed in as identityContent; the adapter
+        // must forward it onto the structured wire without re-projecting.
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
+        X509RequestContent projected = new X509RequestContent();
+
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setMeta(List.of());
+        when(certClientV3.register(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
+
+        adapter.register(cert, new ClientCertificateRegistrationDto(), projected);
+
+        ArgumentCaptor<CertificateRegistrationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
+        verify(certClientV3).register(eq(connectorInfo), captor.capture());
+        assertSame(projected, captor.getValue().getRequestContent());
     }
 
     // ---- issueRegistered: register-bound issue ----

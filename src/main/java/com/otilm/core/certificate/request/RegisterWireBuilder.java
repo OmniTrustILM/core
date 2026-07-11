@@ -182,7 +182,11 @@ public final class RegisterWireBuilder {
 
     // ── flat-wire rendering ─────────────────────────────────────────────────
 
-    private static String renderSubjectDn(X509RequestContent content) {
+    /**
+     * Renders the RFC 4514 subject DN string for the given content, or null when it carries no subject.
+     * Shared with the register orchestrator so the persisted placeholder DN matches the wire anchor exactly.
+     */
+    public static String renderSubjectDn(X509RequestContent content) {
         if (content.getSubject() == null || content.getSubject().isEmpty()) {
             return null;
         }

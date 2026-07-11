@@ -1,4 +1,4 @@
-package com.otilm.core.service.v2.impl;
+package com.otilm.core.certificate.request;
 
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class ClientOperationServiceImplMergeTest {
+class IssuanceDefinitionResolverMergeTest {
 
     @Test
     void retainsUnmappedConnectorDefinition() {
@@ -22,7 +22,7 @@ class ClientOperationServiceImplMergeTest {
 
         // when
         List<DataAttributeV3> merged =
-                ClientOperationServiceImpl.mergeIssuanceDefinitions(defaults, List.of(unmapped), Map.of());
+                IssuanceDefinitionResolver.mergeIssuanceDefinitions(defaults, List.of(unmapped), Map.of());
 
         // then the unmapped connector definition survives the merge
         assertThat(merged).extracting(DataAttributeV3::getName).contains("connector-custom");
@@ -39,7 +39,7 @@ class ClientOperationServiceImplMergeTest {
 
         // when
         List<DataAttributeV3> merged =
-                ClientOperationServiceImpl.mergeIssuanceDefinitions(defaults, List.of(connectorCommonName), Map.of());
+                IssuanceDefinitionResolver.mergeIssuanceDefinitions(defaults, List.of(connectorCommonName), Map.of());
 
         // then the connector definition replaces the overlapping default; other defaults remain
         assertThat(merged)
@@ -56,7 +56,7 @@ class ClientOperationServiceImplMergeTest {
 
         // when — must not NPE while collecting claimed RDNs
         List<DataAttributeV3> merged =
-                ClientOperationServiceImpl.mergeIssuanceDefinitions(defaults, List.of(nullFields), Map.of());
+                IssuanceDefinitionResolver.mergeIssuanceDefinitions(defaults, List.of(nullFields), Map.of());
 
         // then the connector definition survives and no default is dropped
         assertThat(merged)
@@ -74,7 +74,7 @@ class ClientOperationServiceImplMergeTest {
 
         // when — normalizeRdn must tolerate a null codeToOid map
         List<DataAttributeV3> merged =
-                ClientOperationServiceImpl.mergeIssuanceDefinitions(defaults, List.of(connectorCommonName), null);
+                IssuanceDefinitionResolver.mergeIssuanceDefinitions(defaults, List.of(connectorCommonName), null);
 
         // then the connector definition still overrides the overlapping default
         assertThat(merged)

@@ -10,9 +10,6 @@ import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
-import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
-import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
-import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
@@ -38,11 +35,10 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.v2.*;
 import com.otilm.core.attribute.CertificateRequestAttributeProjector;
-import com.otilm.core.attribute.CsrAttributes;
+import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
-import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.X509RequestContentRenderer;
 import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -158,10 +154,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateStateMachine stateMachine;
     private ConnectorCapabilityService capabilityService;
     private ProtocolRequestAttributeValidator protocolRequestAttributeValidator;
+    private IssuanceDefinitionResolver issuanceDefinitionResolver;
 
     @Autowired
     public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
         this.protocolRequestAttributeValidator = protocolRequestAttributeValidator;
+    }
+
+    @Autowired
+    public void setIssuanceDefinitionResolver(IssuanceDefinitionResolver issuanceDefinitionResolver) {
+        this.issuanceDefinitionResolver = issuanceDefinitionResolver;
     }
 
     @Autowired
@@ -403,6 +405,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         if (request == null) {
             throw new ValidationException("A certificate registration request is required.");
         }
+        rejectAmbiguousRegistrationIdentity(request);
         // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
         // every association the adapter dereferences must be initialized before the session closes.
         RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
@@ -423,7 +426,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException("Certificate registration is not supported by the authority of RA profile %s.".formatted(raProfile.getName()));
         }
 
-        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, request);
+        // Project structured csrAttributes once (validated) so the placeholder DN and the connector wire derive
+        // from the same content; a flat request yields null here and the adapter builds its identity itself.
+        X509RequestContent registrationContent = buildStructuredRegistrationContent(raProfile, request);
+        String effectiveSubjectDn = registrationContent != null
+                ? RegisterWireBuilder.renderSubjectDn(registrationContent)
+                : request.getSubjectDn();
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
         // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
         // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
         // is not yet known to any concurrent actor, so the read-modify-write below cannot race.
@@ -433,7 +442,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         AdapterOperationResult result;
         try {
-            result = registerCapability.register(certificate, request);
+            result = registerCapability.register(certificate, request, registrationContent);
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector already accepted the registration (2xx/202); per the state-divergence rule local state
             // must NOT roll back — leave the cert PENDING_REGISTRATION so the poll or operator reconciles it.
@@ -473,6 +482,51 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData(result.certificateData() != null ? result.certificateData() : "");
         return response;
+    }
+
+    /**
+     * The pre-registration identity may be supplied structured (via {@code csrAttributes}) or flat (via
+     * subjectDn/subjectAltName/extensions), never both — the register handling owns this precedence
+     * (see the {@code ClientCertificateRegistrationDto} schema).
+     */
+    private static void rejectAmbiguousRegistrationIdentity(ClientCertificateRegistrationDto request) {
+        if (hasStructuredIdentity(request.getCsrAttributes()) && hasFlatIdentity(request)) {
+            throw new ValidationException(
+                    "Provide the pre-registration identity either via csrAttributes or the flat subjectDn/subjectAltName/extensions, not both");
+        }
+    }
+
+    /**
+     * Projects a structured pre-registration request ({@code csrAttributes}) into the register identity content,
+     * once and validated, so the placeholder DN and the connector wire derive from the same projection. Returns
+     * null for a flat request, whose identity the adapter builds from subjectDn/subjectAltName/extensions.
+     */
+    private X509RequestContent buildStructuredRegistrationContent(RaProfile raProfile, ClientCertificateRegistrationDto request)
+            throws ConnectorException, NotFoundException {
+        if (!hasStructuredIdentity(request.getCsrAttributes())) {
+            return null;
+        }
+        List<DataAttributeV3> definitions = issuanceDefinitionResolver.resolve(raProfile);
+        try {
+            attributeEngine.validateUpdateDataAttributes(null, null, definitions, request.getCsrAttributes());
+        } catch (AttributeException e) {
+            throw new ValidationException("Invalid csrAttributes for certificate registration: " + e.getMessage());
+        }
+        return CertificateRequestAttributeProjector.project(definitions, request.getCsrAttributes());
+    }
+
+    private static boolean hasStructuredIdentity(List<RequestAttribute> csrAttributes) {
+        return csrAttributes != null && csrAttributes.stream().anyMatch(Objects::nonNull);
+    }
+
+    private static boolean hasFlatIdentity(ClientCertificateRegistrationDto request) {
+        return isNotBlank(request.getSubjectDn())
+                || isNotBlank(request.getSubjectAltName())
+                || (request.getExtensions() != null && !request.getExtensions().isEmpty());
+    }
+
+    private static boolean isNotBlank(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
@@ -2012,72 +2066,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Merges connector-supplied v3 definitions with the static {@link CsrAttributes} default set.
-     * Connector definitions take precedence: any default definition whose {@code fieldMapping} targets
-     * overlap with a connector definition is dropped in favour of the connector one.
-     * Definitions without a {@code fieldMapping} (connector-specific fields) are always included.
-     */
-    private List<DataAttributeV3> resolveIssuanceDefinitions(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        List<DataAttributeV3> defaults = CsrAttributes.csrAttributesAsDataAttributesV3();
-        if (raProfile == null) {
-            return defaults;
-        }
-        var connectorAttrs = extendedAttributeService.listIssueCertificateAttributes(raProfile);
-        List<DataAttributeV3> connectorDefs = connectorAttrs.stream()
-                .filter(DataAttributeV3.class::isInstance)
-                .map(DataAttributeV3.class::cast)
-                .toList();
-        int droppedNonV3 = connectorAttrs.size() - connectorDefs.size();
-        if (droppedNonV3 > 0) {
-            logger.debug("Ignoring {} non-v3 connector issue attribute(s) for RA profile {}; structured CSR enrichment requires a v3 authority connector",
-                    droppedNonV3, raProfile.getName());
-        }
-        return mergeIssuanceDefinitions(defaults, connectorDefs, OidHandler.getCodeToOidMap());
-    }
-
-    /**
-     * Merges connector-supplied v3 definitions with the static default set. Connector definitions take
-     * precedence: any default whose RDN field mapping is also claimed by a connector definition is dropped.
-     * Connector definitions without a {@code fieldMapping} (connector-specific fields) carry no RDN claim
-     * and are always retained.
-     */
-    static List<DataAttributeV3> mergeIssuanceDefinitions(List<DataAttributeV3> defaults,
-                                                          List<DataAttributeV3> connectorDefs,
-                                                          Map<String, String> codeToOid) {
-        Set<String> claimedRdns = connectorDefs.stream()
-                .flatMap(d -> rdnFields(d).map(f -> normalizeRdn(f.getRdn(), codeToOid)))
-                .collect(java.util.stream.Collectors.toSet());
-
-        List<DataAttributeV3> filteredDefaults = defaults.stream()
-                .filter(d -> rdnFields(d)
-                        .map(f -> normalizeRdn(f.getRdn(), codeToOid))
-                        .noneMatch(claimedRdns::contains))
-                .toList();
-
-        List<DataAttributeV3> merged = new ArrayList<>(connectorDefs);
-        merged.addAll(filteredDefaults);
-        return merged;
-    }
-
-    /**
-     * Streams the RDN-typed mapped fields of a definition, tolerating connector payloads that carry a
-     * null {@code fieldMapping} or a mapping with null {@code fields}.
-     */
-    private static java.util.stream.Stream<RdnMappedField> rdnFields(DataAttributeV3 def) {
-        FieldMapping fm = def.getFieldMapping();
-        if (fm == null || fm.getFields() == null) {
-            return java.util.stream.Stream.empty();
-        }
-        return fm.getFields().stream()
-                .filter(f -> f.getFieldType() == FieldType.RDN)
-                .map(RdnMappedField.class::cast);
-    }
-
-    private static String normalizeRdn(String rdn, Map<String, String> codeToOid) {
-        return codeToOid == null ? rdn : codeToOid.getOrDefault(rdn, rdn);
-    }
-
-    /**
      * Parse the uploaded CSR into typed content and delegate request-attribute policy validation to the shared
      * {@link ProtocolRequestAttributeValidator}. A policy violation propagates as {@link RequestAttributePolicyViolationException} unchanged.
      */
@@ -2112,7 +2100,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 throw new ValidationException("Cannot generate certificate request without specifying RA profile");
             }
             // prefer connector-supplied v3 definitions (carry fieldMapping); fall back to a static CSR default set
-            List<DataAttributeV3> definitions = resolveIssuanceDefinitions(raProfile);
+            List<DataAttributeV3> definitions = issuanceDefinitionResolver.resolve(raProfile);
 
             // validate and update definitions of certificate request attributes with the attribute engine
             attributeEngine.validateUpdateDataAttributes(null, null, definitions, csrAttributes);
