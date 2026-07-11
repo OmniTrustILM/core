@@ -26,11 +26,6 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService {
         this.auditLogService = auditLogService;
     }
 
-    /**
-     * Checks if the OAuth2 provider is valid and has all required settings.
-     * @param settingsDto OAuth2 provider settings
-     * @return true if the provider is valid
-     */
     private boolean isOAuth2ProviderValid(OAuth2ProviderSettingsDto settingsDto) {
         return (settingsDto.getClientId() != null) &&
                 (settingsDto.getClientSecret() != null) &&
@@ -53,11 +48,6 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService {
                 .toList();
     }
 
-    /**
-     * Get OAuth2 provider settings by name
-     * @param providerName OAuth2 provider name
-     * @return OAuth2 provider settings or null if not found
-     */
     private OAuth2ProviderSettingsDto getOAuth2ProviderSettings(String providerName) {
         AuthenticationSettingsDto authenticationSettings = SettingsCache.getSettings(SettingsSection.AUTHENTICATION);
         if (authenticationSettings.getOAuth2Providers() == null) {
