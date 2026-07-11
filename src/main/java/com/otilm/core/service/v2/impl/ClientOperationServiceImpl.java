@@ -515,7 +515,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } catch (AttributeException e) {
             throw new ValidationException("Invalid csrAttributes for certificate registration: " + e.getMessage());
         }
-        return CertificateRequestAttributeProjector.project(definitions, csrAttributes);
+        X509RequestContent content = CertificateRequestAttributeProjector.project(definitions, csrAttributes);
+        boolean hasSubject = content.getSubject() != null && !content.getSubject().isEmpty();
+        boolean hasSan = content.getSubjectAltNames() != null && !content.getSubjectAltNames().isEmpty();
+        if (!hasSubject && !hasSan) {
+            // Optional/unmapped/extension-only csrAttributes can project to no subject and no SAN; reject
+            // locally rather than create a placeholder and register an identity-less certificate.
+            throw new ValidationException(
+                    "csrAttributes did not yield a subject or subjectAltName for the pre-registration identity");
+        }
+        return content;
     }
 
     private static boolean hasStructuredIdentity(List<RequestAttribute> csrAttributes) {

@@ -618,6 +618,20 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerRejectsStructuredCsrAttributesThatProjectNoIdentity() throws Exception {
+        // Unmapped/extension-only csrAttributes project to no subject and no SAN — reject before placeholder creation.
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of());
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(UUID.randomUUID(), "unmapped",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("x")))));
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be persisted when structured identity projects empty");
+    }
+
+    @Test
     void registerRejectsInvalidSubjectDn() {
         registeringAdapter();
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
