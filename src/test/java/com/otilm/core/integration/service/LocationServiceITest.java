@@ -42,7 +42,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -52,6 +51,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 class LocationServiceITest extends BaseSpringBootTest {
 
@@ -313,7 +313,8 @@ class LocationServiceITest extends BaseSpringBootTest {
     @Test
     void testAddLocation_validationFail() {
         AddLocationRequestDto request = new AddLocationRequestDto();
-        Assertions.assertThrows(ValidationException.class, () -> locationService.addLocation(entityInstanceReference.getSecuredParentUuid(), request));
+        var securedParentUuid = entityInstanceReference.getSecuredParentUuid();
+        Assertions.assertThrows(ValidationException.class, () -> locationService.addLocation(securedParentUuid, request));
     }
 
     @Test
@@ -384,7 +385,6 @@ class LocationServiceITest extends BaseSpringBootTest {
         Assertions.assertThrows(NotFoundException.class, () -> locationService.disableLocation(entityInstanceReference.getSecuredParentUuid(), SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
     }
 
-    // TODO: testing the location push, remove, issue, sync
     @Test
     void testPushCertificateToLocation_MultiNotSupported() {
         PushToLocationRequestDto request = new PushToLocationRequestDto();
@@ -593,7 +593,7 @@ class LocationServiceITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
 
         responseDto.setUuid(certificate.getUuid().toString());
-        Mockito.when(clientOperationService.issueCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.issueCertificate(any(), any(), any(), any())).thenReturn(responseDto);
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes")).willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr/attributes")).willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")).willReturn(WireMock.okJson("{}")));
@@ -659,7 +659,7 @@ class LocationServiceITest extends BaseSpringBootTest {
 
         ClientCertificateDataResponseDto responseDto = new ClientCertificateDataResponseDto();
         responseDto.setUuid(renewedCertificate.getUuid().toString());
-        Mockito.when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
+        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenReturn(responseDto);
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/csr")).willReturn(WireMock.okJson("{}")));
         mockServer.stubFor(WireMock.get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push/attributes")).willReturn(WireMock.okJson("[]")));

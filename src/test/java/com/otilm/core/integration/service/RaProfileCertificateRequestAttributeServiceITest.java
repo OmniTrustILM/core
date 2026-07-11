@@ -22,7 +22,6 @@ import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -31,6 +30,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTest {
 
@@ -116,7 +119,7 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         // given: a connector set with c1, and a static set with c1 (conflict) + s2 (static-only)
         RaProfile raProfile = newRaProfile();
         attachConnector(raProfile);
-        Mockito.when(extendedAttributeService.listIssueCertificateAttributes(Mockito.any()))
+        when(extendedAttributeService.listIssueCertificateAttributes(any()))
                 .thenReturn(List.of(def("c1", "connector-name")));
         writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("c1", "static-conflict"), def("s2", "static-only"))),
                 AttributeSetMergeMode.MERGE, null);
@@ -142,7 +145,7 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         List<BaseAttribute> resolved = service.resolveIssueAttributeSet(raProfile, AttributeSetMergeMode.MERGE);
 
         // then: the connector fetch is skipped gracefully (no NotFoundException) and only the static set resolves
-        Mockito.verify(extendedAttributeService, Mockito.never()).listIssueCertificateAttributes(Mockito.any());
+        verify(extendedAttributeService, never()).listIssueCertificateAttributes(any());
         assertThat(resolved).extracting(BaseAttribute::getName).containsExactly("static-only");
     }
 
@@ -151,7 +154,7 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
         // given: a stored static set whose persisted merge mode is STATIC_ONLY, plus a (would-be-winning) connector set
         RaProfile raProfile = newRaProfile();
         attachConnector(raProfile);
-        Mockito.when(extendedAttributeService.listIssueCertificateAttributes(Mockito.any()))
+        when(extendedAttributeService.listIssueCertificateAttributes(any()))
                 .thenReturn(List.of(def("c1", "connector-name")));
         writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("s1", "static-only"))),
                 AttributeSetMergeMode.STATIC_ONLY, null);

@@ -49,7 +49,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -60,6 +59,10 @@ import java.util.*;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.when;
 
 class ResourceServiceITest extends BaseSpringBootTest {
 
@@ -260,12 +263,12 @@ class ResourceServiceITest extends BaseSpringBootTest {
         scopedAccess.setActionAllowedForGroupOfObjects(false);
         scopedAccess.setAllowedObjects(List.of(inScopeUuid.toString()));
         scopedAccess.setForbiddenObjects(List.of());
-        Mockito.when(
+        when(
                 opaClient.checkObjectAccess(
-                        Mockito.any(),
-                        Mockito.argThat(req -> isObjectAccessRequestForResource(req, Resource.RA_PROFILE, ResourceAction.LIST)),
-                        Mockito.any(),
-                        Mockito.any()
+                        any(),
+                        argThat(req -> isObjectAccessRequestForResource(req, Resource.RA_PROFILE, ResourceAction.LIST)),
+                        any(),
+                        any()
                 )
         ).thenReturn(scopedAccess);
 
@@ -504,15 +507,15 @@ class ResourceServiceITest extends BaseSpringBootTest {
     void forbidGetResourceWithAuthorization() {
         OpaResourceAccessResult resourceAccessNotAllowed = new OpaResourceAccessResult(false, List.of());
 
-        Mockito.when(
-                opaClient.checkResourceAccess(Mockito.any(),
-                        Mockito.argThat(req -> isRequestForResourceAction(req, Resource.RA_PROFILE)), Mockito.any(), Mockito.any())
+        when(
+                opaClient.checkResourceAccess(any(),
+                        argThat(req -> isRequestForResourceAction(req, Resource.RA_PROFILE)), any(), any())
         ).thenReturn(resourceAccessNotAllowed);
 
-        Mockito.when(
-                opaClient.checkResourceAccess(Mockito.any(),  Mockito.argThat(req ->
+        when(
+                opaClient.checkResourceAccess(any(),  argThat(req ->
                         isRequestForResourceAction(req, Resource.SECRET)
-                ), Mockito.any(), Mockito.any())
+                ), any(), any())
         ).thenReturn(resourceAccessNotAllowed);
 
     }

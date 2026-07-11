@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.LocalDateTime;
+import java.time.Month;
 import java.util.Base64;
 import java.util.List;
 
@@ -140,8 +141,9 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
                 .withStatus(500)
                 .withBody("Internal Server Error")));
 
+        var securedUuid = SecuredUUID.fromString(TEST_UUID);
         ProvisioningException exception = assertThrows(ProvisioningException.class,
-            () -> trustedCertificateService.getTrustedCertificate(SecuredUUID.fromString(TEST_UUID)));
+            () -> trustedCertificateService.getTrustedCertificate(securedUuid));
 
         assertTrue(exception.getMessage().contains("Failed to get trusted certificate"));
     }
@@ -213,8 +215,9 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
                 .withStatus(500)
                 .withBody("Internal Server Error")));
 
+        var securedUuid = SecuredUUID.fromString(TEST_UUID);
         ProvisioningException exception = assertThrows(ProvisioningException.class,
-            () -> trustedCertificateService.deleteTrustedCertificate(SecuredUUID.fromString(TEST_UUID)));
+            () -> trustedCertificateService.deleteTrustedCertificate(securedUuid));
 
         assertTrue(exception.getMessage().contains("Failed to delete trusted certificate"));
     }
@@ -230,8 +233,8 @@ class TrustedCertificateServiceITest extends BaseSpringBootTest {
         byte[] contentA1 = "cert-A".getBytes();
         byte[] contentA2 = "cert-A".getBytes(); // distinct array instance, same content
         byte[] contentB = "cert-B".getBytes();
-        LocalDateTime notBefore = LocalDateTime.of(2024, 1, 1, 0, 0);
-        LocalDateTime notAfter = LocalDateTime.of(2025, 12, 31, 23, 59);
+        LocalDateTime notBefore = LocalDateTime.of(2024, Month.JANUARY, 1, 0, 0);
+        LocalDateTime notAfter = LocalDateTime.of(2025, Month.DECEMBER, 31, 23, 59);
 
         TrustedCertificateProvisioningDTO a1 = new TrustedCertificateProvisioningDTO(
                 TEST_UUID, contentA1, "CN=CA", "DNS:x", "1", "CN=x", "AB:CD", notBefore, notAfter);
