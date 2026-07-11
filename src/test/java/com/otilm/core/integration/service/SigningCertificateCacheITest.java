@@ -34,7 +34,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -48,6 +47,10 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * Verifies that {@code getSigningCertificate} maps the entity graph correctly, is cached (second call
@@ -188,13 +191,13 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
         Certificate cert = persistSigningCertificate();
         UUID uuid = cert.getUuid();
 
-        Mockito.clearInvocations(certificateRepository);
+        clearInvocations(certificateRepository);
 
         SigningCertificate first = certificateService.getSigningCertificate(uuid);
         SigningCertificate second = certificateService.getSigningCertificate(uuid);
 
         Assertions.assertEquals(first, second);
-        Mockito.verify(certificateRepository, Mockito.times(1))
+        verify(certificateRepository, times(1))
                 .findForSigningByUuid(uuid);
     }
 

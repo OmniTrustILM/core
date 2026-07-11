@@ -37,12 +37,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
 
 import java.time.Duration;
 import java.util.List;
@@ -79,7 +81,7 @@ class TimeQualityConfigurationServiceImplITest extends BaseSpringBootTest {
 
     @AfterEach
     void resetSpies() {
-        Mockito.reset(timeQualityConfigurationRepository, attributeEngine);
+        reset(timeQualityConfigurationRepository, attributeEngine);
     }
 
     @BeforeEach
@@ -350,8 +352,8 @@ class TimeQualityConfigurationServiceImplITest extends BaseSpringBootTest {
 
     @Test
     void create_translatesDbUniqueViolationToAlreadyExist() {
-        Mockito.doReturn(Optional.empty()).when(timeQualityConfigurationRepository).findByName("race-name");
-        Mockito.doThrow(new DataIntegrityViolationException("unique constraint violation"))
+        doReturn(Optional.empty()).when(timeQualityConfigurationRepository).findByName("race-name");
+        doThrow(new DataIntegrityViolationException("unique constraint violation"))
                .when(timeQualityConfigurationRepository).saveAndFlush(any(TimeQualityConfiguration.class));
 
         TimeQualityConfigurationRequestDto createRequest = buildCreateRequest("race-name");
@@ -362,8 +364,8 @@ class TimeQualityConfigurationServiceImplITest extends BaseSpringBootTest {
 
     @Test
     void update_translatesDbUniqueViolationToAlreadyExist() {
-        Mockito.doReturn(Optional.empty()).when(timeQualityConfigurationRepository).findByName("race-name");
-        Mockito.doThrow(new DataIntegrityViolationException("unique constraint violation"))
+        doReturn(Optional.empty()).when(timeQualityConfigurationRepository).findByName("race-name");
+        doThrow(new DataIntegrityViolationException("unique constraint violation"))
                .when(timeQualityConfigurationRepository).saveAndFlush(any(TimeQualityConfiguration.class));
 
         SecuredUUID uuid = savedConfiguration.getSecuredUuid();
@@ -594,7 +596,7 @@ class TimeQualityConfigurationServiceImplITest extends BaseSpringBootTest {
 
         // Throw a RuntimeException for the first item only, keyed by its UUID.
         // AttributeEngine is a concrete class so doCallRealMethod() works for the second item.
-        Mockito.doThrow(new DataIntegrityViolationException("simulated FK violation"))
+        doThrow(new DataIntegrityViolationException("simulated FK violation"))
                .when(attributeEngine).deleteObjectAttributeContent(Resource.TIME_QUALITY_CONFIGURATION, savedConfiguration.getUuid());
 
         List<BulkActionMessageDto> messages = timeQualityConfigurationService.bulkDeleteTimeQualityConfigurations(

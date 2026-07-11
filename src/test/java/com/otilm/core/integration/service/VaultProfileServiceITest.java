@@ -128,7 +128,8 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
         attribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
         requestDto.setCustomAttributes(List.of(attribute));
         Assertions.assertThrows(NotFoundException.class, () -> vaultProfileService.createVaultProfile(SecuredParentUUID.fromUUID(UUID.randomUUID()), requestDto));
-        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.createVaultProfile(SecuredParentUUID.fromUUID(vaultInstance.getUuid()), requestDto));
+        var parentUuid = SecuredParentUUID.fromUUID(vaultInstance.getUuid());
+        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.createVaultProfile(parentUuid, requestDto));
 
         vaultInstance.setConnector(connector);
         vaultInstance.setConnectorUuid(connector.getUuid());
@@ -156,7 +157,9 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
         attribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
         requestDto.setCustomAttributes(List.of(attribute));
 
-        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.updateVaultProfile(SecuredParentUUID.fromUUID(vaultInstance.getUuid()), SecuredUUID.fromUUID(vaultProfile.getUuid()), requestDto));
+        var parentUuid = SecuredParentUUID.fromUUID(vaultInstance.getUuid());
+        var securedUuid = SecuredUUID.fromUUID(vaultProfile.getUuid());
+        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.updateVaultProfile(parentUuid, securedUuid, requestDto));
 
         vaultInstance.setConnector(connector);
         vaultInstance.setConnectorUuid(connector.getUuid());
@@ -301,7 +304,9 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
         vaultInstance.setConnectorUuid(null);
         vaultInstanceRepository.save(vaultInstance);
 
-        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.listSecretAttributes(SecuredParentUUID.fromUUID(vaultInstance.getUuid()), SecuredUUID.fromUUID(vaultProfile.getUuid()), SecretType.GENERIC));
+        var parentUuid = SecuredParentUUID.fromUUID(vaultInstance.getUuid());
+        var securedUuid = SecuredUUID.fromUUID(vaultProfile.getUuid());
+        Assertions.assertThrows(ValidationException.class, () -> vaultProfileService.listSecretAttributes(parentUuid, securedUuid, SecretType.GENERIC));
     }
 
     @Test
