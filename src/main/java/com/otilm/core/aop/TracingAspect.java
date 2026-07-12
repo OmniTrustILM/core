@@ -5,6 +5,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.Tracer;
+import com.otilm.api.model.core.logging.Sensitive;
 import io.opentelemetry.context.Scope;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 
 @Aspect
 @Component
@@ -54,10 +56,16 @@ public class TracingAspect {
 
             String[] parameterNames = signature.getParameterNames();
             Object[] parameterValues = joinPoint.getArgs();
+            Parameter[] parameters = method.getParameters();
 
             // Add method parameters as span attributes
             for (int i = 0; i < parameterNames.length; i++) {
                 String paramName = parameterNames[i];
+                // A @Sensitive parameter (e.g. a raw secret) must never be recorded verbatim into a span.
+                if (i < parameters.length && parameters[i].isAnnotationPresent(Sensitive.class)) {
+                    span.setAttribute("function.param." + paramName, "***");
+                    continue;
+                }
                 Object paramValue = parameterValues[i];
                 span.setAttribute("function.param."+paramName, paramValue != null ? paramValue.toString() : "null");
             }
