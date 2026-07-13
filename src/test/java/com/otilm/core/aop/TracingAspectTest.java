@@ -28,6 +28,7 @@ class TracingAspectTest {
 
     @SuppressWarnings("unused") // reflected as the traced-method fixture
     private void sampleMethod(@Sensitive String secret, String visible) {
+        // Intentionally empty: only the signature and its parameter annotations are reflected by the aspect.
     }
 
     @Test
