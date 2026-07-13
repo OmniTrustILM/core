@@ -7,7 +7,6 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -45,10 +44,14 @@ public interface CertificateInternalService extends ResourceExtensionService {
 
     /**
      * Creates a no-CSR placeholder certificate for a v3 authority registration: an identity-only
-     * record (subject taken from the registration request) in state REQUESTED, created before any
-     * CSR exists. A later CSR-driven issuance completes the certificate against this placeholder.
+     * record in state REQUESTED, created before any CSR exists. A later CSR-driven issuance completes
+     * the certificate against this placeholder.
+     *
+     * @param effectiveSubjectDn the subject DN to persist — the flat {@code subjectDn} for a flat request,
+     *                           or the DN rendered from projected {@code csrAttributes} for a structured one
+     *                           (resolved by the caller so the placeholder matches the register wire identity)
      */
-    Certificate createRegistrationPlaceholder(RaProfile raProfile, ClientCertificateRegistrationDto request);
+    Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn);
 
     /**
      * Attaches an operator-supplied CSR to an existing certificate (a REGISTERED placeholder), preparing it

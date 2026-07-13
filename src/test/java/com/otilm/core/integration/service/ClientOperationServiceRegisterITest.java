@@ -1,7 +1,10 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -12,6 +15,13 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.CertificateOperationKind;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -19,6 +29,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
@@ -54,6 +65,7 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -125,6 +137,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @MockitoBean
     private AttributeEngine attributeEngine;
 
+    // Mocked so the structured-register test supplies canned issuance definitions without a connector round-trip;
+    // the flat register tests never call resolve(), so the default no-op mock is inert for them.
+    @MockitoBean
+    private IssuanceDefinitionResolver issuanceDefinitionResolver;
+
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
     private SecuredParentUUID authorityParent;
@@ -182,7 +199,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void syncRegistrationTransitionsToRegistered() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -193,7 +210,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void asyncRegistrationStaysPendingAndSchedulesRegisterPoll() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
 
         ClientCertificateDataResponseDto response = register();
@@ -216,7 +233,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void connectorFailureLeavesPlaceholderFailed() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
 
         Assertions.assertThrows(ConnectorException.class, this::register);
@@ -230,7 +247,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     void registerRuntimeFailureLeavesPlaceholderFailed() throws Exception {
         // A raw RuntimeException from register() is pre-acceptance per the RegisterCapability contract, so
         // the placeholder must be FAILED — not orphaned in PENDING_REGISTRATION with no transition.
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenThrow(new IllegalStateException("pre-acceptance failure"));
 
         Assertions.assertThrows(IllegalStateException.class, this::register);
@@ -285,7 +302,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     void asyncRegistrationSkipsPollWhenStatusPollingNotAdvertised() throws Exception {
         // Registration is advertised (proceeds), but status polling is not — the cert is left PENDING
         // with no poll scheduled (manual / out-of-band completion).
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
         when(capabilityService.supports(
                         Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
@@ -452,7 +469,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void registerStaysPendingWhenConnectorAcceptedButLocalFailureRaised() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed", new RuntimeException("boom")));
 
         Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
@@ -466,7 +483,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void sanOnlyRegistrationReachesRegistered() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
         request.setSubjectAltName("DNS:device-1.example.com"); // subject carried entirely in the SAN, no subjectDn
@@ -503,7 +520,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
                 Mockito.withSettings().extraInterfaces(RegisterCapability.class));
         when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
-        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any()))
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(null));
 
         ClientCertificateDataResponseDto response = register();
@@ -542,7 +559,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void registerPersistsConnectorMetadata() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
@@ -554,6 +571,90 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
         verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+    }
+
+    @Test
+    void registerRejectsBothFlatAndStructuredIdentity() {
+        // Precedence: the pre-registration identity is either structured (csrAttributes) or flat, never both.
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-1,O=Acme");
+        request.setCsrAttributes(List.of(mock(RequestAttribute.class)));
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on an ambiguous request");
+    }
+
+    @Test
+    void registerProjectsStructuredCsrAttributesAndForwardsContent() throws Exception {
+        // Structured identity: a csrAttribute mapping the CN RDN. The orchestrator resolves definitions, projects
+        // the attributes once, derives the placeholder DN from that content, and forwards the content to register().
+        UUID cnUuid = UUID.randomUUID();
+        DataAttributeV3 cnDef = new DataAttributeV3();
+        cnDef.setUuid(cnUuid.toString());
+        cnDef.setName("commonName");
+        RdnMappedField rdn = new RdnMappedField();
+        rdn.setFieldType(FieldType.RDN);
+        rdn.setRdn("2.5.4.3");
+        FieldMapping fieldMapping = new FieldMapping();
+        fieldMapping.setFields(List.of(rdn));
+        cnDef.setFieldMapping(fieldMapping);
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(cnDef));
+
+        ArgumentCaptor<X509RequestContent> contentCaptor = ArgumentCaptor.forClass(X509RequestContent.class);
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), contentCaptor.capture()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(), CertificateType.X509));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(cnUuid, "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9")))));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        // The projected structured content (subject from the attribute, not a flat DN) is forwarded to register().
+        Assertions.assertEquals("device-9", contentCaptor.getValue().getSubject().get(0).getValue());
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
+    void registerRejectsStructuredCsrAttributesThatProjectNoIdentity() throws Exception {
+        // Unmapped/extension-only csrAttributes project to no subject and no SAN — reject before placeholder creation.
+        // The adapter must be register-capable so the flow passes the capability gate and actually reaches the
+        // empty-projection check (otherwise the gate's ValidationException would satisfy the assertion by accident).
+        registeringAdapter();
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of());
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(UUID.randomUUID(), "unmapped",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("x")))));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().contains("did not yield a subject or subjectAltName"),
+                "must fail on the empty-projection check, not the upstream capability gate");
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be persisted when structured identity projects empty");
+    }
+
+    @Test
+    void registerWrapsCsrAttributeValidationFailure() throws Exception {
+        // An AttributeException from the attribute engine's validation must surface as a client-facing
+        // ValidationException ("Invalid csrAttributes...") and leave no placeholder behind.
+        registeringAdapter();
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of());
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .validateUpdateDataAttributes(Mockito.any(), Mockito.any(), Mockito.anyList(), Mockito.anyList());
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(new RequestAttributeV3(UUID.randomUUID(), "commonName",
+                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9")))));
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, request));
+        Assertions.assertTrue(ex.getMessage().startsWith("Invalid csrAttributes for certificate registration"),
+                "the AttributeException must be wrapped as a csrAttributes validation error");
+        Assertions.assertEquals(0, certificateRepository.count(),
+                "no placeholder should be persisted when csrAttributes validation fails");
     }
 
     @Test
@@ -604,7 +705,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void syncRegistrationPersistsRegisterIssueBinding() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -617,7 +718,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void asyncRegistrationPersistsBindingWithTrackingHandle() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(List.of(caHandle("trackingId", "t-1"))));
 
         ClientCertificateDataResponseDto response = register();
@@ -631,7 +732,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     void registrationWithoutMetaStillCreatesBinding() throws Exception {
         // The binding row's presence is the register-bound discriminator for the later issue,
         // independent of whether the connector returned a CA handle.
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
 
         ClientCertificateDataResponseDto response = register();
@@ -646,7 +747,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         // Post-acceptance divergence: the connector accepted the registration, so a failed binding
         // write must NOT roll certificate state back — it surfaces a clear error and leaves the cert
         // PENDING_REGISTRATION for reconciliation (the sync REGISTERED transition never runs).
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         doThrow(new IllegalStateException("db down")).when(registrationWriter)
                 .upsert(Mockito.any(), Mockito.any());
@@ -660,7 +761,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void rejectedRegistrationLeavesNoBinding() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
 
         Assertions.assertThrows(ConnectorException.class, this::register);
@@ -670,7 +771,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     private String registerSyncRegistered() throws Exception {
-        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         return register().getUuid();
     }

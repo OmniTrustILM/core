@@ -23,7 +23,6 @@ import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
-import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -1107,12 +1106,12 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Transactional
-    public Certificate createRegistrationPlaceholder(RaProfile raProfile, ClientCertificateRegistrationDto request) {
+    public Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn) {
         // Identity-only placeholder: no key/CSR/content yet. The authoritative subject, SAN and key
         // material are recorded when the follow-up CSR issuance completes against this record, so only
         // the subject DN identity from the registration request is captured here.
         Certificate certificate = new Certificate();
-        CertificateUtil.applyRegistrationSubject(certificate, request.getSubjectDn());
+        CertificateUtil.applyRegistrationSubject(certificate, effectiveSubjectDn);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
