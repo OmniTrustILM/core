@@ -40,6 +40,7 @@ import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.builders.AuthorityFixtures;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
@@ -77,6 +78,8 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private FunctionGroupRepository functionGroupRepository;
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
     @Autowired
@@ -185,7 +188,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                         }""")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName("testRaProfile2");
@@ -194,6 +197,49 @@ class RaProfileServiceITest extends ApprovalProfileData {
         RaProfileDto dto = raProfileService.addRaProfile(authorityInstanceReference.getSecuredParentUuid(), request);
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
+    }
+
+    @Test
+    void testAddRaProfile_connectorRejectsAttributes() {
+        // v2 adapter path: the connector's RA-profile /validate returning false must surface as
+        // ValidationException and abort the create before anything is persisted.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                .willReturn(WireMock.aResponse().withStatus(422)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[\"RA profile attributes validation failed\"]")));
+
+        AddRaProfileRequestDto request = new AddRaProfileRequestDto();
+        request.setName("testRaProfileRejected");
+        request.setAttributes(List.of());
+
+        SecuredParentUUID authorityInstanceUuid = authorityInstanceReference.getSecuredParentUuid();
+        Assertions.assertThrows(ValidationException.class, () -> raProfileService.addRaProfile(authorityInstanceUuid, request));
+        Assertions.assertTrue(raProfileRepository.findByName("testRaProfileRejected").isEmpty());
+    }
+
+    @Test
+    void testAddRaProfile_v3Authority() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        // v3 adapter path: definitions come from the stateless v3 endpoint and there is no
+        // connector-side /validate round-trip at all.
+        AuthorityFixtures.Fixture v3 = AuthorityFixtures.v3Authority(
+                new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
+                        connector2FunctionGroupRepository, authorityInstanceReferenceRepository,
+                        raProfileRepository, connectorInterfaceRepository),
+                mockServer);
+        mockServer.stubFor(WireMock
+                .any(WireMock.urlPathMatching("/v3/authorityProvider(/authorities)?/raProfile/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+
+        AddRaProfileRequestDto request = new AddRaProfileRequestDto();
+        request.setName("testRaProfileV3");
+        request.setAttributes(List.of());
+
+        RaProfileDto dto = raProfileService.addRaProfile(v3.authority().getSecuredParentUuid(), request);
+
+        Assertions.assertNotNull(dto);
+        Assertions.assertEquals(request.getName(), dto.getName());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlMatching(".*/validate")));
     }
 
     @Test
@@ -218,7 +264,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                 .willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         EditRaProfileRequestDto request = new EditRaProfileRequestDto();
         request.setDescription("some description");
