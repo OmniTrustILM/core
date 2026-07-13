@@ -331,8 +331,9 @@ class RegisterWireBuilderTest {
         }
 
         @Test
-        void flatSan_skipsOtherNameWithNonTextualEncoding() {
-            // given — a DER-encoded otherName value has no faithful flat-string form
+        void flatWire_rejectsOtherNameWithNonTextualEncoding() {
+            // A DER-encoded otherName has no faithful flat-string form; with no structured wire to carry it the
+            // flat register wire fails closed rather than silently dropping it.
             GeneralNameEntry derOtherName = new GeneralNameEntry();
             derOtherName.setType(GeneralNameType.OTHER_NAME);
             derOtherName.setOtherNameOid("1.3.6.1.4.1.311.20.2.3");
@@ -345,11 +346,8 @@ class RegisterWireBuilderTest {
             content.setCertificateType(CertificateType.X509);
             content.setSubjectAltNames(List.of(derOtherName, dns));
 
-            // when
-            CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(content, false);
-
-            // then — it is carried only on the structured wire; the flat string keeps the rest
-            assertThat(dto.getSubjectAltName()).isEqualTo("DNS:a.test");
+            assertThatThrownBy(() -> RegisterWireBuilder.buildRegistration(content, false))
+                    .isInstanceOf(ValidationException.class);
         }
 
         @Test
@@ -374,8 +372,9 @@ class RegisterWireBuilderTest {
         }
 
         @Test
-        void flatExtensions_skipNonDerEncodings() {
-            // given — a UTF8-encoded requested extension is not a DER blob and cannot ride the flat wire
+        void flatWire_rejectsNonDerExtension() {
+            // A UTF8-encoded requested extension is not a DER blob and cannot ride the flat wire; fail closed
+            // rather than silently drop it when the connector has no structured wire.
             RequestedExtension utf8 = new RequestedExtension();
             utf8.setOid("1.2.3.4.5");
             utf8.setCritical(false);
@@ -390,13 +389,8 @@ class RegisterWireBuilderTest {
             content.setCertificateType(CertificateType.X509);
             content.setExtensions(List.of(utf8, der));
 
-            // when
-            CertificateRegistrationRequestDtoV3 dto = RegisterWireBuilder.buildRegistration(content, false);
-
-            // then
-            assertThat(dto.getExtensions()).hasSize(1);
-            assertThat(dto.getExtensions().get(0).getOid()).isEqualTo("2.5.29.37");
-            assertThat(dto.getExtensions().get(0).isCritical()).isTrue();
+            assertThatThrownBy(() -> RegisterWireBuilder.buildRegistration(content, false))
+                    .isInstanceOf(ValidationException.class);
         }
 
         @Test

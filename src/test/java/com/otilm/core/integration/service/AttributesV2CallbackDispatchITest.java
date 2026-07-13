@@ -36,7 +36,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -46,6 +45,11 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 /**
  * #1621/#1622 — NG (dependsOn) dispatch routing + envelope + tx boundary.
@@ -190,15 +194,15 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         // Capture the tx state at the actual POST seam (the client's callback(...) invocation), not at the
         // factory getter — so the assertion fails if NOT_SUPPORTED is removed from the call that performs the POST.
         AtomicReference<Boolean> captured = new AtomicReference<>();
-        Mockito.doAnswer(getterInvocation -> {
+        doAnswer(getterInvocation -> {
             AttributesSyncApiClient realClient = (AttributesSyncApiClient) getterInvocation.callRealMethod();
-            AttributesSyncApiClient spyClient = Mockito.spy(realClient);
-            Mockito.doAnswer(callInvocation -> {
+            AttributesSyncApiClient spyClient = spy(realClient);
+            doAnswer(callInvocation -> {
                 captured.set(TransactionSynchronizationManager.isActualTransactionActive());
                 return callInvocation.callRealMethod();
-            }).when(spyClient).callback(Mockito.any(), Mockito.any());
+            }).when(spyClient).callback(any(), any());
             return spyClient;
-        }).when(connectorApiFactory).getAttributesApiClientV2(Mockito.any());
+        }).when(connectorApiFactory).getAttributesApiClientV2(any());
 
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName(ng.getName());
@@ -235,7 +239,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         Assertions.assertThrows(NotFoundException.class,
                 () -> callbackService.resourceCallback(Resource.RA_PROFILE, authority.getUuid().toString(), req));
 
-        Mockito.verify(scopeResolver, Mockito.never()).resolveScopeChain(Mockito.any(), Mockito.any(), Mockito.any());
+        verify(scopeResolver, never()).resolveScopeChain(any(), any(), any());
     }
 
     @Test

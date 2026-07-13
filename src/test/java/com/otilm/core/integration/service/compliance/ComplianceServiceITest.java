@@ -253,7 +253,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
         CryptographicKey key = cryptographicKeyRepository.findWithAssociationsByUuid(certificate.getKeyUuid()).orElseThrow();
         CryptographicKeyItem keyItem = key.getItems().iterator().next();
 
-        Assertions.assertEquals(key.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid()).getValue(),
+        Assertions.assertEquals(key.getUuid(), complianceExternalService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid()).getValue(),
                 "A key item must be authorized against its owning key, not its own UUID");
         key.setTokenProfileUuid(tokenProfile.getUuid());
         cryptographicKeyRepository.save(key);
@@ -346,23 +346,23 @@ class ComplianceServiceITest extends BaseComplianceTest {
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
         Assertions.assertNotEquals(lastUpdated, complianceCheckResult.getTimestamp());
 
-        Assertions.assertEquals(secret.getUuid(), complianceService.resolveComplianceAuthorizableObject(Resource.SECRET, secret.getUuid()).getValue(),
+        Assertions.assertEquals(secret.getUuid(), complianceExternalService.resolveComplianceAuthorizableObject(Resource.SECRET, secret.getUuid()).getValue(),
                 "A secret is authorized against its own UUID");
     }
 
     @Test
     void resolveComplianceAuthorizableObjectMapsToOwningAuthorizableObject() {
         UUID certificateUuid = UUID.randomUUID();
-        Assertions.assertEquals(certificateUuid, complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, certificateUuid).getValue(),
+        Assertions.assertEquals(certificateUuid, complianceExternalService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, certificateUuid).getValue(),
                 "A certificate is authorized against its own UUID");
 
-        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
+        Assertions.assertNull(complianceExternalService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
                 "A certificate request has no stable owning object; authorization is resource-level (null)");
 
-        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()),
+        Assertions.assertNull(complianceExternalService.resolveComplianceAuthorizableObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()),
                 "An unknown key item resolves to null (resource-level); the body then throws NotFound post-authorization");
 
-        Assertions.assertNull(complianceService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, null),
+        Assertions.assertNull(complianceExternalService.resolveComplianceAuthorizableObject(Resource.CERTIFICATE, null),
                 "A null object UUID resolves to null (resource-level)");
     }
 

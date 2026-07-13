@@ -27,6 +27,7 @@ import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -34,7 +35,6 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
-import com.otilm.core.service.PermissionEvaluator;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -75,7 +75,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     private CryptographicKeyEventHistoryService eventHistoryService;
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInternalService connectorService;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private CryptographicKeyInternalService cryptographicKeyService;
 
     // --------------------------------------------------------------------------------
@@ -97,8 +97,8 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -134,7 +134,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list cipher attributes for Key: {} and Algorithm {}", keyItemUuid, keyAlgorithm);
         CryptographicKeyItem key = getKeyItemEntity(keyItemUuid);
         logger.debug("Key details: {}", key);
@@ -145,7 +145,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENCRYPT, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Request to encrypt the data using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
@@ -202,7 +202,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DECRYPT, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Decrypting using the key: {} and data: {}", keyItemUuid, request);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
@@ -258,7 +258,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Requesting to list the Signature Attributes for key: {} and Algorithm: {}", keyItemUuid, keyAlgorithm);
         CryptographicKeyItem key = getKeyItemEntity(keyItemUuid);
         logger.debug("Key details: {}", key);
@@ -269,7 +269,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Signing the data: {} using the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         try {
@@ -286,7 +286,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Signing the data (no event history): {} using the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         return executeSignData(key, request);
@@ -335,7 +335,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.VERIFY, parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional
     public VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, VerifyDataRequestDto request) throws ConnectorException, NotFoundException {
-        permissionEvaluator.tokenProfile(tokenProfileUuid);
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Request to verify data: {} for the key: {}", request, keyItemUuid);
         CryptographicKeyItemModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         verifyActive(key.keyState(), key.enabled());
@@ -463,8 +463,7 @@ public class CryptographicOperationServiceImpl implements CryptographicOperation
     }
 
     private Map<KeyType, CryptographicKeyItem> getPublicAndPrivateKey(UUID tokenProfileUuid, UUID keyUuid) throws NotFoundException {
-        // Check the Permission of the token profile to the user
-        permissionEvaluator.tokenProfile(SecuredUUID.fromUUID(tokenProfileUuid));
+        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenProfileUuid));
         CryptographicKey key = cryptographicKeyRepository.findByUuid(
                 keyUuid).orElseThrow(
                 () -> new NotFoundException(

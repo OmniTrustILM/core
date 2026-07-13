@@ -37,6 +37,7 @@ import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -79,7 +80,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
 
     private AttributeEngine attributeEngine;
     private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
 
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
@@ -141,8 +142,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -425,7 +426,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     public void deleteSecret(UUID uuid, boolean deleteInVaults) throws NotFoundException {
         Secret secret = secretRepository.findByUuid(SecuredUUID.fromUUID(uuid))
                 .orElseThrow(() -> new NotFoundException(Secret.class, uuid));
-        permissionEvaluator.vaultProfileMembers(SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
+        authorizationEnforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
         SecretActionData actionData = SecretActionData.builder()
                 .deleteInVault(deleteInVaults)
                 .originalState(secret.getState())
@@ -522,7 +523,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
 
         VaultProfile addedVaultProfile = vaultProfileRepository.findByUuid(SecuredUUID.fromUUID(vaultProfileUuid))
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, vaultProfileUuid));
-        permissionEvaluator.vaultProfileMembers(SecuredUUID.fromUUID(addedVaultProfile.getUuid()));
+        authorizationEnforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(addedVaultProfile.getUuid()));
         SecretRequestDto createSecretRequestDto = new SecretRequestDto();
         createSecretRequestDto.setName(secret.getName());
         createSecretRequestDto.setAttributes(createSecretAttributes);
@@ -586,7 +587,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private Secret getSecretEntity(UUID uuid) throws NotFoundException {
         Secret secret = secretRepository.findWithAssociationsByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(Secret.class, uuid));
-        permissionEvaluator.vaultProfileMembers(SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
+        authorizationEnforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
         return secret;
     }
 
@@ -686,8 +687,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
             throw new ValidationException("Secret %s is in state %s and source vault profile cannot be updated".formatted(secret.getName(), secret.getState().getLabel()));
         }
         UUID currentSourceVaultProfileUuid = secret.getSourceVaultProfile().getUuid();
-        // Evaluate vault profile membership for current source profile
-        permissionEvaluator.vaultProfileMembers(SecuredUUID.fromUUID(currentSourceVaultProfileUuid));
+        authorizationEnforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(currentSourceVaultProfileUuid));
         VaultProfile currentSourceVaultProfile = secret.getSourceVaultProfile();
 
         boolean sourceVaultProfileChanged = !request.getSourceVaultProfileUuid().equals(currentSourceVaultProfileUuid);
@@ -710,7 +710,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         VaultProfile currentSourceVaultProfile = secret.getSourceVaultProfile();
         VaultProfile updatedSourceVaultProfile = vaultProfileRepository.findByUuid(SecuredUUID.fromUUID(request.getSourceVaultProfileUuid()))
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, request.getSourceVaultProfileUuid()));
-        permissionEvaluator.vaultProfileMembers(SecuredUUID.fromUUID(request.getSourceVaultProfileUuid()));
+        authorizationEnforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(request.getSourceVaultProfileUuid()));
 
         SecretVersion newVersion = new SecretVersion();
         newVersion.setSecret(secret);

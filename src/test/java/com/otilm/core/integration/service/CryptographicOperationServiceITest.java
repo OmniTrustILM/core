@@ -204,13 +204,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
         Assertions.assertFalse(attributes.isEmpty());
 
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> cryptographicOperationService.listCipherAttributes(
-                        tokenInstanceReference.getSecuredParentUuid(),
-                        tokenProfile.getSecuredUuid(),
-                        key.getUuid(),
-                        content1.getUuid(),
+                        parentUuid,
+                        profileUuid,
+                        keyUuid,
+                        itemUuid,
                         KeyAlgorithm.ECDSA
                 ));
     }
@@ -306,21 +310,25 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
                 )
                 .willReturn(WireMock.okJson("{}")));
 
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(ValidationException.class, () -> cryptographicOperationService.encryptData(
-                tokenInstanceReference.getSecuredParentUuid(),
-                tokenProfile.getSecuredUuid(),
-                key.getUuid(),
-                content1.getUuid(),
+                parentUuid,
+                profileUuid,
+                keyUuid,
+                itemUuid,
                 requestDto
         ));
 
         requestDto.setCipherData(List.of(data));
 
         Assertions.assertDoesNotThrow(() -> cryptographicOperationService.encryptData(
-                tokenInstanceReference.getSecuredParentUuid(),
-                tokenProfile.getSecuredUuid(),
-                key.getUuid(),
-                content1.getUuid(),
+                parentUuid,
+                profileUuid,
+                keyUuid,
+                itemUuid,
                 requestDto
         ));
     }
@@ -366,13 +374,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @Test
     void testEncryptValidationError() {
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> cryptographicOperationService.encryptData(
-                        tokenInstanceReference.getSecuredParentUuid(),
-                        tokenProfile.getSecuredUuid(),
-                        key.getUuid(),
-                        content1.getUuid(),
+                        parentUuid,
+                        profileUuid,
+                        keyUuid,
+                        itemUuid,
                         new CipherDataRequestDto()
                 )
         );
@@ -446,13 +458,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @Test
     void testDecryptValidationError() {
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> cryptographicOperationService.decryptData(
-                        tokenInstanceReference.getSecuredParentUuid(),
-                        tokenProfile.getSecuredUuid(),
-                        key.getUuid(),
-                        content1.getUuid(),
+                        parentUuid,
+                        profileUuid,
+                        keyUuid,
+                        itemUuid,
                         new CipherDataRequestDto()
                 )
         );
@@ -670,13 +686,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @Test
     void testSignValidationError() {
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> cryptographicOperationService.signData(
-                        tokenInstanceReference.getSecuredParentUuid(),
-                        tokenProfile.getSecuredUuid(),
-                        key.getUuid(),
-                        content1.getUuid(),
+                        parentUuid,
+                        profileUuid,
+                        keyUuid,
+                        itemUuid,
                         new SignDataRequestDto()
                 )
         );
@@ -765,13 +785,17 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @Test
     void testVerifyValidationError() {
+        var parentUuid = tokenInstanceReference.getSecuredParentUuid();
+        var profileUuid = tokenProfile.getSecuredUuid();
+        var keyUuid = key.getUuid();
+        var itemUuid = content1.getUuid();
         Assertions.assertThrows(
                 ValidationException.class,
                 () -> cryptographicOperationService.verifyData(
-                        tokenInstanceReference.getSecuredParentUuid(),
-                        tokenProfile.getSecuredUuid(),
-                        key.getUuid(),
-                        content1.getUuid(),
+                        parentUuid,
+                        profileUuid,
+                        keyUuid,
+                        itemUuid,
                         new VerifyDataRequestDto()
                 )
         );
