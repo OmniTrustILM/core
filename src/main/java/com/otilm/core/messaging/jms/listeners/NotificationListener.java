@@ -506,7 +506,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 // Informational only — the credential is delivered on the external-provider path and must never be
                 // written here (this text/detail is persisted to the notifications table).
                 yield new InternalNotificationEventData("Certificate identified as '%s' has been pre-registered".formatted(data.getSubjectDn()),
-                        data.getIssuanceDeadline() == null ? null : "Issuance must be completed by %s".formatted(data.getIssuanceDeadline()));
+                        data.getCompletionDeadline() == null ? null : "Issuance must be completed by %s".formatted(data.getCompletionDeadline()));
             }
         };
     }

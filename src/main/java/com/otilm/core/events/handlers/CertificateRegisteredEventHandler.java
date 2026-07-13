@@ -42,7 +42,7 @@ public class CertificateRegisteredEventHandler extends CertificateEventsHandler 
         // external provider. It is excluded from the event-data toString and from the internal notification text.
         registrationAuthorizationRepository.findByCertificateUuid(certificate.getUuid()).ifPresent(authorization -> {
             if (authorization.getExpiresAt() != null) {
-                eventData.setIssuanceDeadline(authorization.getExpiresAt().toZonedDateTime());
+                eventData.setCompletionDeadline(authorization.getExpiresAt().toZonedDateTime());
             }
             eventData.setCredential(registrationChallengeStore.resolvePlaintext(authorization));
         });

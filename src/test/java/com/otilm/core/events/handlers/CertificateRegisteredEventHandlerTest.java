@@ -44,7 +44,7 @@ class CertificateRegisteredEventHandlerTest {
         CertificateRegisteredEventData data = (CertificateRegisteredEventData) handler.getEventData(certificate, null);
 
         assertEquals("s3cret-challenge", data.getCredential(), "credential is recovered for external delivery");
-        assertNotNull(data.getIssuanceDeadline(), "issuance deadline comes from the authorization");
+        assertNotNull(data.getCompletionDeadline(), "completion deadline comes from the authorization");
         assertEquals("CN=device-7", data.getSubjectDn());
         assertFalse(data.toString().contains("s3cret-challenge"), "credential must not leak via the event-data toString");
     }
@@ -59,6 +59,6 @@ class CertificateRegisteredEventHandlerTest {
         CertificateRegisteredEventData data = (CertificateRegisteredEventData) handler.getEventData(certificate, null);
 
         assertNull(data.getCredential());
-        assertNull(data.getIssuanceDeadline());
+        assertNull(data.getCompletionDeadline());
     }
 }
