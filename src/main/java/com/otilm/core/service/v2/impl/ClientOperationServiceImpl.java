@@ -67,7 +67,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
-import com.otilm.core.service.impl.SettingServiceImpl;
+import com.otilm.core.service.registration.CertificateRegistrationDefaults;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -600,18 +600,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ? platformSettings.getCertificates().getRegistration() : null;
     }
 
-    // The fallbacks below use the single canonical defaults in SettingServiceImpl (the value the settings API
-    // reports and persists) so the value applied on a cache miss cannot drift from the operator-visible default.
+    // The fallbacks below use the single canonical defaults (the value the settings API reports and persists) so
+    // the value applied on a cache miss cannot drift from the operator-visible default.
     private int registrationWindowDays() {
         CertificateRegistrationSettingsDto settings = registrationSettings();
         return settings != null && settings.getDefaultIssuanceWindowDays() != null
-                ? settings.getDefaultIssuanceWindowDays() : SettingServiceImpl.DEFAULT_REGISTRATION_WINDOW_DAYS;
+                ? settings.getDefaultIssuanceWindowDays() : CertificateRegistrationDefaults.ISSUANCE_WINDOW_DAYS;
     }
 
     private int maxFailedRegistrationAttempts() {
         CertificateRegistrationSettingsDto settings = registrationSettings();
         return settings != null && settings.getMaxFailedAttempts() != null
-                ? settings.getMaxFailedAttempts() : SettingServiceImpl.DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS;
+                ? settings.getMaxFailedAttempts() : CertificateRegistrationDefaults.MAX_FAILED_ATTEMPTS;
     }
 
     private void maybeCreateRegistrationAuthorization(Certificate certificate, ClientCertificateRegistrationDto request) {

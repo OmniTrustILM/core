@@ -20,6 +20,7 @@ import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SettingInternalService;
 import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.service.registration.CertificateRegistrationDefaults;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.settings.SettingsCache;
@@ -52,8 +53,6 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CBOM_REPOSITORY_URL_NAME = "cbomRepositoryUrl";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
-    public static final int DEFAULT_REGISTRATION_WINDOW_DAYS = 7;
-    public static final int DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS = 5;
 
     public static final String LOGGING_AUDIT_LOG_OUTPUT_NAME = "output";
     public static final String LOGGING_AUDIT_LOG_VERBOSE_NAME = "verbose";
@@ -157,8 +156,8 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         certificateSettingsDto.setRequestAttributes(readRequestAttributesSettings(certificateSettings));
 
         CertificateRegistrationSettingsDto defaultRegistrationSettings = new CertificateRegistrationSettingsDto();
-        defaultRegistrationSettings.setDefaultIssuanceWindowDays(DEFAULT_REGISTRATION_WINDOW_DAYS);
-        defaultRegistrationSettings.setMaxFailedAttempts(DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS);
+        defaultRegistrationSettings.setDefaultIssuanceWindowDays(CertificateRegistrationDefaults.ISSUANCE_WINDOW_DAYS);
+        defaultRegistrationSettings.setMaxFailedAttempts(CertificateRegistrationDefaults.MAX_FAILED_ATTEMPTS);
         if (certificateSettings != null && certificateSettings.get(CERTIFICATES_REGISTRATION_SETTINGS_NAME) != null) {
             try {
                 certificateSettingsDto.setRegistration(objectMapper.readValue(certificateSettings.get(CERTIFICATES_REGISTRATION_SETTINGS_NAME).getValue(), CertificateRegistrationSettingsDto.class));
