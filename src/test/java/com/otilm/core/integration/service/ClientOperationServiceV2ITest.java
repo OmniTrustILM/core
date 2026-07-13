@@ -15,6 +15,7 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -378,6 +379,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
         Assertions.assertDoesNotThrow(() -> clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
     }
 
@@ -1317,6 +1319,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
 
         Assertions.assertDoesNotThrow(() ->
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
@@ -1338,6 +1341,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
 
         Assertions.assertDoesNotThrow(() ->
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
@@ -1358,6 +1362,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
 
         Assertions.assertDoesNotThrow(() ->
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
@@ -1383,6 +1388,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
+        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
 
         Assertions.assertDoesNotThrow(() ->
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
