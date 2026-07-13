@@ -67,6 +67,7 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
@@ -163,6 +164,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private IssuanceDefinitionResolver issuanceDefinitionResolver;
     private RegistrationChallengeStore registrationChallengeStore;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     @Autowired
     public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
@@ -177,6 +179,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
     }
 
     @Autowired
@@ -599,15 +606,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     private void deleteRegistrationAuthorizationBestEffort(UUID certificateUuid) {
-        // registerCertificate is NOT_SUPPORTED and the repository carries no @Transactional, so the modifying
-        // delete needs its own transaction. Best-effort: swallow a cleanup failure so it never masks the caller's
-        // registration failure. A no-op when there is no authorization row (e.g. a registration with no challenge).
-        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        // The writer opens its own transaction (registerCertificate is NOT_SUPPORTED). Best-effort: swallow a
+        // cleanup failure so it never masks the caller's registration failure. A no-op when there is no
+        // authorization row (e.g. a registration with no challenge).
         try {
-            registrationAuthorizationRepository.deleteByCertificateUuid(certificateUuid);
-            transactionManager.commit(tx);
+            registrationAuthorizationWriter.deleteByCertificateUuid(certificateUuid);
         } catch (RuntimeException e) {
-            transactionManager.rollback(tx);
             logger.warn("Failed to remove the registration authorization for failed certificate {}: {}", certificateUuid, e.getMessage());
         }
     }
