@@ -15,6 +15,7 @@ import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.*;
+import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.SecuredResource;
@@ -152,6 +153,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     }
 
     @Override
+    @AnyPrincipalEndpoint
     public SecuredUUID resolveComplianceAuthorizableObject(Resource resource, UUID objectUuid) {
         if (objectUuid == null) {
             return null;

@@ -7,9 +7,7 @@ import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDt
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.auth.oauth2.v2.OAuth2LoginControllerImpl;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
-import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginExternalService;
-import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
 import com.otilm.core.util.OAuth2LoginFlowHelper;
@@ -33,23 +31,11 @@ import java.util.List;
 @Controller
 public class LoginController {
 
-    private AuditLogInternalService auditLogService;
     private OAuth2LoginExternalService oauth2LoginService;
-    private OAuth2LoginInternalService oauth2LoginInternalService;
-
-    @Autowired
-    public void setAuditLogService(AuditLogInternalService auditLogService) {
-        this.auditLogService = auditLogService;
-    }
 
     @Autowired
     public void setOauth2LoginService(OAuth2LoginExternalService oauth2LoginService) {
         this.oauth2LoginService = oauth2LoginService;
-    }
-
-    @Autowired
-    public void setOauth2LoginInternalService(OAuth2LoginInternalService oauth2LoginInternalService) {
-        this.oauth2LoginInternalService = oauth2LoginInternalService;
     }
 
     /**
@@ -129,7 +115,7 @@ public class LoginController {
             request.getSession(true).setAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE, baseUrl + validatedRedirectUrl);
         }
 
-        OAuth2ProviderSettingsDto providerSettings = OAuth2LoginFlowHelper.resolveProviderOrThrow(provider, request, oauth2LoginInternalService, auditLogService);
+        OAuth2ProviderSettingsDto providerSettings = oauth2LoginService.resolveProviderOrThrow(provider, OAuth2LoginFlowHelper.getSessionAccessToken(request));
 
         if (request.getSession(false) == null || request.getSession().getAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE) == null) {
             throw new PlatformAuthenticationException("Missing redirect URL. Please start the login from the beginning.");

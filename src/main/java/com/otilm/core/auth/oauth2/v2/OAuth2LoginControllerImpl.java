@@ -2,14 +2,10 @@ package com.otilm.core.auth.oauth2.v2;
 
 import com.otilm.api.interfaces.core.web.v2.OAuth2LoginController;
 import com.otilm.api.model.core.auth.LoginProviderDto;
-import com.otilm.api.model.core.logging.enums.Operation;
-import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.util.OAuth2LoginFlowHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
-import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.v2.OAuth2LoginExternalService;
-import com.otilm.core.service.v2.OAuth2LoginInternalService;
 import com.otilm.core.util.OAuth2Constants;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -27,23 +23,11 @@ import java.util.List;
 @Slf4j
 public class OAuth2LoginControllerImpl implements OAuth2LoginController {
 
-    private AuditLogInternalService auditLogService;
     private OAuth2LoginExternalService oauth2LoginService;
-    private OAuth2LoginInternalService oauth2LoginInternalService;
 
     @Autowired
     public void setOauth2LoginService(OAuth2LoginExternalService oauth2LoginService) {
         this.oauth2LoginService = oauth2LoginService;
-    }
-
-    @Autowired
-    public void setAuditLogService(AuditLogInternalService auditLogService) {
-        this.auditLogService = auditLogService;
-    }
-
-    @Autowired
-    public void setOauth2LoginInternalService(OAuth2LoginInternalService oauth2LoginInternalService) {
-        this.oauth2LoginInternalService = oauth2LoginInternalService;
     }
 
     @Override
@@ -81,17 +65,12 @@ public class OAuth2LoginControllerImpl implements OAuth2LoginController {
                 .build()
                 .toUriString();
 
-        String validatedRedirectUrl = oauth2LoginService.validateAndNormalizeRedirect(redirect);
-        if (validatedRedirectUrl == null) {
-            String errorMessage = "Missing or invalid redirect URL. Please start the login from the beginning.";
-            auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, errorMessage, null);
-            throw new PlatformAuthenticationException(errorMessage);
-        }
+        String validatedRedirectUrl = oauth2LoginService.validateRedirectOrThrow(redirect);
 
         HttpServletRequest request = getHttpServletRequest();
         request.getSession(true).setAttribute(OAuth2Constants.REDIRECT_URL_SESSION_ATTRIBUTE, baseUrl + validatedRedirectUrl);
 
-        OAuth2ProviderSettingsDto providerSettings = OAuth2LoginFlowHelper.resolveProviderOrThrow(provider, request, oauth2LoginInternalService, auditLogService);
+        OAuth2ProviderSettingsDto providerSettings = oauth2LoginService.resolveProviderOrThrow(provider, OAuth2LoginFlowHelper.getSessionAccessToken(request));
 
         request.getSession().setAttribute(OAuth2Constants.SERVLET_CONTEXT_SESSION_ATTRIBUTE, ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath());
         request.getSession().setMaxInactiveInterval(providerSettings.getSessionMaxInactiveInterval());
