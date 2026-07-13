@@ -17,6 +17,9 @@ public interface CertificateRegistrationAuthorizationRepository extends JpaRepos
 
     Optional<CertificateRegistrationAuthorization> findByCertificateUuid(UUID certificateUuid);
 
+    /** Presence check for the fire guards — avoids loading the secret-bearing row just to test existence. */
+    boolean existsByCertificateUuid(UUID certificateUuid);
+
     /**
      * Pessimistic-write finder ({@code SELECT ... FOR UPDATE}) so a concurrent verify / failed-attempt update
      * serializes on the authorization row. Must run in a transaction; the lock must not span an external call.

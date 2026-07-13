@@ -52,12 +52,20 @@ public class CertificateRegisteredEventHandler extends CertificateEventsHandler 
     @Override
     protected void sendFollowUpEventsNotifications(EventContext<Certificate> eventContext) {
         Certificate certificate = eventContext.getResourceObjects().getFirst();
-        Object eventData = eventContext.getResourceObjectsEventData().getFirst();
-        // Default recipient is the owner only (no groups) — a notification profile can override. The credential
-        // is delivered only on the external-provider path; the internal notification is informational.
+        Object fullEventData = eventContext.getResourceObjectsEventData().getFirst();
+        // The default (owner) notification is internal-only and never uses the credential; send a credential-free
+        // copy so the one-time secret does not ride the internal message onto the broker. External providers still
+        // receive the full data (with credential) via the trigger/profile message, published independently
+        // (TriggerEvaluator.performSendNotificationAction). Rebuild identity from the certificate so its fields
+        // cannot drift from the full payload.
+        CertificateRegisteredEventData internalData = EventDataBuilder.getCertificateRegisteredEventData(certificate);
+        if (fullEventData instanceof CertificateRegisteredEventData full) {
+            internalData.setCompletionDeadline(full.getCompletionDeadline());
+        }
+        // Default recipient is the owner only (no groups) — a notification profile can override.
         List<NotificationRecipient> recipients = NotificationRecipient.buildUsersAndGroupsNotificationRecipients(
                 certificate.getOwner() == null ? null : List.of(certificate.getOwner().getUuid()), null);
-        NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, recipients, eventData);
+        NotificationMessage notificationMessage = new NotificationMessage(eventContext.getEvent(), Resource.CERTIFICATE, certificate.getUuid(), null, recipients, internalData);
         applicationEventPublisher.publishEvent(notificationMessage);
     }
 

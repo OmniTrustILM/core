@@ -621,7 +621,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void fireRegistrationEventIfChallengeProtected(UUID certificateUuid) {
         // Fire the Certificate Registered event only for challenge-protected pre-registrations (those with an
         // authorization row); an operator registration without a challenge has no credential to deliver.
-        if (registrationAuthorizationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
+        if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
             eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
         }
     }

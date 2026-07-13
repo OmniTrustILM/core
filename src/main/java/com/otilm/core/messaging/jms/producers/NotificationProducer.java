@@ -49,7 +49,7 @@ public class NotificationProducer {
     public void produceMessage(@NonNull final NotificationMessage notificationMessage) {
         Objects.requireNonNull(notificationMessage, "Notification message cannot be null");
         if ((notificationMessage.getNotificationProfileUuids() == null || notificationMessage.getNotificationProfileUuids().isEmpty()) && (notificationMessage.getRecipients() == null || notificationMessage.getRecipients().isEmpty())) {
-            logger.warn("Recipients for notification of event {} is empty. Message: {}", notificationMessage.getEvent().getLabel(), notificationMessage);
+            logger.warn("Recipients for notification of event {} (resource {} {}) are empty; not sending.", notificationMessage.getEvent().getLabel(), notificationMessage.getResource(), notificationMessage.getObjectUuid());
         } else {
             sendMessage(notificationMessage);
         }

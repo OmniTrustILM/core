@@ -459,8 +459,13 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     // committed), so the event is never emitted for a registration that rolled back.
     private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op, CertificateOperationStatus status) {
         if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED
-                && registrationAuthorizationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
-            eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+                && registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
+            // Best-effort, like the sibling post-commit side effects: a produce failure must not abort stopPolling.
+            try {
+                eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+            } catch (RuntimeException e) {
+                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}: {}", certificateUuid, e.getMessage());
+            }
         }
     }
 }
