@@ -11,7 +11,9 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -62,8 +64,8 @@ class CertificateStatusPollListenerTest {
     @Mock private com.otilm.core.service.CertificateInternalService certificateService;
     @Mock private com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
     @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
-    @Mock private com.otilm.core.messaging.jms.producers.EventProducer eventProducer;
-    @Mock private com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    @Mock private EventProducer eventProducer;
+    @Mock private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
