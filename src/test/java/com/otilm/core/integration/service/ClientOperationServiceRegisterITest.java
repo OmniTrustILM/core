@@ -119,7 +119,9 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private CertificateRegistrationRepository registrationRepository;
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
-    @Autowired
+    // Spied so most tests use real encryption/verification while one test stubs store() to drive the
+    // local-authorization-failure arc.
+    @MockitoSpyBean
     private RegistrationChallengeStore registrationChallengeStore;
     // Spied (not mocked) so the binding really persists; individual tests stub failures to drive the
     // post-acceptance divergence branch.
@@ -919,9 +921,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Certificate issued = seedIssuedCert();
         activeAuthorizationFor(issued.getUuid());
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        String certUuid = issued.getUuid().toString();
 
         ValidationException ex = Assertions.assertThrows(ValidationException.class,
-                () -> clientOperationService.renewCertificate(authorityParent, securedRaProfile, issued.getUuid().toString(), request));
+                () -> clientOperationService.renewCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions.assertTrue(ex.getMessage().contains("not supported yet"),
                 "the fail-closed guard must reject, not some downstream step");
     }
@@ -931,11 +934,31 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Certificate issued = seedIssuedCert();
         activeAuthorizationFor(issued.getUuid());
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        String certUuid = issued.getUuid().toString();
 
         ValidationException ex = Assertions.assertThrows(ValidationException.class,
-                () -> clientOperationService.rekeyCertificate(authorityParent, securedRaProfile, issued.getUuid().toString(), request));
+                () -> clientOperationService.rekeyCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions.assertTrue(ex.getMessage().contains("not supported yet"),
                 "the fail-closed guard must reject rekey too (verification comes later)");
+    }
+
+    @Test
+    void registrationStoreFailureFailsPlaceholderInsteadOfOrphaning() {
+        // A local authorization-store failure (encryption/persistence) must fail the placeholder via the
+        // pre-acceptance catch, not leave it stranded in PENDING_REGISTRATION with no authorization.
+        registeringAdapter();
+        doThrow(new IllegalStateException("challenge encryption failed"))
+                .when(registrationChallengeStore).store(Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        Assertions.assertThrows(RuntimeException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        Assertions.assertEquals(0, authorizationRepository.count(), "a store failure persists no authorization");
+        Assertions.assertTrue(
+                certificateRepository.findAll().stream().noneMatch(c -> c.getState() == CertificateState.PENDING_REGISTRATION),
+                "a store failure must fail the placeholder, not orphan it in PENDING_REGISTRATION");
     }
 
     private String registerWithSecret(OffsetDateTime expiresAt) throws Exception {

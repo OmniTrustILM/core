@@ -459,12 +459,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
         stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
 
-        // Before the connector call: a challenge-protected self-service registration must have its authorization
-        // persisted on every arc that can leave the certificate reconcilable to REGISTERED (see the method).
-        maybeCreateRegistrationAuthorization(certificate, request);
-
         AdapterOperationResult result;
         try {
+            // Persist the challenge authorization before the connector call — on every arc that can leave the
+            // certificate reconcilable to REGISTERED (see the method) — but inside the try, so a store/save
+            // failure fails the placeholder via the catch below rather than orphaning it in PENDING_REGISTRATION.
+            maybeCreateRegistrationAuthorization(certificate, request);
             result = registerCapability.register(certificate, request, registrationContent);
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector already accepted the registration (2xx/202); per the state-divergence rule local state
@@ -567,7 +567,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static void rejectPastRegistrationWindow(ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         OffsetDateTime expiresAt = request.getExpiresAt();
-        if (secret != null && !secret.isBlank() && expiresAt != null && !expiresAt.isAfter(OffsetDateTime.now())) {
+        if (secret != null && !secret.isBlank() && expiresAt != null && !expiresAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC))) {
             throw new ValidationException("The registration issuance window (expiresAt) must be in the future.");
         }
     }
@@ -589,7 +589,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         authorization.setCertificateUuid(certificate.getUuid());
         authorization.setState(RegistrationState.ACTIVE);
         authorization.setFailedAttempts(0);
-        authorization.setExpiresAt(expiresAt != null ? expiresAt : OffsetDateTime.now().plus(DEFAULT_REGISTRATION_WINDOW));
+        authorization.setExpiresAt(expiresAt != null ? expiresAt : OffsetDateTime.now(ZoneOffset.UTC).plus(DEFAULT_REGISTRATION_WINDOW));
         registrationChallengeStore.store(authorization, secret);
         registrationAuthorizationRepository.save(authorization);
     }
@@ -642,7 +642,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return "The certificate registration issuance window has expired.";
         }
         OffsetDateTime expiresAt = authorization.getExpiresAt();
-        if (expiresAt != null && !OffsetDateTime.now().isBefore(expiresAt)) {
+        if (expiresAt != null && !OffsetDateTime.now(ZoneOffset.UTC).isBefore(expiresAt)) {
             authorization.setState(RegistrationState.EXPIRED);
             registrationAuthorizationRepository.save(authorization);
             certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
