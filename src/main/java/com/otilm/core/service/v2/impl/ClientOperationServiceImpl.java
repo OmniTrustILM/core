@@ -130,7 +130,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static final LoggerWrapper eventLogger = new LoggerWrapper(
             ClientOperationServiceImpl.class, Module.CERTIFICATES, Resource.CERTIFICATE);
 
-    // Fixed defaults for now; these become operator-configurable platform settings in a follow-up.
     private static final Duration DEFAULT_REGISTRATION_WINDOW = Duration.ofDays(7);
     private static final int MAX_FAILED_REGISTRATION_ATTEMPTS = 5;
 
@@ -560,13 +559,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Creates the durable challenge authorization for a self-service pre-registration when the operator supplied an
-     * {@code authorizationSecret}. Created before the connector call, not after: a connector-accepted-but-local
-     * failure leaves the certificate reconcilable to REGISTERED, and a row written only on the success path would be
-     * missing there — the later issue gate would then treat a secret-protected registration as unprotected and issue
-     * with no challenge. Absent secret means no row, so the operator register→issue flow is unchanged.
-     */
-    /**
      * Rejects a past issuance window at the registration boundary, before any placeholder is created — a past
      * {@code expiresAt} would produce an instantly-dead registration. Validated here (alongside
      * rejectAmbiguousRegistrationIdentity) rather than at row creation so the rejection leaves no orphaned
@@ -580,6 +572,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
     }
 
+    /**
+     * Creates the durable challenge authorization for a self-service pre-registration when the operator supplied an
+     * {@code authorizationSecret}. Created before the connector call, not after: a connector-accepted-but-local
+     * failure leaves the certificate reconcilable to REGISTERED, and a row written only on the success path would be
+     * missing there — the later issue gate would then treat a secret-protected registration as unprotected and issue
+     * with no challenge. Absent secret means no row, so the operator register→issue flow is unchanged.
+     */
     private void maybeCreateRegistrationAuthorization(Certificate certificate, ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         if (secret == null || secret.isBlank()) {
