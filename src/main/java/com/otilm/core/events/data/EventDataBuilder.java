@@ -129,6 +129,15 @@ public class EventDataBuilder {
         return eventData;
     }
 
+    // Identity/authority only; the issuance deadline and credential come from the registration authorization and
+    // are filled in by CertificateRegisteredEventHandler (a static builder cannot resolve the encrypted challenge).
+    public static CertificateRegisteredEventData getCertificateRegisteredEventData(Certificate certificate) {
+        CertificateRegisteredEventData eventData = new CertificateRegisteredEventData();
+        setCertificateEventData(eventData, certificate);
+        setCertificateAuthorityData(eventData, certificate);
+        return eventData;
+    }
+
     private static void setCertificateEventData(CertificateEventData eventData, Certificate certificate) {
         eventData.setCertificateUuid(certificate.getUuid());
         eventData.setFingerprint(certificate.getFingerprint());

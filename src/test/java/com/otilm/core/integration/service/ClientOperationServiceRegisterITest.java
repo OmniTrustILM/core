@@ -9,6 +9,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
@@ -47,6 +48,8 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
+import com.otilm.core.messaging.jms.producers.EventProducer;
+import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -138,6 +141,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // Mocked so issue enqueue is a deterministic no-op (no async action processing during the test).
     @MockitoBean
     private ActionProducer actionProducer;
+
+    // Mocked so the Certificate Registered event fire is a verifiable no-op (no JMS during the test).
+    @MockitoBean
+    private EventProducer eventProducer;
 
     // The service-layer capability gate (layer 2). Mocked here so each test controls advertisement
     // directly; the real flag-resolution logic is covered by ConnectorCapabilityServiceTest.
@@ -940,6 +947,31 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 () -> clientOperationService.rekeyCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions.assertTrue(ex.getMessage().contains("not supported yet"),
                 "the fail-closed guard must reject rekey too (verification comes later)");
+    }
+
+    @Test
+    void registerWithSecretFiresCertificateRegisteredEvent() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        ArgumentCaptor<EventMessage> captor = ArgumentCaptor.forClass(EventMessage.class);
+        verify(eventProducer).produceMessage(captor.capture());
+        Assertions.assertEquals(ResourceEvent.CERTIFICATE_REGISTERED, captor.getValue().getEvent(),
+                "a challenge-protected pre-registration fires the Certificate Registered event");
+    }
+
+    @Test
+    void registerWithoutSecretFiresNoRegistrationEvent() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        clientOperationService.registerCertificate(authorityParent, securedRaProfile, registrationRequest());
+
+        verify(eventProducer, never()).produceMessage(Mockito.any());
     }
 
     @Test

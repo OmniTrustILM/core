@@ -265,6 +265,13 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                     recipients.add(new NotificationRecipient(RecipientType.USER, eventData.getUserUuid()));
                 }
             }
+            case CERTIFICATE_REGISTERED -> {
+                // Owner only by default (no groups) — a credential-bearing event; a profile can override.
+                NameAndUuidDto ownerInfo = resourceObjectAssociationService.getOwner(resource, objectUuid);
+                if (ownerInfo != null) {
+                    recipients.add(new NotificationRecipient(RecipientType.USER, UUID.fromString(ownerInfo.getUuid())));
+                }
+            }
         }
 
         return recipients;
@@ -493,6 +500,13 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             case SCHEDULED_JOB_FINISHED -> {
                 ScheduledJobFinishedEventData data = (ScheduledJobFinishedEventData) eventData;
                 yield new InternalNotificationEventData("%s scheduled task has finished for %s with result %s".formatted(data.getJobType(), data.getJobName(), data.getStatus()), null);
+            }
+            case CERTIFICATE_REGISTERED -> {
+                CertificateRegisteredEventData data = (CertificateRegisteredEventData) eventData;
+                // Informational only — the credential is delivered on the external-provider path and must never be
+                // written here (this text/detail is persisted to the notifications table).
+                yield new InternalNotificationEventData("Certificate identified as '%s' has been pre-registered".formatted(data.getSubjectDn()),
+                        data.getIssuanceDeadline() == null ? null : "Issuance must be completed by %s".formatted(data.getIssuanceDeadline()));
             }
         };
     }

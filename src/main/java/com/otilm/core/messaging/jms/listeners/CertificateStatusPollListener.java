@@ -12,9 +12,12 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.events.handlers.CertificateRegisteredEventHandler;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -34,6 +37,7 @@ import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Consumes {@link CertificateStatusPollMessage}s and drives the async-operation polling loop.
@@ -69,6 +73,8 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private TransactionHandler transactionHandler;
     private CertificateInternalService certificateService;
     private CertificateRevocationFinalizer revocationFinalizer;
+    private EventProducer eventProducer;
+    private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -168,6 +174,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // (a completed REVOKE must still destroy the key).
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
+            fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
         stopPolling(cert, op);
@@ -435,5 +442,25 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setRevocationFinalizer(CertificateRevocationFinalizer revocationFinalizer) {
         this.revocationFinalizer = revocationFinalizer;
+    }
+
+    @Autowired
+    public void setEventProducer(EventProducer eventProducer) {
+        this.eventProducer = eventProducer;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
+        this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected
+    // registrations (those with an authorization row). This region is post-commit (the terminal transition already
+    // committed), so the event is never emitted for a registration that rolled back.
+    private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op, CertificateOperationStatus status) {
+        if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED
+                && registrationAuthorizationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
+            eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+        }
     }
 }
