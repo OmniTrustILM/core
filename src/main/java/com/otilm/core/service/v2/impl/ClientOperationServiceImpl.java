@@ -1555,9 +1555,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final ActionMessage actionMessage = new ActionMessage();
         actionMessage.setApprovalProfileResource(Resource.RA_PROFILE);
         actionMessage.setApprovalProfileResourceUuid(raProfileUuid.getValue());
-        // The whole request DTO is persisted into the approval record and transits the broker; blank the
-        // write-only secret first so it never leaves the synchronous request (it is not needed downstream).
-        request.setAuthorizationSecret(null);
         actionMessage.setData(request);
         actionMessage.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
         actionMessage.setResource(Resource.CERTIFICATE);
