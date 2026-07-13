@@ -1,5 +1,6 @@
 package com.otilm.core.service.registration;
 
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
@@ -20,7 +21,7 @@ public class RegistrationChallengeStore {
      * Encrypts {@code plaintext} and writes the ciphertext onto {@code row}. Does not persist — the caller saves
      * the row within its own transaction.
      */
-    public void store(CertificateRegistrationAuthorization row, String plaintext) {
+    public void store(CertificateRegistrationAuthorization row, @Sensitive String plaintext) {
         // Fail fast: a null/blank challenge would encode to null and only surface as an opaque NOT NULL
         // violation when the row is saved.
         if (plaintext == null || plaintext.isBlank()) {
@@ -32,7 +33,7 @@ public class RegistrationChallengeStore {
     /**
      * Returns whether {@code presented} matches the stored challenge, or false when either side is null.
      */
-    public boolean verify(CertificateRegistrationAuthorization row, String presented) {
+    public boolean verify(CertificateRegistrationAuthorization row, @Sensitive String presented) {
         if (presented == null || row.getChallenge() == null) {
             return false;
         }
