@@ -3,6 +3,7 @@ package com.otilm.core.service.handler.authority;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -315,7 +316,7 @@ class AuthorityProviderV2AdapterTest {
     // --- checkAuthorityConnection ---
 
     @Test
-    void checkAuthorityConnection_delegatesToValidateRAProfileAttributes() throws Exception {
+    void checkAuthorityConnection_delegatesToValidateRaProfileAttributes() throws Exception {
         List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
         when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(true);
 
@@ -341,21 +342,20 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
-    void validateRAProfileAttributes_delegatesToAuthorityClient() throws Exception {
+    void validateRaProfileAttributes_delegatesToAuthorityClient() throws Exception {
         List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
-        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(true);
+        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(null);
 
-        assertEquals(Boolean.TRUE, adapter.validateRAProfileAttributes(authority, attrs));
-
+        assertDoesNotThrow(() -> adapter.validateRaProfileAttributes(authority, attrs));
         verify(authorityClient).validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs);
     }
 
     @Test
-    void validateRAProfileAttributes_passesThroughConnectorRejection() throws Exception {
+    void validateRaProfileAttributes_passesThroughConnectorRejection() throws Exception {
         List<RequestAttribute> attrs = List.of(mock(RequestAttribute.class));
-        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenReturn(false);
+        when(authorityClient.validateRAProfileAttributes(connectorInfo, "auth-instance-uuid", attrs)).thenThrow(new ConnectorException("Invalid attributes"));
 
-        assertEquals(Boolean.FALSE, adapter.validateRAProfileAttributes(authority, attrs));
+        assertThrows(ConnectorException.class, () -> adapter.validateRaProfileAttributes(authority, attrs));
     }
 
     // --- error handling ---

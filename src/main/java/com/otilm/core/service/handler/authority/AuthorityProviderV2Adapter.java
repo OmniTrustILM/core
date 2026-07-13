@@ -132,9 +132,9 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
     }
 
     @Override
-    public Boolean validateRAProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ConnectorException {
+    public void validateRaProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-        return connectorApiFactory.getAuthorityInstanceApiClient(connectorDto)
+        connectorApiFactory.getAuthorityInstanceApiClient(connectorDto)
                 .validateRAProfileAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
     }
 

@@ -188,7 +188,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                         }""")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName("testRaProfile2");
@@ -205,7 +205,9 @@ class RaProfileServiceITest extends ApprovalProfileData {
         // ValidationException and abort the create before anything is persisted.
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("false")));
+                .willReturn(WireMock.aResponse().withStatus(422)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[\"RA profile attributes validation failed\"]")));
 
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName("testRaProfileRejected");
@@ -262,7 +264,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                 .willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         EditRaProfileRequestDto request = new EditRaProfileRequestDto();
         request.setDescription("some description");

@@ -772,13 +772,11 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
-    void validateRAProfileAttributesReturnsTrueWithoutConnectorCall() throws ConnectorException {
+    void validateRaProfileAttributesReturnsTrueWithoutConnectorCall() throws ConnectorException {
         // v3 has no connector-side RA-profile /validate; the adapter must report success (never
         // Boolean.FALSE, which callers treat as rejection) without any connector round-trip —
         // structural validation happens caller-side against the listed definitions.
-        Boolean result = adapter.validateRAProfileAttributes(authority, List.of(mock(RequestAttribute.class)));
-
-        assertEquals(Boolean.TRUE, result);
+        adapter.validateRaProfileAttributes(authority, List.of(mock(RequestAttribute.class)));
         verifyNoInteractions(authorityClientV3, certClientV3);
     }
 

@@ -678,7 +678,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         return certificateDetailDtos;
     }
 
-    private void mergeAndValidateAttributes(AuthorityInstanceReference authorityInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
+    private void mergeAndValidateAttributes(AuthorityInstanceReference authorityInstanceRef, List<RequestAttribute> attributes) throws ConnectorException, AttributeException {
         logger.debug("Merging and validating attributes on authority instance {}. Request Attributes are: {}", authorityInstanceRef, attributes);
         if (authorityInstanceRef.getConnector() == null) {
             throw new ValidationException(ValidationError.create("Connector of the Authority is not available / deleted"));
@@ -686,10 +686,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityInstanceRef);
 
-        // validate first by connector
-        if (!Boolean.TRUE.equals(adapter.validateRAProfileAttributes(authorityInstanceRef, attributes))) {
-            throw new ValidationException(ValidationError.create("RA profile attributes validation failed."));
-        }
+        // validate first by connector — rejection surfaces as ValidationException from the client,
+        // infrastructure failures propagate as ConnectorException
+        adapter.validateRaProfileAttributes(authorityInstanceRef, attributes);
 
         // list definitions
         List<BaseAttribute> definitions = adapter.listRaProfileAttributes(authorityInstanceRef);
