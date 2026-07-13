@@ -481,6 +481,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException. No upstream work
             // is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
             stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            // The authorization row (if the challenge opt-in created one) was committed before the connector call;
+            // this registration never became effective, so remove it rather than leave an encrypted secret on a
+            // dead certificate. Best-effort: a cleanup failure must not mask the registration failure below.
+            deleteRegistrationAuthorizationBestEffort(certificate.getUuid());
             throw e;
         }
 
@@ -594,6 +598,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         registrationAuthorizationRepository.save(authorization);
     }
 
+    private void deleteRegistrationAuthorizationBestEffort(UUID certificateUuid) {
+        // registerCertificate is NOT_SUPPORTED and the repository carries no @Transactional, so the modifying
+        // delete needs its own transaction. Best-effort: swallow a cleanup failure so it never masks the caller's
+        // registration failure. A no-op when there is no authorization row (e.g. a registration with no challenge).
+        TransactionStatus tx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        try {
+            registrationAuthorizationRepository.deleteByCertificateUuid(certificateUuid);
+            transactionManager.commit(tx);
+        } catch (RuntimeException e) {
+            transactionManager.rollback(tx);
+            logger.warn("Failed to remove the registration authorization for failed certificate {}: {}", certificateUuid, e.getMessage());
+        }
+    }
+
     /**
      * Challenge gate for completing a pre-registered certificate. Issue is the only challenge-verified completion
      * path; renew and rekey of a registered certificate are fail-closed instead (see
@@ -636,6 +654,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return null;
         }
         if (state == RegistrationState.LOCKED) {
+            // Record every attempt against an already-locked authorization — persistent hammering is exactly when
+            // the audit trail matters most.
+            certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
+                    "Certificate registration challenge attempted against a locked authorization", "");
             return "The certificate registration authorization is locked after too many failed attempts.";
         }
         if (state == RegistrationState.EXPIRED) {

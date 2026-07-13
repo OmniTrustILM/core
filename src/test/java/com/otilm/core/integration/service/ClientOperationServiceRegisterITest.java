@@ -961,6 +961,25 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 "a store failure must fail the placeholder, not orphan it in PENDING_REGISTRATION");
     }
 
+    @Test
+    void connectorRejectionAfterAuthorizationSavedRemovesTheAuthorization() throws Exception {
+        // The authorization row is committed before the connector call; a connector rejection then fails the
+        // placeholder, and the registration never became effective, so its encrypted secret must not linger.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorException("authority rejected the registration"));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        Assertions.assertThrows(ConnectorException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        Assertions.assertEquals(0, authorizationRepository.count(),
+                "a connector rejection after the authorization was saved must remove it");
+        Assertions.assertTrue(
+                certificateRepository.findAll().stream().noneMatch(c -> c.getState() == CertificateState.PENDING_REGISTRATION),
+                "the placeholder is failed, not orphaned in PENDING_REGISTRATION");
+    }
+
     private String registerWithSecret(OffsetDateTime expiresAt) throws Exception {
         when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
