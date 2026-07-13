@@ -464,7 +464,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             try {
                 eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
             } catch (RuntimeException e) {
-                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}: {}", certificateUuid, e.getMessage());
+                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
             }
         }
     }
