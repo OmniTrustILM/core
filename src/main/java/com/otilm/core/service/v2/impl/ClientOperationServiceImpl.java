@@ -1398,7 +1398,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
+    @Transactional
     public void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
+        // Transactional so the reject transition and the fate-coupling auto-CLOSE (or the approval-reject
+        // restore) commit atomically — this entry point (invoked by ActionsListener) has no ambient transaction
+        // of its own, unlike the failClaimedCertificate / poll-listener FAILED paths.
         final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         // A pre-registered placeholder whose completion was rejected during approval is restored to REGISTERED
         // (its authorization stays ACTIVE) so the holder can retry — mirror revokeCertificateRejectedAction.

@@ -228,6 +228,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
                 stateMachine.transition(locked, op.terminalFailureState(), null,
                         "Async " + op + " reported COMPLETED but connector returned no certificate data");
+                closeRegistrationAuthorizationIfPresent(locked);
             }
             return CertificateRevocationFinalizer.KeyCleanup.NONE;
         }
@@ -246,6 +247,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         stateMachine.transition(locked, targetState, null, reasonFor(op, status));
+        // Fate-coupling: only a terminal FAILED verdict retires a pre-registered cert's authorization. A failed
+        // REVOKE returns to ISSUED (not FAILED) and must keep its registration for renew/rekey reuse.
+        if (targetState == CertificateState.FAILED) {
+            closeRegistrationAuthorizationIfPresent(locked);
+        }
         return CertificateRevocationFinalizer.KeyCleanup.NONE;
     }
 
@@ -362,15 +368,23 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             }
             CertificateState terminal = op.terminalFailureState();
             stateMachine.transition(locked, terminal, null, reason);
-            // Fate-coupling: on a terminal FAILED verdict, close a pre-registered cert's authorization in the same
-            // locked transaction. Only on FAILED — a failed REVOKE returns to ISSUED and must keep its registration.
-            if (terminal == CertificateState.FAILED
-                    && registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
-                registrationAuthorizationWriter.close(locked.getUuid());
+            if (terminal == CertificateState.FAILED) {
+                closeRegistrationAuthorizationIfPresent(locked);
             }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         stopPolling(cert, op);
+    }
+
+    /**
+     * Retires a pre-registered certificate's authorization (state → CLOSED) in the caller's locked transaction
+     * when it reaches a terminal FAILED verdict. Guarded, so it is a no-op for non-self-service certs and for
+     * renew/rekey successors that carry no authorization.
+     */
+    private void closeRegistrationAuthorizationIfPresent(Certificate locked) {
+        if (registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
+            registrationAuthorizationWriter.close(locked.getUuid());
+        }
     }
 
 

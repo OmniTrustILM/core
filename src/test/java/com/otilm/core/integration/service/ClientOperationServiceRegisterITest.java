@@ -950,6 +950,40 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void approvalRejectedRestoresRegisteredPlaceholderKeepingAuthorizationActive() throws Exception {
+        UUID certUuid = UUID.fromString(registerWithSecret(null)); // REGISTERED placeholder + ACTIVE authorization
+        clientOperationInternalService.approvalCreatedAction(certUuid); // issuing it requires approval -> PENDING_APPROVAL
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState());
+
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a rejected issuance approval restores the placeholder rather than terminating it REJECTED");
+        CertificateRegistrationAuthorization auth = authorizationRepository.findByCertificateUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(RegistrationState.ACTIVE, auth.getState(),
+                "the authorization stays ACTIVE so the holder can retry the issue");
+        Assertions.assertEquals(1, authorizationRepository.count());
+    }
+
+    @Test
+    void approvalRejectedOfCertWithoutAuthorizationTerminatesRejected() throws Exception {
+        // A cert carrying no registration authorization keeps the terminal REJECTED behaviour on approval rejection.
+        Certificate cert = new Certificate();
+        cert.setState(CertificateState.PENDING_APPROVAL);
+        cert.setRaProfile(raProfile);
+        cert.setRaProfileUuid(raProfile.getUuid());
+        UUID uuid = certificateRepository.save(cert).getUuid();
+
+        clientOperationInternalService.issueCertificateRejectedAction(uuid);
+
+        Assertions.assertEquals(CertificateState.REJECTED,
+                certificateRepository.findByUuid(uuid).orElseThrow().getState());
+        Assertions.assertEquals(0, authorizationRepository.count());
+    }
+
+    @Test
     void registerWithSecretFiresCertificateRegisteredEvent() throws Exception {
         when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));

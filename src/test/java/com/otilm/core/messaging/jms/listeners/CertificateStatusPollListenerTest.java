@@ -66,6 +66,7 @@ class CertificateStatusPollListenerTest {
     @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
     @Mock private EventProducer eventProducer;
     @Mock private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -98,6 +99,7 @@ class CertificateStatusPollListenerTest {
         listener.setRegistrationWriter(registrationWriter);
         listener.setEventProducer(eventProducer);
         listener.setRegistrationAuthorizationRepository(registrationAuthorizationRepository);
+        listener.setRegistrationAuthorizationWriter(registrationAuthorizationWriter);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -481,6 +483,51 @@ class CertificateStatusPollListenerTest {
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);    }
+
+    @Test
+    void terminalIssueFailureClosesRegistrationAuthorizationWhenPresent() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "CA error"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // A pre-registered placeholder that fails issuance no longer has a live registration.
+        verify(registrationAuthorizationWriter).close(CERT_UUID);
+    }
+
+    @Test
+    void terminalIssueFailureDoesNotCloseWhenNoRegistrationAuthorization() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "CA error"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        // existsByCertificateUuid defaults to false (setUp) — a non-self-service cert carries no authorization.
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(registrationAuthorizationWriter, never()).close(any());
+    }
+
+    @Test
+    void failedRevokeDoesNotCloseRegistrationAuthorization() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REVOKE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REVOKE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.FAILED, null, null, "revoke failed"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        lenient().when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+
+        listener.processMessage(pollMsg(CertificateOperation.REVOKE, 0));
+
+        // A failed revoke returns to ISSUED, not FAILED — the registration must survive for renew/rekey reuse.
+        verify(stateMachine).transition(eq(cert), eq(CertificateState.ISSUED), isNull(), anyString());
+        verify(registrationAuthorizationWriter, never()).close(any());
+    }
 
     // -----------------------------------------------------------------------
     // failedRevokeTransitionsBackToIssued
