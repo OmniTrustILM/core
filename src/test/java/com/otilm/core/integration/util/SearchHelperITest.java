@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldType;
 import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.SearchFieldObject;
@@ -83,6 +84,136 @@ class SearchHelperITest extends BaseSpringBootTest {
         searchFieldObject = new SearchFieldObject(customAttributeV3.getName(), customAttributeV3.getContentType(), AttributeType.CUSTOM, "label", customAttributeV3);
         assertThat(searchFieldObject.getContentItems()).isNull();
 
+    }
+
+    @Test
+    void testPrepareSearchForJSONDeduplicatesSameNameAndContentType() {
+        SearchFieldObject fromConnectorA = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        fromConnectorA.setLabel("Username");
+        SearchFieldObject fromConnectorB = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        fromConnectorB.setLabel("Username");
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(fromConnectorA, fromConnectorB));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getFieldIdentifier()).isEqualTo("username|STRING");
+        assertThat(fields.getFirst().getFieldLabel()).as("no content type suffix when the field name is unique after deduplication").isEqualTo("Username");
+    }
+
+    @Test
+    void testPrepareSearchForJSONKeepsContentTypeSuffixForSameNameWithDifferentContentTypes() {
+        SearchFieldObject stringVariantA = new SearchFieldObject("port", AttributeContentType.STRING, AttributeType.META);
+        stringVariantA.setLabel("Port");
+        SearchFieldObject stringVariantB = new SearchFieldObject("port", AttributeContentType.STRING, AttributeType.META);
+        stringVariantB.setLabel("Port");
+        SearchFieldObject integerVariant = new SearchFieldObject("port", AttributeContentType.INTEGER, AttributeType.META);
+        integerVariant.setLabel("Port");
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(stringVariantA, stringVariantB, integerVariant));
+
+        assertThat(fields).extracting(SearchFieldDataDto::getFieldIdentifier).containsExactlyInAnyOrder("port|STRING", "port|INTEGER");
+        assertThat(fields).extracting(SearchFieldDataDto::getFieldLabel).containsExactlyInAnyOrder("Port (string)", "Port (integer)");
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldKeepsValueOperatorsWhenAnyDuplicateIsPlain() {
+        SearchFieldObject encrypted = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        encrypted.setLabel("Username");
+        encrypted.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        SearchFieldObject plain = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        plain.setLabel("Username");
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(encrypted, plain));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getConditions()).contains(FilterConditionOperator.EQUALS, FilterConditionOperator.CONTAINS);
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldStaysRestrictedWhenAllDuplicatesAreEncrypted() {
+        SearchFieldObject encryptedA = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        encryptedA.setLabel("Username");
+        encryptedA.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        SearchFieldObject encryptedB = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        encryptedB.setLabel("Username");
+        encryptedB.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(encryptedA, encryptedB));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getConditions()).isEqualTo(List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY));
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedListFieldUnionsContentItems() {
+        SearchFieldObject listA = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        listA.setLabel("Environment");
+        listA.setList(true);
+        listA.setContentItems(List.of("dev", "test"));
+        SearchFieldObject listB = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        listB.setLabel("Environment");
+        listB.setList(true);
+        listB.setContentItems(List.of("test", "prod"));
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(listA, listB));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getValue()).isEqualTo(List.of("dev", "test", "prod"));
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergedFieldStaysFreeFormWhenAnyDuplicateIsNotList() {
+        SearchFieldObject listVariant = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        listVariant.setLabel("Environment");
+        listVariant.setList(true);
+        listVariant.setMultiSelect(true);
+        listVariant.setContentItems(List.of("dev", "test"));
+        SearchFieldObject freeFormVariant = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        freeFormVariant.setLabel("Environment");
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(listVariant, freeFormVariant));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getType()).as("free-form input must survive the merge so any value stays enterable").isEqualTo(FilterFieldType.STRING);
+        assertThat(fields.getFirst().getValue()).isNull();
+        assertThat(fields.getFirst().isMultiValue()).isFalse();
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergeIsDeterministicRegardlessOfInputOrder() {
+        SearchFieldObject labeledUser = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        labeledUser.setLabel("User");
+        SearchFieldObject labeledUsername = new SearchFieldObject("username", AttributeContentType.STRING, AttributeType.META);
+        labeledUsername.setLabel("Username");
+
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(List.of(labeledUsername, labeledUser));
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper.prepareSearchForJSON(List.of(labeledUser, labeledUsername));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getFieldLabel())
+                .as("merged label must not depend on the (unordered) query result order")
+                .isEqualTo(fieldsReversed.getFirst().getFieldLabel());
+    }
+
+    @Test
+    void testPrepareSearchForJSONMergeIsDeterministicWhenDuplicatesShareTheLabel() {
+        List<SearchFieldDataDto> fields = SearchHelper.prepareSearchForJSON(
+                List.of(listFieldObject(List.of("dev", "test")), listFieldObject(List.of("prod"))));
+        List<SearchFieldDataDto> fieldsReversed = SearchHelper.prepareSearchForJSON(
+                List.of(listFieldObject(List.of("prod")), listFieldObject(List.of("dev", "test"))));
+
+        assertThat(fields).hasSize(1);
+        assertThat(fields.getFirst().getValue())
+                .as("merged content item order must not depend on the (unordered) query result order")
+                .isEqualTo(fieldsReversed.getFirst().getValue());
+    }
+
+    private static SearchFieldObject listFieldObject(List<String> contentItems) {
+        SearchFieldObject field = new SearchFieldObject("environment", AttributeContentType.STRING, AttributeType.DATA);
+        field.setLabel("Environment");
+        field.setList(true);
+        field.setContentItems(contentItems);
+        return field;
     }
 
     @Test

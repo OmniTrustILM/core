@@ -1,0 +1,686 @@
+package com.otilm.core.integration.service;
+
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.core.v2.AvailableOperationsDto;
+import com.otilm.api.model.core.v2.CertificateOperationKind;
+import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
+import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.api.model.core.v2.OperationSupport;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.CertificateRegistration;
+import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.CertificateRegistrationRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.otilm.core.messaging.jms.producers.ActionProducer;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.authority.AdapterOperationResult;
+import com.otilm.core.service.handler.authority.AsyncOperationCapability;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.CertificateOperation;
+import com.otilm.core.service.handler.authority.RegisterCapability;
+import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.v2.ClientOperationInternalService;
+import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
+import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
+import com.otilm.core.util.BaseSpringBootTest;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
+
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Service-level coverage for the v3 register flow. The authority adapter is mocked so the test drives
+ * each branch (sync 200 / async 202 / connector failure / unsupported authority) and asserts the
+ * orchestration the service owns — placeholder creation, state-machine transitions and poll scheduling.
+ * The real adapter + v3 wire contract are covered by {@code AuthorityProviderV3AdapterTest}; the full
+ * connector round-trip is deferred to the v3 integration suite.
+ */
+@SpringBootTest
+class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
+
+    @Autowired
+    private ClientOperationExternalService clientOperationService;
+    @Autowired
+    private ClientOperationInternalService clientOperationInternalService;
+    @Autowired
+    private CertificateInternalService certificateService;
+    @Autowired
+    private CertificateRepository certificateRepository;
+    @Autowired
+    private RaProfileRepository raProfileRepository;
+    @Autowired
+    private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private CertificateRegistrationRepository registrationRepository;
+    // Spied (not mocked) so the binding really persists; individual tests stub failures to drive the
+    // post-acceptance divergence branch.
+    @MockitoSpyBean
+    private CertificateRegistrationWriter registrationWriter;
+    @MockitoBean
+    private AuthorityProviderAdapterFactory adapterFactory;
+
+    // Mocked so the test verifies that an async registration schedules a REGISTER poll, without
+    // depending on the poll row surviving the background sweep/listener (covered by the v3 integration suite).
+    @MockitoBean
+    private CertificateStatusPollWriter pollWriter;
+
+    // Mocked so issue enqueue is a deterministic no-op (no async action processing during the test).
+    @MockitoBean
+    private ActionProducer actionProducer;
+
+    // The service-layer capability gate (layer 2). Mocked here so each test controls advertisement
+    // directly; the real flag-resolution logic is covered by ConnectorCapabilityServiceTest.
+    @MockitoBean
+    private ConnectorCapabilityService capabilityService;
+
+    // Mocked so registerPersistsConnectorMetadata can verify the metadata write rather than relying on the
+    // real engine (whose failure persistRegistrationMeta swallows). Only that test passes a non-empty meta,
+    // so the other register tests are unaffected.
+    @MockitoBean
+    private AttributeEngine attributeEngine;
+
+    private RaProfile raProfile;
+    // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
+    private SecuredParentUUID authorityParent;
+    private SecuredUUID securedRaProfile;
+
+    @BeforeEach
+    void setUpRegistrationFixtures() {
+        Connector connector = new Connector();
+        connector.setUrl("http://localhost");
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        connector = connectorRepository.save(connector);
+
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setAuthorityInstanceUuid("1");
+        authority.setConnector(connector);
+        authority = authorityInstanceReferenceRepository.save(authority);
+
+        raProfile = new RaProfile();
+        raProfile.setName("registerRaProfile");
+        raProfile.setAuthorityInstanceReference(authority);
+        raProfile.setAuthorityInstanceReferenceUuid(authority.getUuid());
+        raProfile.setEnabled(true);
+        raProfile = raProfileRepository.save(raProfile);
+        authorityParent = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        securedRaProfile = raProfile.getSecuredUuid();
+
+        // Default: the authority advertises every flag, so capability-gated paths run. The gating
+        // tests below re-stub a specific flag to false to assert the gate is consulted.
+        when(capabilityService.supports(Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
+                .thenReturn(true);
+    }
+
+    private ClientCertificateRegistrationDto registrationRequest() {
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-1,O=Acme");
+        return request;
+    }
+
+    /** Mocks an adapter that supports registration and makes the factory return it. */
+    private RegisterCapability registeringAdapter() {
+        // Both capabilities, like the real v3 adapter — so an async-accepted registration actually schedules a poll.
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        return (RegisterCapability) adapter;
+    }
+
+    private ClientCertificateDataResponseDto register() throws Exception {
+        return clientOperationService.registerCertificate(
+                authorityParent,
+                securedRaProfile,
+                registrationRequest());
+    }
+
+    @Test
+    void syncRegistrationTransitionsToRegistered() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
+    void asyncRegistrationStaysPendingAndSchedulesRegisterPoll() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(null));
+
+        ClientCertificateDataResponseDto response = register();
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
+        verify(pollWriter).schedule(Mockito.eq(certUuid), Mockito.eq(CertificateOperation.REGISTER), Mockito.any());
+    }
+
+    @Test
+    void unsupportedAuthorityIsRejectedWithoutCreatingPlaceholder() {
+        // Adapter without RegisterCapability — i.e. a v2 authority.
+        when(adapterFactory.forAuthority(Mockito.any()))
+                .thenReturn(mock(AuthorityProviderAdapter.class));
+
+        Assertions.assertThrows(ValidationException.class, this::register);
+        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a rejected request");
+    }
+
+    @Test
+    void connectorFailureLeavesPlaceholderFailed() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+
+        Assertions.assertThrows(ConnectorException.class, this::register);
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState());
+    }
+
+    @Test
+    void registerRuntimeFailureLeavesPlaceholderFailed() throws Exception {
+        // A raw RuntimeException from register() is pre-acceptance per the RegisterCapability contract, so
+        // the placeholder must be FAILED — not orphaned in PENDING_REGISTRATION with no transition.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new IllegalStateException("pre-acceptance failure"));
+
+        Assertions.assertThrows(IllegalStateException.class, this::register);
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState());
+    }
+
+    @Test
+    void listAvailableOperationsForV2AuthorityExcludesRegisterAndAsync() throws Exception {
+        when(adapterFactory.forAuthority(Mockito.any()))
+                .thenReturn(mock(AuthorityProviderAdapter.class)); // v2: neither register nor async
+
+        AvailableOperationsDto ops = listOperations();
+
+        Assertions.assertFalse(operation(ops, CertificateOperationKind.REGISTER).isSupported());
+        OperationSupport issue = operation(ops, CertificateOperationKind.ISSUE);
+        Assertions.assertTrue(issue.isSupported());
+        Assertions.assertFalse(issue.isAsyncSupported());
+        Assertions.assertFalse(issue.isCancelSupported());
+    }
+
+    @Test
+    void listAvailableOperationsForV3AuthoritySupportsRegisterAndAsync() throws Exception {
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class, AsyncOperationCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+
+        OperationSupport register = operation(listOperations(), CertificateOperationKind.REGISTER);
+        Assertions.assertTrue(register.isSupported());
+        Assertions.assertTrue(register.isAsyncSupported());
+        // Register cancel is not advertised — cancelling a PENDING_REGISTRATION cert is not implemented
+        // (determineCancelTarget handles only PENDING_ISSUE / PENDING_REVOKE).
+        Assertions.assertFalse(register.isCancelSupported());
+    }
+
+    @Test
+    void registrationRejectedWhenCapabilityNotAdvertised() {
+        // Adapter implements RegisterCapability (layer 1 passes), but the authority does not advertise
+        // CERTIFICATE_REGISTRATION — the layer-2 gate must still reject, without persisting a placeholder.
+        registeringAdapter();
+        when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_REGISTRATION)))
+                .thenReturn(false);
+
+        Assertions.assertThrows(ValidationException.class, this::register);
+        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a gated request");
+    }
+
+    @Test
+    void asyncRegistrationSkipsPollWhenStatusPollingNotAdvertised() throws Exception {
+        // Registration is advertised (proceeds), but status polling is not — the cert is left PENDING
+        // with no poll scheduled (manual / out-of-band completion).
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(null));
+        when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
+                .thenReturn(false);
+
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
+        verify(pollWriter, never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void listAvailableOperationsGatesRegisterAndAsyncOnAdvertisedFlags() throws Exception {
+        // Adapter implements both capabilities (layer 1 passes for both), but neither flag is advertised
+        // — listAvailableOperations must report REGISTER unsupported and issue async unsupported.
+        registeringAdapter();
+        when(capabilityService.supports(
+                        Mockito.any(AuthorityInstanceReference.class), Mockito.any()))
+                .thenReturn(false);
+
+        AvailableOperationsDto ops = listOperations();
+
+        Assertions.assertFalse(operation(ops, CertificateOperationKind.REGISTER).isSupported());
+        OperationSupport issue = operation(ops, CertificateOperationKind.ISSUE);
+        Assertions.assertTrue(issue.isSupported());
+        Assertions.assertFalse(issue.isAsyncSupported());
+    }
+
+    private AvailableOperationsDto listOperations() throws Exception {
+        return clientOperationService.listAvailableOperations(
+                authorityParent,
+                securedRaProfile);
+    }
+
+    private OperationSupport operation(AvailableOperationsDto dto, CertificateOperationKind kind) {
+        return dto.getOperations().stream().filter(o -> o.getOperation() == kind).findFirst().orElseThrow();
+    }
+
+    @Test
+    void issueRegisteredCertificateWithoutCsrIsRejected() throws Exception {
+        String certUuid = registerSyncRegistered();
+        ClientCertificateIssueRequestDto noCsr = new ClientCertificateIssueRequestDto(); // request == null
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, noCsr));
+    }
+
+    @Test
+    void issueRegisteredCertificateWithNullCsrFormatIsRejected() throws Exception {
+        // An explicit null format must surface a clear validation error rather than an NPE inside the
+        // CSR parser's format-selection logic.
+        String certUuid = registerSyncRegistered();
+        ClientCertificateIssueRequestDto noFormat = new ClientCertificateIssueRequestDto();
+        noFormat.setRequest(generateCsrBase64());
+        noFormat.setFormat(null);
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, noFormat));
+    }
+
+    @Test
+    void issueRequestedCertificateWithSuppliedCsrIsRejected() {
+        Certificate requested = new Certificate();
+        requested.setState(CertificateState.REQUESTED);
+        requested.setRaProfile(raProfile);
+        requested = certificateRepository.save(requested);
+        String certUuid = requested.getUuid().toString();
+
+        ClientCertificateIssueRequestDto withCsr = new ClientCertificateIssueRequestDto();
+        withCsr.setRequest("a-csr-body"); // validation rejects before any parsing
+
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, withCsr));
+    }
+
+    @Test
+    void issueRequestedCertificateWithBlankCsrIsNotTreatedAsSuppliedCsr() throws Exception {
+        // A blank/whitespace request body must not be read as "a CSR was supplied": a REQUESTED cert
+        // carries its own (protocol-attached) CSR, so the issue proceeds rather than being rejected
+        // with "already has a signing request".
+        Certificate requested = new Certificate();
+        requested.setState(CertificateState.REQUESTED);
+        requested.setRaProfile(raProfile);
+        requested = certificateRepository.save(requested);
+        String certUuid = requested.getUuid().toString();
+
+        ClientCertificateIssueRequestDto blank = new ClientCertificateIssueRequestDto();
+        blank.setRequest("   ");
+
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, blank);
+
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+    }
+
+    @Test
+    void issueRegisteredCertificateAttachesOperatorCsr() throws Exception {
+        String certUuid = registerSyncRegistered();
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(generateCsrBase64());
+
+        clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, issueRequest);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow();
+        Assertions.assertNotNull(cert.getCertificateRequest(), "operator CSR should be attached to the registered placeholder");
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+    }
+
+    @Test
+    void issuingTwoRegisteredCertsWithTheSameCsrSharesOneCertificateRequest() throws Exception {
+        // Get-or-create by fingerprint: an identical CSR attached to two registered placeholders must be
+        // shared, not duplicated (matching the canonical CSR-attach path).
+        String csr = generateCsrBase64();
+        UUID first = UUID.fromString(registerSyncRegistered());
+        UUID second = UUID.fromString(registerSyncRegistered());
+
+        ClientCertificateIssueRequestDto req1 = new ClientCertificateIssueRequestDto();
+        req1.setRequest(csr);
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, first.toString(), req1);
+        ClientCertificateIssueRequestDto req2 = new ClientCertificateIssueRequestDto();
+        req2.setRequest(csr);
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, second.toString(), req2);
+
+        UUID firstReq = certificateRepository.findByUuid(first).orElseThrow().getCertificateRequestUuid();
+        UUID secondReq = certificateRepository.findByUuid(second).orElseThrow().getCertificateRequestUuid();
+        Assertions.assertNotNull(firstReq);
+        Assertions.assertEquals(firstReq, secondReq, "an identical CSR must be shared across registered placeholders, not duplicated");
+    }
+
+    @Test
+    void addCertificateRequestToExistingRejectsNonRegisteredCertificate() throws Exception {
+        // Defense-in-depth: the public attach method must refuse a non-REGISTERED certificate.
+        Certificate requested = new Certificate();
+        requested.setState(CertificateState.REQUESTED);
+        requested.setRaProfile(raProfile);
+        requested = certificateRepository.save(requested);
+        UUID uuid = requested.getUuid();
+        ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
+        req.setRequest(generateCsrBase64());
+
+        Assertions.assertThrows(ValidationException.class, () -> certificateService.addCertificateRequestToExisting(uuid, req));
+    }
+
+    @Test
+    void approvalCreatedTransitionsRegisteredCertToPendingApproval() throws Exception {
+        // A registered placeholder issued under an issue-approval profile must enter PENDING_APPROVAL.
+        UUID certUuid = UUID.fromString(registerSyncRegistered());
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        Certificate cert = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL, cert.getState());
+    }
+
+    @Test
+    void registerWithNullRequestIsRejected() {
+        // A missing registration body must surface a controlled ValidationException, not an NPE.
+        Assertions.assertThrows(ValidationException.class,
+                () -> clientOperationService.registerCertificate(authorityParent, securedRaProfile, null));
+    }
+
+    @Test
+    void registerStaysPendingWhenConnectorAcceptedButLocalFailureRaised() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed", new RuntimeException("boom")));
+
+        Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
+
+        // State-divergence rule: the upstream registration was accepted, so the placeholder must NOT be rolled
+        // back to FAILED — it stays PENDING_REGISTRATION for the poll or operator to reconcile.
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, certs.get(0).getState());
+    }
+
+    @Test
+    void sanOnlyRegistrationReachesRegistered() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectAltName("DNS:device-1.example.com"); // subject carried entirely in the SAN, no subjectDn
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent,
+                securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
+    void issueExistingCertificateRejectsCertFromDifferentRaProfile() throws Exception {
+        String certUuid = registerSyncRegistered(); // REGISTERED under raProfile
+
+        RaProfile otherRaProfile = new RaProfile();
+        otherRaProfile.setName("otherRaProfile");
+        otherRaProfile.setAuthorityInstanceReferenceUuid(raProfile.getAuthorityInstanceReferenceUuid());
+        otherRaProfile.setEnabled(true);
+        otherRaProfile = raProfileRepository.save(otherRaProfile);
+
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("ignored-rejected-before-parse");
+        SecuredParentUUID otherAuthority = SecuredParentUUID.fromUUID(otherRaProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID otherRa = otherRaProfile.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                otherAuthority, otherRa, certUuid, issueRequest));
+    }
+
+    @Test
+    void asyncRegistrationWithoutAsyncCapabilityDoesNotSchedulePoll() throws Exception {
+        // Register-capable but NOT async-capable adapter that nonetheless returns async-accepted.
+        AuthorityProviderAdapter adapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(RegisterCapability.class));
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(adapter);
+        when(((RegisterCapability) adapter).register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(null));
+
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState());
+        verify(pollWriter, never()).schedule(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void registerRejectsRaProfileNotUnderRequestedAuthority() {
+        SecuredParentUUID wrongAuthority = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                wrongAuthority, securedRaProfile, request));
+    }
+
+    @Test
+    void registerRejectsDisabledRaProfile() {
+        raProfile.setEnabled(false);
+        raProfileRepository.save(raProfile);
+        ClientCertificateRegistrationDto request = registrationRequest();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+    }
+
+    @Test
+    void issueRegisteredCertificateRejectsMalformedCsr() throws Exception {
+        String certUuid = registerSyncRegistered();
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("!!!not-valid-base64!!!");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, issueRequest));
+    }
+
+    @Test
+    void registerPersistsConnectorMetadata() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent,
+                securedRaProfile, registrationRequest());
+
+        // The connector metadata is actually handed to the attribute engine (not merely tolerated), and
+        // registration completes.
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+    }
+
+    @Test
+    void registerRejectsInvalidSubjectDn() {
+        registeringAdapter();
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("@@@ not a valid dn @@@");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.registerCertificate(
+                authorityParent,
+                securedRaProfile, request));
+    }
+
+    @Test
+    void issueExistingRejectsDisabledRaProfile() throws Exception {
+        String certUuid = registerSyncRegistered();
+        raProfile.setEnabled(false);
+        raProfileRepository.save(raProfile);
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest("x");
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, issueRequest));
+    }
+
+    @Test
+    void issueExistingRejectsCertInNonIssuableState() {
+        Certificate issued = new Certificate();
+        issued.setState(CertificateState.ISSUED);
+        issued.setRaProfile(raProfile);
+        issued = certificateRepository.save(issued);
+        String certUuid = issued.getUuid().toString();
+        Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                authorityParent,
+                securedRaProfile, certUuid, null));
+    }
+
+    // ── register->issue binding persistence ──────────────────────────────────
+
+    private static MetadataAttribute caHandle(String name, String value) {
+        MetadataAttributeV2 attribute = new MetadataAttributeV2();
+        attribute.setUuid(UUID.randomUUID().toString());
+        attribute.setName(name);
+        attribute.setType(AttributeType.META);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setContent(List.of(new StringAttributeContentV2(value)));
+        return attribute;
+    }
+
+    @Test
+    void syncRegistrationPersistsRegisterIssueBinding() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(caHandle("endEntityName", "device-1")), CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertNotNull(binding.getMeta(), "the CA handle must be persisted on the binding");
+        Assertions.assertTrue(binding.getMeta().contains("endEntityName"));
+    }
+
+    @Test
+    void asyncRegistrationPersistsBindingWithTrackingHandle() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of(caHandle("trackingId", "t-1"))));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertTrue(binding.getMeta().contains("trackingId"));
+    }
+
+    @Test
+    void registrationWithoutMetaStillCreatesBinding() throws Exception {
+        // The binding row's presence is the register-bound discriminator for the later issue,
+        // independent of whether the connector returned a CA handle.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        CertificateRegistration binding = registrationRepository
+                .findByCertificateUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertNull(binding.getMeta());
+    }
+
+    @Test
+    void bindingPersistenceFailureKeepsPendingStateAndSurfacesError() throws Exception {
+        // Post-acceptance divergence: the connector accepted the registration, so a failed binding
+        // write must NOT roll certificate state back — it surfaces a clear error and leaves the cert
+        // PENDING_REGISTRATION for reconciliation (the sync REGISTERED transition never runs).
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        doThrow(new IllegalStateException("db down")).when(registrationWriter)
+                .upsert(Mockito.any(), Mockito.any());
+
+        Assertions.assertThrows(ConnectorAcceptedButLocalFailureException.class, this::register);
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.PENDING_REGISTRATION, certs.get(0).getState());
+    }
+
+    @Test
+    void rejectedRegistrationLeavesNoBinding() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+
+        Assertions.assertThrows(ConnectorException.class, this::register);
+
+        Assertions.assertEquals(0, registrationRepository.count(),
+                "a rejected registration must not leave a register->issue binding behind");
+    }
+
+    private String registerSyncRegistered() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        return register().getUuid();
+    }
+
+    private String generateCsrBase64() throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        PKCS10CertificationRequest csr = new JcaPKCS10CertificationRequestBuilder(new X500Name("CN=device-1,O=Acme"), keyPair.getPublic())
+                .build(new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate()));
+        return Base64.getEncoder().encodeToString(csr.getEncoded());
+    }
+}
