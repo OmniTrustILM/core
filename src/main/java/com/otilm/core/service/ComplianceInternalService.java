@@ -33,23 +33,6 @@ public interface ComplianceInternalService {
     ComplianceCheckResultDto getComplianceCheckResult(Resource resource, UUID objectUuid) throws NotFoundException;
 
     /**
-     * Resolves the {@link SecuredUUID} authorization subject whose owner/group scoping governs read access to the
-     * given resource object's compliance result, for use as the object-level argument of
-     * {@link ComplianceExternalService#getComplianceCheckResult}.
-     *
-     * <p>Returns the object's own UUID for resources
-     * authorized directly ({@link Resource#CERTIFICATE}, {@link Resource#SECRET}), the owning key UUID for
-     * {@link Resource#CRYPTOGRAPHIC_KEY_ITEM}, and {@code null} when the resource has no stable owning object to
-     * scope against (e.g. {@link Resource#CERTIFICATE_REQUEST}, which carries its own compliance result and may
-     * predate any certificate) or the object cannot be found — in which case authorization is at resource level only.</p>
-     *
-     * @param resource Resource of the object
-     * @param objectUuid UUID of the object
-     * @return SecuredUUID of the authorizable object, or {@code null} for resource-level authorization
-     */
-    SecuredUUID resolveComplianceAuthorizableObject(Resource resource, UUID objectUuid);
-
-    /**
      * Check the compliance for all objects associated with the compliance profiles
      *
      * @param uuids List of UUIDs of the compliance profiles

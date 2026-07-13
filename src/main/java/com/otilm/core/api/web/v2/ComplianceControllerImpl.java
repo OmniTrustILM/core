@@ -12,7 +12,6 @@ import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ComplianceExternalService;
-import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.util.converter.ResourceCodeConverter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.WebDataBinder;
@@ -26,16 +25,10 @@ import java.util.UUID;
 public class ComplianceControllerImpl implements ComplianceController {
 
     private ComplianceExternalService complianceService;
-    private ComplianceInternalService complianceInternalService;
 
     @Autowired
     public void setComplianceService(ComplianceExternalService complianceService) {
         this.complianceService = complianceService;
-    }
-
-    @Autowired
-    public void setComplianceInternalService(ComplianceInternalService complianceInternalService) {
-        this.complianceInternalService = complianceInternalService;
     }
 
     @InitBinder
@@ -69,7 +62,7 @@ public class ComplianceControllerImpl implements ComplianceController {
     @AuditLogged(module = Module.COMPLIANCE, resource = Resource.NONE, operation = Operation.GET_COMPLIANCE_RESULT)
     public ComplianceCheckResultDto getComplianceCheckResult(@LogResource(resource = true) Resource resource, @LogResource(uuid = true) UUID objectUuid) throws NotFoundException {
         SecuredResource authorizableResource = SecuredResource.fromResource(authorizableResource(resource));
-        SecuredUUID authorizableObject = complianceInternalService.resolveComplianceAuthorizableObject(resource, objectUuid);
+        SecuredUUID authorizableObject = complianceService.resolveComplianceAuthorizableObject(resource, objectUuid);
         return complianceService.getComplianceCheckResult(authorizableResource, authorizableObject, resource, objectUuid);
     }
 
