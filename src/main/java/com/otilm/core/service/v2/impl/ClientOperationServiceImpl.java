@@ -61,6 +61,7 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.CancelOutcome;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -2416,14 +2417,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Connector cancel contract:
+     * Connector cancel dispatch: resolves the authority's adapter and, when it exposes
+     * {@link AsyncOperationCapability} (v3), uses the outcome-mapped {@code cancel} operation —
+     * {@code CANCELLED} proceeds, {@code NOT_TRACKED} is a soft failure (proceed locally),
+     * {@code REFUSED_PAST_POINT_OF_NO_RETURN} is a hard refusal. Adapters without the
+     * capability (v2) call the dedicated v2 cancel endpoints directly.
+     *
+     * <p>Shared error contract (both paths):
      * <ul>
-     *   <li>{@code 204 No Content} — aborted upstream; proceed with local transition.</li>
-     *   <li>{@code 404 Not Found} — connector does not track this operation; soft failure,
+     *   <li>Cancelled upstream (v2 {@code 204}, v3 {@code CANCELLED}) — proceed with local transition.</li>
+     *   <li>Operation not tracked (v2 {@code 404}, v3 {@code NOT_TRACKED}) — soft failure,
      *       proceed locally.</li>
-     *   <li>{@code 422 Unprocessable Entity} → {@link ValidationException} — connector
-     *       refuses to abort; HARD refusal, surface the upstream reason and abort the local
-     *       cancel (cert stays in PENDING_*).</li>
+     *   <li>Refusal (v2 {@code 422}, v3 {@code REFUSED_PAST_POINT_OF_NO_RETURN}) →
+     *       {@link ValidationException} — HARD refusal, surface the upstream reason and abort
+     *       the local cancel (cert stays in PENDING_*).</li>
      *   <li>{@code 5xx} / network / timeout — infrastructure error, soft failure, proceed
      *       locally (the connector may recover and we can reconcile via status).</li>
      *   <li>Other {@code 4xx} (400, 401, 403) → {@link ConnectorClientException} — request
@@ -2440,15 +2447,38 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void invokeConnectorCancelOrThrow(Certificate cert, CancelTarget target) throws NotFoundException {
         RaProfile raProfile = cert.getRaProfile();
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
         try {
-            if (target.isCancelIssue()) {
-                connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelIssueCertificate(connectorDto,
-                        raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+            // The caller's finder omits the authority's connectorInterface (lazy) and this method
+            // holds no session — reload with the full adapter graph for adapter dispatch,
+            // mirroring cancelInFlightAsyncIssueBestEffort.
+            Certificate certForAdapter = certificateRepository.findForPollingByUuid(cert.getUuid())
+                    .orElseThrow(() -> new NotFoundException(Certificate.class, cert.getUuid()));
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(certForAdapter.getRaProfile().getAuthorityInstanceReference());
+            if (adapter instanceof AsyncOperationCapability asyncCapable) {
+                CancelOutcome outcome = asyncCapable.cancel(certForAdapter,
+                        target.isCancelIssue() ? CertificateOperation.ISSUE : CertificateOperation.REVOKE).outcome();
+                if (outcome == CancelOutcome.REFUSED_PAST_POINT_OF_NO_RETURN) {
+                    // Routed through the ValidationException handler below — same hard-refusal
+                    // recording and rethrow as a v2 connector 422.
+                    throw new ValidationException("operation is past the point of no return");
+                }
+                if (outcome == CancelOutcome.NOT_TRACKED) {
+                    recordCancelSoftFailure(cert, target,
+                            "Connector does not track this operation; proceeding with local cancel",
+                            "Connector did not track the operation; proceeded with local cancel",
+                            "Connector cancel reported operation not tracked for cert {} — proceeding with local cancel ({})",
+                            "adapter outcome NOT_TRACKED", null);
+                }
             } else {
-                connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelRevokeCertificate(connectorDto,
-                        raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
+                CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
+                if (target.isCancelIssue()) {
+                    connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelIssueCertificate(connectorDto,
+                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                } else {
+                    connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelRevokeCertificate(connectorDto,
+                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                }
             }
         } catch (ValidationException upstreamRefused) {
             recordCancelFailure(cert, target,
@@ -2474,6 +2504,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector cancel call failed (" + infra.getClass().getSimpleName() + "); proceeded with local cancel",
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
+        } catch (NotFoundException connectorRecordMissing) {
+            // Local connector record missing (getConnectorForApiClient) — a configuration
+            // problem, not a connector response; propagate unchanged instead of softening.
+            throw connectorRecordMissing;
         } catch (Exception unexpected) {
             // Defensive catch-all. Covers any ConnectorException subtype not handled above
             // (e.g. ConnectorProblemException or future additions) plus any unchecked
