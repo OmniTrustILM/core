@@ -500,6 +500,21 @@ class CertificateStatusPollListenerTest {
     }
 
     @Test
+    void completedIssueWithoutDataClosesRegistrationAuthorizationWhenPresent() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        // COMPLETED with no certificate data fails the issue; a pre-registered placeholder's authorization is retired.
+        verify(registrationAuthorizationWriter).close(CERT_UUID);
+    }
+
+    @Test
     void terminalIssueFailureDoesNotCloseWhenNoRegistrationAuthorization() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_ISSUE);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));

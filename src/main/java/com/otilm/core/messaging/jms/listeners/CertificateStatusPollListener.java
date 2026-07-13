@@ -387,7 +387,6 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
     }
 
-
     /** Deletes the cert's poll row to stop polling, best-effort; a failed delete is dropped by the next poll. */
     private void stopPolling(Certificate cert, CertificateOperation op) {
         try {

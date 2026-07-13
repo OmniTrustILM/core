@@ -67,6 +67,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.impl.SettingServiceImpl;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -135,12 +136,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static final LoggerWrapper eventLogger = new LoggerWrapper(
             ClientOperationServiceImpl.class, Module.CERTIFICATES, Resource.CERTIFICATE);
-
-    // Fallback defaults used when the platform registration settings are unavailable (cache not yet populated,
-    // or in tests that don't boot the settings scheduler). The operator-configurable values live in platform
-    // settings (SettingServiceImpl); read them via registrationWindowDays() / maxFailedRegistrationAttempts().
-    private static final int DEFAULT_REGISTRATION_WINDOW_DAYS = 7;
-    private static final int DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS = 5;
 
     private PlatformTransactionManager transactionManager;
 
@@ -605,16 +600,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 ? platformSettings.getCertificates().getRegistration() : null;
     }
 
+    // The fallbacks below use the single canonical defaults in SettingServiceImpl (the value the settings API
+    // reports and persists) so the value applied on a cache miss cannot drift from the operator-visible default.
     private int registrationWindowDays() {
         CertificateRegistrationSettingsDto settings = registrationSettings();
         return settings != null && settings.getDefaultIssuanceWindowDays() != null
-                ? settings.getDefaultIssuanceWindowDays() : DEFAULT_REGISTRATION_WINDOW_DAYS;
+                ? settings.getDefaultIssuanceWindowDays() : SettingServiceImpl.DEFAULT_REGISTRATION_WINDOW_DAYS;
     }
 
     private int maxFailedRegistrationAttempts() {
         CertificateRegistrationSettingsDto settings = registrationSettings();
         return settings != null && settings.getMaxFailedAttempts() != null
-                ? settings.getMaxFailedAttempts() : DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS;
+                ? settings.getMaxFailedAttempts() : SettingServiceImpl.DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS;
     }
 
     private void maybeCreateRegistrationAuthorization(Certificate certificate, ClientCertificateRegistrationDto request) {
@@ -1402,13 +1399,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     public void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
         // Transactional so the reject transition and the fate-coupling auto-CLOSE (or the approval-reject
         // restore) commit atomically — this entry point (invoked by ActionsListener) has no ambient transaction
-        // of its own, unlike the failClaimedCertificate / poll-listener FAILED paths.
-        final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        // A pre-registered placeholder whose completion was rejected during approval is restored to REGISTERED
-        // (its authorization stays ACTIVE) so the holder can retry — mirror revokeCertificateRejectedAction.
-        // Non-registered certs keep the terminal REJECTED behaviour.
+        // of its own, unlike the failClaimedCertificate / poll-listener FAILED paths. The pessimistic lock
+        // satisfies the state-machine contract: re-assert state under SELECT ... FOR UPDATE before transitioning,
+        // so a concurrent issuance claim cannot be clobbered by a stale read.
+        final Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // A pre-registered placeholder whose issuance approval was rejected is restored to REGISTERED so the holder
+        // can retry — keyed on the register->issue binding, the same discriminator issueCertificateAction uses to
+        // route the placeholder (a no-secret pre-registration has a binding but no challenge authorization). Any
+        // challenge authorization stays ACTIVE. Non-registered certs keep the terminal REJECTED behaviour.
         if (certificate.getState() == CertificateState.PENDING_APPROVAL
-                && registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
+                && certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
             stateMachine.transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                     "Issuance approval was rejected; certificate restored to " + CertificateState.REGISTERED.getLabel() + ".");
             return;

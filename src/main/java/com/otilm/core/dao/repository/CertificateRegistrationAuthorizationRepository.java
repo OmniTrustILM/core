@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +21,18 @@ public interface CertificateRegistrationAuthorizationRepository extends JpaRepos
 
     /** Presence check for the fire guards — avoids loading the secret-bearing row just to test existence. */
     boolean existsByCertificateUuid(UUID certificateUuid);
+
+    /** Projection over the non-secret detail fields, so the certificate-detail read never loads the challenge column. */
+    interface RegistrationDetailView {
+        RegistrationState getState();
+
+        OffsetDateTime getExpiresAt();
+
+        int getFailedAttempts();
+    }
+
+    /** Reads only the detail fields (no challenge ciphertext) for the read-only certificate-detail registration block. */
+    Optional<RegistrationDetailView> findDetailByCertificateUuid(UUID certificateUuid);
 
     /**
      * Pessimistic-write finder ({@code SELECT ... FOR UPDATE}) so a concurrent verify / failed-attempt update
