@@ -58,16 +58,20 @@ public class TracingAspect {
             Object[] parameterValues = joinPoint.getArgs();
             Parameter[] parameters = method.getParameters();
 
-            // Add method parameters as span attributes
-            for (int i = 0; i < parameterNames.length; i++) {
-                String paramName = parameterNames[i];
-                // A @Sensitive parameter (e.g. a raw secret) must never be recorded verbatim into a span.
-                if (i < parameters.length && parameters[i].isAnnotationPresent(Sensitive.class)) {
-                    span.setAttribute("function.param." + paramName, "***");
-                    continue;
+            // Add method parameters as span attributes. parameterNames is null when names are unavailable, and
+            // the three arrays can differ in length; only iterate the range all of them cover.
+            if (parameterNames != null) {
+                int count = Math.min(parameterNames.length, Math.min(parameterValues.length, parameters.length));
+                for (int i = 0; i < count; i++) {
+                    String paramName = parameterNames[i];
+                    // A @Sensitive parameter (e.g. a raw secret) must never be recorded verbatim into a span.
+                    if (parameters[i].isAnnotationPresent(Sensitive.class)) {
+                        span.setAttribute("function.param." + paramName, "***");
+                        continue;
+                    }
+                    Object paramValue = parameterValues[i];
+                    span.setAttribute("function.param."+paramName, paramValue != null ? paramValue.toString() : "null");
                 }
-                Object paramValue = parameterValues[i];
-                span.setAttribute("function.param."+paramName, paramValue != null ? paramValue.toString() : "null");
             }
 
             return result;
