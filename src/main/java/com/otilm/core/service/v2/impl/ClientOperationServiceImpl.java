@@ -51,6 +51,7 @@ import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.events.handlers.CertificateActionPerformedEventHandler;
+import com.otilm.core.events.handlers.CertificateRegisteredEventHandler;
 import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
@@ -510,6 +511,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } else {
             stateMachine.transition(certificate, CertificateState.REGISTERED);
             logger.info("Certificate {} registered by authority", certificate.getUuid());
+            fireRegistrationEventIfChallengeProtected(certificate.getUuid());
         }
 
         ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -613,6 +615,21 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             registrationAuthorizationWriter.deleteByCertificateUuid(certificateUuid);
         } catch (RuntimeException e) {
             logger.warn("Failed to remove the registration authorization for failed certificate {}: {}", certificateUuid, e.getMessage());
+        }
+    }
+
+    private void fireRegistrationEventIfChallengeProtected(UUID certificateUuid) {
+        // Fire the Certificate Registered event only for challenge-protected pre-registrations (those with an
+        // authorization row); an operator registration without a challenge has no credential to deliver.
+        // Best-effort: the certificate is already committed REGISTERED, so neither the authorization lookup nor the
+        // produce may fail the caller (a false failure could drive a re-registration). Delivery durability is
+        // tracked separately. The whole side effect — lookup included — is inside the guard.
+        try {
+            if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
+                eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
         }
     }
 

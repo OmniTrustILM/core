@@ -91,7 +91,9 @@ public abstract class AbstractJmsEndpointConfig<T> {
                     context.setAttribute("messageClass", messageClass.getSimpleName());
 
                     String json = extractMessageText(jmsMessage, endpointId);
-                    logger.debug("Message JSON in endpoint {}: {}", endpointId, json);
+                    // Log only metadata, never the body: message payloads can carry secrets (e.g. a
+                    // registration credential) that would otherwise leak into DEBUG logs in cleartext.
+                    logger.debug("Message received in endpoint {}: type={} size={}", endpointId, messageClass.getSimpleName(), json.length());
                     T message = objectMapper.readValue(json, messageClass);
                     listenerMessageProcessor.processMessage(message);
                 } catch (JmsException | JMSException | IOException e) {

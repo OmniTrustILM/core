@@ -11,7 +11,9 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -33,6 +35,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+
+import com.otilm.api.model.core.other.ResourceEvent;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,6 +64,8 @@ class CertificateStatusPollListenerTest {
     @Mock private com.otilm.core.service.CertificateInternalService certificateService;
     @Mock private com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
     @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
+    @Mock private EventProducer eventProducer;
+    @Mock private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -90,6 +96,8 @@ class CertificateStatusPollListenerTest {
         listener.setCertificateService(certificateService);
         listener.setRevocationFinalizer(revocationFinalizer);
         listener.setRegistrationWriter(registrationWriter);
+        listener.setEventProducer(eventProducer);
+        listener.setRegistrationAuthorizationRepository(registrationAuthorizationRepository);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -103,6 +111,9 @@ class CertificateStatusPollListenerTest {
         lenient().doAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get())
                 .when(transactionHandler).runInNewTransaction(any(Supplier.class));
         lenient().when(adapterFactory.forAuthority(any())).thenReturn(adapter);
+        // Default: no registration authorization, so the register-completion event does not fire in the
+        // binding/transition tests. The dedicated fire tests below re-stub this to true.
+        lenient().when(registrationAuthorizationRepository.existsByCertificateUuid(any())).thenReturn(false);
     }
 
     // -----------------------------------------------------------------------
@@ -348,6 +359,64 @@ class CertificateStatusPollListenerTest {
         verify(registrationWriter).upsert(CERT_UUID, finalMeta);
         verify(stateMachine).transition(eq(cert), eq(CertificateState.REGISTERED), isNull(), anyString());
         verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
+    void completedRegisterFiresRegistrationEventWhenAuthorizationPresent() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        verify(eventProducer).produceMessage(Mockito.argThat(m -> m.getEvent() == ResourceEvent.CERTIFICATE_REGISTERED));
+    }
+
+    @Test
+    void registerEventProduceFailureDoesNotAbortPollCleanup() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+        doThrow(new RuntimeException("broker down")).when(eventProducer).produceMessage(Mockito.any());
+
+        // Best-effort fire: a produce failure must not propagate or abort poll-row cleanup.
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
+    void completedRegisterDoesNotFireEventWhenNoAuthorization() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        // existsByCertificateUuid defaults to false (setUp)
+
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        verify(eventProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void completedIssueDoesNotFireRegistrationEvent() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        lenient().when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(eventProducer, never()).produceMessage(any());
     }
 
     // -----------------------------------------------------------------------
