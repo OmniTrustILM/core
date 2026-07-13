@@ -482,7 +482,8 @@ class CertificateStatusPollListenerTest {
         listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
 
         verify(stateMachine).transition(eq(cert), eq(CertificateState.FAILED), isNull(), anyString());
-        verify(pollWriter).delete(CERT_UUID);    }
+        verify(pollWriter).delete(CERT_UUID);
+    }
 
     @Test
     void terminalIssueFailureClosesRegistrationAuthorizationWhenPresent() throws MessageHandlingException, ConnectorException {
