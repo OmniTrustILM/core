@@ -60,6 +60,8 @@ class CertificateStatusPollListenerTest {
     @Mock private com.otilm.core.service.CertificateInternalService certificateService;
     @Mock private com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer revocationFinalizer;
     @Mock private com.otilm.core.service.writer.registration.CertificateRegistrationWriter registrationWriter;
+    @Mock private com.otilm.core.messaging.jms.producers.EventProducer eventProducer;
+    @Mock private com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability.
@@ -90,6 +92,8 @@ class CertificateStatusPollListenerTest {
         listener.setCertificateService(certificateService);
         listener.setRevocationFinalizer(revocationFinalizer);
         listener.setRegistrationWriter(registrationWriter);
+        listener.setEventProducer(eventProducer);
+        listener.setRegistrationAuthorizationRepository(registrationAuthorizationRepository);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -103,6 +107,11 @@ class CertificateStatusPollListenerTest {
         lenient().doAnswer(inv -> ((Supplier<?>) inv.getArgument(0)).get())
                 .when(transactionHandler).runInNewTransaction(any(Supplier.class));
         lenient().when(adapterFactory.forAuthority(any())).thenReturn(adapter);
+        // Default: no registration authorization, so the register-completion event does not fire in these
+        // binding/transition tests (the fire path is covered by the register ITest). Unstubbed, the Optional
+        // return would be null and the guard's isPresent() would NPE.
+        lenient().when(registrationAuthorizationRepository.findByCertificateUuid(any()))
+                .thenReturn(java.util.Optional.empty());
     }
 
     // -----------------------------------------------------------------------
