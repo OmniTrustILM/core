@@ -26,9 +26,11 @@ import static org.mockito.Mockito.when;
  */
 class TracingAspectTest {
 
-    @SuppressWarnings("unused") // reflected as the traced-method fixture
-    private void sampleMethod(@Sensitive String secret, String visible) {
-        // Intentionally empty: only the signature and its parameter annotations are reflected by the aspect.
+    // Invoked only reflectively as the traced-method fixture (the aspect reads its parameter names and
+    // annotations); the body uses both parameters so static analysis does not flag them as unused.
+    @SuppressWarnings("unused")
+    private String sampleMethod(@Sensitive String secret, String visible) {
+        return visible + secret;
     }
 
     @Test
