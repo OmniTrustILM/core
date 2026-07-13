@@ -23,7 +23,6 @@ import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
-import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -70,6 +69,7 @@ import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -164,7 +164,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
     private CryptographicKeyInternalService cryptographicKeyService;
-    private PermissionEvaluator permissionEvaluator;
+    private AuthorizationEnforcer authorizationEnforcer;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
     private ConnectorApiFactory connectorApiFactory;
@@ -329,8 +329,8 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     @Autowired
-    public void setPermissionEvaluator(PermissionEvaluator permissionEvaluator) {
-        this.permissionEvaluator = permissionEvaluator;
+    public void setAuthorizationEnforcer(AuthorizationEnforcer authorizationEnforcer) {
+        this.authorizationEnforcer = authorizationEnforcer;
     }
 
     @Autowired
@@ -693,7 +693,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     }
 
     private void bulkUpdateCertificateObjects(MultipleCertificateObjectUpdateDto request, SecuredUUID certificateUuid, Set<UUID> groupUuids, String ownerUuid, boolean removeRaProfile) throws NotFoundException, CertificateOperationException, AttributeException {
-        permissionEvaluator.certificate(certificateUuid);
+        authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, certificateUuid);
         if (groupUuids != null) updateCertificateGroups(certificateUuid, groupUuids);
         if (request.getOwnerUuid() != null) updateOwner(certificateUuid, ownerUuid);
         if (request.getRaProfileUuid() != null)
@@ -1106,12 +1106,12 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
 
     @Override
     @Transactional
-    public Certificate createRegistrationPlaceholder(RaProfile raProfile, ClientCertificateRegistrationDto request) {
+    public Certificate createRegistrationPlaceholder(RaProfile raProfile, String effectiveSubjectDn) {
         // Identity-only placeholder: no key/CSR/content yet. The authoritative subject, SAN and key
         // material are recorded when the follow-up CSR issuance completes against this record, so only
         // the subject DN identity from the registration request is captured here.
         Certificate certificate = new Certificate();
-        CertificateUtil.applyRegistrationSubject(certificate, request.getSubjectDn());
+        CertificateUtil.applyRegistrationSubject(certificate, effectiveSubjectDn);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
@@ -1625,7 +1625,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         for (UUID uuid : uuids) {
             try {
                 SecuredUUID securedUUID = SecuredUUID.fromUUID(uuid);
-                permissionEvaluator.certificate(securedUUID);
+                authorizationEnforcer.enforce(Resource.CERTIFICATE, ResourceAction.DETAIL, securedUUID);
                 Certificate certificate = getCertificateEntity(securedUUID);
                 CertificateContentDto dto = new CertificateContentDto();
                 dto.setUuid(uuid.toString());

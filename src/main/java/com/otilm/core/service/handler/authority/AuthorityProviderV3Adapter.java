@@ -13,6 +13,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
@@ -242,15 +243,23 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
-    public AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req) throws ConnectorException {
+    public AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req,
+                                           X509RequestContent identityContent) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        X509RequestContent content = RegisterWireBuilder.buildContent(
-                req != null ? req.getSubjectDn() : null,
-                req != null ? req.getSubjectAltName() : null,
-                req != null ? req.getExtensions() : null);
+        // Structured csrAttributes are projected once by the orchestrator (identityContent); a flat request
+        // carries no pre-built content, so build the identity here from subjectDn/subjectAltName/extensions.
+        X509RequestContent content;
+        if (identityContent != null) {
+            content = identityContent;
+        } else {
+            String subjectDn = req != null ? req.getSubjectDn() : null;
+            String subjectAltName = req != null ? req.getSubjectAltName() : null;
+            List<CertificateExtension> extensions = req != null ? req.getExtensions() : null;
+            content = RegisterWireBuilder.buildContent(subjectDn, subjectAltName, extensions);
+        }
         boolean structured = capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED);
         CertificateRegistrationRequestDtoV3 wire = RegisterWireBuilder.buildRegistration(content, structured);
         if (req != null) {

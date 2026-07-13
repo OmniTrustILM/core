@@ -18,6 +18,15 @@ public record StatusPollProperties(
             int idx = Math.min(attempt - 1, delays.size() - 1);
             return delays.get(idx);
         }
+
+        /**
+         * The attempt value at which the backoff ramp has reached its final (ceiling) delay.
+         * Resetting a row's attempt down refreshes the poll-timeout budget ({@code maxAttempts − ceilingAttempt()}
+         * further polls) without restarting the ramp — the cadence stays at the ceiling.
+         */
+        public int ceilingAttempt() {
+            return delays.size();
+        }
     }
 
     public PollSchedule scheduleFor(CertificateOperation op) {

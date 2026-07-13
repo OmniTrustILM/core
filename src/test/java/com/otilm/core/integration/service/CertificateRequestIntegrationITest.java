@@ -240,8 +240,8 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
 
     @Test
     void failsRequest_whenConnectorAttributeFetchFails() throws Exception {
-        // given — the v3 connector issue-attributes endpoint errors. resolveIssuanceDefinitions fails on a genuine connector
-        // failure rather than silently falling back to the default CSR set, so the request is rejected.
+        // given — the v3 connector issue-attributes endpoint errors. Issuance-definition resolution fails on a genuine
+        // connector failure rather than silently falling back to the default CSR set, so the request is rejected.
         stubIssueAttributes("[]");
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v3/authorityProvider/certificates/issue/attributes"))

@@ -39,12 +39,17 @@ import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
@@ -198,6 +203,63 @@ class CmpProfileServiceITest extends BaseSpringBootTest {
         dto = cmpProfileService.editCmpProfile(cmpProfile.getSecuredUuid(), request);
         Assertions.assertNotNull(dto);
         Assertions.assertNotNull(dto.getCertificateAssociations());
+    }
+
+    static Stream<Arguments> sharedSecretEditCases() {
+        return Stream.of(
+                //         stored,            requestValue,  expectedStored
+                arguments("originalSecret", "newSecret", "newSecret"),      // value provided -> replace
+                arguments("originalSecret", null, "originalSecret"),        // omitted -> keep
+                arguments("originalSecret", "", "originalSecret"),          // blank -> keep
+                arguments("originalSecret", "   ", "originalSecret")        // whitespace -> keep
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("sharedSecretEditCases")
+    void testEditCmpProfile_sharedSecretMatrix(String stored, String requestValue, String expectedStored)
+            throws ConnectorException, AttributeException, NotFoundException {
+        cmpProfile.setSharedSecret(stored);
+        cmpProfileRepository.save(cmpProfile);
+
+        CmpProfileEditRequestDto request = new CmpProfileEditRequestDto();
+        request.setVariant(CmpProfileVariant.V2);
+        request.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setSharedSecret(requestValue);
+
+        cmpProfileService.editCmpProfile(cmpProfile.getSecuredUuid(), request);
+
+        CmpProfile updated = cmpProfileRepository.findByUuid(cmpProfile.getUuid()).orElseThrow();
+        Assertions.assertEquals(expectedStored, updated.getSharedSecret());
+    }
+
+    @Test
+    void testEditCmpProfile_rejectsOmittedSharedSecretWhenNothingStored() {
+        CmpProfileEditRequestDto request = new CmpProfileEditRequestDto();
+        request.setVariant(CmpProfileVariant.V2);
+        request.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        // no shared secret in the request and none stored -> reject
+
+        SecuredUUID uuid = cmpProfile.getSecuredUuid();
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> cmpProfileService.editCmpProfile(uuid, request));
+        Assertions.assertTrue(ex.getMessage().contains("Shared secret is required"), ex.getMessage());
+    }
+
+    @Test
+    void testAddCmpProfile_rejectsBlankSharedSecret() {
+        CmpProfileRequestDto request = new CmpProfileRequestDto();
+        request.setName("TestBlankSecret");
+        request.setVariant(CmpProfileVariant.V2);
+        request.setRequestProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setResponseProtectionMethod(ProtectionMethod.SHARED_SECRET);
+        request.setSharedSecret("   ");
+
+        ValidationException ex = Assertions.assertThrows(ValidationException.class,
+                () -> cmpProfileService.createCmpProfile(request));
+        Assertions.assertTrue(ex.getMessage().contains("Shared secret is required"), ex.getMessage());
     }
 
     @Test

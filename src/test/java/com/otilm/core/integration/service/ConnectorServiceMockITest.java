@@ -1,5 +1,7 @@
 package com.otilm.core.integration.service;
 
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.when;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.clients.ConnectorApiClient;
 import com.otilm.api.model.client.connector.ConnectRequestDto;
@@ -20,7 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.*;
@@ -116,10 +117,10 @@ class ConnectorServiceMockITest {
         ((ConnectorV1Adapter) connectorAdapter).setConnectorApiFactory(connectorApiFactory);
         ((ConnectorServiceImpl) connectorService).setConnectorAdapters(Map.of(ConnectorVersion.V1.getCode(), connectorAdapter, ConnectorVersion.V2.getCode(), connectorAdapter));
 
-        Mockito.when(functionGroupRepository.findByCode(Mockito.any())).thenReturn(Optional.empty());
-        Mockito.when(functionGroupRepository.findByCode(FunctionGroupCode.CREDENTIAL_PROVIDER)).thenReturn(Optional.of(functionGroup));
+        when(functionGroupRepository.findByCode(any())).thenReturn(Optional.empty());
+        when(functionGroupRepository.findByCode(FunctionGroupCode.CREDENTIAL_PROVIDER)).thenReturn(Optional.of(functionGroup));
 
-        Mockito.when(connectorApiFactory.getConnectorApiClient(Mockito.any(ApiClientConnectorInfo.class))).thenReturn(connectorApiClient);
+        when(connectorApiFactory.getConnectorApiClient(any(ApiClientConnectorInfo.class))).thenReturn(connectorApiClient);
     }
 
     @Test
@@ -128,7 +129,7 @@ class ConnectorServiceMockITest {
         List<InfoResponse> connectorFunctions = new ArrayList<>();
         List<String> types = List.of("default");
         connectorFunctions.add(new InfoResponse(types, FunctionGroupCode.AUTHORITY_PROVIDER, Collections.singletonList(endpoint1.mapToDto())));
-        Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
+        when(connectorApiClient.listSupportedFunctions(any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
         request.setUrl(CONNECTOR_URL);
@@ -142,7 +143,7 @@ class ConnectorServiceMockITest {
         List<InfoResponse> connectorFunctions = new ArrayList<>();
         List<String> types = List.of("default");
         connectorFunctions.add(new InfoResponse(types, FunctionGroupCode.CREDENTIAL_PROVIDER, Collections.singletonList(endpoint1.mapToDto())));
-        Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
+        when(connectorApiClient.listSupportedFunctions(any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
         request.setUrl(CONNECTOR_URL);
@@ -156,7 +157,7 @@ class ConnectorServiceMockITest {
         List<InfoResponse> connectorFunctions = new ArrayList<>();
         List<String> types = List.of("default");
         connectorFunctions.add(new InfoResponse(types, FunctionGroupCode.CREDENTIAL_PROVIDER, Arrays.asList(endpoint1.mapToDto(), endpoint2.mapToDto())));
-        Mockito.when(connectorApiClient.listSupportedFunctions(Mockito.any())).thenReturn(connectorFunctions);
+        when(connectorApiClient.listSupportedFunctions(any())).thenReturn(connectorFunctions);
 
         ConnectRequestDto request = new ConnectRequestDto();
         request.setUrl(CONNECTOR_URL);

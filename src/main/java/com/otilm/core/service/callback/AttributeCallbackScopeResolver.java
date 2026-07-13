@@ -19,8 +19,9 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.PermissionEvaluator;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -59,7 +60,7 @@ public class AttributeCallbackScopeResolver {
 
     private final AttributeEngine attributeEngine;
     private final AttributeReferenceExpander expander;
-    private final PermissionEvaluator permissionEvaluator;
+    private final AuthorizationEnforcer authorizationEnforcer;
     private final AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private final RaProfileRepository raProfileRepository;
     private final TokenProfileRepository tokenProfileRepository;
@@ -75,14 +76,14 @@ public class AttributeCallbackScopeResolver {
 
     public AttributeCallbackScopeResolver(AttributeEngine attributeEngine,
                                           AttributeReferenceExpander expander,
-                                          PermissionEvaluator permissionEvaluator,
+                                          AuthorizationEnforcer authorizationEnforcer,
                                           AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository,
                                           RaProfileRepository raProfileRepository,
                                           TokenProfileRepository tokenProfileRepository,
                                           EntityInstanceReferenceRepository entityInstanceReferenceRepository) {
         this.attributeEngine = attributeEngine;
         this.expander = expander;
-        this.permissionEvaluator = permissionEvaluator;
+        this.authorizationEnforcer = authorizationEnforcer;
         this.authorityInstanceReferenceRepository = authorityInstanceReferenceRepository;
         this.raProfileRepository = raProfileRepository;
         this.tokenProfileRepository = tokenProfileRepository;
@@ -124,20 +125,20 @@ public class AttributeCallbackScopeResolver {
 
     /**
      * Authorize the scope object itself against the calling user before its blob is read: each scope kind maps to
-     * its {@code <KIND>:DETAIL} {@link PermissionEvaluator} check, which throws {@code AccessDeniedException} (fail
-     * closed) when the operator is not entitled. A kind with no mapping is a wiring error and is rejected.
+     * its {@code <KIND>:DETAIL} {@link AuthorizationEnforcer} check, which throws {@code AccessDeniedException}
+     * (fail closed) when the operator is not entitled. A kind with no mapping is a wiring error and is rejected.
      */
-    private void authorizeScopeStep(ScopeStep step) throws NotFoundException {
+    private void authorizeScopeStep(ScopeStep step) {
         if (step.objectUuid() == null) {
             return;
         }
         SecuredUUID uuid = SecuredUUID.fromUUID(step.objectUuid());
         switch (step.kind()) {
-            case AUTHORITY -> permissionEvaluator.authorityInstance(uuid);
-            case RA_PROFILE -> permissionEvaluator.raProfile(uuid);
-            case TOKEN -> permissionEvaluator.tokenInstance(uuid);
-            case TOKEN_PROFILE -> permissionEvaluator.tokenProfile(uuid);
-            case ENTITY -> permissionEvaluator.entityInstance(uuid);
+            case AUTHORITY -> authorizationEnforcer.enforce(Resource.AUTHORITY, ResourceAction.DETAIL, uuid);
+            case RA_PROFILE -> authorizationEnforcer.enforce(Resource.RA_PROFILE, ResourceAction.DETAIL, uuid);
+            case TOKEN -> authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, uuid);
+            case TOKEN_PROFILE -> authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, uuid);
+            case ENTITY -> authorizationEnforcer.enforce(Resource.ENTITY, ResourceAction.DETAIL, uuid);
             default -> throw new IllegalStateException(
                     "No per-object DETAIL authorization mapping for scope kind " + step.kind());
         }
