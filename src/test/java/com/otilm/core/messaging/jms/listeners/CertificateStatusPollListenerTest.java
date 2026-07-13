@@ -374,6 +374,22 @@ class CertificateStatusPollListenerTest {
     }
 
     @Test
+    void registerEventProduceFailureDoesNotAbortPollCleanup() throws MessageHandlingException, ConnectorException {
+        Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.REGISTER))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, null, null, null));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(registrationAuthorizationRepository.existsByCertificateUuid(CERT_UUID)).thenReturn(true);
+        doThrow(new RuntimeException("broker down")).when(eventProducer).produceMessage(Mockito.any());
+
+        // Best-effort fire: a produce failure must not propagate or abort poll-row cleanup.
+        listener.processMessage(pollMsg(CertificateOperation.REGISTER, 0));
+
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
     void completedRegisterDoesNotFireEventWhenNoAuthorization() throws MessageHandlingException, ConnectorException {
         Certificate cert = certInState(CertificateState.PENDING_REGISTRATION);
         when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));

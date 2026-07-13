@@ -975,6 +975,22 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void registerSucceedsWhenRegistrationEventProduceFails() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        doThrow(new RuntimeException("broker down")).when(eventProducer).produceMessage(Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        // Best-effort fire: the cert is already committed REGISTERED, so a produce failure must not fail the caller.
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+    }
+
+    @Test
     void registrationStoreFailureFailsPlaceholderInsteadOfOrphaning() {
         // A local authorization-store failure (encryption/persistence) must fail the placeholder via the
         // pre-acceptance catch, not leave it stranded in PENDING_REGISTRATION with no authorization.

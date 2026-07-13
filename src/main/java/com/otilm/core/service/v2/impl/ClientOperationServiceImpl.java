@@ -621,15 +621,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void fireRegistrationEventIfChallengeProtected(UUID certificateUuid) {
         // Fire the Certificate Registered event only for challenge-protected pre-registrations (those with an
         // authorization row); an operator registration without a challenge has no credential to deliver.
-        if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
-            // Best-effort: the certificate is already committed REGISTERED, so a produce failure must not fail the
-            // caller (which would be a false failure and could drive a re-registration). Delivery durability is
-            // tracked separately.
-            try {
+        // Best-effort: the certificate is already committed REGISTERED, so neither the authorization lookup nor the
+        // produce may fail the caller (a false failure could drive a re-registration). Delivery durability is
+        // tracked separately. The whole side effect — lookup included — is inside the guard.
+        try {
+            if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
                 eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
-            } catch (RuntimeException e) {
-                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
             }
+        } catch (RuntimeException e) {
+            logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
         }
     }
 
