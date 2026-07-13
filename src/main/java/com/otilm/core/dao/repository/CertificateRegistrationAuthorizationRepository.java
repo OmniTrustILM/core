@@ -1,6 +1,7 @@
 package com.otilm.core.dao.repository;
 
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
+import com.otilm.core.dao.entity.RegistrationState;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -30,4 +31,8 @@ public interface CertificateRegistrationAuthorizationRepository extends JpaRepos
     @Modifying
     @Query("DELETE FROM CertificateRegistrationAuthorization r WHERE r.certificateUuid = :certificateUuid")
     void deleteByCertificateUuid(@Param("certificateUuid") UUID certificateUuid);
+
+    @Modifying
+    @Query("UPDATE CertificateRegistrationAuthorization r SET r.state = :state, r.updated = CURRENT_TIMESTAMP WHERE r.certificateUuid = :certificateUuid")
+    void updateStateByCertificateUuid(@Param("certificateUuid") UUID certificateUuid, @Param("state") RegistrationState state);
 }

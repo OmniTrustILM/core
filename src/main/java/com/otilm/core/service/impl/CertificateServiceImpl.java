@@ -152,6 +152,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
+    private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RaProfileInternalService raProfileService;
     private GroupRepository groupRepository;
     private GroupAssociationRepository groupAssociationRepository;
@@ -213,6 +214,11 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setGroupAssociationRepository(GroupAssociationRepository groupAssociationRepository) {
         this.groupAssociationRepository = groupAssociationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
+        this.registrationAuthorizationRepository = registrationAuthorizationRepository;
     }
 
     @Autowired
@@ -486,7 +492,21 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         dto.setMetadata(attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid()));
         dto.setRelatedCertificates(certificate.getSuccessorRelations().stream().map(r -> r.getSuccessorCertificate().mapToListDto()).toList());
+        // Read-only registration block, present only for pre-registered certificates (those with an authorization
+        // row). The challenge is never exposed — only state, deadline, and failed-attempt count.
+        registrationAuthorizationRepository.findByCertificateUuid(certificate.getUuid()).ifPresent(authorization -> {
+            CertificateRegistrationDetailDto registration = new CertificateRegistrationDetailDto();
+            registration.setState(toRegistrationDetailState(authorization.getState()));
+            registration.setExpiresAt(authorization.getExpiresAt());
+            registration.setFailedAttempts(authorization.getFailedAttempts());
+            dto.setRegistration(registration);
+        });
         return dto;
+    }
+
+    /** Maps the persisted registration state to its API enum (names are 1:1). */
+    private static CertificateRegistrationState toRegistrationDetailState(RegistrationState state) {
+        return CertificateRegistrationState.valueOf(state.name());
     }
 
     @Override

@@ -28,6 +28,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
@@ -75,6 +76,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateRevocationFinalizer revocationFinalizer;
     private EventProducer eventProducer;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -358,7 +360,14 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
-            stateMachine.transition(locked, op.terminalFailureState(), null, reason);
+            CertificateState terminal = op.terminalFailureState();
+            stateMachine.transition(locked, terminal, null, reason);
+            // Fate-coupling: on a terminal FAILED verdict, close a pre-registered cert's authorization in the same
+            // locked transaction. Only on FAILED — a failed REVOKE returns to ISSUED and must keep its registration.
+            if (terminal == CertificateState.FAILED
+                    && registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
+                registrationAuthorizationWriter.close(locked.getUuid());
+            }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         stopPolling(cert, op);
@@ -452,6 +461,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
     }
 
     // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected

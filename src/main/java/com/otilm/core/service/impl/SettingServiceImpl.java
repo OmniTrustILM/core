@@ -51,6 +51,9 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String UTILS_SERVICE_URL_NAME = "utilsServiceUrl";
     public static final String CBOM_REPOSITORY_URL_NAME = "cbomRepositoryUrl";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
+    public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
+    public static final int DEFAULT_REGISTRATION_WINDOW_DAYS = 7;
+    public static final int DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS = 5;
 
     public static final String LOGGING_AUDIT_LOG_OUTPUT_NAME = "output";
     public static final String LOGGING_AUDIT_LOG_VERBOSE_NAME = "verbose";
@@ -152,6 +155,20 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
         }
 
         certificateSettingsDto.setRequestAttributes(readRequestAttributesSettings(certificateSettings));
+
+        CertificateRegistrationSettingsDto defaultRegistrationSettings = new CertificateRegistrationSettingsDto();
+        defaultRegistrationSettings.setDefaultIssuanceWindowDays(DEFAULT_REGISTRATION_WINDOW_DAYS);
+        defaultRegistrationSettings.setMaxFailedAttempts(DEFAULT_REGISTRATION_MAX_FAILED_ATTEMPTS);
+        if (certificateSettings != null && certificateSettings.get(CERTIFICATES_REGISTRATION_SETTINGS_NAME) != null) {
+            try {
+                certificateSettingsDto.setRegistration(objectMapper.readValue(certificateSettings.get(CERTIFICATES_REGISTRATION_SETTINGS_NAME).getValue(), CertificateRegistrationSettingsDto.class));
+            } catch (JsonProcessingException e) {
+                logger.warn("Cannot deserialize platform certificates registration settings. Returning default settings.");
+                certificateSettingsDto.setRegistration(defaultRegistrationSettings);
+            }
+        } else {
+            certificateSettingsDto.setRegistration(defaultRegistrationSettings);
+        }
 
         platformSettings.setCertificates(certificateSettingsDto);
 
@@ -256,6 +273,18 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             strictSetting.setValue(requestAttributes.getExternalCsrValidationStrict() == null
                     ? null : requestAttributes.getExternalCsrValidationStrict().toString());
             settingRepository.save(strictSetting);
+        }
+
+        CertificateRegistrationSettingsUpdateDto registration = platformSettings.getCertificates().getRegistration();
+        if (registration != null) {
+            Setting registrationSetting = certificateSetting(certificateSettings, CERTIFICATES_REGISTRATION_SETTINGS_NAME);
+            try {
+                registrationSetting.setValue(objectMapper.writeValueAsString(registration));
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize platform certificates registration settings", e);
+                throw new ValidationException("Cannot serialize platform certificates settings.");
+            }
+            settingRepository.save(registrationSetting);
         }
     }
 
