@@ -1,5 +1,6 @@
 package com.otilm.core.service.writer.registration;
 
+import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,5 +24,14 @@ public class CertificateRegistrationAuthorizationWriter {
     @Transactional
     public void deleteByCertificateUuid(UUID certificateUuid) {
         authorizationRepository.deleteByCertificateUuid(certificateUuid);
+    }
+
+    /**
+     * Retires the authorization (state → CLOSED) when its certificate reaches a terminal FAILED/REJECTED verdict,
+     * so a dead placeholder no longer carries an ACTIVE registration. Idempotent (no-op when no row exists).
+     */
+    @Transactional
+    public void close(UUID certificateUuid) {
+        authorizationRepository.updateStateByCertificateUuid(certificateUuid, RegistrationState.CLOSED);
     }
 }

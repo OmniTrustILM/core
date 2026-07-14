@@ -11,6 +11,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -61,7 +63,9 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -122,6 +126,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private CertificateRegistrationRepository registrationRepository;
     @Autowired
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
+    @Autowired
+    private SettingsCache settingsCache;
+    @Autowired
+    private SettingExternalService settingService;
     // Spied so most tests use real encryption/verification while one test stubs store() to drive the
     // local-authorization-failure arc.
     @MockitoSpyBean
@@ -793,7 +801,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // ── registration challenge authorization ────────────────────────────────
 
     private static final String CHALLENGE = "s3cret-value-1234";
-    // Mirrors ClientOperationServiceImpl.MAX_FAILED_REGISTRATION_ATTEMPTS.
+    // The default maximum failed challenge-verification attempts before the authorization locks.
     private static final int MAX_FAILED_ATTEMPTS = 5;
 
     @Test
@@ -947,6 +955,95 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 () -> clientOperationService.rekeyCertificate(authorityParent, securedRaProfile, certUuid, request));
         Assertions.assertTrue(ex.getMessage().contains("not supported yet"),
                 "the fail-closed guard must reject rekey too (verification comes later)");
+    }
+
+    @Test
+    void approvalRejectedRestoresRegisteredPlaceholderKeepingAuthorizationActive() throws Exception {
+        UUID certUuid = UUID.fromString(registerWithSecret(null)); // REGISTERED placeholder + ACTIVE authorization
+        clientOperationInternalService.approvalCreatedAction(certUuid); // issuing it requires approval -> PENDING_APPROVAL
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState());
+
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a rejected issuance approval restores the placeholder rather than terminating it REJECTED");
+        CertificateRegistrationAuthorization auth = authorizationRepository.findByCertificateUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(RegistrationState.ACTIVE, auth.getState(),
+                "the authorization stays ACTIVE so the holder can retry the issue");
+        Assertions.assertEquals(1, authorizationRepository.count());
+    }
+
+    @Test
+    void approvalRejectedOfCertWithoutAuthorizationTerminatesRejected() throws Exception {
+        // A cert carrying no registration authorization keeps the terminal REJECTED behaviour on approval rejection.
+        Certificate cert = new Certificate();
+        cert.setState(CertificateState.PENDING_APPROVAL);
+        cert.setRaProfile(raProfile);
+        cert.setRaProfileUuid(raProfile.getUuid());
+        UUID uuid = certificateRepository.save(cert).getUuid();
+
+        clientOperationInternalService.issueCertificateRejectedAction(uuid);
+
+        Assertions.assertEquals(CertificateState.REJECTED,
+                certificateRepository.findByUuid(uuid).orElseThrow().getState());
+        Assertions.assertEquals(0, authorizationRepository.count());
+    }
+
+    @Test
+    void approvalRejectedRestoresRegisteredPlaceholderWithBindingButNoSecret() throws Exception {
+        UUID certUuid = UUID.fromString(registerSyncRegistered()); // operator register: binding, no challenge authorization
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState());
+
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a no-secret pre-registration is restored too — the binding is the discriminator, not the challenge row");
+        Assertions.assertTrue(registrationRepository.findByCertificateUuid(certUuid).isPresent(),
+                "the register->issue binding is preserved so the holder can retry");
+        Assertions.assertEquals(0, authorizationRepository.count(), "a no-secret flow carries no challenge authorization");
+    }
+
+    @Test
+    void customIssuanceWindowSettingIsAppliedToNewAuthorizations() throws Exception {
+        PlatformSettingsDto custom = settingService.getPlatformSettings();
+        custom.getCertificates().getRegistration().setDefaultIssuanceWindowDays(30);
+        settingsCache.cacheSettings(SettingsSection.PLATFORM, custom);
+        try {
+            String certUuid = registerWithSecret(null); // no explicit expiry, so the configured default window applies
+            CertificateRegistrationAuthorization auth = authorizationRepository
+                    .findByCertificateUuid(UUID.fromString(certUuid)).orElseThrow();
+            Assertions.assertTrue(auth.getExpiresAt().isAfter(OffsetDateTime.now().plusDays(29)),
+                    "the operator-configured 30-day window must be applied, not the 7-day fallback");
+        } finally {
+            settingsCache.cacheSettings(SettingsSection.PLATFORM, settingService.getPlatformSettings());
+        }
+    }
+
+    @Test
+    void customMaxFailedAttemptsSettingLocksTheAuthorization() throws Exception {
+        PlatformSettingsDto custom = settingService.getPlatformSettings();
+        custom.getCertificates().getRegistration().setMaxFailedAttempts(2);
+        settingsCache.cacheSettings(SettingsSection.PLATFORM, custom);
+        try {
+            String certUuid = registerWithSecret(null);
+            ClientCertificateIssueRequestDto wrong = new ClientCertificateIssueRequestDto();
+            wrong.setRequest(generateCsrBase64());
+            wrong.setAuthorizationSecret("wrong-secret-9999");
+            for (int i = 0; i < 2; i++) {
+                Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
+                        authorityParent, securedRaProfile, certUuid, wrong));
+            }
+            Assertions.assertEquals(RegistrationState.LOCKED,
+                    authorizationRepository.findByCertificateUuid(UUID.fromString(certUuid)).orElseThrow().getState(),
+                    "the operator-configured lockout threshold of 2 must be applied, not the 5-attempt fallback");
+        } finally {
+            settingsCache.cacheSettings(SettingsSection.PLATFORM, settingService.getPlatformSettings());
+        }
     }
 
     @Test

@@ -73,6 +73,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -89,6 +90,7 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -136,6 +138,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private CertificateRegistrationAuthorizationRepository authorizationRepository;
 
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
@@ -670,6 +675,52 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void throwsNotFound_whenCertificateDoesNotExist() {
             // when / then
             assertThatThrownBy(() -> certificateService.getCertificate(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"))).isInstanceOf(NotFoundException.class);
+        }
+
+        @Test
+        void returnsRegistrationBlock_withoutLeakingTheChallenge_whenPreRegistered() throws NotFoundException, CertificateException, IOException {
+            // given: a pre-registered certificate carries an authorization row with an (encrypted) challenge
+            CertificateRegistrationAuthorization auth = new CertificateRegistrationAuthorization();
+            auth.setCertificateUuid(certificate.getUuid());
+            auth.setState(RegistrationState.ACTIVE);
+            auth.setFailedAttempts(2);
+            auth.setExpiresAt(OffsetDateTime.now().plusDays(5));
+            auth.setChallenge("super-secret-challenge");
+            authorizationRepository.save(auth);
+
+            // when
+            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+
+            // then: the read-only block surfaces state, deadline and attempt count — never the challenge
+            assertThat(dto.getRegistration()).isNotNull();
+            assertThat(dto.getRegistration().getState()).isEqualTo(CertificateRegistrationState.ACTIVE);
+            assertThat(dto.getRegistration().getFailedAttempts()).isEqualTo(2);
+            assertThat(dto.getRegistration().getExpiresAt()).isNotNull();
+            assertThat(dto.getRegistration().toString()).doesNotContain("super-secret-challenge");
+        }
+
+        @ParameterizedTest
+        @EnumSource(RegistrationState.class)
+        void mapsEveryRegistrationStateToItsApiEnum(RegistrationState state) throws NotFoundException, CertificateException, IOException {
+            CertificateRegistrationAuthorization auth = new CertificateRegistrationAuthorization();
+            auth.setCertificateUuid(certificate.getUuid());
+            auth.setState(state);
+            auth.setFailedAttempts(0);
+            auth.setExpiresAt(OffsetDateTime.now().plusDays(1));
+            auth.setChallenge("challenge");
+            authorizationRepository.save(auth);
+
+            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+
+            assertThat(dto.getRegistration()).isNotNull();
+            assertThat(dto.getRegistration().getState()).isEqualTo(CertificateRegistrationState.valueOf(state.name()));
+        }
+
+        @Test
+        void omitsRegistrationBlock_whenNotPreRegistered() throws NotFoundException, CertificateException, IOException {
+            // The default fixture certificate carries no authorization row.
+            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            assertThat(dto.getRegistration()).isNull();
         }
 
         @Test

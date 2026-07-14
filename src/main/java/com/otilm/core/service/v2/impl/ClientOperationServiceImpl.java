@@ -67,6 +67,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.registration.CertificateRegistrationDefaults;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -76,9 +77,13 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
+import com.otilm.api.model.core.settings.CertificateRegistrationSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.service.*;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -131,9 +136,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static final LoggerWrapper eventLogger = new LoggerWrapper(
             ClientOperationServiceImpl.class, Module.CERTIFICATES, Resource.CERTIFICATE);
-
-    private static final Duration DEFAULT_REGISTRATION_WINDOW = Duration.ofDays(7);
-    private static final int MAX_FAILED_REGISTRATION_ATTEMPTS = 5;
 
     private PlatformTransactionManager transactionManager;
 
@@ -592,6 +594,26 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * missing there — the later issue gate would then treat a secret-protected registration as unprotected and issue
      * with no challenge. Absent secret means no row, so the operator register→issue flow is unchanged.
      */
+    private CertificateRegistrationSettingsDto registrationSettings() {
+        PlatformSettingsDto platformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        return platformSettings != null && platformSettings.getCertificates() != null
+                ? platformSettings.getCertificates().getRegistration() : null;
+    }
+
+    // The fallbacks below use the single canonical defaults (the value the settings API reports and persists) so
+    // the value applied on a cache miss cannot drift from the operator-visible default.
+    private int registrationWindowDays() {
+        CertificateRegistrationSettingsDto settings = registrationSettings();
+        return settings != null && settings.getDefaultIssuanceWindowDays() != null
+                ? settings.getDefaultIssuanceWindowDays() : CertificateRegistrationDefaults.ISSUANCE_WINDOW_DAYS;
+    }
+
+    private int maxFailedRegistrationAttempts() {
+        CertificateRegistrationSettingsDto settings = registrationSettings();
+        return settings != null && settings.getMaxFailedAttempts() != null
+                ? settings.getMaxFailedAttempts() : CertificateRegistrationDefaults.MAX_FAILED_ATTEMPTS;
+    }
+
     private void maybeCreateRegistrationAuthorization(Certificate certificate, ClientCertificateRegistrationDto request) {
         String secret = request.getAuthorizationSecret();
         if (secret == null || secret.isBlank()) {
@@ -602,7 +624,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         authorization.setCertificateUuid(certificate.getUuid());
         authorization.setState(RegistrationState.ACTIVE);
         authorization.setFailedAttempts(0);
-        authorization.setExpiresAt(expiresAt != null ? expiresAt : OffsetDateTime.now(ZoneOffset.UTC).plus(DEFAULT_REGISTRATION_WINDOW));
+        authorization.setExpiresAt(expiresAt != null ? expiresAt : OffsetDateTime.now(ZoneOffset.UTC).plus(Duration.ofDays(registrationWindowDays())));
         registrationChallengeStore.store(authorization, secret);
         registrationAuthorizationRepository.save(authorization);
     }
@@ -701,7 +723,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         int attempts = authorization.getFailedAttempts() + 1;
         authorization.setFailedAttempts(attempts);
-        if (attempts >= MAX_FAILED_REGISTRATION_ATTEMPTS) {
+        if (attempts >= maxFailedRegistrationAttempts()) {
             authorization.setState(RegistrationState.LOCKED);
         }
         registrationAuthorizationRepository.save(authorization);
@@ -1292,6 +1314,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         stateMachine.transition(certificate, state, auditEvent, auditMessage, auditDetail);
 
+        // Fate-coupling: a pre-registered certificate that reached a terminal FAILED/REJECTED verdict no longer has
+        // a live registration — close its authorization in the same transaction (guarded, so it is a no-op for
+        // non-self-service certs and for renew/rekey successors that carry no authorization).
+        if (registrationAuthorizationRepository.existsByCertificateUuid(certificate.getUuid())) {
+            registrationAuthorizationWriter.close(certificate.getUuid());
+        }
+
         certificateRelationRepository.deleteAll(certificate.getPredecessorRelations());
 
         // A failed renew/rekey also records the failure against the predecessor certificate so its
@@ -1366,8 +1395,25 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
+    @Transactional
     public void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
-        final Certificate certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // Transactional so the reject transition and the fate-coupling auto-CLOSE (or the approval-reject
+        // restore) commit atomically — this entry point (invoked by ActionsListener) has no ambient transaction
+        // of its own, unlike the failClaimedCertificate / poll-listener FAILED paths. The pessimistic lock
+        // satisfies the state-machine contract: re-assert state under SELECT ... FOR UPDATE before transitioning,
+        // so a concurrent issuance claim cannot be clobbered by a stale read.
+        final Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // A pre-registered placeholder whose issuance approval was rejected is restored to REGISTERED so the holder
+        // can retry — keyed on the register->issue binding, the same discriminator issueCertificateAction uses to
+        // route the placeholder (a no-secret pre-registration has a binding but no challenge authorization). Any
+        // challenge authorization stays ACTIVE. Non-registered certs keep the terminal REJECTED behaviour.
+        if (certificate.getState() == CertificateState.PENDING_APPROVAL
+                && certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
+            stateMachine.transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
+                    "Issuance approval was rejected; certificate restored to " + CertificateState.REGISTERED.getLabel() + ".");
+            return;
+        }
         handleFailedOrRejectedEvent(certificate, null, CertificateState.REJECTED, null, null, null);
     }
 

@@ -28,6 +28,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
@@ -75,6 +76,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private CertificateRevocationFinalizer revocationFinalizer;
     private EventProducer eventProducer;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -226,6 +228,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
                 stateMachine.transition(locked, op.terminalFailureState(), null,
                         "Async " + op + " reported COMPLETED but connector returned no certificate data");
+                closeRegistrationAuthorizationIfPresent(locked);
             }
             return CertificateRevocationFinalizer.KeyCleanup.NONE;
         }
@@ -244,6 +247,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         stateMachine.transition(locked, targetState, null, reasonFor(op, status));
+        // Fate-coupling: only a terminal FAILED verdict retires a pre-registered cert's authorization. A failed
+        // REVOKE returns to ISSUED (not FAILED) and must keep its registration for renew/rekey reuse.
+        if (targetState == CertificateState.FAILED) {
+            closeRegistrationAuthorizationIfPresent(locked);
+        }
         return CertificateRevocationFinalizer.KeyCleanup.NONE;
     }
 
@@ -358,12 +366,26 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
-            stateMachine.transition(locked, op.terminalFailureState(), null, reason);
+            CertificateState terminal = op.terminalFailureState();
+            stateMachine.transition(locked, terminal, null, reason);
+            if (terminal == CertificateState.FAILED) {
+                closeRegistrationAuthorizationIfPresent(locked);
+            }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         stopPolling(cert, op);
     }
 
+    /**
+     * Retires a pre-registered certificate's authorization (state → CLOSED) in the caller's locked transaction
+     * when it reaches a terminal FAILED verdict. Guarded, so it is a no-op for non-self-service certs and for
+     * renew/rekey successors that carry no authorization.
+     */
+    private void closeRegistrationAuthorizationIfPresent(Certificate locked) {
+        if (registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
+            registrationAuthorizationWriter.close(locked.getUuid());
+        }
+    }
 
     /** Deletes the cert's poll row to stop polling, best-effort; a failed delete is dropped by the next poll. */
     private void stopPolling(Certificate cert, CertificateOperation op) {
@@ -452,6 +474,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
     }
 
     // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected
