@@ -12,17 +12,12 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
-import com.otilm.api.model.connector.v2.CertRevocationDto;
-import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
-import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorServerException;
-import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v2.CertificateOperationCancelRequestDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.*;
@@ -64,6 +59,7 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
+import com.otilm.core.service.handler.authority.CancelOutcome;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
@@ -90,6 +86,7 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
+import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.Extension;
@@ -97,7 +94,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -326,10 +322,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public boolean validateIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
+    public void validateIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
-        return extendedAttributeService.validateIssueCertificateAttributes(raProfile, attributes);
+        extendedAttributeService.validateIssueCertificateAttributes(raProfile, attributes);
     }
 
     @Override
@@ -1161,9 +1157,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /** Delegates with the metadata from the connector's {@code 202 Accepted} response body. */
-    private void onAsyncAccepted(Certificate certificate, CertificateDataResponseDto acceptedBody, ResourceAction originatingAction) {
+    private void onAsyncAccepted(Certificate certificate, AdapterOperationResult result, ResourceAction originatingAction) {
         onAsyncAccepted(certificate,
-                acceptedBody != null ? acceptedBody.getMeta() : null,
+                result != null ? result.meta() : null,
                 originatingAction);
     }
 
@@ -1496,17 +1492,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         logger.debug("Renewing Certificate: {}", oldCertificate);
 
-        CertificateRenewRequestDto caRequest = new CertificateRenewRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-        caRequest.setCertificate(oldCertificate.getCertificateContent().getContent());
-        // TODO: check if retrieved correctly, just metadata with null source object
-        caRequest.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCertificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-
-        CertificateDataResponseDto renewCaResponse;
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
@@ -1514,34 +1502,40 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                     "Issuance in progress");
 
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<CertificateDataResponseDto> renewResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
+            connectorAccepted = true;
 
-            if (renewResponse.getStatusCode().value() == 202) {
+            if (renewResult.isAsync()) {
                 // The connector accepted the renewal but completion is asynchronous; the new
                 // certificate stays in PENDING_ISSUE while the predecessor remains ISSUED.
-                onAsyncAccepted(certificate, renewResponse.getBody(), ResourceAction.RENEW);
+                onAsyncAccepted(certificate, renewResult, ResourceAction.RENEW);
                 certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                         CertificateEventStatus.SUCCESS, "Renewal accepted; awaiting asynchronous completion.",
                         MetaDefinitions.serialize(additionalInformation));
                 return;
             }
 
-            renewCaResponse = renewResponse.getBody();
-            if (renewCaResponse == null || renewCaResponse.getCertificateData() == null || renewCaResponse.getCertificateData().isEmpty()) {
+            if (StringUtils.isBlank(renewResult.certificateData())) {
                 throw new CertificateOperationException("Response from authority did not contain certificate data");
             }
 
             logger.info("Certificate {} was renewed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, renewCaResponse.getCertificateData(), renewCaResponse.getMeta());
+            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, renewResult.certificateData(), renewResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.SUCCESS, "Renewed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
         } catch (Exception e) {
+            // Once the connector has accepted (2xx) — whether reported as a returned result or surfaced as a
+            // ConnectorAcceptedButLocalFailureException from the adapter's own response mapping — a subsequent
+            // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
+            // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
+            // record the failure against the predecessor and surface it. (state-divergence rule)
+            if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.FAILED, "Connector accepted renewal but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
+                throw new CertificateOperationException("Connector accepted renewal but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -1719,17 +1713,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = certificate.getRaProfile();
 
         logger.debug("Rekeying Certificate: {}", oldCertificate);
-        CertificateRenewRequestDto caRequest = new CertificateRenewRequestDto();
-        caRequest.setRequest(certificate.getCertificateRequest().getContent());
-        caRequest.setFormat(certificate.getCertificateRequest().getCertificateRequestFormat());
-        caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-        caRequest.setCertificate(oldCertificate.getCertificateContent().getContent());
-        // TODO: check if retrieved correctly, just metadata with null source object
-        caRequest.setMeta(attributeEngine.getMetadataAttributesDefinitionContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, oldCertificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-
-        CertificateDataResponseDto renewCaResponse = null;
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
@@ -1737,34 +1723,40 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                     "Issuance in progress");
 
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<CertificateDataResponseDto> rekeyResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).renewCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
+            connectorAccepted = true;
 
-            if (rekeyResponse.getStatusCode().value() == 202) {
+            if (rekeyResult.isAsync()) {
                 // The connector accepted the rekey but completion is asynchronous; the new
                 // certificate stays in PENDING_ISSUE while the predecessor remains ISSUED.
-                onAsyncAccepted(certificate, rekeyResponse.getBody(), ResourceAction.REKEY);
+                onAsyncAccepted(certificate, rekeyResult, ResourceAction.REKEY);
                 certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                         CertificateEventStatus.SUCCESS, "Rekey accepted; awaiting asynchronous completion.",
                         MetaDefinitions.serialize(additionalInformation));
                 return;
             }
 
-            renewCaResponse = rekeyResponse.getBody();
-            if (renewCaResponse == null || renewCaResponse.getCertificateData() == null || renewCaResponse.getCertificateData().isEmpty()) {
+            if (StringUtils.isBlank(rekeyResult.certificateData())) {
                 throw new CertificateOperationException("Response from authority did not contain certificate data");
             }
 
             logger.info("Certificate {} was rekeyed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, renewCaResponse.getCertificateData(), renewCaResponse.getMeta());
+            CertificateDetailDto certificateDetailDto = certificateService.issueRequestedCertificate(certificateUuid, rekeyResult.certificateData(), rekeyResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.SUCCESS, "Rekeyed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
         } catch (Exception e) {
+            // Once the connector has accepted (2xx) — whether reported as a returned result or surfaced as a
+            // ConnectorAcceptedButLocalFailureException from the adapter's own response mapping — a subsequent
+            // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
+            // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
+            // record the failure against the predecessor and surface it. (state-divergence rule)
+            if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.FAILED, "Connector accepted rekey but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
+                throw new CertificateOperationException("Connector accepted rekey but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -1842,23 +1834,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // that has already accepted (or completed) the revocation.
         boolean connectorAccepted = false;
         try {
-            CertRevocationDto caRequest = new CertRevocationDto();
-            caRequest.setReason(request.getReason());
-            if (request.getReason() == null) {
-                caRequest.setReason(CertificateRevocationReason.UNSPECIFIED);
-            }
-            caRequest.setAttributes(request.getAttributes());
-            caRequest.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
-            caRequest.setCertificate(certificate.getCertificateContent().getContent());
-
-            ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-            ResponseEntity<Void> revokeResponse = connectorApiFactory.getCertificateApiClientV2(connectorDto).revokeCertificate(
-                    connectorDto,
-                    raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(),
-                    caRequest);
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
+            AdapterOperationResult revokeResult = adapter.revoke(certificate, request);
             connectorAccepted = true;
 
-            if (revokeResponse.getStatusCode().value() == 202) {
+            if (revokeResult.isAsync()) {
                 transitionToPendingRevoke(certificate, request);
                 return;
             }
@@ -1872,7 +1852,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             stateMachine.transitionAuditedExternally(certificate, CertificateState.REVOKED);
 
             attributeEngine.updateObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).operation(AttributeOperation.CERTIFICATE_REVOKE).build(), request.getAttributes());
-            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + caRequest.getReason().getLabel(), "");
+            String reason = request.getReason() == null ? CertificateRevocationReason.UNSPECIFIED.getLabel() : request.getReason().getLabel();
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.SUCCESS, "Certificate revoked. Reason: " + reason, "");
+        } catch (ConnectorAcceptedButLocalFailureException e) {
+            // The adapter reports the connector accepted the revoke (2xx) but its local response mapping failed,
+            // so connectorAccepted was never set. Treat it as connector-accepted: do NOT roll the certificate back
+            // to its entry state — the upstream is committed — and surface the local failure for reconciliation.
+            String msg = "Connector accepted revoke but local state update failed: " + e.getMessage();
+            certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.REVOKE, CertificateEventStatus.FAILED, msg, "");
+            logger.error("Local mapping failed after connector accepted revoke for cert {}: {}", certificate.getUuid(), e.getMessage(), e);
+            throw new CertificateOperationException(msg);
         } catch (Exception e) {
             if (connectorAccepted) {
                 // Connector accepted the operation (200/202) but a subsequent local step failed.
@@ -2066,10 +2055,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.ANY, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public boolean validateRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
+    public void validateRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         RaProfile raProfile = raProfileRepository.findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
-        return extendedAttributeService.validateRevokeCertificateAttributes(raProfile, attributes);
+        extendedAttributeService.validateRevokeCertificateAttributes(raProfile, attributes);
     }
 
     /**
@@ -2442,12 +2431,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         CertificateRequest storedCsr = parseStoredCsr(certificate);
         validatePublicKeyForCsrAndCertificate(request.getCertificate(), storedCsr, true);
 
-        CertificateIdentificationResponseDto identifyResponse =
-                identifyUploadedCertificateOrReject(certificate, request);
-
-        List<MetadataAttribute> identifyMeta = identifyResponse != null && identifyResponse.getMeta() != null
-                ? identifyResponse.getMeta()
-                : List.of();
+        List<MetadataAttribute> identifyMeta = identifyUploadedCertificateOrReject(certificate, request);
 
         // The PENDING_ISSUE -> ISSUED finalize runs in a short transaction under a pessimistic row lock
         // so two concurrent uploads of the same certificate cannot both finalize it. The connector
@@ -2533,24 +2517,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * The connector owns the decision whether the uploaded certificate was actually issued
-     * by the configured authority — call identify and surface only the user-input failure
-     * mode (422 → {@link ValidationException}). Connector infrastructure failures (5xx,
-     * auth, network) propagate so the client sees the appropriate upstream error and can
-     * retry; the certificate stays in {@code PENDING_ISSUE} for the next attempt.
+     * by the configured authority — call identify (version-dispatched via the authority
+     * adapter) and surface only the user-input failure mode (422 → {@link ValidationException}).
+     * Connector infrastructure failures (5xx, auth, network) propagate so the client sees the
+     * appropriate upstream error and can retry; the certificate stays in {@code PENDING_ISSUE}
+     * for the next attempt. Returns the connector's identification meta, never {@code null}.
      */
-    private CertificateIdentificationResponseDto identifyUploadedCertificateOrReject(
+    private List<MetadataAttribute> identifyUploadedCertificateOrReject(
             Certificate certificate, UploadCertificateRequestDto request) throws ConnectorException, NotFoundException {
-        RaProfile raProfile = certificate.getRaProfile();
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        CertificateIdentificationRequestDto idReq = new CertificateIdentificationRequestDto();
-        idReq.setCertificate(request.getCertificate());
-        idReq.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(
-                ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid())
-                        .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
+        // The caller's finder omits the authority's connectorInterface (lazy) and the caller
+        // holds no session — reload with the full adapter graph for adapter dispatch.
+        Certificate certForAdapter = certificateRepository.findForPollingByUuid(certificate.getUuid())
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
+        RaProfile raProfile = certForAdapter.getRaProfile();
         try {
-            return connectorApiFactory.getCertificateApiClientV2(connectorDto)
-                    .identifyCertificate(connectorDto,
-                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), idReq);
+            return adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference())
+                    .identify(raProfile, request.getCertificate());
         } catch (ValidationException e) {
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
                     CertificateEventStatus.FAILED,
@@ -2706,14 +2688,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Connector cancel contract:
+     * Connector cancel dispatch: resolves the authority's adapter and, when it exposes
+     * {@link AsyncOperationCapability} (v3), uses the outcome-mapped {@code cancel} operation —
+     * {@code CANCELLED} proceeds, {@code NOT_TRACKED} is a soft failure (proceed locally),
+     * {@code REFUSED_PAST_POINT_OF_NO_RETURN} is a hard refusal. Adapters without the
+     * capability (v2) call the dedicated v2 cancel endpoints directly.
+     *
+     * <p>Shared error contract (both paths):
      * <ul>
-     *   <li>{@code 204 No Content} — aborted upstream; proceed with local transition.</li>
-     *   <li>{@code 404 Not Found} — connector does not track this operation; soft failure,
+     *   <li>Cancelled upstream (v2 {@code 204}, v3 {@code CANCELLED}) — proceed with local transition.</li>
+     *   <li>Operation not tracked (v2 {@code 404}, v3 {@code NOT_TRACKED}) — soft failure,
      *       proceed locally.</li>
-     *   <li>{@code 422 Unprocessable Entity} → {@link ValidationException} — connector
-     *       refuses to abort; HARD refusal, surface the upstream reason and abort the local
-     *       cancel (cert stays in PENDING_*).</li>
+     *   <li>Refusal (v2 {@code 422}, v3 {@code REFUSED_PAST_POINT_OF_NO_RETURN}) →
+     *       {@link ValidationException} — HARD refusal, surface the upstream reason and abort
+     *       the local cancel (cert stays in PENDING_*).</li>
      *   <li>{@code 5xx} / network / timeout — infrastructure error, soft failure, proceed
      *       locally (the connector may recover and we can reconcile via status).</li>
      *   <li>Other {@code 4xx} (400, 401, 403) → {@link ConnectorClientException} — request
@@ -2730,16 +2718,38 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void invokeConnectorCancelOrThrow(Certificate cert, CancelTarget target) throws NotFoundException {
         RaProfile raProfile = cert.getRaProfile();
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
-
         try {
-            if (target.isCancelIssue()) {
-                connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelIssueCertificate(connectorDto,
-                        raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+            // The caller's finder omits the authority's connectorInterface (lazy) and this method
+            // holds no session — reload with the full adapter graph for adapter dispatch,
+            // mirroring cancelInFlightAsyncIssueBestEffort.
+            Certificate certForAdapter = certificateRepository.findForPollingByUuid(cert.getUuid())
+                    .orElseThrow(() -> new NotFoundException(Certificate.class, cert.getUuid()));
+            AuthorityProviderAdapter adapter = adapterFactory.forAuthority(certForAdapter.getRaProfile().getAuthorityInstanceReference());
+            if (adapter instanceof AsyncOperationCapability asyncCapable) {
+                CancelOutcome outcome = asyncCapable.cancel(certForAdapter,
+                        target.isCancelIssue() ? CertificateOperation.ISSUE : CertificateOperation.REVOKE).outcome();
+                if (outcome == CancelOutcome.REFUSED_PAST_POINT_OF_NO_RETURN) {
+                    // Routed through the ValidationException handler below — same hard-refusal
+                    // recording and rethrow as a v2 connector 422.
+                    throw new ValidationException("operation is past the point of no return");
+                }
+                if (outcome == CancelOutcome.NOT_TRACKED) {
+                    recordCancelSoftFailure(cert, target,
+                            "Connector does not track this operation; proceeding with local cancel",
+                            "Connector did not track the operation; proceeded with local cancel",
+                            "Connector cancel reported operation not tracked for cert {} — proceeding with local cancel ({})",
+                            "adapter outcome NOT_TRACKED", null);
+                }
             } else {
-                connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelRevokeCertificate(connectorDto,
-                        raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
+                CertificateOperationCancelRequestDto cancelReq = assembleCancelRequest(cert, raProfile);
+                if (target.isCancelIssue()) {
+                    connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelIssueCertificate(connectorDto,
+                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                } else {
+                    connectorApiFactory.getCertificateApiClientV2(connectorDto).cancelRevokeCertificate(connectorDto,
+                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), cancelReq);
+                }
             }
         } catch (ValidationException upstreamRefused) {
             recordCancelFailure(cert, target,
@@ -2765,6 +2775,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector cancel call failed (" + infra.getClass().getSimpleName() + "); proceeded with local cancel",
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
+        } catch (NotFoundException entityMissing) {
+            // A local lookup failed — either the certificate vanished on the adapter-graph reload, or the
+            // connector record is missing (getConnectorForApiClient). Both are local/configuration problems,
+            // not connector responses, so propagate unchanged instead of softening into a local cancel.
+            throw entityMissing;
         } catch (Exception unexpected) {
             // Defensive catch-all. Covers any ConnectorException subtype not handled above
             // (e.g. ConnectorProblemException or future additions) plus any unchecked

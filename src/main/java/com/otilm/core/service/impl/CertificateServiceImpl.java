@@ -1,9 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.model.common.UuidDto;
-import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.core.attribute.CsrAttributes;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
@@ -16,8 +14,6 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceCertificateContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
-import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
-import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.certificate.*;
@@ -75,9 +71,10 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.*;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
+import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificateValidationWriter;
-import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.*;
@@ -168,8 +165,6 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private AuthorizationEnforcer authorizationEnforcer;
     private EventProducer eventProducer;
     private NotificationProducer notificationProducer;
-    private ConnectorApiFactory connectorApiFactory;
-    private ConnectorInternalService connectorService;
     private UserManagementApiClient userManagementApiClient;
     private CrlService crlService;
     private ProtocolCertificateAssociationsRepository protocolCertificateAssociationsRepository;
@@ -188,11 +183,17 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private AuthenticationCache authenticationCache;
     private CertificateUploadService certificateUploadService;
     private CertificateStateMachine stateMachine;
+    private AuthorityProviderAdapterFactory adapterFactory;
 
     /**
      * A map that contains ICertificateValidator implementations mapped to their corresponding certificate type code
      */
     private Map<String, ICertificateValidator> certificateValidatorMap;
+
+    @Autowired
+    public void setAdapterFactory(AuthorityProviderAdapterFactory adapterFactory) {
+        this.adapterFactory = adapterFactory;
+    }
 
 
     @Autowired
@@ -347,16 +348,6 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setNotificationProducer(NotificationProducer notificationProducer) {
         this.notificationProducer = notificationProducer;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorInternalService connectorService) {
-        this.connectorService = connectorService;
     }
 
     @Autowired
@@ -2175,18 +2166,15 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         RaProfile currentRaProfile = certificate.getRaProfile();
         String newRaProfileName = UNDEFINED_CERTIFICATE_OBJECT_NAME;
         String currentRaProfileName = currentRaProfile != null ? currentRaProfile.getName() : UNDEFINED_CERTIFICATE_OBJECT_NAME;
-        CertificateIdentificationResponseDto response = null;
+        List<MetadataAttribute> identifiedMeta = null;
         if (raProfileUuid != null) {
             newRaProfile = raProfileRepository.findByUuid(raProfileUuid).orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
             newRaProfileName = newRaProfile.getName();
 
             // identify certificate by new authority
-            CertificateIdentificationRequestDto requestDto = new CertificateIdentificationRequestDto();
-            requestDto.setCertificate(certificate.getCertificateContent().getContent());
-            requestDto.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, newRaProfile.getUuid()).connector(newRaProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
             try {
-                ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(newRaProfile.getAuthorityInstanceReference().getConnectorUuid());
-                response = connectorApiFactory.getCertificateApiClientV2(connectorDto).identifyCertificate(connectorDto, newRaProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), requestDto);
+                AuthorityProviderAdapter adapter = adapterFactory.forAuthority(newRaProfile.getAuthorityInstanceReference());
+                identifiedMeta = adapter.identify(newRaProfile, certificate.getCertificateContent().getContent());
             } catch (ConnectorException e) {
                 certificateEventHistoryService.addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE, CertificateEventStatus.FAILED, String.format("Certificate not identified by authority of new RA profile %s. Certificate needs to be reissued.", newRaProfile.getName()), null);
                 throw new CertificateOperationException(String.format("Cannot switch RA profile for certificate. Certificate not identified by authority of new RA profile %s. Certificate: %s", newRaProfile.getName(), certificate.toStringShort()));
@@ -2211,7 +2199,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         // save metadata for identified certificate and run compliance
         if (newRaProfile != null) {
             UUID connectorUuid = newRaProfile.getAuthorityInstanceReference().getConnectorUuid();
-            attributeEngine.updateMetadataAttributes(response.getMeta(), ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
+            attributeEngine.updateMetadataAttributes(identifiedMeta, ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorUuid).build());
 
             try {
                 complianceExternalService.checkResourceObjectComplianceAsync(Resource.CERTIFICATE, certificate.getUuid());
