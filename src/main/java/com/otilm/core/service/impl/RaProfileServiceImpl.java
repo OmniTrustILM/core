@@ -1,7 +1,5 @@
 package com.otilm.core.service.impl;
 
-import com.otilm.api.clients.ApiClientConnectorInfo;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.approvalprofile.ApprovalProfileDto;
 import com.otilm.api.model.client.approvalprofile.ApprovalProfileRelationDto;
@@ -11,9 +9,6 @@ import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
 import com.otilm.api.model.client.raprofile.*;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.connector.authority.CaCertificatesRequestDto;
-import com.otilm.api.model.connector.authority.CaCertificatesResponseDto;
-import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
@@ -36,11 +31,11 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalProfileExternalService;
+import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.ComplianceInternalService;
-import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
@@ -72,8 +67,6 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
     private RaProfileRepository raProfileRepository;
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
-    private ConnectorApiFactory connectorApiFactory;
-    private ConnectorInternalService connectorService;
     private CertificateRepository certificateRepository;
     private AcmeProfileRepository acmeProfileRepository;
     private ExtendedAttributeService extendedAttributeService;
@@ -638,17 +631,14 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
         AuthorityInstanceReference authorityInstanceReference = authorityInstanceReferenceRepository.findByUuid(authorityUuid)
                 .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, authorityUuid));
-
-        List<RequestAttribute> requestAttributes = attributeEngine.getRequestObjectDataAttributesContent(ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid()).connector(authorityInstanceReference.getConnectorUuid()).build());
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(authorityInstanceReference.getConnectorUuid());
-        CaCertificatesResponseDto caCertificatesResponseDto = connectorApiFactory.getAuthorityInstanceApiClient(connectorDto).getCaCertificates(connectorDto, authorityInstanceReference.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(requestAttributes));
-        List<CertificateDataResponseDto> certificateDataResponseDtos = caCertificatesResponseDto.getCertificates();
+        AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityInstanceReference);
+        List<AdapterOperationResult> caCertificatesResponse = adapter.getCaCertificates(authorityInstanceReference, raProfile);
         List<CertificateDetailDto> certificateDetailDtos = new ArrayList<>();
-        for (CertificateDataResponseDto certificateDataResponseDto : certificateDataResponseDtos) {
+        for (AdapterOperationResult certificateDataResponse : caCertificatesResponse) {
             X509Certificate certificate;
             String fingerprint;
             try {
-                certificate = CertificateUtil.parseCertificate(certificateDataResponseDto.getCertificateData());
+                certificate = CertificateUtil.parseCertificate(certificateDataResponse.certificateData());
                 fingerprint = CertificateUtil.getThumbprint(certificate);
             } catch (java.security.cert.CertificateException | NoSuchAlgorithmException e) {
                 logger.warn("Cannot process certificate from CA certificate chain returned from authority of RA profile {}", raProfile.getName());
@@ -760,16 +750,6 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Autowired
     public void setAuthorityInstanceReferenceRepository(AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository) {
         this.authorityInstanceReferenceRepository = authorityInstanceReferenceRepository;
-    }
-
-    @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
-    }
-
-    @Autowired
-    public void setConnectorService(ConnectorInternalService connectorService) {
-        this.connectorService = connectorService;
     }
 
     @Autowired

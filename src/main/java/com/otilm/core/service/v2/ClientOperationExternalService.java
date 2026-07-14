@@ -24,7 +24,7 @@ public interface ClientOperationExternalService {
             SecuredUUID raProfileUuid
     ) throws ConnectorException, NotFoundException;
 
-    boolean validateIssueCertificateAttributes(
+    void validateIssueCertificateAttributes(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes
@@ -73,7 +73,7 @@ public interface ClientOperationExternalService {
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException;
 
-    boolean validateRevokeCertificateAttributes(
+    void validateRevokeCertificateAttributes(
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes

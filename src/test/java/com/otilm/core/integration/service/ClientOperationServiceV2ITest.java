@@ -250,13 +250,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testValidateIssueCertificateAttributes() throws ConnectorException, NotFoundException {
+    void testValidateIssueCertificateAttributes() {
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.ok()));
 
-        boolean result = clientOperationService.validateIssueCertificateAttributes(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()), SecuredUUID.fromUUID(raProfile.getUuid()), List.of());
-        Assertions.assertTrue(result);
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileUuid = SecuredUUID.fromUUID(raProfile.getUuid());
+        List<RequestAttribute> attributes = List.of();
+        Assertions.assertDoesNotThrow(() -> clientOperationService.validateIssueCertificateAttributes(authorityUuid, raProfileUuid, attributes));
     }
 
     @Test
@@ -349,13 +351,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testValidateRevokeCertificateAttributes() throws ConnectorException, NotFoundException {
+    void testValidateRevokeCertificateAttributes(){
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.ok()));
 
-        boolean result = clientOperationService.validateRevokeCertificateAttributes(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()), SecuredUUID.fromUUID(raProfile.getUuid()), List.of());
-        Assertions.assertTrue(result);
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileUuid = SecuredUUID.fromUUID(raProfile.getUuid());
+        List<RequestAttribute> attributes = List.of();
+        Assertions.assertDoesNotThrow(() -> clientOperationService.validateRevokeCertificateAttributes(authorityUuid, raProfileUuid, attributes));
     }
 
     @Test
