@@ -9,6 +9,8 @@ import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.authority.CaCertificatesRequestDto;
+import com.otilm.api.model.connector.authority.CaCertificatesResponseDto;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
@@ -16,6 +18,7 @@ import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
 import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
@@ -323,6 +326,54 @@ class AuthorityProviderV2AdapterTest {
                 .thenReturn(new CertificateIdentificationResponseDto());
 
         assertEquals(List.of(), adapter.identify(raProfile, "dGVzdGNlcnQ="));
+    }
+
+    // --- getCaCertificates ---
+
+    @Test
+    void getCaCertificates_delegatesToAuthorityClientAndMapsCertificates() throws Exception {
+        CertificateDataResponseDto chainCert = new CertificateDataResponseDto();
+        chainCert.setCertificateData("chainCert==");
+        List<MetadataAttribute> meta = List.of(mock(MetadataAttribute.class));
+        chainCert.setMeta(meta);
+        chainCert.setCertificateType(CertificateType.X509);
+        CaCertificatesResponseDto response = new CaCertificatesResponseDto();
+        response.setCertificates(List.of(chainCert));
+        when(authorityClient.getCaCertificates(eq(connectorInfo), eq("auth-instance-uuid"), any(CaCertificatesRequestDto.class)))
+                .thenReturn(response);
+
+        List<AdapterOperationResult> result = adapter.getCaCertificates(authority, raProfile);
+
+        assertEquals(1, result.size());
+        assertEquals(AdapterOperationOutcome.SYNC_OK, result.get(0).outcome());
+        assertEquals("chainCert==", result.get(0).certificateData());
+        assertSame(meta, result.get(0).meta());
+        assertEquals(CertificateType.X509, result.get(0).certificateType());
+    }
+
+    @Test
+    void getCaCertificates_passesStoredRaProfileAttributesUnchanged() throws Exception {
+        // v2 is stateful: stored ra-profile attributes must reach the wire exactly as stored (no dereference).
+        List<RequestAttribute> stored = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(stored);
+        CaCertificatesResponseDto response = new CaCertificatesResponseDto();
+        response.setCertificates(List.of());
+        when(authorityClient.getCaCertificates(eq(connectorInfo), eq("auth-instance-uuid"), any(CaCertificatesRequestDto.class)))
+                .thenReturn(response);
+
+        adapter.getCaCertificates(authority, raProfile);
+
+        ArgumentCaptor<CaCertificatesRequestDto> captor = ArgumentCaptor.forClass(CaCertificatesRequestDto.class);
+        verify(authorityClient).getCaCertificates(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
+        assertSame(stored, captor.getValue().getRaProfileAttributes());
+    }
+
+    @Test
+    void getCaCertificates_normalizesNullCertificatesToEmptyList() throws Exception {
+        when(authorityClient.getCaCertificates(eq(connectorInfo), eq("auth-instance-uuid"), any(CaCertificatesRequestDto.class)))
+                .thenReturn(new CaCertificatesResponseDto());
+
+        assertEquals(List.of(), adapter.getCaCertificates(authority, raProfile));
     }
 
     // --- listIssueAttributes / listRevokeAttributes ---
