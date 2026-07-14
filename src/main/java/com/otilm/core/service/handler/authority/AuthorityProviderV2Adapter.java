@@ -7,6 +7,7 @@ import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.authority.CaCertificatesRequestDto;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
@@ -197,6 +198,18 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         connectorApiFactory.getAuthorityInstanceApiClient(connectorDto)
                 .validateRAProfileAttributes(connectorDto, authority.getAuthorityInstanceUuid(), attributes);
+    }
+
+    @Override
+    public List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
+        ApiClientConnectorInfo connectorInfo = connectorForApiClient(authority);
+        List<CertificateDataResponseDto> certificates = connectorApiFactory.getAuthorityInstanceApiClient(connectorInfo)
+                .getCaCertificates(connectorInfo, authority.getAuthorityInstanceUuid(), new CaCertificatesRequestDto(raProfileAttributesFor(raProfile, authority)))
+                .getCertificates();
+        return certificates == null ? List.of() : certificates
+                .stream()
+                .map(cert -> AdapterOperationResult.syncOk(cert.getCertificateData(), cert.getMeta(), cert.getCertificateType()))
+                .toList();
     }
 
     // --- private helpers ---

@@ -109,5 +109,5 @@ public interface AuthorityProviderAdapter {
 
     void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
-
+    List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException;
 }
