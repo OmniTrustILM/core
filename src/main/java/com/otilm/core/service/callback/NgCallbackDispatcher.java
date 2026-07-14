@@ -167,7 +167,9 @@ public class NgCallbackDispatcher {
         }
         envelope.setAttributeName(definition.getName());
         envelope.setContextAttributes(context.contextAttributes());
-        envelope.setCurrentAttributes(context.currentAttributes());
+        // currentAttributes is @NotNull and the DTO is @JsonInclude(NON_NULL): a null (fire-on-mount callback with
+        // no in-form dependency) would be dropped from the JSON, so a conformant connector rejects the body. Send [].
+        envelope.setCurrentAttributes(context.currentAttributes() == null ? List.of() : context.currentAttributes());
         envelope.setPagination(callback.getPagination());
         return envelope;
     }
