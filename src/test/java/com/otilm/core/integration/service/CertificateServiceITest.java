@@ -73,6 +73,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
@@ -696,6 +697,23 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(dto.getRegistration().getFailedAttempts()).isEqualTo(2);
             assertThat(dto.getRegistration().getExpiresAt()).isNotNull();
             assertThat(dto.getRegistration().toString()).doesNotContain("super-secret-challenge");
+        }
+
+        @ParameterizedTest
+        @EnumSource(RegistrationState.class)
+        void mapsEveryRegistrationStateToItsApiEnum(RegistrationState state) throws NotFoundException, CertificateException, IOException {
+            CertificateRegistrationAuthorization auth = new CertificateRegistrationAuthorization();
+            auth.setCertificateUuid(certificate.getUuid());
+            auth.setState(state);
+            auth.setFailedAttempts(0);
+            auth.setExpiresAt(OffsetDateTime.now().plusDays(1));
+            auth.setChallenge("challenge");
+            authorizationRepository.save(auth);
+
+            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+
+            assertThat(dto.getRegistration()).isNotNull();
+            assertThat(dto.getRegistration().getState()).isEqualTo(CertificateRegistrationState.valueOf(state.name()));
         }
 
         @Test
