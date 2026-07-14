@@ -1,19 +1,16 @@
 package com.otilm.core.service.v2.impl;
 
-import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
-import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,13 +26,6 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     @Autowired
     public void setConnectorRepository(ConnectorRepository connectorRepository) {
         this.connectorRepository = connectorRepository;
-    }
-
-    private ConnectorInternalService connectorService;
-
-    @Autowired
-    public void setConnectorService(ConnectorInternalService connectorService) {
-        this.connectorService = connectorService;
     }
 
     private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;

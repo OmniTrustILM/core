@@ -1319,7 +1319,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
         request.setAttributes(List.of());
-        request.setReason(CertificateRevocationReason.AA_COMPROMISE);
 
         Assertions.assertDoesNotThrow(() ->
                 clientOperationInternalService.revokeCertificateAction(certificate.getUuid(), request, true));
