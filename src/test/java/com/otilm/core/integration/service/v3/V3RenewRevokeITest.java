@@ -116,6 +116,31 @@ class V3RenewRevokeITest extends BaseSpringBootTest {
     }
 
     @Test
+    void renew_sync200_postAcceptanceLocalFailure_leavesSuccessorPendingIssue() throws Exception {
+        AuthorityFixtures.Fixture fixture = buildV3Fixture();
+        V3ConnectorStubs.stubAttributesAndValidate(wireMockServer);
+        UUID predecessorUuid = seedRenewalPair(fixture);
+        UUID successorUuid = successorUuid(predecessorUuid);
+
+        // 200 with certificate data the connector accepted but Core cannot parse: the local
+        // issueRequestedCertificate step fails after the connector already issued. The successor must stay
+        // PENDING_ISSUE (not FAILED) so it can be reconciled against the authority.
+        wireMockServer.stubFor(post(urlEqualTo(V3_RENEW_PATH))
+                .willReturn(aResponse().withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"certificateData\": \"bm90LWEtY2VydA==\", \"meta\": []}")));
+
+        Assertions.assertThrows(Exception.class, () ->
+                clientOperationInternalService.renewCertificateAction(
+                        successorUuid, ClientCertificateRenewRequestDto.builder().build(), true));
+
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, reloadCert(successorUuid).getState(),
+                "a post-acceptance local failure must leave the successor PENDING_ISSUE, not FAILED");
+        Assertions.assertEquals(CertificateState.ISSUED, reloadCert(predecessorUuid).getState(),
+                "the predecessor must stay ISSUED");
+    }
+
+    @Test
     void revoke_sync200_transitionsToRevoked_viaV3_notV2() {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         V3ConnectorStubs.stubAttributesAndValidate(wireMockServer);

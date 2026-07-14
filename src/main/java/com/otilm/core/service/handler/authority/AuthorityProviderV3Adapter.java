@@ -230,7 +230,7 @@ public class AuthorityProviderV3Adapter
     public List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         CaCertificatesRequestDtoV3 request = new CaCertificatesRequestDtoV3();
-        request.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+        request.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
         request.setAuthorityAttributes(authorityAttributesFor(authority));
         List<CertificateDataResponseDto> certificates = connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto).getCaCertificates(connectorDto, request)
                 .getCertificates();

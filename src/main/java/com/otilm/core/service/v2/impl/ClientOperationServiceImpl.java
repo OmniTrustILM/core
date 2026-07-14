@@ -86,7 +86,7 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.util.*;
-import io.micrometer.common.util.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.Extension;
@@ -1494,6 +1494,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
@@ -1503,6 +1504,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
+            connectorAccepted = true;
 
             if (renewResult.isAsync()) {
                 // The connector accepted the renewal but completion is asynchronous; the new
@@ -1524,13 +1526,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.SUCCESS, "Renewed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
-        } catch (ConnectorAcceptedButLocalFailureException e) {
-            // Connector accepted the renewal (2xx) but the adapter's local mapping failed. The new certificate
-            // stays in PENDING_ISSUE — do not drive it to FAILED — so reconciliation/polling can resolve it against
-            // the authority that already accepted; record the failure against the predecessor and surface it.
-            certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.FAILED, "Connector accepted renewal but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
-            throw new CertificateOperationException("Connector accepted renewal but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
         } catch (Exception e) {
+            // Once the connector has accepted (2xx) — whether reported as a returned result or surfaced as a
+            // ConnectorAcceptedButLocalFailureException from the adapter's own response mapping — a subsequent
+            // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
+            // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
+            // record the failure against the predecessor and surface it. (state-divergence rule)
+            if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW, CertificateEventStatus.FAILED, "Connector accepted renewal but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
+                throw new CertificateOperationException("Connector accepted renewal but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.RENEW, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to renew certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -1710,6 +1715,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         logger.debug("Rekeying Certificate: {}", oldCertificate);
         HashMap<String, Object> additionalInformation = new HashMap<>();
         additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
@@ -1719,6 +1725,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
+            connectorAccepted = true;
 
             if (rekeyResult.isAsync()) {
                 // The connector accepted the rekey but completion is asynchronous; the new
@@ -1740,13 +1747,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.SUCCESS, "Rekeyed using RA Profile " + raProfile.getName(), MetaDefinitions.serialize(additionalInformation));
-        } catch (ConnectorAcceptedButLocalFailureException e) {
-            // Connector accepted the rekey (2xx) but the adapter's local mapping failed. The new certificate stays
-            // in PENDING_ISSUE — do not drive it to FAILED — so reconciliation/polling can resolve it against the
-            // authority that already accepted; record the failure against the predecessor and surface it.
-            certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.FAILED, "Connector accepted rekey but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
-            throw new CertificateOperationException("Connector accepted rekey but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
         } catch (Exception e) {
+            // Once the connector has accepted (2xx) — whether reported as a returned result or surfaced as a
+            // ConnectorAcceptedButLocalFailureException from the adapter's own response mapping — a subsequent
+            // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
+            // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
+            // record the failure against the predecessor and surface it. (state-divergence rule)
+            if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                certificateEventHistoryService.addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY, CertificateEventStatus.FAILED, "Connector accepted rekey but local update failed: " + e.getMessage(), MetaDefinitions.serialize(additionalInformation));
+                throw new CertificateOperationException("Connector accepted rekey but local update failed for certificate %s: ".formatted(certificateUuid) + e.getMessage());
+            }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED, CertificateEvent.REKEY, additionalInformation, e.getMessage());
             throw new CertificateOperationException("Failed to rekey certificate with UUID %s: ".formatted(certificateUuid) + e.getMessage());
         }
@@ -2765,10 +2775,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector cancel call failed (" + infra.getClass().getSimpleName() + "); proceeded with local cancel",
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
-        } catch (NotFoundException connectorRecordMissing) {
-            // Local connector record missing (getConnectorForApiClient) — a configuration
-            // problem, not a connector response; propagate unchanged instead of softening.
-            throw connectorRecordMissing;
+        } catch (NotFoundException entityMissing) {
+            // A local lookup failed — either the certificate vanished on the adapter-graph reload, or the
+            // connector record is missing (getConnectorForApiClient). Both are local/configuration problems,
+            // not connector responses, so propagate unchanged instead of softening into a local cancel.
+            throw entityMissing;
         } catch (Exception unexpected) {
             // Defensive catch-all. Covers any ConnectorException subtype not handled above
             // (e.g. ConnectorProblemException or future additions) plus any unchecked
