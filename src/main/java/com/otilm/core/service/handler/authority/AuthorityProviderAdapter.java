@@ -81,6 +81,9 @@ public interface AuthorityProviderAdapter {
      */
     List<BaseAttribute> listRaProfileAttributes(AuthorityInstanceReference authority) throws ConnectorException;
 
+    /** Connector-side validation of operator-supplied RA Profile attributes. See {@link #validateIssueAttributes}. */
+    void validateRaProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ConnectorException;
+
     /**
      * Dynamic issue-attribute schema scoped to a specific RA profile. v3 carries both
      * {@code authorityAttributes} (auth/identity to the upstream CA) and {@code raProfileAttributes}

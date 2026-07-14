@@ -12,9 +12,12 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.events.handlers.CertificateRegisteredEventHandler;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -25,6 +28,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
@@ -34,6 +38,7 @@ import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Consumes {@link CertificateStatusPollMessage}s and drives the async-operation polling loop.
@@ -69,6 +74,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private TransactionHandler transactionHandler;
     private CertificateInternalService certificateService;
     private CertificateRevocationFinalizer revocationFinalizer;
+    private EventProducer eventProducer;
+    private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -168,6 +176,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // (a completed REVOKE must still destroy the key).
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
+            fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
         stopPolling(cert, op);
@@ -219,6 +228,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
                 stateMachine.transition(locked, op.terminalFailureState(), null,
                         "Async " + op + " reported COMPLETED but connector returned no certificate data");
+                closeRegistrationAuthorizationIfPresent(locked);
             }
             return CertificateRevocationFinalizer.KeyCleanup.NONE;
         }
@@ -237,6 +247,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         stateMachine.transition(locked, targetState, null, reasonFor(op, status));
+        // Fate-coupling: only a terminal FAILED verdict retires a pre-registered cert's authorization. A failed
+        // REVOKE returns to ISSUED (not FAILED) and must keep its registration for renew/rekey reuse.
+        if (targetState == CertificateState.FAILED) {
+            closeRegistrationAuthorizationIfPresent(locked);
+        }
         return CertificateRevocationFinalizer.KeyCleanup.NONE;
     }
 
@@ -351,12 +366,26 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
-            stateMachine.transition(locked, op.terminalFailureState(), null, reason);
+            CertificateState terminal = op.terminalFailureState();
+            stateMachine.transition(locked, terminal, null, reason);
+            if (terminal == CertificateState.FAILED) {
+                closeRegistrationAuthorizationIfPresent(locked);
+            }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         stopPolling(cert, op);
     }
 
+    /**
+     * Retires a pre-registered certificate's authorization (state → CLOSED) in the caller's locked transaction
+     * when it reaches a terminal FAILED verdict. Guarded, so it is a no-op for non-self-service certs and for
+     * renew/rekey successors that carry no authorization.
+     */
+    private void closeRegistrationAuthorizationIfPresent(Certificate locked) {
+        if (registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
+            registrationAuthorizationWriter.close(locked.getUuid());
+        }
+    }
 
     /** Deletes the cert's poll row to stop polling, best-effort; a failed delete is dropped by the next poll. */
     private void stopPolling(Certificate cert, CertificateOperation op) {
@@ -435,5 +464,37 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setRevocationFinalizer(CertificateRevocationFinalizer revocationFinalizer) {
         this.revocationFinalizer = revocationFinalizer;
+    }
+
+    @Autowired
+    public void setEventProducer(EventProducer eventProducer) {
+        this.eventProducer = eventProducer;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
+        this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
+    }
+
+    // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected
+    // registrations (those with an authorization row). This region is post-commit (the terminal transition already
+    // committed), so the event is never emitted for a registration that rolled back.
+    private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op, CertificateOperationStatus status) {
+        if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED) {
+            // Best-effort, like the sibling post-commit side effects: neither the authorization lookup nor the
+            // produce must abort stopPolling.
+            try {
+                if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
+                    eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+                }
+            } catch (RuntimeException e) {
+                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
+            }
+        }
     }
 }

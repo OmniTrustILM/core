@@ -149,6 +149,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
+    private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RaProfileInternalService raProfileService;
     private GroupRepository groupRepository;
     private GroupAssociationRepository groupAssociationRepository;
@@ -214,6 +215,11 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setGroupAssociationRepository(GroupAssociationRepository groupAssociationRepository) {
         this.groupAssociationRepository = groupAssociationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
+        this.registrationAuthorizationRepository = registrationAuthorizationRepository;
     }
 
     @Autowired
@@ -477,7 +483,31 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         dto.setMetadata(attributeEngine.getMappedMetadataContent(ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build()));
         dto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid()));
         dto.setRelatedCertificates(certificate.getSuccessorRelations().stream().map(r -> r.getSuccessorCertificate().mapToListDto()).toList());
+        // Read-only registration block, present only for pre-registered certificates (those with an authorization
+        // row). A projection reads just the three non-secret fields, so the encrypted challenge column is never
+        // pulled into memory on the common detail path.
+        registrationAuthorizationRepository.findDetailByCertificateUuid(certificate.getUuid()).ifPresent(authorization -> {
+            CertificateRegistrationDetailDto registration = new CertificateRegistrationDetailDto();
+            registration.setState(toRegistrationDetailState(authorization.getState()));
+            registration.setExpiresAt(authorization.getExpiresAt());
+            registration.setFailedAttempts(authorization.getFailedAttempts());
+            dto.setRegistration(registration);
+        });
         return dto;
+    }
+
+    /**
+     * Maps the persisted registration state to its API enum. The switch is exhaustive over {@link RegistrationState},
+     * so a future persisted value with no API counterpart is a compile error here rather than a runtime failure that
+     * would break the whole certificate-detail response.
+     */
+    private static CertificateRegistrationState toRegistrationDetailState(RegistrationState state) {
+        return switch (state) {
+            case ACTIVE -> CertificateRegistrationState.ACTIVE;
+            case EXPIRED -> CertificateRegistrationState.EXPIRED;
+            case LOCKED -> CertificateRegistrationState.LOCKED;
+            case CLOSED -> CertificateRegistrationState.CLOSED;
+        };
     }
 
     @Override
