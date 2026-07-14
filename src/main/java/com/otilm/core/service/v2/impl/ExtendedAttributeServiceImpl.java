@@ -54,7 +54,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     }
 
     @Override
-    public boolean validateIssueCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
+    public void validateIssueCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
@@ -63,7 +63,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         validateLegacyConnector(connector);
 
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityRef);
-        return adapter.validateIssueAttributes(authorityRef, attributes);
+        adapter.validateIssueAttributes(authorityRef, attributes);
     }
 
     @Override
@@ -99,7 +99,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
     }
 
     @Override
-    public boolean validateRevokeCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
+    public void validateRevokeCertificateAttributes(RaProfile raProfile, List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException {
         var authorityRef = raProfile.getAuthorityInstanceReference();
         var connector = authorityRef.getConnector();
         if (connector == null) {
@@ -107,7 +107,7 @@ public class ExtendedAttributeServiceImpl implements ExtendedAttributeService {
         }
         validateLegacyConnector(connector);
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
-        return adapter.validateRevokeAttributes(authorityRef, attributes);
+        adapter.validateRevokeAttributes(authorityRef, attributes);
     }
 
     @Override

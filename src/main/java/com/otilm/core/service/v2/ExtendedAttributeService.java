@@ -15,14 +15,14 @@ public interface ExtendedAttributeService {
     List<BaseAttribute> listIssueCertificateAttributes(
             RaProfile raProfile) throws ConnectorException, NotFoundException;
 
-    boolean validateIssueCertificateAttributes(
+    void validateIssueCertificateAttributes(
             RaProfile raProfile,
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException;
 
     List<BaseAttribute> listRevokeCertificateAttributes(
             RaProfile raProfile) throws ConnectorException, NotFoundException;
 
-    boolean validateRevokeCertificateAttributes(
+    void validateRevokeCertificateAttributes(
             RaProfile raProfile,
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException;
 

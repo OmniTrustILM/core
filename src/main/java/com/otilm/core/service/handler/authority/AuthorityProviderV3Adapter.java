@@ -201,16 +201,14 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
-    public Boolean validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
+    public void validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
         // v3 has no connector-side /validate; the caller validates structurally against the listed
         // definitions (AttributeEngine.validateUpdateDataAttributes) — no connector round-trip.
-        return Boolean.TRUE;
     }
 
     @Override
-    public Boolean validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
+    public void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
         // v3 has no connector-side /validate — see validateIssueAttributes.
-        return Boolean.TRUE;
     }
 
     @Override

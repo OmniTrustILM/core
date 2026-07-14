@@ -96,17 +96,13 @@ public interface AuthorityProviderAdapter {
      * Connector-side validation of operator-supplied issue attributes. v2 calls the connector's
      * {@code /validate} endpoint; v3 is a no-op (the v3 contract dropped {@code /validate} — Core
      * validates structurally against the listed definitions instead).
-     *
-     * @return
      */
-    Boolean validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
+    void validateIssueAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
     /**
      * Connector-side validation of operator-supplied revoke attributes. See {@link #validateIssueAttributes}.
-     *
-     * @return
      */
-    Boolean validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
+    void validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
     void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
