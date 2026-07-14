@@ -470,9 +470,20 @@ class AuthorityProviderV3AdapterTest {
     }
 
     @Test
-    void getCaCertificatesCarriesRaProfileAttributesOnWire() throws ConnectorException {
-        List<RequestAttribute> stored = List.of(mock(RequestAttribute.class));
-        when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(stored);
+    void getCaCertificatesCarriesResolvedAttributesOnWire() throws ConnectorException {
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
         CaCertificatesResponseDto response = new CaCertificatesResponseDto();
         response.setCertificates(List.of());
         when(authorityClientV3.getCaCertificates(eq(connectorInfo), any(CaCertificatesRequestDtoV3.class)))
@@ -482,7 +493,10 @@ class AuthorityProviderV3AdapterTest {
 
         ArgumentCaptor<CaCertificatesRequestDtoV3> captor = ArgumentCaptor.forClass(CaCertificatesRequestDtoV3.class);
         verify(authorityClientV3).getCaCertificates(eq(connectorInfo), captor.capture());
-        assertSame(stored, captor.getValue().getRaProfileAttributes());
+        assertSame(resolvedRaProfile, captor.getValue().getRaProfileAttributes(),
+                "raProfileAttributes must carry the resolved ra-profile-scoped list");
+        assertSame(resolvedAuthority, captor.getValue().getAuthorityAttributes(),
+                "authorityAttributes must carry the resolved authority-scoped list");
     }
 
     @Test
