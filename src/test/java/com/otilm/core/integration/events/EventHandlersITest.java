@@ -468,6 +468,63 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testDiscoveryFinishedEventCompletesProcessingDiscovery() throws EventException {
+        DiscoveryHistory discovery = new DiscoveryHistory();
+        discovery.setName("TestDiscovery");
+        discovery.setKind("IP");
+        discovery.setStatus(DiscoveryStatus.PROCESSING);
+        discovery.setConnectorUuid(UUID.randomUUID());
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        discovery = discoveryRepository.save(discovery);
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Provider completed.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions.assertNotNull(persisted.getEndTime());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventDoesNotCompleteFailedProcessingDiscovery() throws EventException {
+        DiscoveryHistory discovery = new DiscoveryHistory();
+        discovery.setName("TestDiscovery");
+        discovery.setKind("IP");
+        discovery.setStatus(DiscoveryStatus.PROCESSING);
+        discovery.setConnectorUuid(UUID.randomUUID());
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        discovery = discoveryRepository.save(discovery);
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.FAILED, "Provider failed.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
+        Assertions.assertNull(persisted.getEndTime());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventDoesNotCompleteWhileProviderIsRunning() throws EventException {
+        DiscoveryHistory discovery = new DiscoveryHistory();
+        discovery.setName("TestDiscovery");
+        discovery.setKind("IP");
+        discovery.setStatus(DiscoveryStatus.PROCESSING);
+        discovery.setConnectorUuid(UUID.randomUUID());
+        discovery.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        discovery = discoveryRepository.save(discovery);
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Provider completed.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
+        Assertions.assertNull(persisted.getEndTime());
+    }
+
+    @Test
     void testDiscoveryFinishedEvent() throws EventException, AttributeException, AlreadyExistException, NotFoundException {
         DiscoveryHistory discovery = new DiscoveryHistory();
         discovery.setName("TestDiscovery");

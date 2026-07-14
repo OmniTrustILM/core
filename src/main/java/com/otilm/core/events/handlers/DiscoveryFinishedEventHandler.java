@@ -40,8 +40,13 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         DiscoveryHistory discovery = discoveryRepository.findByUuid(eventMessage.getObjectUuid()).orElseThrow(() -> new EventException(eventMessage.getEvent(), "Discovery with UUID %s not found".formatted(eventMessage.getObjectUuid())));
         DiscoveryResult discoveryResult = objectMapper.convertValue(eventMessage.getData(), DiscoveryResult.class);
 
-        // set discovery status to completed when discovery is in preprocessing state coming from certificate discovered event
-        if (discoveryResult.getDiscoveryStatus() == DiscoveryStatus.PROCESSING) {
+        // Complete post-processing from persisted state; the event payload may already report the final outcome.
+        boolean providerCompletedProcessingDiscovery =
+                discovery.getStatus() == DiscoveryStatus.PROCESSING
+                        && discovery.getConnectorStatus() == DiscoveryStatus.COMPLETED
+                        && discoveryResult.getDiscoveryStatus() == DiscoveryStatus.COMPLETED;
+        if (providerCompletedProcessingDiscovery
+                || discoveryResult.getDiscoveryStatus() == DiscoveryStatus.PROCESSING) {
             String message = discoveryResult.getMessage() == null ? "Discovery completed successfully." : "Discovery completed successfully. " + discoveryResult.getMessage();
             discovery.setMessage(message);
             discovery.setStatus(DiscoveryStatus.COMPLETED);
