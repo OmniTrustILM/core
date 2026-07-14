@@ -158,7 +158,7 @@ class ExtendedAttributeServiceImplTest {
         assertNotNull(captor.getValue());
         assertTrue(captor.getValue().isEmpty());
         verify(attributeEngine).validateUpdateDataAttributes(
-                eq(connector.getUuid()), eq(AttributeOperation.CERTIFICATE_ISSUE), eq(List.of()), eq(captor.getValue()));
+                connector.getUuid(), AttributeOperation.CERTIFICATE_ISSUE, List.of(), captor.getValue());
     }
 
     @Test
