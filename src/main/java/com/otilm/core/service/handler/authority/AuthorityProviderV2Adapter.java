@@ -6,8 +6,11 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
 import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -110,6 +113,20 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
             return AdapterOperationResult.asyncAccepted(null);
         }
         return AdapterOperationResult.syncNoContent();
+    }
+
+    @Override
+    public List<MetadataAttribute> identify(RaProfile raProfile, String certificateContent) throws ValidationException, ConnectorException {
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+
+        CertificateIdentificationRequestDto wire = new CertificateIdentificationRequestDto();
+        wire.setCertificate(certificateContent);
+        wire.setRaProfileAttributes(raProfileAttributesFor(raProfile, authority));
+
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        CertificateIdentificationResponseDto response = connectorApiFactory.getCertificateApiClientV2(connectorDto)
+                .identifyCertificate(connectorDto, authority.getAuthorityInstanceUuid(), wire);
+        return response.getMeta() != null ? response.getMeta() : List.of();
     }
 
     @Override

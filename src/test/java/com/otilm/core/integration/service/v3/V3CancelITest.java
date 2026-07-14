@@ -80,8 +80,8 @@ class V3CancelITest extends BaseSpringBootTest {
     private static final String V3_ISSUE_CANCEL_PATH  = "/v3/authorityProvider/certificates/issue/cancel";
     private static final String V3_REVOKE_CANCEL_PATH = "/v3/authorityProvider/certificates/revoke/cancel";
 
-    // v2 identify path used by manuallyIssueCertificate
-    private static final String V2_IDENTIFY_PATTERN = "/v2/authorityProvider/authorities/[^/]+/certificates/identify";
+    // v3 identify path used by manuallyIssueCertificate (via the v3 adapter identify())
+    private static final String V3_IDENTIFY_PATH = "/v3/authorityProvider/certificates/identify";
 
     // ── Spring beans ──────────────────────────────────────────────────────────
 
@@ -241,8 +241,8 @@ class V3CancelITest extends BaseSpringBootTest {
         SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
         String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-hook");
 
-        // v2 identify endpoint — required by manuallyIssueCertificate
-        wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
+        // v3 identify endpoint — required by manuallyIssueCertificate
+        wireMockServer.stubFor(post(urlEqualTo(V3_IDENTIFY_PATH))
                 .willReturn(WireMock.okJson("{\"meta\":[]}")));
 
         // v3 issue-cancel endpoint — the best-effort hook
@@ -277,8 +277,8 @@ class V3CancelITest extends BaseSpringBootTest {
         SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
         String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-resilience");
 
-        // v2 identify endpoint
-        wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
+        // v3 identify endpoint
+        wireMockServer.stubFor(post(urlEqualTo(V3_IDENTIFY_PATH))
                 .willReturn(WireMock.okJson("{\"meta\":[]}")));
 
         // v3 issue-cancel: simulate connector error — the hook must swallow this

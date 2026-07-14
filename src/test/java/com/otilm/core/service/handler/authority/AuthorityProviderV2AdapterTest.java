@@ -7,8 +7,11 @@ import com.otilm.api.interfaces.client.v1.AuthorityInstanceSyncApiClient;
 import com.otilm.api.interfaces.client.v2.CertificateSyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
 import com.otilm.api.model.connector.v2.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
+import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
 import com.otilm.api.model.connector.v2.CertificateSignRequestDto;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
@@ -278,6 +281,47 @@ class AuthorityProviderV2AdapterTest {
         ArgumentCaptor<CertRevocationDto> captor = ArgumentCaptor.forClass(CertRevocationDto.class);
         verify(certClient).revokeCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
         assertEquals(CertificateRevocationReason.UNSPECIFIED, captor.getValue().getReason());
+    }
+
+    // --- identify ---
+
+    @Test
+    void identify_delegatesToCertClientAndReturnsMeta() throws Exception {
+        CertificateIdentificationResponseDto response = new CertificateIdentificationResponseDto();
+        List<MetadataAttribute> meta = List.of(mock(MetadataAttribute.class));
+        response.setMeta(meta);
+        when(certClient.identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateIdentificationRequestDto.class)))
+                .thenReturn(response);
+
+        List<MetadataAttribute> result = adapter.identify(raProfile, "dGVzdGNlcnQ=");
+
+        assertSame(meta, result);
+        ArgumentCaptor<CertificateIdentificationRequestDto> captor = ArgumentCaptor.forClass(CertificateIdentificationRequestDto.class);
+        verify(certClient).identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
+        assertEquals("dGVzdGNlcnQ=", captor.getValue().getCertificate());
+    }
+
+    @Test
+    void identify_passesStoredRaProfileAttributesUnchanged() throws Exception {
+        // v2 is stateful: stored ra-profile attributes must reach the wire exactly as stored (no dereference).
+        List<RequestAttribute> stored = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(any())).thenReturn(stored);
+        when(certClient.identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateIdentificationRequestDto.class)))
+                .thenReturn(new CertificateIdentificationResponseDto());
+
+        adapter.identify(raProfile, "dGVzdGNlcnQ=");
+
+        ArgumentCaptor<CertificateIdentificationRequestDto> captor = ArgumentCaptor.forClass(CertificateIdentificationRequestDto.class);
+        verify(certClient).identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), captor.capture());
+        assertSame(stored, captor.getValue().getRaProfileAttributes());
+    }
+
+    @Test
+    void identify_normalizesNullMetaToEmptyList() throws Exception {
+        when(certClient.identifyCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateIdentificationRequestDto.class)))
+                .thenReturn(new CertificateIdentificationResponseDto());
+
+        assertEquals(List.of(), adapter.identify(raProfile, "dGVzdGNlcnQ="));
     }
 
     // --- listIssueAttributes / listRevokeAttributes ---

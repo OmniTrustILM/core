@@ -13,12 +13,10 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.connector.v2.CertRevocationDto;
-import com.otilm.api.model.connector.v2.CertificateIdentificationRequestDto;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorServerException;
-import com.otilm.api.model.connector.v2.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v2.CertificateOperationCancelRequestDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.v2.CertificateRenewRequestDto;
@@ -2153,12 +2151,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         CertificateRequest storedCsr = parseStoredCsr(certificate);
         validatePublicKeyForCsrAndCertificate(request.getCertificate(), storedCsr, true);
 
-        CertificateIdentificationResponseDto identifyResponse =
-                identifyUploadedCertificateOrReject(certificate, request);
-
-        List<MetadataAttribute> identifyMeta = identifyResponse != null && identifyResponse.getMeta() != null
-                ? identifyResponse.getMeta()
-                : List.of();
+        List<MetadataAttribute> identifyMeta = identifyUploadedCertificateOrReject(certificate, request);
 
         // The PENDING_ISSUE -> ISSUED finalize runs in a short transaction under a pessimistic row lock
         // so two concurrent uploads of the same certificate cannot both finalize it. The connector
@@ -2244,24 +2237,22 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * The connector owns the decision whether the uploaded certificate was actually issued
-     * by the configured authority — call identify and surface only the user-input failure
-     * mode (422 → {@link ValidationException}). Connector infrastructure failures (5xx,
-     * auth, network) propagate so the client sees the appropriate upstream error and can
-     * retry; the certificate stays in {@code PENDING_ISSUE} for the next attempt.
+     * by the configured authority — call identify (version-dispatched via the authority
+     * adapter) and surface only the user-input failure mode (422 → {@link ValidationException}).
+     * Connector infrastructure failures (5xx, auth, network) propagate so the client sees the
+     * appropriate upstream error and can retry; the certificate stays in {@code PENDING_ISSUE}
+     * for the next attempt. Returns the connector's identification meta, never {@code null}.
      */
-    private CertificateIdentificationResponseDto identifyUploadedCertificateOrReject(
+    private List<MetadataAttribute> identifyUploadedCertificateOrReject(
             Certificate certificate, UploadCertificateRequestDto request) throws ConnectorException, NotFoundException {
-        RaProfile raProfile = certificate.getRaProfile();
-        ApiClientConnectorInfo connectorDto = connectorService.getConnectorForApiClient(raProfile.getAuthorityInstanceReference().getConnectorUuid());
-        CertificateIdentificationRequestDto idReq = new CertificateIdentificationRequestDto();
-        idReq.setCertificate(request.getCertificate());
-        idReq.setRaProfileAttributes(attributeEngine.getRequestObjectDataAttributesContent(
-                ObjectAttributeContentInfo.builder(Resource.RA_PROFILE, raProfile.getUuid())
-                        .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid()).build()));
+        // The caller's finder omits the authority's connectorInterface (lazy) and the caller
+        // holds no session — reload with the full adapter graph for adapter dispatch.
+        Certificate certForAdapter = certificateRepository.findForPollingByUuid(certificate.getUuid())
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificate.getUuid()));
+        RaProfile raProfile = certForAdapter.getRaProfile();
         try {
-            return connectorApiFactory.getCertificateApiClientV2(connectorDto)
-                    .identifyCertificate(connectorDto,
-                            raProfile.getAuthorityInstanceReference().getAuthorityInstanceUuid(), idReq);
+            return adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference())
+                    .identify(raProfile, request.getCertificate());
         } catch (ValidationException e) {
             certificateEventHistoryService.addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
                     CertificateEventStatus.FAILED,

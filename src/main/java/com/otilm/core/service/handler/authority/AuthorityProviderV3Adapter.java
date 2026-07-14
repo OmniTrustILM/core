@@ -14,6 +14,8 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
@@ -147,6 +149,21 @@ public class AuthorityProviderV3Adapter
         return executeWithAcceptanceGuard(CertificateOperation.REVOKE,
                 () -> connectorApiFactory.getCertificateApiClientV3(connectorDto).revoke(connectorDto, wire),
                 this::mapRevokeResponse);
+    }
+
+    @Override
+    public List<MetadataAttribute> identify(RaProfile raProfile, String certificateContent) throws ValidationException, ConnectorException {
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+
+        CertificateIdentificationRequestDtoV3 wire = new CertificateIdentificationRequestDtoV3();
+        wire.setCertificate(certificateContent);
+        wire.setAuthorityAttributes(authorityAttributesFor(authority));
+        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+
+        CertificateIdentificationResponseDto response =
+                connectorApiFactory.getCertificateApiClientV3(connectorDto).identify(connectorDto, wire);
+        return response.getMeta() != null ? response.getMeta() : List.of();
     }
 
     @Override

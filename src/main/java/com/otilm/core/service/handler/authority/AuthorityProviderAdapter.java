@@ -4,6 +4,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
@@ -50,6 +51,21 @@ public interface AuthorityProviderAdapter {
     AdapterOperationResult revoke(Certificate cert, ClientCertificateRevocationDto req) throws ConnectorException;
 
     /**
+     * Asks the authority provider whether the given certificate was issued by (and is known to)
+     * the authority behind the RA profile. Returns the connector's identification metadata,
+     * never {@code null}. A connector policy rejection (v2/v3 wire 422) surfaces as
+     * {@link ValidationException} with the connector's reason.
+     *
+     * <p>v2 posts to the instance-scoped identify endpoint with the stored RA-profile attributes;
+     * v3 is stateless and carries the authority/RA-profile attributes in the request body.</p>
+     *
+     * @param raProfile          the RA profile whose authority performs the identification —
+     *                           may differ from the certificate's current RA profile (RA profile switch)
+     * @param certificateContent Base64 certificate content to identify
+     */
+    List<MetadataAttribute> identify(RaProfile raProfile, String certificateContent) throws ValidationException, ConnectorException;
+
+    /**
      * Authority-instance attribute definitions. v2 lists via the function-group attribute endpoint
      * (`/v1/authorityProvider/{kind}/attributes`); v3 via the stateless
      * `/v3/authorityProvider/authorities/attributes`. Used by authority create/edit so the operator
@@ -93,4 +109,6 @@ public interface AuthorityProviderAdapter {
     Boolean validateRevokeAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
 
     void checkAuthorityConnection(AuthorityInstanceReference authority, List<RequestAttribute> attributes) throws ValidationException, ConnectorException;
+
+
 }

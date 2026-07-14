@@ -12,6 +12,8 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
@@ -412,6 +414,33 @@ class AuthorityProviderV3AdapterTest {
                 ArgumentCaptor.forClass(CertificateRevocationRequestDtoV3.class);
         verify(certClientV3).revoke(eq(connectorInfo), captor.capture());
         assertEquals(CertificateRevocationReason.UNSPECIFIED, captor.getValue().getReason());
+    }
+
+    // ---- identify ----
+
+    @Test
+    void identifyDelegatesToV3ClientAndReturnsMeta() throws ConnectorException {
+        CertificateIdentificationResponseDto response = new CertificateIdentificationResponseDto();
+        List<MetadataAttribute> meta = List.of(mock(MetadataAttribute.class));
+        response.setMeta(meta);
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenReturn(response);
+
+        List<MetadataAttribute> result = adapter.identify(raProfile, "dGVzdGNlcnQ=");
+
+        assertSame(meta, result);
+        ArgumentCaptor<CertificateIdentificationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateIdentificationRequestDtoV3.class);
+        verify(certClientV3).identify(eq(connectorInfo), captor.capture());
+        assertEquals("dGVzdGNlcnQ=", captor.getValue().getCertificate());
+    }
+
+    @Test
+    void identifyNormalizesNullMetaToEmptyList() throws ConnectorException {
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenReturn(new CertificateIdentificationResponseDto());
+
+        assertEquals(List.of(), adapter.identify(raProfile, "dGVzdGNlcnQ="));
     }
 
     // ---- register: delegates to v3 /register ----
