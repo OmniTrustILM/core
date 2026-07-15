@@ -93,6 +93,46 @@ class AttributeDeclarationValidityITest extends BaseSpringBootTest {
     }
 
     @Test
+    void emptyDependsOnAndCallbackContextTogether_rejected() {
+        // An empty (non-null) dependsOn is still an NG declaration, so the mutual-exclusion guard applies to it too.
+        DataAttributeV2 a = base(AttributeContentType.STRING);
+        AttributeCallback callback = new AttributeCallback();
+        callback.setDependsOn(List.of());
+        callback.setCallbackContext("/legacy");
+        a.setAttributeCallback(callback);
+
+        AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+        Assertions.assertTrue(ex.getMessage().contains("dependsOn"));
+    }
+
+    @Test
+    void emptyDependsOnOnResourceContent_rejected() {
+        // The RESOURCE guard must fire for an empty dependsOn too — RESOURCE content is never resolved via NG.
+        DataAttributeV2 a = base(AttributeContentType.RESOURCE);
+        AttributeCallback callback = new AttributeCallback();
+        callback.setDependsOn(List.of());
+        a.setAttributeCallback(callback);
+
+        // Assert the message so the test pins the RESOURCE dependsOn guard, not the earlier validateAttributeProperties
+        // step (which also throws AttributeException) — the "green but covers nothing" hazard.
+        AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+        Assertions.assertTrue(ex.getMessage().contains("dependsOn"));
+    }
+
+    @Test
+    void emptyDependsOnOnly_ingestsCleanly() {
+        // An empty dependsOn ("fire once on form open") is a valid NG declaration on its own.
+        DataAttributeV2 a = base(AttributeContentType.STRING);
+        AttributeCallback callback = new AttributeCallback();
+        callback.setDependsOn(List.of());
+        a.setAttributeCallback(callback);
+
+        Assertions.assertDoesNotThrow(() -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+    }
+
+    @Test
     void callbackContextOnly_ingestsCleanly() {
         DataAttributeV2 a = base(AttributeContentType.STRING);
         AttributeCallback callback = new AttributeCallback();
