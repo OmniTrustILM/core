@@ -462,20 +462,15 @@
     </repositories>
 
     <profiles>
-        <!-- Run only service/** tests (used by CI test-services job) -->
+        <!-- Worker 1: everything except integration ITests (service unit tests + all the rest). -->
         <profile>
-            <id>test-services</id>
+            <id>test-non-integration</id>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <includes>
-                                <include>com/otilm/core/service/**/*Test.java</include>
-                                <include>com/otilm/core/service/**/*Tests.java</include>
-                                <include>com/otilm/core/service/**/*ITest.java</include>
-                            </includes>
                             <excludes>
                                 <exclude>com/otilm/core/integration/**/*ITest.java</exclude>
                             </excludes>
@@ -485,30 +480,9 @@
             </build>
         </profile>
 
-        <!-- Run all tests except service/** (used by CI test-non-services job) -->
+        <!-- Worker 2: integration ITests outside the service package. -->
         <profile>
-            <id>test-non-services</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <excludes>
-                                <exclude>com/otilm/core/service/**/*Test.java</exclude>
-                                <exclude>com/otilm/core/service/**/*Tests.java</exclude>
-                                <exclude>com/otilm/core/service/**/*ITest.java</exclude>
-                                <exclude>com/otilm/core/integration/**/*ITest.java</exclude>
-                            </excludes>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <!-- Run only integration tests (used by CI test-integration job) -->
-        <profile>
-            <id>test-integration</id>
+            <id>test-integration-core</id>
             <build>
                 <plugins>
                     <plugin>
@@ -518,13 +492,55 @@
                             <includes>
                                 <include>com/otilm/core/integration/**/*ITest.java</include>
                             </includes>
+                            <excludes>
+                                <exclude>com/otilm/core/integration/service/**/*ITest.java</exclude>
+                            </excludes>
                         </configuration>
                     </plugin>
                 </plugins>
             </build>
         </profile>
 
-        <!-- Merge partial jacoco .exec files produced by the three test jobs, then report.
+        <!-- Worker 3: integration.service nested subpackages + flat classes A-C. -->
+        <profile>
+            <id>test-integration-service-1</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>com/otilm/core/integration/service/**/*ITest.java</include>
+                            </includes>
+                            <excludes>
+                                <exclude>%regex[.*/integration/service/[D-Z][^/]*ITest.*]</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Worker 4: integration.service flat classes D-Z. -->
+        <profile>
+            <id>test-integration-service-2</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>%regex[.*/integration/service/[D-Z][^/]*ITest.*]</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Merge partial jacoco .exec files produced by the test jobs, then report.
              Place partial files in jacoco-partial/ before invoking this profile.
              The parent BOM's jacoco:report execution (bound to package phase) picks up
              the merged target/jacoco.exec automatically. -->
