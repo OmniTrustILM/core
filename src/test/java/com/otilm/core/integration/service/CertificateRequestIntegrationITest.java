@@ -13,6 +13,7 @@ import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
@@ -23,6 +24,8 @@ import com.otilm.core.dao.repository.*;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
+import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
@@ -92,6 +95,9 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeySeeder cryptographicKeySeeder;
+
+    @Autowired
+    private RaProfileCertificateRequestAttributeWriter requestAttributeWriter;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -194,8 +200,11 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
 
     @Test
     void projectsConnectorSanAndExtensionIntoStoredCsr_whenSubmittingRequest() throws Exception {
-        // given a connector that returns one SAN-mapped and one extension-mapped attribute, with the
-        // default relative-distinguished-name set merged in by the issuance-definition resolver
+        // given a connector that returns one SAN-mapped and one extension-mapped attribute
+        requestAttributeWriter.saveStaticSet(raProfile,
+                AttributeDefinitionUtils.serialize(List.of(CsrAttributes.commonNameAttribute())),
+                AttributeSetMergeMode.MERGE, null);
+
         String connectorAttrsJson = """
                 [
                   {
