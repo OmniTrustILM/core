@@ -192,7 +192,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
         // callbackContext/callbackMethod (which AttributeDefinitionUtils.validateCallback requires); the NG
         // declaration is validated at ingest instead. Both-set is rejected at ingest, so the
         // callbackContext == null conjunct here is defensive. Legacy callbacks fall through unchanged.
-        if (isNgCallback(attributeCallback)) {
+        if (isNgCallback(attribute, attributeCallback)) {
             return dispatchNg(connector, attribute, callback, scopeResource, scopeResourceUuid, connectorInterface, interfaceVersion);
         }
 
@@ -292,12 +292,18 @@ public class CallbackServiceImpl implements CallbackExternalService {
         return attribute instanceof DataAttribute dataAttribute ? dataAttribute.getProperties().getResource() : null;
     }
 
-    private static boolean isNgCallback(AttributeCallback attributeCallback) {
-        // A DATA attribute can be stored without any callback, so getAttributeCallback returns null here. This runs
-        // before validateCallback (which would surface a controlled 400), so a null deref would become a 500 NPE.
-        return attributeCallback != null
-                && attributeCallback.getDependsOn() != null && !attributeCallback.getDependsOn().isEmpty()
-                && attributeCallback.getCallbackContext() == null;
+    private static boolean isNgCallback(BaseAttribute attribute, AttributeCallback attributeCallback) {
+        // A non-null dependsOn marks an NG callback; an empty (non-null) list is valid and means "fire once on form
+        // open" (a scope-only dropdown), so it must dispatch NG, not fall to the legacy rung. RESOURCE content is
+        // answered by the core resource path (ladder rung 1), so it is excluded — otherwise a live-listed definition
+        // (which bypasses the ingest-time declaration guard) could route a RESOURCE attribute through NG.
+        if (attributeCallback == null
+                || attributeCallback.getDependsOn() == null
+                || attributeCallback.getCallbackContext() != null) {
+            return false;
+        }
+        return !(attribute instanceof DataAttribute dataAttribute
+                && dataAttribute.getContentType() == AttributeContentType.RESOURCE);
     }
 
     /**
