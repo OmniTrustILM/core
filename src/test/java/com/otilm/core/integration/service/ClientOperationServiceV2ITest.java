@@ -15,11 +15,7 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateEvent;
-import com.otilm.api.model.core.certificate.CertificateEventStatus;
-import com.otilm.api.model.core.certificate.CertificateRelationType;
-import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
@@ -44,6 +40,7 @@ import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
@@ -83,8 +80,6 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest
 class ClientOperationServiceV2ITest extends BaseSpringBootTest {
-
-    public static final String RA_PROFILE_NAME = "testRaProfile1";
 
     private static final String SAMPLE_PKCS10 = """
             -----BEGIN CERTIFICATE REQUEST-----
@@ -949,7 +944,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testHandleFailedOrRejectedEvent() throws NotFoundException, NoSuchAlgorithmException {
+    void testHandleFailedOrRejectedEvent() throws NotFoundException {
         CertificateRelation relation = new CertificateRelation();
         relation.setSuccessorCertificate(certificate);
         Certificate predCert = new Certificate();
@@ -971,8 +966,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         certificateRelationRepository.save(relation);
         certificate.setState(CertificateState.REQUESTED);
-        CertificateRequestEntity certificateRequest = new CertificateRequestEntity();
-        certificateRequest.setContent("content");
+        CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent("content")
+                .build();
         certificateRequestRepository.save(certificateRequest);
         certificate.setCertificateRequest(certificateRequest);
         certificate.setCertificateRequestUuid(certificateRequest.getUuid());
@@ -1086,9 +1083,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     /**
      * Sets the certificate to REQUESTED with a CSR ready for issuance, then returns its UUID.
      */
-    private UUID prepareCertificateForIssuance() throws NoSuchAlgorithmException {
-        CertificateRequestEntity csr = new CertificateRequestEntity();
-        csr.setContent("content");
+    private UUID prepareCertificateForIssuance() {
+        CertificateRequestEntity csr = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent("content")
+                .build();
         certificateRequestRepository.save(csr);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setCertificateRequest(csr);
@@ -1421,7 +1419,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
      * {@code certificate} field re-purposed as the REQUESTED successor with a CSR. Returns
      * the predecessor UUID; the successor UUID is {@code certificate.getUuid()}.
      */
-    private UUID prepareCertificateForRenewal() throws NoSuchAlgorithmException {
+    private UUID prepareCertificateForRenewal() {
         CertificateContent predContent = new CertificateContent();
         predContent.setContent("predContent");
         predContent = certificateContentRepository.save(predContent);
@@ -1436,8 +1434,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         predCert.setRaProfile(certificate.getRaProfile());
         predCert = certificateRepository.save(predCert);
 
-        CertificateRequestEntity csr = new CertificateRequestEntity();
-        csr.setContent("content");
+        CertificateRequestEntity csr = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent("content")
+                .build();
         certificateRequestRepository.save(csr);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setCertificateRequest(csr);
@@ -1716,12 +1715,13 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         PKCS10CertificationRequest csr = csrBuilder.build(signer);
         String csrBase64 = Base64.getEncoder().encodeToString(csr.getEncoded());
 
-        CertificateRequestEntity csrEntity = new CertificateRequestEntity();
-        csrEntity.setContent(csrBase64);
-        csrEntity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
-        csrEntity.setSubjectDn("CN=test-pending-issue");
-        csrEntity.setPublicKeyAlgorithm("RSA");
-        csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        CertificateRequestEntity csrEntity = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent(csrBase64)
+                .withSubjectDn("CN=test-pending-issue")
+                .withPublicKeyAlgorithm("RSA")
+                .withSignatureAlgorithm("SHA256WithRSA")
+                .build();
+        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.PENDING_ISSUE);
@@ -2209,12 +2209,13 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         PKCS10CertificationRequest csr = csrBuilder.build(signer);
         String csrBase64 = Base64.getEncoder().encodeToString(csr.getEncoded());
 
-        CertificateRequestEntity csrEntity = new CertificateRequestEntity();
-        csrEntity.setContent(csrBase64);
-        csrEntity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
-        csrEntity.setSubjectDn("CN=smoke-async");
-        csrEntity.setPublicKeyAlgorithm("RSA");
-        csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        CertificateRequestEntity csrEntity = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent(csrBase64)
+                .withSubjectDn("CN=smoke-async")
+                .withPublicKeyAlgorithm("RSA")
+                .withSignatureAlgorithm("SHA256WithRSA")
+                .build();
+        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.REQUESTED);
