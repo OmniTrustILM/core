@@ -2,7 +2,6 @@ package com.otilm.core.integration.service.v3;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
@@ -39,10 +38,11 @@ import java.util.UUID;
  *
  * <p>Scenarios:
  * <ol>
- *   <li>Register against a v2 authority → {@link ValidationException}, no placeholder cert left behind.</li>
- *   <li>Register against a v3 authority without {@code CERTIFICATE_REGISTRATION} flag → same rejection,
- *       no placeholder.</li>
- *   <li>Register against a v3 authority with {@code CERTIFICATE_REGISTRATION} + sync stub → {@code REGISTERED}.</li>
+ *   <li>Register against a v2 authority → platform-level pre-registration ({@code REGISTERED}, no connector call).</li>
+ *   <li>Register against a v3 authority without {@code CERTIFICATE_REGISTRATION} flag → same platform-level
+ *       pre-registration.</li>
+ *   <li>Register against a v3 authority with {@code CERTIFICATE_REGISTRATION} + sync stub → connector-backed
+ *       {@code REGISTERED}.</li>
  *   <li>{@code listAvailableOperations} correctly reflects boolean flags for three fixture variants:
  *       v2, v3 + both flags, v3 + only {@code CERTIFICATE_REGISTRATION}.</li>
  * </ol>
@@ -103,18 +103,18 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
      * placeholder certificate. No connector HTTP call is made, so a synthetic URL is sufficient.</p>
      */
     @Test
-    public void register_v2Authority_rejected() {
+    public void register_v2Authority_createsPlatformLevelRegistration() throws Exception {
         AuthorityFixtures.Fixture fixture = AuthorityFixtures.v2Authority(repos(), "MOCK_V2");
 
         long certsBefore = certificateRepository.count();
+        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=gating-v2,O=Test");
 
-        Assertions.assertThrows(ValidationException.class,
-                () -> registerCertificate(fixture, "CN=gating-v2,O=Test"),
-                "Register on a v2 authority must throw ValidationException");
-
-        long certsAfter = certificateRepository.count();
-        Assertions.assertEquals(certsBefore, certsAfter,
-                "No placeholder certificate must be created when register is rejected for a v2 authority");
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid()))
+                .orElseThrow(() -> new AssertionError("Certificate not found: " + response.getUuid()));
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState(),
+                "a v2 authority (no RegisterCapability) still supports platform-level pre-registration, with no connector /register call");
+        Assertions.assertEquals(certsBefore + 1, certificateRepository.count(),
+                "the platform-level placeholder is persisted");
     }
 
     /**
@@ -127,19 +127,19 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
      * call is made, so a synthetic URL is sufficient.</p>
      */
     @Test
-    public void register_v3WithoutFlag_rejected() {
-        // v3Authority with zero feature flags; no HTTP call is made so no WireMock server is needed
+    public void register_v3WithoutFlag_createsPlatformLevelRegistration() throws Exception {
+        // v3Authority with zero feature flags; no connector /register call is made so no WireMock stub is needed.
         AuthorityFixtures.Fixture fixture = AuthorityFixtures.v3Authority(repos());
 
         long certsBefore = certificateRepository.count();
+        ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=gating-noflag,O=Test");
 
-        Assertions.assertThrows(ValidationException.class,
-                () -> registerCertificate(fixture, "CN=gating-noflag,O=Test"),
-                "Register on a v3 authority without CERTIFICATE_REGISTRATION flag must throw ValidationException");
-
-        long certsAfter = certificateRepository.count();
-        Assertions.assertEquals(certsBefore, certsAfter,
-                "No placeholder certificate must be created when register is rejected for a v3 authority missing the flag");
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid()))
+                .orElseThrow(() -> new AssertionError("Certificate not found: " + response.getUuid()));
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState(),
+                "a v3 authority without CERTIFICATE_REGISTRATION still supports platform-level pre-registration");
+        Assertions.assertEquals(certsBefore + 1, certificateRepository.count(),
+                "the platform-level placeholder is persisted");
     }
 
     /**
