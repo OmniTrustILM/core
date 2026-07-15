@@ -687,9 +687,13 @@ public class AttributeEngine {
         }
         attributeDefinition.setLabel(metadataAttribute.getProperties().getLabel());
 
-        // we don't need content in definition
-        metadataAttribute.setContent(List.of());
-        attributeDefinition.setDefinition(metadataAttribute);
+        // The definition must not carry content, but the caller's attribute object remains in use
+        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
+        // strip content on a clone, never on the caller's instance. The entity holds a live object
+        // reference serialized at flush time, so the clone must be a distinct instance.
+        MetadataAttribute definitionCopy = metadataAttribute.clone();
+        definitionCopy.setContent(List.of());
+        attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);
 
         return attributeDefinition;
