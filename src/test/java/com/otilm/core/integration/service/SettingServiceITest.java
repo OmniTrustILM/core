@@ -87,6 +87,31 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void platformRegistrationSettingsDefaultToSevenAndFiveAndAreEditable() {
+        // A fresh platform reports the registration defaults (7-day issuance window, 5 failed attempts).
+        PlatformSettingsDto seeded = settingService.getPlatformSettings();
+        Assertions.assertNotNull(seeded.getCertificates().getRegistration());
+        Assertions.assertEquals(7, seeded.getCertificates().getRegistration().getDefaultIssuanceWindowDays());
+        Assertions.assertEquals(5, seeded.getCertificates().getRegistration().getMaxFailedAttempts());
+
+        CertificateRegistrationSettingsUpdateDto registration = new CertificateRegistrationSettingsUpdateDto();
+        registration.setDefaultIssuanceWindowDays(14);
+        registration.setMaxFailedAttempts(3);
+        CertificateSettingsUpdateDto certificateSettings = new CertificateSettingsUpdateDto();
+        certificateSettings.setRegistration(registration);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificateSettings);
+        settingService.updatePlatformSettings(update);
+
+        // The edited values are read back, and a registration-only update leaves validation untouched.
+        PlatformSettingsDto edited = settingService.getPlatformSettings();
+        Assertions.assertEquals(14, edited.getCertificates().getRegistration().getDefaultIssuanceWindowDays());
+        Assertions.assertEquals(3, edited.getCertificates().getRegistration().getMaxFailedAttempts());
+        Assertions.assertNotNull(edited.getCertificates().getValidation());
+        Assertions.assertTrue(edited.getCertificates().getValidation().getEnabled());
+    }
+
+    @Test
     void platformRequestAttributesDefaultSetIsSeededAndEditable() {
         // given: a fresh platform has no stored default set -> getPlatformSettings seeds it from CsrAttributes
         PlatformSettingsDto seeded = settingService.getPlatformSettings();

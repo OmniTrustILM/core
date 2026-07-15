@@ -78,7 +78,9 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
     @Override
     public void processMessage(NotificationMessage message) {
-        logger.debug("Received notification message: {}", message);
+        // Log only identifiers, never the whole message: after the JMS round-trip `data` is an untyped map, so
+        // a payload secret (e.g. a registration credential) would print in cleartext despite the DTO's toString exclusion.
+        logger.debug("Received notification message: event={} resource={} object={}", message.getEvent(), message.getResource(), message.getObjectUuid());
 
         if (message.getNotificationProfileUuids() == null) {
             try {
@@ -263,6 +265,13 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 ScheduledJobFinishedEventData eventData = (ScheduledJobFinishedEventData) getEventData(event, data);
                 if (eventData.getUserUuid() != null) {
                     recipients.add(new NotificationRecipient(RecipientType.USER, eventData.getUserUuid()));
+                }
+            }
+            case CERTIFICATE_REGISTERED -> {
+                // Owner only by default (no groups) — a credential-bearing event; a profile can override.
+                NameAndUuidDto ownerInfo = resourceObjectAssociationService.getOwner(resource, objectUuid);
+                if (ownerInfo != null) {
+                    recipients.add(new NotificationRecipient(RecipientType.USER, UUID.fromString(ownerInfo.getUuid())));
                 }
             }
         }
@@ -493,6 +502,14 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             case SCHEDULED_JOB_FINISHED -> {
                 ScheduledJobFinishedEventData data = (ScheduledJobFinishedEventData) eventData;
                 yield new InternalNotificationEventData("%s scheduled task has finished for %s with result %s".formatted(data.getJobType(), data.getJobName(), data.getStatus()), null);
+            }
+            case CERTIFICATE_REGISTERED -> {
+                CertificateRegisteredEventData data = (CertificateRegisteredEventData) eventData;
+                // Informational only — the credential is delivered on the external-provider path and must never be
+                // written here (this text/detail is persisted to the notifications table).
+                yield new InternalNotificationEventData(
+                        "Certificate identified as '%s' has been pre-registered and is awaiting issuance completion".formatted(data.getSubjectDn()),
+                        data.getCompletionDeadline() == null ? null : "Issuance must be completed by %s".formatted(data.getCompletionDeadline()));
             }
         };
     }
