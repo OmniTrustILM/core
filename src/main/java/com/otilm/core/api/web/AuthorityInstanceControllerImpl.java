@@ -102,7 +102,7 @@ public class AuthorityInstanceControllerImpl implements AuthorityInstanceControl
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "raProfile", affiliatedResource = Resource.AUTHORITY, operation = Operation.LIST_ATTRIBUTES)
-    public List<BaseAttribute> listRAProfileAttributes(@LogResource(uuid = true, affiliated = true) @PathVariable String uuid) throws ConnectorException, NotFoundException {
+    public List<BaseAttribute> listRAProfileAttributes(@LogResource(uuid = true, affiliated = true) @PathVariable String uuid) throws ConnectorException, NotFoundException, AttributeException {
         return authorityInstanceService.listRAProfileAttributes(SecuredUUID.fromString(uuid));
     }
 
