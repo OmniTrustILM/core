@@ -25,11 +25,11 @@ import java.util.UUID;
 @Table(name = "certificate_request")
 public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited implements ComplianceSubject {
 
-    @Column(name = "certificate_type")
+    @Column(name = "certificate_type", nullable = false)
     @Enumerated(EnumType.STRING)
     private CertificateType certificateType;
 
-    @Column(name = "certificate_request_format")
+    @Column(name = "certificate_request_format", nullable = false)
     @Enumerated(EnumType.STRING)
     private CertificateRequestFormat certificateRequestFormat;
 
@@ -45,10 +45,10 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
     @Column(name = "alt_signature_algorithm")
     private String altSignatureAlgorithm;
 
-    @Column(name = "fingerprint")
+    @Column(name = "fingerprint", nullable = false)
     private String fingerprint;
 
-    @Column(name = "content", length = Integer.MAX_VALUE)
+    @Column(name = "content", length = Integer.MAX_VALUE, nullable = false)
     private String content;
 
     @Column(name = "common_name")
@@ -60,7 +60,7 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
     @Column(name = "subject_alternative_names")
     private String subjectAlternativeNames;
 
-    @Column(name = "key_usage")
+    @Column(name = "key_usage", nullable = false)
     private int keyUsage;
 
     @Column(name = "compliance_result", columnDefinition = "jsonb")

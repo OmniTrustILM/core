@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * End-to-end integration tests for the v3 "plain issue" path: a {@code REQUESTED} certificate
  * with a real CSR and <em>no</em> {@link com.otilm.core.dao.entity.CertificateRegistration} binding.
  */
-public class V3PlainIssueITest extends BaseSpringBootTest {
+class V3PlainIssueITest extends BaseSpringBootTest {
 
     private static final String V3_ISSUE_PATH = "/v3/authorityProvider/certificates/issue";
     private static final String V2_ISSUE_PATTERN = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
@@ -87,14 +87,14 @@ public class V3PlainIssueITest extends BaseSpringBootTest {
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @BeforeEach
-    public void startWireMockServer() {
+    void startWireMockServer() {
         wireMockServer = new WireMockServer(0);
         wireMockServer.start();
         WireMock.configureFor("localhost", wireMockServer.port());
     }
 
     @AfterEach
-    public void stopWireMockServer() {
+    void stopWireMockServer() {
         wireMockServer.stop();
     }
 
@@ -105,7 +105,7 @@ public class V3PlainIssueITest extends BaseSpringBootTest {
      * → certificate reaches {@code ISSUED}, and the request landed on the v3 issue endpoint.
      */
     @Test
-    public void reachesIssued_whenSyncV3IssueSucceeds() throws Exception {
+    void reachesIssued_whenSyncV3IssueSucceeds() throws Exception {
         // given
         AuthorityFixtures.Fixture fixture = buildV3Fixture(FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED);
         KeyPair kp = generateKeyPair();
@@ -132,7 +132,7 @@ public class V3PlainIssueITest extends BaseSpringBootTest {
      * and exactly one {@code certificate_status_poll} row is scheduled.
      */
     @Test
-    public void parksPendingIssueAndSchedulesPoll_whenAsyncV3IssueIsAccepted() throws Exception {
+    void parksPendingIssueAndSchedulesPoll_whenAsyncV3IssueIsAccepted() throws Exception {
         // given
         AuthorityFixtures.Fixture fixture = buildV3Fixture(FeatureFlag.CERTIFICATE_STATUS_POLLING);
         KeyPair kp = generateKeyPair();

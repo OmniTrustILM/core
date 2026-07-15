@@ -24,6 +24,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -219,11 +220,13 @@ class V3RenewRevokeITest extends BaseSpringBootTest {
      * Seeds an ISSUED predecessor and a REQUESTED successor (with a CSR) linked by a PENDING relation,
      * as the renew/rekey actions require. Returns the predecessor UUID.
      */
-    private UUID seedRenewalPair(AuthorityFixtures.Fixture fixture) throws Exception {
+    private UUID seedRenewalPair(AuthorityFixtures.Fixture fixture) {
         Certificate predecessor = seedCertificate(fixture, CertificateState.ISSUED);
 
-        CertificateRequestEntity csr = new CertificateRequestEntity();
-        csr.setContent("content");
+        CertificateRequestEntity csr = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent("content")
+                .build();
         certificateRequestRepository.save(csr);
 
         Certificate successor = seedCertificate(fixture, CertificateState.REQUESTED);
