@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.InfoAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.mapping.SourceParam;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
@@ -11,11 +12,17 @@ import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.ValueSourceBindingDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SettingsSectionCategory;
+import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
+import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RaProfileValueSourceBinding;
+import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
@@ -43,6 +50,10 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
     private RaProfileCertificateRequestAttributeWriter writer;
     @Autowired
     private RaProfileRepository raProfileRepository;
+    @Autowired
+    private SettingRepository settingRepository;
+    @Autowired
+    private IssuanceDefinitionResolver issuanceDefinitionResolver;
 
     // Stub the connector dynamic-set fetch so resolution-order is exercised without a real authority/connector round-trip.
     @MockitoBean
@@ -164,6 +175,89 @@ class RaProfileCertificateRequestAttributeServiceITest extends BaseSpringBootTes
 
         // then: connector set is ignored
         assertThat(resolved).extracting(BaseAttribute::getName).containsExactly("static-only");
+    }
+
+    @Test
+    void buildPathResolverHonoursStoredStaticSet() throws Exception {
+        // given — an RA-Profile static set, no authority connector
+        RaProfile raProfile = newRaProfile();
+        writer.saveStaticSet(raProfile, AttributeDefinitionUtils.serialize(List.of(def("s1", "department"))),
+                AttributeSetMergeMode.STATIC_ONLY, null);
+
+        // when — resolving through the bean the issue/register projection uses
+        List<DataAttributeV3> resolved = issuanceDefinitionResolver.resolve(raProfile);
+
+        // then — the configured set shapes the projection definitions, not the hardcoded seed
+        assertThat(resolved).extracting(DataAttributeV3::getName).containsExactly("department");
+    }
+
+    @Test
+    void buildPathResolverFallsBackToEditedDefaultSet() throws Exception {
+        // given — nothing configured on the profile, but the platform default set has been edited
+        RaProfile raProfile = newRaProfile();
+        Setting defaultSet = new Setting();
+        defaultSet.setSection(SettingsSection.PLATFORM);
+        defaultSet.setCategory(SettingsSectionCategory.PLATFORM_CERTIFICATES.getCode());
+        defaultSet.setName(DefaultRequestAttributeSet.SETTING_NAME);
+        defaultSet.setValue(AttributeDefinitionUtils.serialize(List.of(def("d1", "server-fqdn"))));
+        settingRepository.save(defaultSet);
+
+        // when
+        List<DataAttributeV3> resolved = issuanceDefinitionResolver.resolve(raProfile);
+
+        // then — the edited default set is projected, not the built-in seed
+        assertThat(resolved).extracting(DataAttributeV3::getName).containsExactly("server-fqdn");
+    }
+
+    @Test
+    void buildPathResolverFallsBackToDefaultSet_whenConnectorSuppliesOnlyNonV3Attributes() throws Exception {
+        // given — an unconfigured profile whose v2 authority connector returns only non-v3 attributes
+        RaProfile raProfile = newRaProfile();
+        attachConnector(raProfile);
+        InfoAttributeV2 legacy = new InfoAttributeV2();
+        legacy.setName("legacy-info");
+        when(extendedAttributeService.listIssueCertificateAttributes(any())).thenReturn(List.of(legacy));
+
+        // when — resolving through the bean the issue/register projection uses
+        List<DataAttributeV3> resolved = issuanceDefinitionResolver.resolve(raProfile);
+
+        // then — the platform default set shapes the projection instead of resolving empty
+        List<String> defaultV3Names = service.getDefaultSet().stream()
+                .filter(DataAttributeV3.class::isInstance)
+                .map(BaseAttribute::getName)
+                .toList();
+        assertThat(defaultV3Names).isNotEmpty();
+        assertThat(resolved).extracting(DataAttributeV3::getName).containsExactlyElementsOf(defaultV3Names);
+    }
+
+    @Test
+    void buildPathFallbackAppliesValueSourceBindings_toDefaultSetDefinitions() throws Exception {
+        // given — a v2-only connector forces the default-set fallback, and the profile binds a value
+        // source to one of the default-set definitions
+        RaProfile raProfile = newRaProfile();
+        attachConnector(raProfile);
+        InfoAttributeV2 legacy = new InfoAttributeV2();
+        legacy.setName("legacy-info");
+        when(extendedAttributeService.listIssueCertificateAttributes(any())).thenReturn(List.of(legacy));
+
+        String boundUuid = service.getDefaultSet().get(0).getUuid();
+        RaProfileValueSourceBinding binding = new RaProfileValueSourceBinding();
+        binding.setRaProfileUuid(raProfile.getUuid());
+        binding.setAttributeUuid(boundUuid);
+        binding.setValueSourceType(ValueSourceType.STATIC_LIST.name());
+        binding.setCollectionRef("cmdb.servers");
+        writer.replaceValueSourceBindings(raProfile.getUuid(), List.of(binding));
+
+        // when — resolving through the bean the issue/register projection uses
+        List<DataAttributeV3> resolved = issuanceDefinitionResolver.resolve(raProfile);
+
+        // then — the fallback definitions carry the profile's value-source binding, same as the
+        // service-level default fallback does
+        DataAttributeV3 bound = resolved.stream()
+                .filter(definition -> boundUuid.equals(definition.getUuid()))
+                .findFirst().orElseThrow();
+        assertThat(bound.getValueSource()).isNotNull();
+        assertThat(bound.getValueSource().getKind()).isEqualTo(ValueSourceType.STATIC_LIST);
     }
 
     @Test
