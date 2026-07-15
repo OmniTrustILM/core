@@ -85,6 +85,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
@@ -2074,7 +2075,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // common client mistake)
             Certificate registered = certificateRepository.save(
                     aCertificate().withRaProfile(raProfile).withState(CertificateState.REGISTERED).build());
-            String doubleEncodedCsr = Base64.getEncoder().encodeToString(SAMPLE_PKCS10.getBytes());
+            String doubleEncodedCsr = Base64.getEncoder().encodeToString(SAMPLE_PKCS10.getBytes(StandardCharsets.UTF_8));
             ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
             issueRequest.setRequest(doubleEncodedCsr);
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);

@@ -1180,7 +1180,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         try {
             request = CertificateRequestUtils.createCertificateRequest(issueRequest.getRequest(), issueRequest.getFormat());
         } catch (IllegalArgumentException e) {
-            throw new CertificateRequestException("Certificate signing request is not valid Base64", e);
+            throw new CertificateRequestException("Error when creating a Certificate Request from provided content " + issueRequest.getRequest(), e);
         }
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
