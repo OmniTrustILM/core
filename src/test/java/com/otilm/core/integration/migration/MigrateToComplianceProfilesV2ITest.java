@@ -145,11 +145,11 @@ class MigrateToComplianceProfilesV2ITest extends BaseMigrationTest {
                 """;
 
         String sqlData = """
-                        INSERT INTO certificate (uuid, i_author, i_cre, i_upd, subject_dn, public_key_algorithm, certificate_type, subject_type, validation_status, state, compliance_status, compliance_result)
+                        INSERT INTO certificate (uuid, i_author, i_cre, i_upd, subject_dn, public_key_algorithm, certificate_type, subject_type, validation_status, state, compliance_status, compliance_result, archived, hybrid_certificate, key_usage)
                         VALUES (
                           '11111111-1111-1111-1111-111111111111', 'superadmin', '2025-01-01 00:00:00', '2025-01-01 00:00:00',
                           'CN=Test Certificate', 'RSA', 'X509', 'END_ENTITY', 'NOT_CHECKED', 'ISSUED',
-                          'NOT_CHECKED', E'{"na":["40f084cc-ddc1-11ec-9d7f-34cff65c6ee3"], "nok":["40f08544-ddc1-11ec-9378-34cff65c6ee3"]}'
+                          'NOT_CHECKED', E'{"na":["40f084cc-ddc1-11ec-9d7f-34cff65c6ee3"], "nok":["40f08544-ddc1-11ec-9378-34cff65c6ee3"]}', 'false', 'false', '0'
                         );
                 
                         INSERT INTO connector (uuid, i_author, i_cre, i_upd, auth_type, name, status, url, version) VALUES ('80490584-ec68-48af-915e-9d2aed8ee471', 'superadmin', '2023-11-22 16:07:19.212517', '2023-11-22 16:07:19.212517', 'NONE', 'X509-Compliance-Provider', 'CONNECTED', 'http://localhost:8250', 'V1');

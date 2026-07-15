@@ -6,11 +6,11 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import db.migration.V202508261555__EnumCollectionsColumnsBitmask;
 import db.migration.V202509041555__CertificateRequestEntityBitmask;
 import org.flywaydb.core.api.migration.Context;
@@ -64,8 +64,9 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
         TokenProfile profile3 = new TokenProfile();
         tokenProfileRepository.saveAll(List.of(profile1, profile2, profile3));
 
-        CertificateRequestEntity certificateRequest = new CertificateRequestEntity();
-        certificateRequest.setFingerprint("fingerprint");
+        CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent("content")
+                .build();
         certificateRequestRepository.save(certificateRequest);
 
         Context context = Mockito.mock(Context.class);

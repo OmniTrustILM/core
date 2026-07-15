@@ -7,7 +7,6 @@ import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
@@ -26,6 +25,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.AuthorityFixtures;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -379,12 +379,12 @@ class V3CancelITest extends BaseSpringBootTest {
         PKCS10CertificationRequest csr = csrBuilder.build(signer);
         String csrBase64 = Base64.getEncoder().encodeToString(csr.getEncoded());
 
-        CertificateRequestEntity csrEntity = new CertificateRequestEntity();
-        csrEntity.setContent(csrBase64);
-        csrEntity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
-        csrEntity.setSubjectDn("CN=v3-manual-issue");
-        csrEntity.setPublicKeyAlgorithm("RSA");
-        csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        CertificateRequestEntity csrEntity = CertificateRequestEntityBuilder.aCertificateRequest()
+                .withContent(csrBase64)
+                .withSubjectDn("CN=v3-manual-issue")
+                .withPublicKeyAlgorithm("RSA")
+                .withSignatureAlgorithm("SHA256WithRSA")
+                .build();
         certificateRequestRepository.save(csrEntity);
 
         Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);

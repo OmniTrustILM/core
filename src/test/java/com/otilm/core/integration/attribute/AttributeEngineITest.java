@@ -948,6 +948,37 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateMetadataAttributeDefinition_doesNotMutateCallerContent() throws AttributeException {
+        // Arrange
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("copyFixMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Copy Fix Meta");
+        props.setVisible(true);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("replay-value")));
+
+        // Act
+        AttributeDefinition attributeDefinition = attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorAuthority.getUuid());
+
+        // Assert: the caller's object must keep its content for later use (e.g. register->issue replay)
+        Assertions.assertEquals(1, metadataAttribute.getContent().size());
+        Assertions.assertEquals("replay-value", ((StringAttributeContentV3) metadataAttribute.getContent().getFirst()).getData());
+
+        // Assert: the persisted definition must not carry content
+        MetadataAttributeV3 storedDefinition = (MetadataAttributeV3) attributeDefinition.getDefinition();
+        Assertions.assertTrue(storedDefinition.getContent().isEmpty());
+
+        // Assert: reloading from the DB confirms the stripped copy (not the mutated caller object) was actually flushed
+        AttributeDefinition reloaded = attributeDefinitionRepository.findByAttributeUuid(attributeDefinition.getAttributeUuid()).orElseThrow();
+        MetadataAttributeV3 reloadedDefinition = (MetadataAttributeV3) reloaded.getDefinition();
+        Assertions.assertTrue(reloadedDefinition.getContent().isEmpty());
+    }
+
+    @Test
     void getRequestDataAttributesContentReturnsCorrectResponse() throws AttributeException {
         // Arrange
         DataAttributeV2 dataAttribute = new DataAttributeV2();
