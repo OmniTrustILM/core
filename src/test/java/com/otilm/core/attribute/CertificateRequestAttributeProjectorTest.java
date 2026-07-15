@@ -297,6 +297,22 @@ class CertificateRequestAttributeProjectorTest {
     }
 
     @Test
+    void rejectsDuplicateExtensionOidWithinSingleMapping() {
+        // given — one definition whose mapping declares two extension fields sharing the same OID
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, mappingOf(
+                extensionField(REGISTERED_EXT_OID, 1), extensionField(REGISTERED_EXT_OID, 2)));
+        var defs = List.of(def);
+        var values = List.of(stringValue(uuid, "value"));
+
+        // when / then — the projector's own dedup rejects it (an extension OID may appear only once, RFC 5280);
+        // AttributeEngine's definition-time rejection is covered separately in AttributeEngineITest
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(REGISTERED_EXT_OID);
+    }
+
+    @Test
     void rejectsNonListAttributeSupplyingMultipleValues() {
         // given — a non-list CN attribute carrying two content items
         var uuid = UUID.randomUUID();
@@ -358,10 +374,15 @@ class CertificateRequestAttributeProjectorTest {
     }
 
     private static FieldMapping extensionMapping(String extensionOid) {
+        return mappingOf(extensionField(extensionOid, 1));
+    }
+
+    private static ExtensionMappedField extensionField(String extensionOid, Integer order) {
         ExtensionMappedField field = new ExtensionMappedField();
         field.setFieldType(FieldType.EXTENSION);
         field.setExtensionOid(extensionOid);
-        return mappingOf(field);
+        field.setOrder(order);
+        return field;
     }
 
     private static FieldMapping rdnMapping(String rdn) {
