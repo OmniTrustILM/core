@@ -1,10 +1,10 @@
-package com.otilm.core;
+package com.otilm.core.integration;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class ApplicationTests {
+class ApplicationITest {
 
 	@Test
 	void contextLoads() {

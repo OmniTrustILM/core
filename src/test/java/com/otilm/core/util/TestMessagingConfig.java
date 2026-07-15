@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.util;
 
 import com.otilm.core.messaging.jms.configuration.MessagingConcurrencyProperties;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;

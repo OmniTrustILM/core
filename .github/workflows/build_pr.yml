@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [services, non-services, integration]
+        group: [non-integration, integration-core, integration-service-1, integration-service-2]
     steps:
       - uses: actions/checkout@v6
 
@@ -96,29 +96,36 @@ jobs:
       - name: Extract compiled output
         run: tar -xzf compiled.tar.gz
 
-      - name: Download service coverage exec
+      - name: Download non-integration coverage exec
         uses: actions/download-artifact@v8
         with:
-          name: jacoco-exec-services
+          name: jacoco-exec-non-integration
           path: jacoco-partial/group1
 
-      - name: Download non-service coverage exec
+      - name: Download integration-core coverage exec
         uses: actions/download-artifact@v8
         with:
-          name: jacoco-exec-non-services
+          name: jacoco-exec-integration-core
           path: jacoco-partial/group2
 
-      - name: Download integration coverage exec
+      - name: Download integration-service-1 coverage exec
         uses: actions/download-artifact@v8
         with:
-          name: jacoco-exec-integration
+          name: jacoco-exec-integration-service-1
           path: jacoco-partial/group3
+
+      - name: Download integration-service-2 coverage exec
+        uses: actions/download-artifact@v8
+        with:
+          name: jacoco-exec-integration-service-2
+          path: jacoco-partial/group4
 
       - name: Rename partial exec files for merge
         run: |
-          mv jacoco-partial/group1/jacoco.exec jacoco-partial/jacoco-services.exec
-          mv jacoco-partial/group2/jacoco.exec jacoco-partial/jacoco-non-services.exec
-          mv jacoco-partial/group3/jacoco.exec jacoco-partial/jacoco-integration.exec
+          mv jacoco-partial/group1/jacoco.exec jacoco-partial/jacoco-non-integration.exec
+          mv jacoco-partial/group2/jacoco.exec jacoco-partial/jacoco-integration-core.exec
+          mv jacoco-partial/group3/jacoco.exec jacoco-partial/jacoco-integration-service-1.exec
+          mv jacoco-partial/group4/jacoco.exec jacoco-partial/jacoco-integration-service-2.exec
 
       - name: Merge coverage, generate report, and package
         env:

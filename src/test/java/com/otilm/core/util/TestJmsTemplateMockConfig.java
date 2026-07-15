@@ -1,6 +1,5 @@
-package com.otilm.core;
+package com.otilm.core.util;
 
-import com.otilm.core.util.BaseMessagingIntTest;
 import org.mockito.Mockito;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
