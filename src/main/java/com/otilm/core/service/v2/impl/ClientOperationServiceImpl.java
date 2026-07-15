@@ -440,16 +440,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
 
-        // Gate before creating anything (defense-in-depth): registration requires the v3 protocol
-        // (instanceof RegisterCapability) AND the opt-in CERTIFICATE_REGISTRATION FeatureFlag advertised
-        // by the authority's connector interface. A non-registering authority is rejected without
-        // leaving a placeholder behind.
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
-        if (!(adapter instanceof RegisterCapability registerCapability)
-                || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
-            throw new ValidationException("Certificate registration is not supported by the authority of RA profile %s.".formatted(raProfile.getName()));
-        }
 
         // Project structured csrAttributes once (validated) so the placeholder DN and the connector wire derive
         // from the same content; a flat request yields null here and the adapter builds its identity itself.
@@ -457,6 +449,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         String effectiveSubjectDn = registrationContent != null
                 ? RegisterWireBuilder.renderSubjectDn(registrationContent)
                 : request.getSubjectDn();
+
+        // A connector that does not advertise registration (not a RegisterCapability, or without the opt-in
+        // CERTIFICATE_REGISTRATION flag) still supports platform-level pre-registration: the placeholder and its
+        // challenge authorization are created and controlled entirely by the platform, with no connector /register
+        // call, and are completed later through the normal issue path. Nothing here implies a CA-side end-entity
+        // exists. Otherwise the registration is connector-backed below (early CA-side validation while the operator
+        // is present).
+        if (!(adapter instanceof RegisterCapability registerCapability)
+                || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
+            return registerPlatformLevel(raProfile, request, effectiveSubjectDn);
+        }
+
         Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
         // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
         // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
@@ -515,6 +519,38 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData(result.certificateData() != null ? result.certificateData() : "");
+        return response;
+    }
+
+    /**
+     * Platform-level pre-registration for an authority whose connector does not support registration: the
+     * placeholder and its challenge authorization are created and owned entirely by the platform, with no connector
+     * {@code /register} call. It reaches {@code REGISTERED} directly and is completed later through the normal issue
+     * path (which routes to the register-bound path only for {@code RegisterCapability} adapters). Nothing here
+     * implies a CA-side end-entity exists.
+     */
+    private ClientCertificateDataResponseDto registerPlatformLevel(RaProfile raProfile,
+                                                                   ClientCertificateRegistrationDto request,
+                                                                   String effectiveSubjectDn) throws NotFoundException {
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
+        Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
+                .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
+        stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
+        try {
+            maybeCreateRegistrationAuthorization(certificate, request);
+        } catch (RuntimeException e) {
+            // A challenge store/save failure must fail the placeholder rather than orphan it in PENDING_REGISTRATION.
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            deleteRegistrationAuthorizationBestEffort(certificate.getUuid());
+            throw e;
+        }
+        stateMachine.transition(certificate, CertificateState.REGISTERED);
+        logger.info("Certificate {} pre-registered at the platform level (authority connector does not support registration)", certificate.getUuid());
+        fireRegistrationEventIfChallengeProtected(certificate.getUuid());
+
+        ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
+        response.setUuid(certificate.getUuid().toString());
+        response.setCertificateData("");
         return response;
     }
 
