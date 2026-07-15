@@ -353,11 +353,10 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
-    // NOT_SUPPORTED (as in listAuthorityInstanceAttributes): the connector list call is HTTP and must not hold a DB
-    // connection across the round-trip; the v3 ingest below opens its own short transaction via
-    // updateDataAttributeDefinitions. Lazy entity reads ride the open-session-in-view session.
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException, AttributeException {
+        // Runs under the class-level (REQUIRED) transaction: adapter selection and the v3 check below dereference the
+        // LAZY connectorInterface, so a persistence context must be open — do not switch this to NOT_SUPPORTED without
+        // eagerly loading that association first.
         AuthorityInstanceReference authorityInstance = getAuthorityInstanceReferenceEntity(uuid);
         List<BaseAttribute> attributes = adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
         if (isV3(authorityInstance.getConnectorInterface())) {

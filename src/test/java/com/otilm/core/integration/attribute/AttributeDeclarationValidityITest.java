@@ -114,8 +114,11 @@ class AttributeDeclarationValidityITest extends BaseSpringBootTest {
         callback.setDependsOn(List.of());
         a.setAttributeCallback(callback);
 
-        Assertions.assertThrows(AttributeException.class,
+        // Assert the message so the test pins the RESOURCE dependsOn guard, not the earlier validateAttributeProperties
+        // step (which also throws AttributeException) — the "green but covers nothing" hazard.
+        AttributeException ex = Assertions.assertThrows(AttributeException.class,
                 () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, null, List.of(a)));
+        Assertions.assertTrue(ex.getMessage().contains("dependsOn"));
     }
 
     @Test

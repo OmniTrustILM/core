@@ -318,9 +318,10 @@ class AuthorityInstanceServiceImplV3Test {
         v2Iface.setConnectorUuid(connectorUuid);
         existing.setConnectorInterface(v2Iface);
         when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
-        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(List.of(mock(BaseAttribute.class)));
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(definitions);
 
-        service.listRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid));
+        assertThat(service.listRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid))).isSameAs(definitions);
 
         // Legacy (v1/v2) authorities re-list on the callback path, so list-time ingest must stay v3-only.
         verify(attributeEngine, never()).updateDataAttributeDefinitions(any(), any(), any());
