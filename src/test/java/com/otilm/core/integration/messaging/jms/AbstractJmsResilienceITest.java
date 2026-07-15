@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.integration.messaging.jms;
 
 import com.otilm.core.messaging.jms.listeners.EventListener;
 import com.otilm.core.messaging.jms.producers.EventProducer;
@@ -30,8 +30,8 @@ import java.io.IOException;
 @SpringBootTest
 @ActiveProfiles({"messaging-int-test"})
 @Testcontainers
-public abstract class JmsResilienceTests extends BaseSpringBootTest {
-    protected static final Logger logger = LoggerFactory.getLogger(JmsResilienceTests.class);
+public abstract class AbstractJmsResilienceITest extends BaseSpringBootTest {
+    protected static final Logger logger = LoggerFactory.getLogger(AbstractJmsResilienceITest.class);
 
     protected static final Network network = Network.newNetwork();
 
