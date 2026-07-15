@@ -24,6 +24,7 @@ import org.bouncycastle.util.encoders.Base64;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,9 +64,15 @@ public final class X509RequestContentRenderer {
      * Builds the SAN extension and any requested extensions into a BC {@link Extensions}.
      * RFC 5280 must-stay-critical OIDs are forced critical regardless of the supplied flag.
      * Returns null if no extensions are present in the request.
+     * <p>
+     * The duplicate-OID guard here is defense-in-depth: the sole production caller runs
+     * {@code CertificateRequestAttributeProjector.project()} first, which already rejects duplicate OIDs and
+     * SAN/explicit collisions upstream. This kernel method is public, so it enforces the invariant itself
+     * rather than trusting every caller to have deduped.
      */
     public static Extensions toExtensions(X509RequestContent x509) throws IOException {
         ExtensionsGenerator gen = new ExtensionsGenerator();
+        Set<String> seenOids = new HashSet<>();
 
         List<GeneralNameEntry> sans = x509.getSubjectAltNames() == null ? List.of() : x509.getSubjectAltNames();
         if (!sans.isEmpty()) {
@@ -73,12 +80,14 @@ public final class X509RequestContentRenderer {
             for (int i = 0; i < sans.size(); i++) {
                 names[i] = toGeneralName(sans.get(i));
             }
+            seenOids.add(Extension.subjectAlternativeName.getId());
             gen.addExtension(Extension.subjectAlternativeName, isSubjectEmpty(x509), new GeneralNames(names));
         }
 
         List<RequestedExtension> extensions = x509.getExtensions() == null ? List.of() : x509.getExtensions();
         for (RequestedExtension ext : extensions) {
             ASN1ObjectIdentifier oid = parseOid(ext.getOid());
+            rejectDuplicateOid(seenOids, oid);
             boolean critical = effectiveCritical(ext.getOid(), ext.getCritical());
             byte[] derValue = encodeExtensionValue(ext.getValue(), ext.getEncoding());
             gen.addExtension(oid, critical, derValue);
@@ -87,6 +96,16 @@ public final class X509RequestContentRenderer {
         if (gen.isEmpty()) return null;
 
         return gen.generate();
+    }
+
+    /**
+     * Rejects a second occurrence of an extension OID before it reaches {@code ExtensionsGenerator.addExtension}.
+     */
+    private static void rejectDuplicateOid(Set<String> seenOids, ASN1ObjectIdentifier oid) throws IOException {
+        if (!seenOids.add(oid.getId())) {
+            throw new IOException("Duplicate certificate extension OID " + oid.getId()
+                    + "; an extension may appear only once (RFC 5280)");
+        }
     }
 
     private static boolean isSubjectEmpty(X509RequestContent x509) {
