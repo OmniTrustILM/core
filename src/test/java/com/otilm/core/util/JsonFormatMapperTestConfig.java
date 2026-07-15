@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hibernate.cfg.AvailableSettings;
@@ -10,11 +10,11 @@ import org.springframework.context.annotation.Profile;
 
 @Configuration
 @Profile("test")
-public class SpringBootConfigurationTests {
+public class JsonFormatMapperTestConfig {
 
     @Bean
     HibernatePropertiesCustomizer jsonFormatMapperCustomizer(ObjectMapper objectMapper) {
-        return (properties) -> properties.put(AvailableSettings.JSON_FORMAT_MAPPER,
+        return properties -> properties.put(AvailableSettings.JSON_FORMAT_MAPPER,
                 new JacksonJsonFormatMapper(objectMapper));
     }
 }
