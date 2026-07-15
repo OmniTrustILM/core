@@ -2,106 +2,71 @@ package com.otilm.core.certificate.request;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
-import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
-import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
-import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
-import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.oid.OidHandler;
-import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.Objects;
 
 /**
- * Resolves the issuance attribute definitions for a certificate request: the connector-supplied v3
- * definitions (which carry {@link FieldMapping}) merged over the static {@link CsrAttributes} default set.
+ * Resolves the issuance attribute definitions for a certificate request: the configured request-attribute
+ * set narrowed to the {@link DataAttributeV3} definitions the projection pipeline consumes.
  *
- * <p>Shared by the platform-built issue path and the register path — both orchestrated in
- * {@code ClientOperationServiceImpl} — so both project structured attribute values against an identical
- * definition set.
+ * <p>Shared by the platform-built issue path and the register path — so both project structured attribute values
+ * against the same resolved set that EST {@code /csrattrs} and external-CSR validation use.
  */
 @Component
 public class IssuanceDefinitionResolver {
 
     private static final Logger logger = LoggerFactory.getLogger(IssuanceDefinitionResolver.class);
 
-    private final ExtendedAttributeService extendedAttributeService;
+    private final RaProfileCertificateRequestAttributeService requestAttributeService;
 
-    public IssuanceDefinitionResolver(ExtendedAttributeService extendedAttributeService) {
-        this.extendedAttributeService = extendedAttributeService;
+    public IssuanceDefinitionResolver(RaProfileCertificateRequestAttributeService requestAttributeService) {
+        this.requestAttributeService = requestAttributeService;
     }
 
     /**
-     * Prefers connector-supplied v3 definitions (which carry {@code fieldMapping}) and falls back to the static
-     * CSR default set. Returns the defaults unchanged when {@code raProfile} is null.
+     * Resolves the configured request-attribute set for the profile, keeping only v3 definitions — non-v3
+     * definitions cannot carry a {@code fieldMapping}, so the projection has no use for them.
+     *
+     * <p>When the resolved set carries no v3 definitions (a v2 authority connector supplying the whole set),
+     * falls back to the v3 definitions of the editable platform default set, so a non-v3 authority never
+     * silently empties the projection. When no v3 definitions exist anywhere, throws {@link ValidationException}.
      */
     public List<DataAttributeV3> resolve(RaProfile raProfile) throws ConnectorException, NotFoundException {
-        List<DataAttributeV3> defaults = CsrAttributes.csrAttributesAsDataAttributesV3();
-        if (raProfile == null) {
-            return defaults;
+        Objects.requireNonNull(raProfile, "raProfile is required to resolve issuance definitions");
+        List<BaseAttribute> resolved = requestAttributeService.resolveIssueAttributeSet(raProfile);
+        List<DataAttributeV3> definitions = onlyV3(resolved);
+        int droppedNonV3 = resolved.size() - definitions.size();
+        if (droppedNonV3 > 0) {
+            logger.debug("Ignoring {} non-v3 request attribute definition(s) for RA profile {}; structured CSR enrichment requires v3 definitions",
+                    droppedNonV3, raProfile.getName());
         }
-        List<BaseAttribute> connectorAttrs = extendedAttributeService.listIssueCertificateAttributes(raProfile);
-        List<DataAttributeV3> connectorDefs = connectorAttrs.stream()
+        if (definitions.isEmpty() && !resolved.isEmpty()) {
+            logger.warn("Resolved request-attribute set for RA profile {} carries no v3 definitions; falling back to the platform default set",
+                    raProfile.getName());
+            definitions = onlyV3(requestAttributeService.getDefaultSet(raProfile));
+        }
+        if (definitions.isEmpty()) {
+            throw new ValidationException("No projectable request attribute definitions available for RA profile "
+                    + raProfile.getName()
+                    + ": neither the resolved request-attribute set nor the platform default set contains v3 definitions."
+                    + " Configure request attributes on the RA profile or in the platform settings.");
+        }
+        return definitions;
+    }
+
+    private static List<DataAttributeV3> onlyV3(List<BaseAttribute> attributes) {
+        return attributes.stream()
                 .filter(DataAttributeV3.class::isInstance)
                 .map(DataAttributeV3.class::cast)
                 .toList();
-        int droppedNonV3 = connectorAttrs.size() - connectorDefs.size();
-        if (droppedNonV3 > 0) {
-            logger.debug("Ignoring {} non-v3 connector issue attribute(s) for RA profile {}; structured CSR enrichment requires a v3 authority connector",
-                    droppedNonV3, raProfile.getName());
-        }
-        return mergeIssuanceDefinitions(defaults, connectorDefs, OidHandler.getCodeToOidMap());
-    }
-
-    /**
-     * Merges connector-supplied v3 definitions with the static default set. Connector definitions take
-     * precedence: any default whose RDN field mapping is also claimed by a connector definition is dropped.
-     * Connector definitions without a {@code fieldMapping} (connector-specific fields) carry no RDN claim
-     * and are always retained.
-     */
-    static List<DataAttributeV3> mergeIssuanceDefinitions(List<DataAttributeV3> defaults,
-                                                          List<DataAttributeV3> connectorDefs,
-                                                          Map<String, String> codeToOid) {
-        Set<String> claimedRdns = connectorDefs.stream()
-                .flatMap(d -> rdnFields(d).map(f -> normalizeRdn(f.getRdn(), codeToOid)))
-                .collect(Collectors.toSet());
-
-        List<DataAttributeV3> filteredDefaults = defaults.stream()
-                .filter(d -> rdnFields(d)
-                        .map(f -> normalizeRdn(f.getRdn(), codeToOid))
-                        .noneMatch(claimedRdns::contains))
-                .toList();
-
-        List<DataAttributeV3> merged = new ArrayList<>(connectorDefs);
-        merged.addAll(filteredDefaults);
-        return merged;
-    }
-
-    /**
-     * Streams the RDN-typed mapped fields of a definition, tolerating connector payloads that carry a
-     * null {@code fieldMapping} or a mapping with null {@code fields}.
-     */
-    private static Stream<RdnMappedField> rdnFields(DataAttributeV3 def) {
-        FieldMapping fm = def.getFieldMapping();
-        if (fm == null || fm.getFields() == null) {
-            return Stream.empty();
-        }
-        return fm.getFields().stream()
-                .filter(f -> f.getFieldType() == FieldType.RDN)
-                .map(RdnMappedField.class::cast);
-    }
-
-    private static String normalizeRdn(String rdn, Map<String, String> codeToOid) {
-        return codeToOid == null ? rdn : codeToOid.getOrDefault(rdn, rdn);
     }
 }

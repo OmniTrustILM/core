@@ -149,6 +149,12 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     }
 
     @Override
+    public List<BaseAttribute> getDefaultSet(RaProfile raProfile) {
+        return RequestAttributeSetResolver.applyValueSourceBindings(
+                new ArrayList<>(getDefaultSet()), loadValueSourceBindings(raProfile));
+    }
+
+    @Override
     public boolean resolveExternalCsrValidationStrict(RaProfile raProfile) {
         Boolean perProfile = getConfiguration(raProfile).getExternalCsrValidationStrict();
         if (perProfile != null) {
