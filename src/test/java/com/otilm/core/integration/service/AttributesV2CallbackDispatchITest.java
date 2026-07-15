@@ -132,6 +132,29 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
     }
 
     @Test
+    void emptyDependsOnDispatchesNgWithEmptyCurrentAttributes() throws AttributeException, NotFoundException, ConnectorException {
+        // An empty (non-null) dependsOn is a fire-on-mount NG callback: it must dispatch to /v2/attributes/callback
+        // (not fall to the legacy rung and 400), and the envelope must carry currentAttributes as [] — the field is
+        // @NotNull and the DTO is @JsonInclude(NON_NULL), so a null would be dropped and a conformant connector would
+        // reject the body.
+        DataAttributeV2 ng = ngDataAttribute("ngFireOnMount");
+        ng.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName(ng.getName());
+        callbackService.callback(connector.getUuid(), req);
+
+        // containing (not matchingJsonPath): a JSONPath match on an empty array reports no-match in WireMock, so the
+        // raw-body substring is the reliable way to assert currentAttributes is present AND empty (not dropped).
+        mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .withRequestBody(WireMock.containing("\"currentAttributes\":[]")));
+    }
+
+    @Test
     void callbackContextOnly_usesLegacyEndpoint() throws AttributeException, NotFoundException, ConnectorException {
         // A definition with both set is rejected at ingest; route the test through a callbackContext-only def to
         // assert the legacy endpoint (NOT /v2/attributes/callback) is used whenever callbackContext is present.

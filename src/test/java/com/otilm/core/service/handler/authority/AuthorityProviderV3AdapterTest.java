@@ -12,6 +12,10 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationRequestDtoV3;
+import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
+import com.otilm.api.model.connector.v3.authority.CaCertificatesResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
@@ -23,6 +27,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -46,10 +51,13 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.CertificateRegistrationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.oid.OidHandler;
@@ -411,6 +419,94 @@ class AuthorityProviderV3AdapterTest {
         assertEquals(CertificateRevocationReason.UNSPECIFIED, captor.getValue().getReason());
     }
 
+    // ---- identify ----
+
+    @Test
+    void identifyDelegatesToV3ClientAndReturnsMeta() throws ConnectorException {
+        CertificateIdentificationResponseDto response = new CertificateIdentificationResponseDto();
+        List<MetadataAttribute> meta = List.of(mock(MetadataAttribute.class));
+        response.setMeta(meta);
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenReturn(response);
+
+        List<MetadataAttribute> result = adapter.identify(raProfile, "dGVzdGNlcnQ=");
+
+        assertSame(meta, result);
+        ArgumentCaptor<CertificateIdentificationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateIdentificationRequestDtoV3.class);
+        verify(certClientV3).identify(eq(connectorInfo), captor.capture());
+        assertEquals("dGVzdGNlcnQ=", captor.getValue().getCertificate());
+    }
+
+    @Test
+    void identifyNormalizesNullMetaToEmptyList() throws ConnectorException {
+        when(certClientV3.identify(eq(connectorInfo), any(CertificateIdentificationRequestDtoV3.class)))
+                .thenReturn(new CertificateIdentificationResponseDto());
+
+        assertEquals(List.of(), adapter.identify(raProfile, "dGVzdGNlcnQ="));
+    }
+
+    // ---- getCaCertificates ----
+
+    @Test
+    void getCaCertificatesDelegatesToV3ClientAndMapsCertificates() throws ConnectorException {
+        CertificateDataResponseDto chainCert = new CertificateDataResponseDto();
+        chainCert.setCertificateData("chainCert==");
+        List<MetadataAttribute> meta = List.of(mock(MetadataAttribute.class));
+        chainCert.setMeta(meta);
+        chainCert.setCertificateType(CertificateType.X509);
+        CaCertificatesResponseDto response = new CaCertificatesResponseDto();
+        response.setCertificates(List.of(chainCert));
+        when(authorityClientV3.getCaCertificates(eq(connectorInfo), any(CaCertificatesRequestDtoV3.class)))
+                .thenReturn(response);
+
+        List<AdapterOperationResult> result = adapter.getCaCertificates(authority, raProfile);
+
+        assertEquals(1, result.size());
+        assertEquals(AdapterOperationOutcome.SYNC_OK, result.get(0).outcome());
+        assertEquals("chainCert==", result.get(0).certificateData());
+        assertSame(meta, result.get(0).meta());
+        assertEquals(CertificateType.X509, result.get(0).certificateType());
+    }
+
+    @Test
+    void getCaCertificatesCarriesResolvedAttributesOnWire() throws ConnectorException {
+        UUID connectorUuid = authority.getConnectorUuid();
+        List<RequestAttribute> storedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> storedRaProfile = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedAuthority = List.of(mock(RequestAttribute.class));
+        List<RequestAttribute> resolvedRaProfile = List.of(mock(RequestAttribute.class));
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.AUTHORITY)))
+                .thenReturn(storedAuthority);
+        when(attributeEngine.getRequestObjectDataAttributesContent(argThat(info -> info != null && info.objectType() == Resource.RA_PROFILE)))
+                .thenReturn(storedRaProfile);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedAuthority))
+                .thenReturn(resolvedAuthority);
+        when(operationAttributeResolver.resolveForConnectorRequestAsSystem(connectorUuid, storedRaProfile))
+                .thenReturn(resolvedRaProfile);
+        CaCertificatesResponseDto response = new CaCertificatesResponseDto();
+        response.setCertificates(List.of());
+        when(authorityClientV3.getCaCertificates(eq(connectorInfo), any(CaCertificatesRequestDtoV3.class)))
+                .thenReturn(response);
+
+        adapter.getCaCertificates(authority, raProfile);
+
+        ArgumentCaptor<CaCertificatesRequestDtoV3> captor = ArgumentCaptor.forClass(CaCertificatesRequestDtoV3.class);
+        verify(authorityClientV3).getCaCertificates(eq(connectorInfo), captor.capture());
+        assertSame(resolvedRaProfile, captor.getValue().getRaProfileAttributes(),
+                "raProfileAttributes must carry the resolved ra-profile-scoped list");
+        assertSame(resolvedAuthority, captor.getValue().getAuthorityAttributes(),
+                "authorityAttributes must carry the resolved authority-scoped list");
+    }
+
+    @Test
+    void getCaCertificatesNormalizesNullCertificatesToEmptyList() throws ConnectorException {
+        when(authorityClientV3.getCaCertificates(eq(connectorInfo), any(CaCertificatesRequestDtoV3.class)))
+                .thenReturn(new CaCertificatesResponseDto());
+
+        assertEquals(List.of(), adapter.getCaCertificates(authority, raProfile));
+    }
+
     // ---- register: delegates to v3 /register ----
 
     @Test
@@ -420,7 +516,7 @@ class AuthorityProviderV3AdapterTest {
         when(certClientV3.register(eq(connectorInfo), any()))
                 .thenReturn(ResponseEntity.ok(body));
 
-        AdapterOperationResult result = adapter.register(cert, new ClientCertificateRegistrationDto());
+        AdapterOperationResult result = adapter.register(cert, new ClientCertificateRegistrationDto(), null);
 
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         verify(certClientV3).register(eq(connectorInfo), any());
@@ -446,7 +542,7 @@ class AuthorityProviderV3AdapterTest {
         body.setMeta(List.of());
         when(certClientV3.register(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
 
-        adapter.register(cert, req);
+        adapter.register(cert, req, null);
 
         ArgumentCaptor<CertificateRegistrationRequestDtoV3> captor =
                 ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
@@ -501,6 +597,39 @@ class AuthorityProviderV3AdapterTest {
         assertNotNull(wire.getAttributes());
         assertNotNull(wire.getAuthorityAttributes());
         assertNotNull(wire.getRaProfileAttributes());
+    }
+
+    // ---- register: forwards the orchestrator's pre-built identity content ----
+
+    @Test
+    void registerForwardsPreBuiltIdentityContentVerbatim() throws ConnectorException {
+        // Structured csrAttributes are projected by the orchestrator and handed in as identityContent; the adapter
+        // must forward it onto the structured wire without re-projecting.
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(true);
+        X509RequestContent projected = new X509RequestContent();
+
+        CertificateDataResponseDto body = new CertificateDataResponseDto();
+        body.setMeta(List.of());
+        when(certClientV3.register(eq(connectorInfo), any())).thenReturn(ResponseEntity.ok(body));
+
+        adapter.register(cert, new ClientCertificateRegistrationDto(), projected);
+
+        ArgumentCaptor<CertificateRegistrationRequestDtoV3> captor =
+                ArgumentCaptor.forClass(CertificateRegistrationRequestDtoV3.class);
+        verify(certClientV3).register(eq(connectorInfo), captor.capture());
+        assertSame(projected, captor.getValue().getRequestContent());
+    }
+
+    @Test
+    void registerFailsClosedWhenStructuredContentCannotRideFlatWire() {
+        // A connector without CERTIFICATE_REQUEST_STRUCTURED carries only the flat wire; content it cannot
+        // represent (here a non-DER extension) must be rejected, not silently dropped.
+        when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)).thenReturn(false);
+        X509RequestContent content = new X509RequestContent();
+        content.setExtensions(List.of(new RequestedExtension("1.2.3.4", false, ExtensionValueEncoding.UTF8_STRING, "Zm9v")));
+        ClientCertificateRegistrationDto req = new ClientCertificateRegistrationDto();
+
+        assertThrows(ValidationException.class, () -> adapter.register(cert, req, content));
     }
 
     // ---- issueRegistered: register-bound issue ----
@@ -733,6 +862,15 @@ class AuthorityProviderV3AdapterTest {
         adapter.validateIssueAttributes(authority, List.of());
         adapter.validateRevokeAttributes(authority, List.of());
         verifyNoInteractions(certClientV3);
+    }
+
+    @Test
+    void validateRaProfileAttributesReturnsTrueWithoutConnectorCall() throws ConnectorException {
+        // v3 has no connector-side RA-profile /validate; the adapter must report success (never
+        // Boolean.FALSE, which callers treat as rejection) without any connector round-trip —
+        // structural validation happens caller-side against the listed definitions.
+        adapter.validateRaProfileAttributes(authority, List.of(mock(RequestAttribute.class)));
+        verifyNoInteractions(authorityClientV3, certClientV3);
     }
 
     @Test

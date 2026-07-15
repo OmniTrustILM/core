@@ -304,6 +304,27 @@ class AuthorityInstanceServiceImplV3Test {
         when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(definitions);
 
         assertThat(service.listRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid))).isSameAs(definitions);
+        // v3 ingests the definitions at list time so a name-only fire-on-mount callback resolves them from storage;
+        // without this the first RA-profile callback on a fresh system 404s.
+        verify(attributeEngine).updateDataAttributeDefinitions(eq(connectorUuid), any(), eq(definitions));
+    }
+
+    @Test
+    void listRAProfileAttributesDoesNotIngestForNonV3() throws Exception {
+        AuthorityInstanceReference existing = v3AuthorityEntity();
+        ConnectorInterfaceEntity v2Iface = new ConnectorInterfaceEntity();
+        v2Iface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        v2Iface.setVersion("v2");
+        v2Iface.setConnectorUuid(connectorUuid);
+        existing.setConnectorInterface(v2Iface);
+        when(authorityInstanceReferenceRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.of(existing));
+        List<BaseAttribute> definitions = List.of(mock(BaseAttribute.class));
+        when(v3Adapter.listRaProfileAttributes(existing)).thenReturn(definitions);
+
+        assertThat(service.listRAProfileAttributes(SecuredUUID.fromUUID(existing.uuid))).isSameAs(definitions);
+
+        // Legacy (v1/v2) authorities re-list on the callback path, so list-time ingest must stay v3-only.
+        verify(attributeEngine, never()).updateDataAttributeDefinitions(any(), any(), any());
     }
 
     @Test

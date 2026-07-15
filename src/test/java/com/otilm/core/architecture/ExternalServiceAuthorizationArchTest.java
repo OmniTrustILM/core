@@ -21,6 +21,7 @@ import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.library.freeze.FreezingArchRule;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import org.springframework.stereotype.Controller;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +58,26 @@ public class ExternalServiceAuthorizationArchTest {
                                     .anyMatch(ifc -> ifc.getSimpleName().endsWith("ExternalService"));
                 }
             };
+
+    private static final DescribedPredicate<JavaClass> ARE_CONTROLLERS =
+            new DescribedPredicate<>("controllers") {
+                @Override
+                public boolean test(JavaClass javaClass) {
+                    return !javaClass.isInterface()
+                            && (javaClass.isAnnotatedWith(Controller.class) || javaClass.isMetaAnnotatedWith(Controller.class));
+                }
+            };
+
+    private static boolean isNonExternalCoreServiceType(JavaClass target) {
+        String packageName = target.getPackageName();
+        boolean inCore = packageName.equals("com.otilm.core") || packageName.startsWith("com.otilm.core.");
+        if (!inCore) {
+            return false;
+        }
+        String simpleName = target.getSimpleName();
+        return (simpleName.endsWith("Service") || simpleName.endsWith("ServiceImpl"))
+                && !simpleName.endsWith("ExternalService");
+    }
 
     @ArchTest
     static final ArchRule external_service_interfaces_must_not_extend_other_interfaces =
@@ -154,6 +175,29 @@ public class ExternalServiceAuthorizationArchTest {
                                                 + "the action stays registered with the auth service while no longer being enforced",
                                         method.getFullName())));
                             }
+                        }
+                    });
+
+    /**
+     * A controller may reach a service only through its {@code *ExternalService} interface.
+     * Injecting a bare {@code *Service}, an {@code *InternalService}, or a concrete {@code *ServiceImpl} would let a controller
+     * call a service method that has not been annotated with an authorization annotation.
+     */
+    @ArchTest
+    static final ArchRule controllers_depend_only_on_external_service_interfaces =
+            classes()
+                    .that(ARE_CONTROLLERS)
+                    .should(new ArchCondition<>("depend on core service types only through their *ExternalService interface") {
+                        @Override
+                        public void check(JavaClass controller, ConditionEvents events) {
+                            controller.getDirectDependenciesFromSelf().stream()
+                                    .filter(dependency -> isNonExternalCoreServiceType(dependency.getTargetClass()))
+                                    .forEach(dependency -> events.add(SimpleConditionEvent.violated(controller, String.format(
+                                            "%s depends on %s; a controller may reach a service only through its *ExternalService interface. "
+                                                    + "Expose the needed method on the service's *ExternalService interface with exactly one "
+                                                    + "authorization annotation (use @ExternalAuthorizationMissing if the posture is undetermined), "
+                                                    + "and inject that interface.",
+                                            controller.getName(), dependency.getTargetClass().getName()))));
                         }
                     });
 

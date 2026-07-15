@@ -11,8 +11,12 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.connector.v3.authority.CaCertificatesRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateAttributeListRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateDataResponseDto;
+import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationRequestDtoV3;
+import com.otilm.api.model.connector.v3.certificate.CertificateIdentificationResponseDto;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationCancelRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusRequestDtoV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatusResponseDto;
@@ -149,6 +153,21 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
+    public List<MetadataAttribute> identify(RaProfile raProfile, String certificateContent) throws ValidationException, ConnectorException {
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+
+        CertificateIdentificationRequestDtoV3 wire = new CertificateIdentificationRequestDtoV3();
+        wire.setCertificate(certificateContent);
+        wire.setAuthorityAttributes(authorityAttributesFor(authority));
+        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+
+        CertificateIdentificationResponseDto response =
+                connectorApiFactory.getCertificateApiClientV3(connectorDto).identify(connectorDto, wire);
+        return response.getMeta() != null ? response.getMeta() : List.of();
+    }
+
+    @Override
     public List<BaseAttribute> listAuthorityInstanceAttributes(AuthorityInstanceReference authority) throws ConnectorException {
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
         return connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto)
@@ -162,6 +181,12 @@ public class AuthorityProviderV3Adapter
         List<BaseAttribute> response = connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto)
                 .listRaProfileAttributes(connectorDto, authorityAttributes);
         return contained(response, authorityAttributes);
+    }
+
+    @Override
+    public void validateRaProfileAttributes(AuthorityInstanceReference authority, List<RequestAttribute> attributes) {
+        // v3 has no connector-side /validate; the caller validates structurally against the listed
+        // definitions (AttributeEngine.validateUpdateDataAttributes) — no connector round-trip.
     }
 
     @Override
@@ -201,6 +226,20 @@ public class AuthorityProviderV3Adapter
                 .checkAuthorityConnection(connectorDto, attributes);
     }
 
+    @Override
+    public List<AdapterOperationResult> getCaCertificates(AuthorityInstanceReference authority, RaProfile raProfile) throws ConnectorException {
+        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
+        CaCertificatesRequestDtoV3 request = new CaCertificatesRequestDtoV3();
+        request.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        request.setAuthorityAttributes(authorityAttributesFor(authority));
+        List<CertificateDataResponseDto> certificates = connectorApiFactory.getAuthorityInstanceApiClientV3(connectorDto).getCaCertificates(connectorDto, request)
+                .getCertificates();
+        return  certificates == null ? List.of() : certificates
+                .stream()
+                .map(cert -> AdapterOperationResult.syncOk(cert.getCertificateData(), cert.getMeta(), cert.getCertificateType()))
+                .toList();
+    }
+
     // ---- RegisterCapability ----
 
     @Override
@@ -235,15 +274,23 @@ public class AuthorityProviderV3Adapter
     }
 
     @Override
-    public AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req) throws ConnectorException {
+    public AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req,
+                                           X509RequestContent identityContent) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
 
-        X509RequestContent content = RegisterWireBuilder.buildContent(
-                req != null ? req.getSubjectDn() : null,
-                req != null ? req.getSubjectAltName() : null,
-                req != null ? req.getExtensions() : null);
+        // Structured csrAttributes are projected once by the orchestrator (identityContent); a flat request
+        // carries no pre-built content, so build the identity here from subjectDn/subjectAltName/extensions.
+        X509RequestContent content;
+        if (identityContent != null) {
+            content = identityContent;
+        } else {
+            String subjectDn = req != null ? req.getSubjectDn() : null;
+            String subjectAltName = req != null ? req.getSubjectAltName() : null;
+            List<CertificateExtension> extensions = req != null ? req.getExtensions() : null;
+            content = RegisterWireBuilder.buildContent(subjectDn, subjectAltName, extensions);
+        }
         boolean structured = capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED);
         CertificateRegistrationRequestDtoV3 wire = RegisterWireBuilder.buildRegistration(content, structured);
         if (req != null) {

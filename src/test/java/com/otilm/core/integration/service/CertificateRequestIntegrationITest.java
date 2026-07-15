@@ -11,6 +11,8 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.RsaSignatureAttributes;
@@ -18,6 +20,8 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.dao.entity.*;
 import com.otilm.core.dao.repository.*;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.MetaDefinitions;
@@ -160,6 +164,22 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
         attributeEngine.updateDataAttributeDefinitions(null, AttributeOperation.SIGN,
                 RsaSignatureAttributes.getRsaSignatureAttributes());
 
+        // The extension-mapped connector attribute requires its OID in the process-wide OID
+        // registry cache: the issue-attribute definitions flow through the authority adapter
+        // into AttributeEngine.validateUpdateDataAttributes, whose validateMappedField fails
+        // closed on an unregistered extension OID. Seed per test (not @BeforeAll): on an
+        // isolated run the Spring context is created after @BeforeAll, and
+        // CustomOidEntryServiceImpl's constructor reloads every cache category from the
+        // truncated DB — wiping any earlier seed. Mirrors AttributeEngineITest.ensureOidCached.
+        if (OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION) == null) {
+            OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
+        }
+        OidHandler.cacheOid(OidCategory.CERTIFICATE_EXTENSION, CUSTOM_EXT_OID, OidRecord.builder()
+                .displayName("Test Custom Extension")
+                .defaultCritical(false)
+                .valueEncoding(ExtensionValueEncoding.DER)
+                .build());
+
         keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
         var publicKeyData = Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
         cryptographicKey = cryptographicKeySeeder.seedKey("rendererTestKey", tokenProfile, tokenInstanceReference,
@@ -240,8 +260,8 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
 
     @Test
     void failsRequest_whenConnectorAttributeFetchFails() throws Exception {
-        // given — the v3 connector issue-attributes endpoint errors. resolveIssuanceDefinitions fails on a genuine connector
-        // failure rather than silently falling back to the default CSR set, so the request is rejected.
+        // given — the v3 connector issue-attributes endpoint errors. Issuance-definition resolution fails on a genuine
+        // connector failure rather than silently falling back to the default CSR set, so the request is rejected.
         stubIssueAttributes("[]");
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v3/authorityProvider/certificates/issue/attributes"))

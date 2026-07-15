@@ -40,7 +40,7 @@ public interface AuthorityInstanceExternalService {
      */
     List<BaseAttribute> listAuthorityInstanceAttributes(SecuredUUID connectorUuid, UUID interfaceUuid) throws ConnectorException, AttributeException, NotFoundException;
 
-    List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException, AttributeException;
 
     Boolean validateRAProfileAttributes(SecuredUUID uuid, List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException;
 

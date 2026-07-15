@@ -87,6 +87,9 @@ public final class RegisterWireBuilder {
         if (connectorSupportsStructured) {
             dto.setRequestContent(content);
         } else {
+            // No structured wire carries the content here, so anything the flat wire cannot represent would be
+            // silently dropped — fail closed rather than register an identity reduced below the operator's request.
+            assertFlatRepresentable(content);
             dto.setExtensions(renderFlatExtensions(content.getExtensions()));
         }
         return dto;
@@ -182,7 +185,11 @@ public final class RegisterWireBuilder {
 
     // ── flat-wire rendering ─────────────────────────────────────────────────
 
-    private static String renderSubjectDn(X509RequestContent content) {
+    /**
+     * Renders the RFC 4514 subject DN string for the given content, or null when it carries no subject.
+     * Shared with the register orchestrator so the persisted placeholder DN matches the wire anchor exactly.
+     */
+    public static String renderSubjectDn(X509RequestContent content) {
         if (content.getSubject() == null || content.getSubject().isEmpty()) {
             return null;
         }
@@ -229,6 +236,40 @@ public final class RegisterWireBuilder {
             return null;
         }
         return "otherName:" + entry.getOtherNameOid() + ";UTF8:" + entry.getValue();
+    }
+
+    /**
+     * Fails closed when projected content cannot be represented on the flat register wire.
+     *
+     * <p>Rejects a non-DER extension value, or an otherName SAN with a non-UTF8 encoding — throwing
+     * rather than dropping it.
+     *
+     * <p><b>Only reached</b> for connectors without {@code CERTIFICATE_REQUEST_STRUCTURED}, where the
+     * flat renderers would otherwise silently drop such entries (warn-log only) and register an identity
+     * weaker than the operator asked for.
+     *
+     * <p>Flat operator input never trips this — {@link #buildContent} forces DER extensions and UTF8 otherNames.
+     */
+    public static void assertFlatRepresentable(X509RequestContent content) {
+        if (content.getExtensions() != null) {
+            for (RequestedExtension ext : content.getExtensions()) {
+                if (ext.getEncoding() != null && ext.getEncoding() != ExtensionValueEncoding.DER) {
+                    throw new ValidationException(("Extension %s has %s value encoding, which the flat register wire "
+                            + "cannot represent; the authority must advertise CERTIFICATE_REQUEST_STRUCTURED")
+                            .formatted(ext.getOid(), ext.getEncoding()));
+                }
+            }
+        }
+        if (content.getSubjectAltNames() != null) {
+            for (GeneralNameEntry san : content.getSubjectAltNames()) {
+                if (san.getType() == GeneralNameType.OTHER_NAME
+                        && san.getValueEncoding() != null && san.getValueEncoding() != ExtensionValueEncoding.UTF8_STRING) {
+                    throw new ValidationException(("otherName SAN %s has %s value encoding, which the flat register "
+                            + "wire cannot represent; the authority must advertise CERTIFICATE_REQUEST_STRUCTURED")
+                            .formatted(san.getOtherNameOid(), san.getValueEncoding()));
+                }
+            }
+        }
     }
 
     private static List<CertificateExtension> renderFlatExtensions(List<RequestedExtension> extensions) {

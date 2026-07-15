@@ -62,28 +62,26 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
  * <p>Two distinct cancel paths are exercised:
  * <ol>
  *   <li><b>Operator cancel</b> ({@code cancelPendingCertificateOperation}) — routes through the
- *       <em>v2 cancel client</em> regardless of adapter version. The v3 adapter's
- *       {@code cancel()} is NOT involved here. HTTP status from the connector drives the
- *       exception-type mapping: 404 is a soft success (local cancel proceeds); 422 is a hard
- *       refusal ({@link ValidationException}, cert stays {@code PENDING_*}).
- *       This path is shared with v2; the tests here are a thin v3-authority smoke.</li>
+ *       v3 adapter's {@code cancel()}, which maps the connector's problem-detail response onto
+ *       a {@code CancelOutcome}: {@code CANCELLED} and {@code NOT_TRACKED} proceed with the
+ *       local cancel; {@code REFUSED_PAST_POINT_OF_NO_RETURN} is a hard refusal
+ *       ({@link ValidationException}, cert stays {@code PENDING_*}). The v2 cancel endpoints
+ *       are never called for a v3 authority.</li>
  *   <li><b>Manual-issue cancel hook</b> ({@code manuallyIssueCertificate}) — after the operator
  *       uploads the issued certificate, the service fires a best-effort v3 adapter
  *       {@code cancel(ISSUE)} to tell the connector to abort the in-flight async operation.
  *       The {@code CancelResult} is discarded; a failure must not abort the issuance.</li>
  * </ol>
  */
-public class V3CancelITest extends BaseSpringBootTest {
+class V3CancelITest extends BaseSpringBootTest {
 
-    // v3 issue/cancel path — used by cancelInFlightAsyncIssueBestEffort via v3 adapter cancel(ISSUE)
-    private static final String V3_ISSUE_CANCEL_PATH = "/v3/authorityProvider/certificates/issue/cancel";
+    // v3 cancel paths — operator cancel (cancelPendingCertificateOperation) and the best-effort
+    // manual-issue hook both go through the v3 adapter cancel()
+    private static final String V3_ISSUE_CANCEL_PATH  = "/v3/authorityProvider/certificates/issue/cancel";
+    private static final String V3_REVOKE_CANCEL_PATH = "/v3/authorityProvider/certificates/revoke/cancel";
 
-    // v2 cancel paths used by cancelPendingCertificateOperation via the v2 cancel client
-    private static final String V2_ISSUE_CANCEL_PATTERN  = "/v2/authorityProvider/authorities/[^/]+/certificates/issue/cancel";
-    private static final String V2_REVOKE_CANCEL_PATTERN = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/cancel";
-
-    // v2 identify path used by manuallyIssueCertificate
-    private static final String V2_IDENTIFY_PATTERN = "/v2/authorityProvider/authorities/[^/]+/certificates/identify";
+    // v3 identify path used by manuallyIssueCertificate (via the v3 adapter identify())
+    private static final String V3_IDENTIFY_PATH = "/v3/authorityProvider/certificates/identify";
 
     // ── Spring beans ──────────────────────────────────────────────────────────
 
@@ -122,30 +120,32 @@ public class V3CancelITest extends BaseSpringBootTest {
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     @BeforeEach
-    public void setUpWireMock() {
+    void setUpWireMock() {
         wireMockServer = new WireMockServer(0);
         wireMockServer.start();
         WireMock.configureFor("localhost", wireMockServer.port());
     }
 
     @AfterEach
-    public void tearDownWireMock() {
+    void tearDownWireMock() {
         wireMockServer.stop();
     }
 
     // ── Step 1: Operator-cancel scenarios ─────────────────────────────────────
 
     /**
-     * Operator cancel of a {@code PENDING_ISSUE} v3-authority cert: connector returns 404
-     * (soft — not tracked) → local cancel proceeds → cert transitions to {@code FAILED}.
+     * Operator cancel of a {@code PENDING_ISSUE} v3-authority cert: connector cancels the
+     * operation (204) → local cancel proceeds → cert transitions to {@code FAILED}. Also pins
+     * the routing: the v3 issue-cancel endpoint is hit exactly once and no v2 cancel endpoint
+     * is ever called.
      */
     @Test
-    public void operatorCancel_pendingIssue_softConnector404_transitionsToFailed() {
+    void operatorCancel_pendingIssue_connectorCancelled_transitionsToFailed() {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);
 
-        wireMockServer.stubFor(post(urlPathMatching(V2_ISSUE_CANCEL_PATTERN))
-                .willReturn(aResponse().withStatus(404).withBody("not tracked")));
+        wireMockServer.stubFor(post(urlEqualTo(V3_ISSUE_CANCEL_PATH))
+                .willReturn(aResponse().withStatus(204)));
 
         Assertions.assertDoesNotThrow(() ->
                         clientOperationService.cancelPendingCertificateOperation(
@@ -153,27 +153,33 @@ public class V3CancelITest extends BaseSpringBootTest {
                                 fixture.raProfile().getSecuredUuid(),
                                 cert.getUuid().toString(),
                                 new CancelPendingCertificateRequestDto()),
-                "Operator cancel with connector 404 must not throw (soft failure, local cancel proceeds)");
+                "Operator cancel with connector 204 must not throw");
 
         Certificate after = reloadCert(cert.getUuid());
         Assertions.assertEquals(CertificateState.FAILED, after.getState(),
-                "PENDING_ISSUE + connector 404 → cert must transition to FAILED");
+                "PENDING_ISSUE + connector 204 → cert must transition to FAILED");
+        wireMockServer.verify(1, postRequestedFor(urlEqualTo(V3_ISSUE_CANCEL_PATH)));
+        wireMockServer.verify(0, postRequestedFor(urlPathMatching("/v2/.*/cancel")));
     }
 
     /**
-     * Operator cancel of a {@code PENDING_REVOKE} v3-authority cert: connector returns 404
-     * (soft) → local cancel proceeds → cert reverts to {@code ISSUED}.
+     * Operator cancel of a {@code PENDING_REVOKE} v3-authority cert: connector reports the
+     * operation as not tracked (422 with {@code OPERATION_NOT_TRACKED}) — a soft success —
+     * → local cancel proceeds → cert reverts to {@code ISSUED}.
      */
     @Test
-    public void operatorCancel_pendingRevoke_softConnector404_revertsToIssued() {
+    void operatorCancel_pendingRevoke_notTracked_revertsToIssued() {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         Certificate cert = seedCertificate(fixture, CertificateState.PENDING_REVOKE);
         cert.setPendingRevokeDestroyKey(true);
         cert.setPendingRevokeAttributes(List.of());
         certificateRepository.save(cert);
 
-        wireMockServer.stubFor(post(urlPathMatching(V2_REVOKE_CANCEL_PATTERN))
-                .willReturn(aResponse().withStatus(404).withBody("not tracked")));
+        wireMockServer.stubFor(post(urlEqualTo(V3_REVOKE_CANCEL_PATH))
+                .willReturn(aResponse()
+                        .withStatus(422)
+                        .withHeader("Content-Type", "application/problem+json")
+                        .withBody(problemJson("OPERATION_NOT_TRACKED", "No tracked revocation for this certificate"))));
 
         Assertions.assertDoesNotThrow(() ->
                         clientOperationService.cancelPendingCertificateOperation(
@@ -181,28 +187,28 @@ public class V3CancelITest extends BaseSpringBootTest {
                                 fixture.raProfile().getSecuredUuid(),
                                 cert.getUuid().toString(),
                                 new CancelPendingCertificateRequestDto()),
-                "Operator cancel with connector 404 on PENDING_REVOKE must not throw");
+                "Operator cancel with NOT_TRACKED outcome on PENDING_REVOKE must not throw");
 
         Certificate after = reloadCert(cert.getUuid());
         Assertions.assertEquals(CertificateState.ISSUED, after.getState(),
-                "PENDING_REVOKE + connector 404 → cert must revert to ISSUED");
+                "PENDING_REVOKE + NOT_TRACKED outcome → cert must revert to ISSUED");
     }
 
     /**
-     * Operator cancel of a {@code PENDING_ISSUE} v3-authority cert: connector returns 422
-     * (hard refusal) → {@link ValidationException} is thrown and the cert stays
-     * {@code PENDING_ISSUE}.
+     * Operator cancel of a {@code PENDING_ISSUE} v3-authority cert: connector refuses with
+     * 422 {@code OPERATION_PAST_POINT_OF_NO_RETURN} (hard refusal) → {@link ValidationException}
+     * is thrown and the cert stays {@code PENDING_ISSUE}.
      */
     @Test
-    public void operatorCancel_pendingIssue_hardConnector422_throwsAndCertUnchanged() {
+    void operatorCancel_pendingIssue_refusedPastPonr_throwsAndCertUnchanged() {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);
 
-        wireMockServer.stubFor(post(urlPathMatching(V2_ISSUE_CANCEL_PATTERN))
+        wireMockServer.stubFor(post(urlEqualTo(V3_ISSUE_CANCEL_PATH))
                 .willReturn(aResponse()
                         .withStatus(422)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("[\"Issuance is past the point of no return\"]")));
+                        .withHeader("Content-Type", "application/problem+json")
+                        .withBody(problemJson("OPERATION_PAST_POINT_OF_NO_RETURN", "Issuance is past the point of no return"))));
 
         SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(fixture.authority().getUuid());
         SecuredUUID raProfileUuid = fixture.raProfile().getSecuredUuid();
@@ -230,13 +236,13 @@ public class V3CancelITest extends BaseSpringBootTest {
      * received exactly one request after {@code manuallyIssueCertificate} completes.</p>
      */
     @Test
-    public void manualIssueHook_firesV3CancelOnce_whenConnectorReturns204() throws Exception {
+    void manualIssueHook_firesV3CancelOnce_whenConnectorReturns204() throws Exception {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
         String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-hook");
 
-        // v2 identify endpoint — required by manuallyIssueCertificate
-        wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
+        // v3 identify endpoint — required by manuallyIssueCertificate
+        wireMockServer.stubFor(post(urlEqualTo(V3_IDENTIFY_PATH))
                 .willReturn(WireMock.okJson("{\"meta\":[]}")));
 
         // v3 issue-cancel endpoint — the best-effort hook
@@ -266,13 +272,13 @@ public class V3CancelITest extends BaseSpringBootTest {
      * complete. The certificate ends up in {@code ISSUED} state.
      */
     @Test
-    public void manualIssueHook_doesNotBreakIssuance_whenConnectorReturns500() throws Exception {
+    void manualIssueHook_doesNotBreakIssuance_whenConnectorReturns500() throws Exception {
         AuthorityFixtures.Fixture fixture = buildV3Fixture();
         SeededCert seeded = seedPendingIssueCertWithCsr(fixture);
         String certBase64 = buildSelfSignedCertBase64(seeded.keyPair(), "v3-manual-cancel-resilience");
 
-        // v2 identify endpoint
-        wireMockServer.stubFor(post(urlPathMatching(V2_IDENTIFY_PATTERN))
+        // v3 identify endpoint
+        wireMockServer.stubFor(post(urlEqualTo(V3_IDENTIFY_PATH))
                 .willReturn(WireMock.okJson("{\"meta\":[]}")));
 
         // v3 issue-cancel: simulate connector error — the hook must swallow this
@@ -302,6 +308,17 @@ public class V3CancelITest extends BaseSpringBootTest {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
+    /**
+     * v3 problem-detail body as emitted by connectors; the {@code application/problem+json}
+     * content type is what makes the api client surface it as ConnectorProblemException with
+     * a parsed errorCode (which the v3 adapter maps onto a CancelOutcome).
+     */
+    private static String problemJson(String errorCode, String detail) {
+        return """
+                {"type":"about:blank","title":"Unprocessable Entity","status":422,"detail":"%s","errorCode":"%s"}
+                """.formatted(detail, errorCode);
+    }
+
     private AuthorityFixtures.Repos repos() {
         return new AuthorityFixtures.Repos(
                 connectorRepository,
@@ -314,8 +331,8 @@ public class V3CancelITest extends BaseSpringBootTest {
 
     /**
      * Builds a v3 authority fixture bound to the per-test WireMock server. No feature flags are
-     * needed for operator-cancel (the v2 cancel client path is flag-agnostic); the manual-issue
-     * hook tests do not gate on flags either. A single fixture is used for each test.
+     * needed: neither the operator-cancel path nor the manual-issue hook gates on them. A single
+     * fixture is used for each test.
      */
     private AuthorityFixtures.Fixture buildV3Fixture() {
         return AuthorityFixtures.v3Authority(repos(), wireMockServer);

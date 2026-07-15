@@ -12,9 +12,12 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.events.handlers.CertificateRegisteredEventHandler;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -25,6 +28,7 @@ import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
 import com.otilm.core.service.handler.authority.StatusPollResult;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateRevocationFinalizer;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import org.slf4j.Logger;
@@ -34,6 +38,7 @@ import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Consumes {@link CertificateStatusPollMessage}s and drives the async-operation polling loop.
@@ -42,9 +47,8 @@ import java.util.List;
  * <ol>
  *   <li>Read cert without lock. Drop (and delete the poll row) if not found or no longer pending.</li>
  *   <li>Call {@link AsyncOperationCapability#pollStatus} <em>outside any transaction</em>.</li>
- *   <li>On IN_PROGRESS: leave the poll row in place — the {@code certificate_status_poll} sweep has
- *       already advanced its {@code next_poll_at}, so the next poll fires when due. Only when the last
- *       allowed attempt is reached does this apply a timeout.</li>
+ *   <li>On IN_PROGRESS: pin the attempt counter at the ceiling attempt and keep the poll row. The CA saying
+ *       "still working" refreshes the timeout budget, so a run of IN_PROGRESS answers never times out.</li>
  *   <li>On COMPLETED / FAILED: open an explicit transaction, re-read with pessimistic lock,
  *       assert still pending, apply terminal transition via state machine.</li>
  * </ol>
@@ -70,6 +74,9 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     private TransactionHandler transactionHandler;
     private CertificateInternalService certificateService;
     private CertificateRevocationFinalizer revocationFinalizer;
+    private EventProducer eventProducer;
+    private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
+    private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
 
     @Override
     public void processMessage(CertificateStatusPollMessage msg) throws MessageHandlingException {
@@ -117,14 +124,13 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
 
         if (status.status() == CertificateOperationStatus.IN_PROGRESS) {
-            if (isLastAttempt(msg)) {
-                applyFailure(cert, msg.op(), timeoutReason(msg.op()));
-            }
-            // Otherwise still in progress — leave the poll row for the sweep's next due tick.
+            // The CA's own "still working" is authoritative — an operation the CA reports IN_PROGRESS is never timed out.
+            // Reset the attempt counter back down to where the backoff reaches its slowest delay.
+            pollWriter.resetAttempt(cert.getUuid(), statusPollProperties.scheduleFor(msg.op()).ceilingAttempt());
             return;
         }
 
-        applyTerminalTransition(cert, msg.op(), status);
+        applyTerminalTransition(cert, msg.op(), status, isLastAttempt(msg));
     }
 
     /** True when this poll is the final attempt allowed by the backoff schedule for the operation. */
@@ -136,7 +142,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         return "Operation " + op + " timed out after the maximum poll attempts";
     }
 
-    private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status) {
+    private void applyTerminalTransition(Certificate cert, CertificateOperation op, StatusPollResult status, boolean lastAttempt) {
         // Hold the row lock only for the local transition; the post-commit side effects run outside it.
         Resolution resolution;
         try {
@@ -154,6 +160,10 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             applyFailure(cert, op, e.getMessage());
             return;
         } catch (RuntimeException e) {
+            if (lastAttempt) {
+                resolveExhaustedTerminalFailure(cert, op, status, e);
+                return;
+            }
             // Add cert/op context — the JMS adapter logs only the bare exception. The rollback left the poll
             // row, so the sweep retries (a transient blip recovers; a should-not-happen error retries to maxAttempts).
             throw new IllegalStateException(
@@ -166,9 +176,31 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             // (a completed REVOKE must still destroy the key).
             revocationFinalizer.destroyKeyIfRequested(resolution.keyCleanup(), cert.getUuid());
             updateMetaAfterCommit(cert, op, status);
+            fireRegistrationEventIfCompleted(cert.getUuid(), op, status.status());
         }
         // Stop polling — safe even when a racing actor resolved it: the unique constraint means one poll row per cert.
         stopPolling(cert, op);
+    }
+
+    /**
+     * Last-attempt fallback when the local terminal transition keeps failing after a connector poll answer.
+     *
+     * <p>A connector-reported COMPLETED revoke must never fall back to REVOKE's failure state (ISSUED):
+     * that would present a certificate the CA has already revoked as valid and skip key destruction. Leave
+     * the cert in PENDING_REVOKE and stop polling.</p>
+     */
+    private void resolveExhaustedTerminalFailure(
+            Certificate cert, CertificateOperation op, StatusPollResult status, RuntimeException cause) {
+        if (status.status() == CertificateOperationStatus.COMPLETED && op == CertificateOperation.REVOKE) {
+            logger.error("Async REVOKE for cert {} completed at the authority but could not be applied locally "
+                    + "after the last poll attempt; leaving it PENDING_REVOKE for manual reconciliation", cert.getUuid(), cause);
+            stopPolling(cert, op);
+            return;
+        }
+        logger.warn("Async {} terminal transition for cert {} still failing on the last poll attempt; resolving to failure state",
+                op, cert.getUuid(), cause);
+        applyFailure(cert, op, "Async " + op + " reported " + status.status().getLabel().toLowerCase()
+                + " but the outcome could not be applied locally; reconcile manually");
     }
 
     /** Outcome of the locked terminal transition: whether it was applied, and any post-commit key cleanup. */
@@ -196,6 +228,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
                 // reach ISSUED without persisting a certificate, so fail it rather than reach an empty ISSUED.
                 stateMachine.transition(locked, op.terminalFailureState(), null,
                         "Async " + op + " reported COMPLETED but connector returned no certificate data");
+                closeRegistrationAuthorizationIfPresent(locked);
             }
             return CertificateRevocationFinalizer.KeyCleanup.NONE;
         }
@@ -214,6 +247,11 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         }
         CertificateState targetState = completed ? op.terminalSuccessState() : op.terminalFailureState();
         stateMachine.transition(locked, targetState, null, reasonFor(op, status));
+        // Fate-coupling: only a terminal FAILED verdict retires a pre-registered cert's authorization. A failed
+        // REVOKE returns to ISSUED (not FAILED) and must keep its registration for renew/rekey reuse.
+        if (targetState == CertificateState.FAILED) {
+            closeRegistrationAuthorizationIfPresent(locked);
+        }
         return CertificateRevocationFinalizer.KeyCleanup.NONE;
     }
 
@@ -230,7 +268,7 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
         } catch (Exception e) {
             if (isTransient(e)) {
                 // Propagate so the locked tx rolls back and the row survives; the sweep re-polls (the adapter
-                // swallows the throw, so retry is sweep-driven, not JMS redelivery).
+                // swallows the throw, so retry is sweep-driven, not JMS redelivery) until max attempts are reached.
                 throw new IllegalStateException(
                         "Transient failure persisting async-completed certificate " + locked.getUuid() + " (op=" + op + ")", e);
             }
@@ -328,12 +366,26 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
             if (op == CertificateOperation.REVOKE) {
                 revocationFinalizer.clearPendingRevokeFields(locked);
             }
-            stateMachine.transition(locked, op.terminalFailureState(), null, reason);
+            CertificateState terminal = op.terminalFailureState();
+            stateMachine.transition(locked, terminal, null, reason);
+            if (terminal == CertificateState.FAILED) {
+                closeRegistrationAuthorizationIfPresent(locked);
+            }
         });
         // Resolved (failed, or already resolved by a racing actor) — stop polling it.
         stopPolling(cert, op);
     }
 
+    /**
+     * Retires a pre-registered certificate's authorization (state → CLOSED) in the caller's locked transaction
+     * when it reaches a terminal FAILED verdict. Guarded, so it is a no-op for non-self-service certs and for
+     * renew/rekey successors that carry no authorization.
+     */
+    private void closeRegistrationAuthorizationIfPresent(Certificate locked) {
+        if (registrationAuthorizationRepository.existsByCertificateUuid(locked.getUuid())) {
+            registrationAuthorizationWriter.close(locked.getUuid());
+        }
+    }
 
     /** Deletes the cert's poll row to stop polling, best-effort; a failed delete is dropped by the next poll. */
     private void stopPolling(Certificate cert, CertificateOperation op) {
@@ -412,5 +464,37 @@ public class CertificateStatusPollListener implements MessageProcessor<Certifica
     @Autowired
     public void setRevocationFinalizer(CertificateRevocationFinalizer revocationFinalizer) {
         this.revocationFinalizer = revocationFinalizer;
+    }
+
+    @Autowired
+    public void setEventProducer(EventProducer eventProducer) {
+        this.eventProducer = eventProducer;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationRepository(CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository) {
+        this.registrationAuthorizationRepository = registrationAuthorizationRepository;
+    }
+
+    @Autowired
+    public void setRegistrationAuthorizationWriter(CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter) {
+        this.registrationAuthorizationWriter = registrationAuthorizationWriter;
+    }
+
+    // Fire the Certificate Registered event when an async pre-registration completes — only for challenge-protected
+    // registrations (those with an authorization row). This region is post-commit (the terminal transition already
+    // committed), so the event is never emitted for a registration that rolled back.
+    private void fireRegistrationEventIfCompleted(UUID certificateUuid, CertificateOperation op, CertificateOperationStatus status) {
+        if (op == CertificateOperation.REGISTER && status == CertificateOperationStatus.COMPLETED) {
+            // Best-effort, like the sibling post-commit side effects: neither the authorization lookup nor the
+            // produce must abort stopPolling.
+            try {
+                if (registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid)) {
+                    eventProducer.produceMessage(CertificateRegisteredEventHandler.constructEventMessage(certificateUuid));
+                }
+            } catch (RuntimeException e) {
+                logger.warn("Failed to produce CERTIFICATE_REGISTERED event for cert {}", certificateUuid, e);
+            }
+        }
     }
 }

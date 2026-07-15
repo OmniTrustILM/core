@@ -421,12 +421,7 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
     private void validateAndSetProtectionMethods(CmpProfile cmpProfile, CmpProfileRequestDto request) throws NotFoundException {
         // validate and set request protection method
         switch (request.getRequestProtectionMethod()) {
-            case SHARED_SECRET -> {
-                if (request.getSharedSecret() == null || request.getSharedSecret().isEmpty()) {
-                    throw new ValidationException(ValidationError.create("Shared secret cannot be empty"));
-                }
-                cmpProfile.setSharedSecret(request.getSharedSecret());
-            }
+            case SHARED_SECRET -> applySharedSecret(cmpProfile, request);
             case SIGNATURE -> cmpProfile.setSharedSecret(null);
             default ->
                     throw new ValidationException(ValidationError.create("Protection method for the CMP request not supported"));
@@ -447,6 +442,21 @@ public class CmpProfileServiceImpl implements CmpProfileExternalService, CmpProf
             }
             default ->
                     throw new ValidationException(ValidationError.create("Protection method for the CMP response not supported"));
+        }
+    }
+
+    /**
+     * Applies the write-only shared secret when the request protection method is shared secret. The edit form does
+     * not prefill the stored secret, so a blank or omitted value keeps the stored one; a non-blank value replaces it.
+     * Rejected only when there is nothing to keep — on create, or on edit of a profile without a stored secret.
+     */
+    private static void applySharedSecret(CmpProfile cmpProfile, CmpProfileRequestDto request) {
+        boolean valueProvided = request.getSharedSecret() != null && !request.getSharedSecret().isBlank();
+        if (valueProvided) {
+            cmpProfile.setSharedSecret(request.getSharedSecret());
+        } else if (cmpProfile.getSharedSecret() == null || cmpProfile.getSharedSecret().isBlank()) {
+            throw new ValidationException(ValidationError.create(
+                    "Shared secret is required when request protection method is " + ProtectionMethod.SHARED_SECRET.getCode()));
         }
     }
 

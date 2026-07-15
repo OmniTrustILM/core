@@ -40,6 +40,7 @@ import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.builders.AuthorityFixtures;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
@@ -77,6 +78,8 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private FunctionGroupRepository functionGroupRepository;
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private AcmeProfileRepository acmeProfileRepository;
     @Autowired
@@ -185,7 +188,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                         }""")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         AddRaProfileRequestDto request = new AddRaProfileRequestDto();
         request.setName("testRaProfile2");
@@ -194,6 +197,49 @@ class RaProfileServiceITest extends ApprovalProfileData {
         RaProfileDto dto = raProfileService.addRaProfile(authorityInstanceReference.getSecuredParentUuid(), request);
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(request.getName(), dto.getName());
+    }
+
+    @Test
+    void testAddRaProfile_connectorRejectsAttributes() {
+        // v2 adapter path: the connector's RA-profile /validate returning false must surface as
+        // ValidationException and abort the create before anything is persisted.
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                .willReturn(WireMock.aResponse().withStatus(422)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[\"RA profile attributes validation failed\"]")));
+
+        AddRaProfileRequestDto request = new AddRaProfileRequestDto();
+        request.setName("testRaProfileRejected");
+        request.setAttributes(List.of());
+
+        SecuredParentUUID authorityInstanceUuid = authorityInstanceReference.getSecuredParentUuid();
+        Assertions.assertThrows(ValidationException.class, () -> raProfileService.addRaProfile(authorityInstanceUuid, request));
+        Assertions.assertTrue(raProfileRepository.findByName("testRaProfileRejected").isEmpty());
+    }
+
+    @Test
+    void testAddRaProfile_v3Authority() throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        // v3 adapter path: definitions come from the stateless v3 endpoint and there is no
+        // connector-side /validate round-trip at all.
+        AuthorityFixtures.Fixture v3 = AuthorityFixtures.v3Authority(
+                new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
+                        connector2FunctionGroupRepository, authorityInstanceReferenceRepository,
+                        raProfileRepository, connectorInterfaceRepository),
+                mockServer);
+        mockServer.stubFor(WireMock
+                .any(WireMock.urlPathMatching("/v3/authorityProvider(/authorities)?/raProfile/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+
+        AddRaProfileRequestDto request = new AddRaProfileRequestDto();
+        request.setName("testRaProfileV3");
+        request.setAttributes(List.of());
+
+        RaProfileDto dto = raProfileService.addRaProfile(v3.authority().getSecuredParentUuid(), request);
+
+        Assertions.assertNotNull(dto);
+        Assertions.assertEquals(request.getName(), dto.getName());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.urlMatching(".*/validate")));
     }
 
     @Test
@@ -218,7 +264,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
                 .willReturn(WireMock.okJson("[]")));
         mockServer.stubFor(WireMock
                 .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
-                .willReturn(WireMock.okJson("true")));
+                .willReturn(WireMock.aResponse().withStatus(200)));
 
         EditRaProfileRequestDto request = new EditRaProfileRequestDto();
         request.setDescription("some description");
@@ -443,6 +489,43 @@ class RaProfileServiceITest extends ApprovalProfileData {
         requestAdd.setAttributes(List.of());
         RaProfileDto dto = raProfileService.addRaProfile(authorityInstanceReference.getSecuredParentUuid(), requestAdd);
         Assertions.assertEquals(refreshedRaProfile.getAuthorityCertificateUuid(), raProfileRepository.findByUuid(UUID.fromString(dto.getUuid())).get().getAuthorityCertificateUuid());
+    }
+
+    @Test
+    void testGetAuthorityCertificateChain_v3Authority() throws ConnectorException, AttributeException, NotFoundException {
+        // v3 adapter path: the CA chain comes from the stateless v3 endpoint (authority/RA-profile
+        // attributes in the request body); the v1/v2 instance-scoped endpoint is never called.
+        AuthorityFixtures.Fixture v3 = AuthorityFixtures.v3Authority(
+                new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
+                        connector2FunctionGroupRepository, authorityInstanceReferenceRepository,
+                        raProfileRepository, connectorInterfaceRepository),
+                mockServer);
+        mockServer.stubFor(WireMock
+                .any(WireMock.urlPathMatching("/v3/authorityProvider(/authorities)?/raProfile/attributes"))
+                .willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock
+                .post(WireMock.urlPathMatching("/v3/authorityProvider/authorities/caCertificates"))
+                .willReturn(WireMock.okJson("""
+                        {
+                            "certificates": [
+                                {
+                                    "certificateData": "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",
+                                    "meta": [],
+                                    "certificateType": "X.509"
+                                }    ]
+                        }""")));
+
+        EditRaProfileRequestDto request = new EditRaProfileRequestDto();
+        request.setDescription("v3 chain");
+        request.setAttributes(List.of());
+        raProfileService.editRaProfile(v3.authority().getSecuredParentUuid(), v3.raProfile().getSecuredUuid(), request);
+
+        RaProfile refreshedRaProfile = raProfileRepository.findByUuid(v3.raProfile().getUuid()).orElse(null);
+        Assertions.assertNotNull(refreshedRaProfile);
+        Assertions.assertNotNull(refreshedRaProfile.getAuthorityCertificateUuid(),
+                "v3 authority certificate chain must be linked to the RA profile");
+        mockServer.verify(0, WireMock.postRequestedFor(
+                WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/caCertificates")));
     }
 
     @Test

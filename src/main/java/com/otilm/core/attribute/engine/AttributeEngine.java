@@ -1121,14 +1121,19 @@ public class AttributeEngine {
     }
 
     /**
-     * Declaration validity for the NG ({@code dependsOn}) callback shape at the ingest
-     * choke point. {@code dependsOn} (NG, scope-resolved) and {@code callbackContext} (legacy, body-mapped)
-     * are mutually exclusive: a definition declaring both is ambiguous to dispatch, so the NG branch can
-     * safely gate on {@code dependsOn != null}. {@code dependsOn} on a RESOURCE-content attribute is also
-     * rejected — RESOURCE content is resolved through the core resource path, not an NG callback.
+     * Declaration validity for the NG ({@code dependsOn}) callback shape at the ingest choke point.
+     *
+     * <p><b>Empty list is still NG.</b> A non-null {@code dependsOn} — including an empty list ("fire once on form
+     * open") — is an NG declaration, so the guards below must run for the empty case too.
+     *
+     * <p><b>Mutual exclusion.</b> {@code dependsOn} (NG, scope-resolved) and {@code callbackContext} (legacy,
+     * body-mapped) cannot both be set; that lets the dispatch path gate NG on {@code dependsOn != null}.
+     *
+     * <p><b>RESOURCE is rejected.</b> {@code dependsOn} on a RESOURCE-content attribute is refused — RESOURCE content
+     * resolves through the core resource path, not an NG callback.
      */
     private static void validateCallbackDeclaration(BaseAttribute attribute, AttributeCallback callback, String connectorUuidStr) throws AttributeException {
-        if (callback == null || callback.getDependsOn() == null || callback.getDependsOn().isEmpty()) {
+        if (callback == null || callback.getDependsOn() == null) {
             return;
         }
         if (callback.getCallbackContext() != null) {

@@ -4,6 +4,7 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -28,9 +29,12 @@ public interface RegisterCapability {
      * {@link com.otilm.core.exception.ConnectorAcceptedButLocalFailureException}; a raw {@link RuntimeException}
      * signals a pre-acceptance failure.
      *
+     * @param identityContent the structured identity projected once by the orchestrator (from {@code csrAttributes}),
+     *                         or null for a flat request — the adapter then builds it from subjectDn/subjectAltName/extensions
      * @return SYNC_OK when the CA confirmed immediately, ASYNC_ACCEPTED when polling is needed.
      */
-    AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req) throws ConnectorException;
+    AdapterOperationResult register(Certificate cert, ClientCertificateRegistrationDto req,
+                                    @Nullable X509RequestContent identityContent) throws ConnectorException;
 
     /**
      * Issues a certificate against a prior registration: the client CSR is forwarded intact, the binding's CA

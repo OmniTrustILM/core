@@ -53,6 +53,7 @@ public enum CertificateStateTransition {
     REGISTERED_TO_PENDING_ISSUE       (REGISTERED,           PENDING_ISSUE,        CertificateEvent.ISSUE,            CertificateEventStatus.SUCCESS),
     REGISTERED_TO_PENDING_APPROVAL    (REGISTERED,           PENDING_APPROVAL,     CertificateEvent.APPROVAL_REQUEST, CertificateEventStatus.SUCCESS),  // issuing a registered placeholder requires approval
     REGISTERED_TO_FAILED              (REGISTERED,           FAILED,               CertificateEvent.ISSUE,            CertificateEventStatus.FAILED),  // issuing a registered placeholder failed
+    PENDING_APPROVAL_TO_REGISTERED    (PENDING_APPROVAL,     REGISTERED,           CertificateEvent.APPROVAL_CLOSE,   CertificateEventStatus.FAILED),  // issuance approval rejected — restore the placeholder
 
     // Compliance rejection
     REQUESTED_TO_REJECTED             (REQUESTED,            REJECTED,             CertificateEvent.UPDATE_STATE,     CertificateEventStatus.FAILED),
