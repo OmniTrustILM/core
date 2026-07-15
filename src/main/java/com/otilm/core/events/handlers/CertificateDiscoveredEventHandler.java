@@ -159,6 +159,9 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
             handleDiscoveredCertificates(context, discovery, originalMessage, discoveredCertificates, mergedIgnoreTriggers, mergedTriggers);
             discoveryFinishEmitted = true;
         } catch (Exception e) {
+            // Catch broadly on purpose: exceptions escaping handleEvent are only logged and dropped by the JMS
+            // listener (no redelivery, no DLQ), so letting one propagate would strand the discovery in PROCESSING.
+            // Finalizing as WARNING in the finally block is strictly better; the failure is still logged here.
             logger.error("Post-processing of discovered certificates for discovery {} did not complete: {}", discovery.getName(), e.getMessage(), e);
         } finally {
             if (!discoveryFinishEmitted) {

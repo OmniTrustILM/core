@@ -43,8 +43,8 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         // Certificate post-processing reports back once the discovered certificates have been handled, signalling
         // PROCESSING on a clean run or WARNING when some certificates failed; only then is the top-level status
         // finalized. COMPLETED/FAILED payloads originate from the discovery service, which has already persisted
-        // that terminal state, so they are ignored here. Acting only on a not-yet-terminal discovery keeps this
-        // idempotent against event redelivery and leaves a service-finalized discovery untouched.
+        // that terminal state, so they are ignored here. The not-yet-terminal guard makes only this persisted
+        // write idempotent on redelivery; the base handler still dispatches follow-up notifications either way.
         DiscoveryStatus reportedStatus = discoveryResult.getDiscoveryStatus();
         if (!isTerminal(discovery.getStatus()) && isPostProcessingFinishSignal(reportedStatus)) {
             DiscoveryStatus finalStatus = reportedStatus == DiscoveryStatus.PROCESSING ? DiscoveryStatus.COMPLETED : reportedStatus;
