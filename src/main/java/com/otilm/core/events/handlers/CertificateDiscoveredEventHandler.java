@@ -156,7 +156,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         // with a growing duration and can never be finalized.
         boolean discoveryFinishEmitted = false;
         try {
-            discoveryFinishEmitted = handleDiscoveredCertificates(context, discovery, originalMessage, discoveredCertificates, mergedIgnoreTriggers, mergedTriggers);
+            handleDiscoveredCertificates(context, discovery, originalMessage, discoveredCertificates, mergedIgnoreTriggers, mergedTriggers);
+            discoveryFinishEmitted = true;
         } catch (Exception e) {
             logger.error("Post-processing of discovered certificates for discovery {} did not complete: {}", discovery.getName(), e.getMessage(), e);
         } finally {
@@ -167,12 +168,12 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         }
     }
 
-    private boolean handleDiscoveredCertificates(EventContext<Certificate> context, DiscoveryHistory discovery, String originalMessage,
-                                                 List<DiscoveryCertificate> discoveredCertificates, List<TriggerAssociation> mergedIgnoreTriggers,
-                                                 List<TriggerAssociation> mergedTriggers) {
+    private void handleDiscoveredCertificates(EventContext<Certificate> context, DiscoveryHistory discovery, String originalMessage,
+                                              List<DiscoveryCertificate> discoveredCertificates, List<TriggerAssociation> mergedIgnoreTriggers,
+                                              List<TriggerAssociation> mergedTriggers) {
         if (discoveredCertificates.isEmpty()) {
             emitDiscoveryFinished(discovery, context, DiscoveryStatus.PROCESSING, originalMessage);
-            return true;
+            return;
         }
 
         EventHistory eventHistoryDiscovery = createEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.DISCOVERY, discovery.getUuid());
@@ -243,8 +244,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         saveEventHistory(eventHistoryDiscovery, EventStatus.FINISHED);
         saveEventHistory(eventHistoryPlatform, EventStatus.FINISHED);
 
-        // A WARNING finish surfaces certificates that could not be processed (recorded per DiscoveryCertificate);
-        // a clean run reports PROCESSING, which the finish handler rolls up to COMPLETED.
+        // A clean run reports PROCESSING, which the finish handler rolls up to COMPLETED. When certificates
+        // recorded a processing error, report WARNING instead so the partial failure stays visible to the user.
         long erroredCertificates = discoveryCertificateRepository.countByDiscoveryAndProcessedErrorNotNull(discovery);
         validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, null, discovery.getUuid(), discovery.getName(), null, null));
         if (erroredCertificates > 0) {
@@ -253,7 +254,6 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         } else {
             emitDiscoveryFinished(discovery, context, DiscoveryStatus.PROCESSING, originalMessage);
         }
-        return true;
     }
 
     private void emitDiscoveryFinished(DiscoveryHistory discovery, EventContext<Certificate> context, DiscoveryStatus status, String message) {

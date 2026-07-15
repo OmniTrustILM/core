@@ -53,7 +53,9 @@ import com.otilm.core.events.data.EventDataBuilder;
 import com.otilm.core.events.handlers.*;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.listeners.NotificationListener;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
+import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.ScheduledTaskResult;
@@ -69,7 +71,9 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -125,6 +129,12 @@ class EventHandlersITest extends BaseSpringBootTest {
     private DiscoveryRepository discoveryRepository;
     @Autowired
     private DiscoveryFinishedEventHandler discoveryFinishedEventHandler;
+    @Autowired
+    private CertificateDiscoveredEventHandler certificateDiscoveredEventHandler;
+    @Autowired
+    private DiscoveryCertificateRepository discoveryCertificateRepository;
+    @MockitoSpyBean
+    private EventProducer eventProducer;
 
     @Autowired
     private AttributeEngine attributeEngine;
@@ -528,6 +538,45 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
         Assertions.assertEquals(endTimeBefore, persisted.getEndTime());
         Assertions.assertEquals("Discovery completed successfully.", persisted.getMessage());
+    }
+
+    @Test
+    void testCertificateDiscoveredEmitsFinishWhenNoNewCertificates() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        certificateDiscoveredEventHandler.handleEvent(
+                CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
+
+        Mockito.verify(eventProducer).produceMessage(Mockito.argThat((EventMessage msg) ->
+                msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
+                        && discovery.getUuid().equals(msg.getObjectUuid())
+                        && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.PROCESSING));
+    }
+
+    @Test
+    void testCertificateDiscoveredEmitsWarningWhenCertificateProcessingFails() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent("not-a-valid-certificate");
+        certificateContent = certificateContentRepository.save(certificateContent);
+
+        DiscoveryCertificate discoveryCertificate = new DiscoveryCertificate();
+        discoveryCertificate.setCommonName("failing-cert");
+        discoveryCertificate.setNewlyDiscovered(true);
+        discoveryCertificate.setCertificateContent(certificateContent);
+        discoveryCertificate.setDiscovery(discovery);
+        discoveryCertificateRepository.save(discoveryCertificate);
+
+        certificateDiscoveredEventHandler.handleEvent(
+                CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
+
+        Mockito.verify(eventProducer).produceMessage(Mockito.argThat((EventMessage msg) ->
+                msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
+                        && discovery.getUuid().equals(msg.getObjectUuid())
+                        && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.WARNING));
+        DiscoveryCertificate processed = discoveryCertificateRepository.findByUuid(discoveryCertificate.getUuid()).orElseThrow();
+        Assertions.assertNotNull(processed.getProcessedError());
     }
 
     private DiscoveryHistory persistProcessingDiscovery() {
