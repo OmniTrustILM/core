@@ -1203,6 +1203,7 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
         CertificateRequestEntity certificateRequestEntity = certificateRequestRepository.findByFingerprint(fingerprint).orElse(null);
         if (certificateRequestEntity == null) {
             certificateRequestEntity = certificate.prepareCertificateRequest(issueRequest.getFormat());
+            certificateRequestEntity.setCertificateType(CertificateType.X509);
             certificateRequestEntity.setFingerprint(fingerprint);
             certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
             setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
