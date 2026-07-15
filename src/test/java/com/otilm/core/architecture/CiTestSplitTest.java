@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,54 +22,98 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Guards the three-way CI test split defined in pom.xml.
+ * Guards the four-way CI test split defined in pom.xml and used by the {@code .github/workflows/build_pr.yml} test matrix.
  * <p>
- * The test-non-services Maven profile's <excludes> must equal the union of the test-services profile's <includes> and
- * the test-integration profile's <includes>. A pattern present on one side but absent from the union causes affected tests to
- * run twice (double coverage noise) or not at all (silent gap).
+ * The core invariant: the four profiles must partition the runnable test classes — every class
+ * surefire would run must be claimed by <em>exactly one</em> profile. A class claimed by none
+ * silently never runs (coverage gap); a class claimed by two runs twice (double coverage, wasted
+ * CI time). {@link #everyRunnableTestIsRunByExactlyOneCiProfile} proves the partition by replaying
+ * surefire's include/exclude matching over the real test tree, so it catches drift in any pattern.
  * <p>
- * Additionally, every concrete test class in the service package must follow the naming
- * convention those patterns match (*Test, *Tests, *ITest). Classes that don't match are
- * not picked up by test-services and run in test-non-services instead, silently misclassifying
- * service tests as non-service tests.
+ * The heavy {@code integration.service} package is split by leading class letter (A-C vs D-Z) via a
+ * shared {@code %regex} boundary — excluded from {@code test-integration-service-1}, included by
+ * {@code test-integration-service-2}. {@link #flatServiceSplitBoundaryMustBeConsistent} keeps the two
+ * sides identical so the flat classes cannot silently gap or double-run.
+ * <p>
+ * Additionally, every concrete test class in the service package must follow the naming convention
+ * surefire matches (*Test, *Tests, *ITest); classes that don't are never picked up at all.
  */
 class CiTestSplitTest {
 
+    /** The profile ids the CI matrix runs, one per worker. Must partition the runnable test classes. */
+    private static final List<String> CI_PROFILES = List.of(
+            "test-non-integration",
+            "test-integration-core",
+            "test-integration-service-1",
+            "test-integration-service-2");
+
+    /**
+     * Surefire's built-in default {@code <includes>}, applied to any profile that declares no
+     * {@code <includes>} of its own (here: {@code test-non-integration}).
+     */
+    private static final List<String> SUREFIRE_DEFAULT_INCLUDES = List.of(
+            "**/Test*.java", "**/*Test.java", "**/*Tests.java", "**/*TestCase.java");
+
     @Test
-    void restExcludesMustEqualUnionOfServiceAndIntegrationIncludes() throws Exception {
-        List<String> serviceIncludes = profilePatterns("test-services", "include");
-        List<String> integrationIncludes = profilePatterns("test-integration", "include");
-        List<String> restExcludes = profilePatterns("test-non-services", "exclude");
+    void everyRunnableTestIsRunByExactlyOneCiProfile() throws Exception {
+        Map<String, List<String>> includes = new HashMap<>();
+        Map<String, List<String>> excludes = new HashMap<>();
+        for (String profile : CI_PROFILES) {
+            List<String> declared = profilePatterns(profile, "include");
+            includes.put(profile, declared.isEmpty() ? SUREFIRE_DEFAULT_INCLUDES : declared);
+            excludes.put(profile, profilePatterns(profile, "exclude"));
+        }
 
-        List<String> union = new ArrayList<>(serviceIncludes);
-        union.addAll(integrationIncludes);
+        List<String> neverRun = new ArrayList<>();
+        List<String> multiRun = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(TEST_ROOT)) {
+            List<Path> runnable = stream
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .filter(TestClassTaxonomy::isRunnableTest)
+                    .toList();
+            for (Path p : runnable) {
+                String rel = TEST_ROOT.relativize(p).toString().replace('\\', '/');
+                List<String> claimedBy = CI_PROFILES.stream()
+                        .filter(profile -> matchesAny(includes.get(profile), rel)
+                                && !matchesAny(excludes.get(profile), rel))
+                        .toList();
+                if (claimedBy.isEmpty()) {
+                    neverRun.add(rel);
+                } else if (claimedBy.size() > 1) {
+                    multiRun.add(rel + " -> " + claimedBy);
+                }
+            }
+        }
 
-        assertThat(serviceIncludes)
-                .describedAs("test-services profile must define at least one <include> pattern in pom.xml")
-                .isNotEmpty();
-        assertThat(restExcludes)
+        assertThat(neverRun)
                 .describedAs("""
-                        test-non-services <excludes> must equal test-services <includes> UNION test-integration <includes>.
-                        A pattern present in one side but not the other causes tests to run twice or not at all.
-                        Update all three profiles together whenever the split patterns change.""")
-                .containsExactlyInAnyOrderElementsOf(union);
+                        Runnable test classes claimed by no CI profile in pom.xml — surefire never runs them,
+                        so their code is silently uncovered. Either the class name matches no profile <include>
+                        (rename it to *Test/*Tests/*ITest, or under integration to *ITest), or the split patterns
+                        have a gap. Fix the profiles in pom.xml so every runnable test is claimed exactly once.""")
+                .isEmpty();
+        assertThat(multiRun)
+                .describedAs("""
+                        Runnable test classes claimed by more than one CI profile in pom.xml — they run twice,
+                        wasting CI time and double-counting coverage. The profile <includes>/<excludes> overlap.
+                        Fix the profiles in pom.xml so every runnable test is claimed exactly once.""")
+                .isEmpty();
     }
 
     @Test
-    void integrationRootIsIncludedByIntegrationProfileAndExcludedByOthers() throws Exception {
-        List<String> integrationIncludes = profilePatterns("test-integration", "include");
-        List<String> serviceExcludes = profilePatterns("test-services", "exclude");
-        List<String> restExcludes = profilePatterns("test-non-services", "exclude");
+    void flatServiceSplitBoundaryMustBeConsistent() throws Exception {
+        List<String> shard1Excludes = profilePatterns("test-integration-service-1", "exclude");
+        List<String> shard2Includes = profilePatterns("test-integration-service-2", "include");
 
-        assertThat(integrationIncludes)
-                .describedAs("test-integration must include the single integration root pattern")
-                .containsExactly("com/otilm/core/integration/**/*ITest.java");
-        assertThat(serviceExcludes)
-                .describedAs("test-services must exclude the integration root so integration tests don't double-run")
-                .contains("com/otilm/core/integration/**/*ITest.java");
-        assertThat(restExcludes)
-                .describedAs("test-non-services must exclude the integration root")
-                .contains("com/otilm/core/integration/**/*ITest.java");
+        assertThat(shard2Includes)
+                .describedAs("test-integration-service-2 must include exactly the flat-class %regex boundary")
+                .hasSize(1);
+        assertThat(shard1Excludes)
+                .describedAs("""
+                        test-integration-service-1 must exclude exactly the same flat-class boundary that
+                        test-integration-service-2 includes. If the two drift apart, the integration.service
+                        flat classes on the boundary either run twice or run in neither shard.""")
+                .containsExactlyElementsOf(shard2Includes);
     }
 
     @Test
@@ -90,9 +135,8 @@ class CiTestSplitTest {
         assertThat(violations)
                 .describedAs("""
                         Test classes in service/ whose names don't end with Test, Tests, or ITest.
-                        They are not picked up by the test-services Maven profile and run in test-non-services instead.
-                        Either rename them to match the pattern, or update both <includes> in test-services
-                        and <excludes> in test-non-services in pom.xml to cover the new suffix.""")
+                        Surefire's include patterns key on those suffixes, so a differently-named class is never
+                        run by any CI profile. Rename it to match the convention.""")
                 .isEmpty();
     }
 
@@ -100,7 +144,7 @@ class CiTestSplitTest {
      * The {@code <include>}/{@code <exclude>} pattern texts declared under the given Maven profile's
      * surefire plugin in pom.xml. Parses pom.xml fresh on each call — these guards are not perf-sensitive.
      *
-     * @param profileId the {@code <profile>} id, e.g. {@code test-services}
+     * @param profileId the {@code <profile>} id, e.g. {@code test-integration-core}
      * @param tag       {@code include} or {@code exclude}
      */
     private static List<String> profilePatterns(String profileId, String tag) throws Exception {
@@ -119,6 +163,48 @@ class CiTestSplitTest {
         return result;
     }
 
+    /** Whether a test class path (relative to {@link #TEST_ROOT}, {@code /}-separated) matches any pattern. */
+    private static boolean matchesAny(List<String> patterns, String relPath) {
+        return patterns.stream().anyMatch(pattern -> matches(pattern, relPath));
+    }
+
+    /**
+     * Replays surefire's include/exclude matching for a single pattern against a test class path.
+     * Supports both surefire pattern forms: {@code %regex[...]} (a Java regex over the path) and Ant
+     * globs ({@code **}, {@code *}, {@code ?}). Anchored: the pattern must match the whole path.
+     */
+    private static boolean matches(String pattern, String relPath) {
+        if (pattern.startsWith("%regex[") && pattern.endsWith("]")) {
+            return relPath.matches(pattern.substring("%regex[".length(), pattern.length() - 1));
+        }
+        return relPath.matches(antGlobToRegex(pattern));
+    }
+
+    private static String antGlobToRegex(String glob) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < glob.length(); ) {
+            if (glob.startsWith("**/", i)) {
+                sb.append("(?:.*/)?");   // any number of directories, including none
+                i += 3;
+            } else if (glob.startsWith("**", i)) {
+                sb.append(".*");
+                i += 2;
+            } else {
+                char c = glob.charAt(i++);
+                if (c == '*') {
+                    sb.append("[^/]*");  // within a single path segment
+                } else if (c == '?') {
+                    sb.append("[^/]");  // a single character within a segment, never the separator
+                } else if ("\\.[]{}()+-^$|".indexOf(c) >= 0) {
+                    sb.append('\\').append(c);
+                } else {
+                    sb.append(c);
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     /**
      * Top-level sub-packages under com.otilm.core not yet migrated to the integration taxonomy.
      * Guard (3) is suppressed for these; the set shrinks to empty across per-package PRs.
@@ -126,17 +212,16 @@ class CiTestSplitTest {
      * fragments — a substring match would wrongly exempt e.g. any path merely containing "api".
      * <p>
      * This set is empty, so guard (3) is strict for all sub-packages.
-     * {@link #ROOT_LEVEL_PENDING_MIGRATION} is the only remaining exemption, covering
-     * root-level files.
+     * {@link #ROOT_LEVEL_PENDING_MIGRATION} is {@code false} as well, so no exemption remains.
      */
     private static final Set<String> MIGRATION_ALLOWLIST = Set.of();
 
     /**
-     * Root-level test files live directly in com/otilm/core (no sub-package) — e.g. ApplicationTests,
-     * AcmeUtilTest, JmsNetworkChaosTest — and are migrated in the final root-sweep PR. Guard (3)
-     * exempts them until then. Set to false in that final PR to make the guard strict.
+     * Whether root-level test files (directly under com/otilm/core, no sub-package) are exempt from
+     * guard (3). The root sweep relocated the last such tests into the integration taxonomy, so this
+     * is {@code false}: guard (3) is strict for root-level files too, and no exemption remains.
      */
-    private static final boolean ROOT_LEVEL_PENDING_MIGRATION = true;
+    private static final boolean ROOT_LEVEL_PENDING_MIGRATION = false;
 
     private static final Path TEST_ROOT = Path.of("src/test/java");
     private static final Path INTEGRATION_ROOT = TEST_ROOT.resolve("com/otilm/core/integration");
@@ -229,12 +314,10 @@ class CiTestSplitTest {
     }
 
     /**
-     * The test-integration profile's <include> keys on the {@code *ITest.java} suffix, but
-     * {@link #integrationRootContainsOnlyContextTests} only enforces context-loading. A runnable
-     * test in the integration root not named {@code *ITest} would pass that guard yet be picked up
-     * by the test-non-services leg (its coverage lands in the wrong artifact), because the
-     * non-services exclude is {@code *ITest}-only. This guard keeps the profile include and the
-     * taxonomy guard aligned.
+     * The integration CI profiles key their includes on the {@code *ITest.java} suffix, but
+     * {@link #integrationRootContainsOnlyContextTests} only enforces context-loading. A runnable test
+     * in the integration root not named {@code *ITest} would pass that guard yet be picked up by the {@code test-non-integration}.
+     * This guard keeps the integration profile includes and the taxonomy guard aligned.
      */
     @Test
     void integrationRootRunnableTestsMustBeNamedITest() throws IOException {
@@ -252,8 +335,8 @@ class CiTestSplitTest {
         }
         assertThat(violations)
                 .describedAs("Runnable test classes in the integration root whose names don't end with ITest. "
-                        + "The test-integration Maven profile includes only com/otilm/core/integration/**/*ITest.java, "
-                        + "so these run in the test-non-services leg and their coverage lands in the wrong artifact. "
+                        + "The integration CI profiles include only com/otilm/core/integration/**/*ITest.java, "
+                        + "so these run in the test-non-integration leg and their coverage lands in the wrong artifact. "
                         + "Rename them to *ITest.")
                 .isEmpty();
     }

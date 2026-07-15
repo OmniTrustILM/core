@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.integration.messaging.jms;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. RETRY COUNT ASSERTIONS: Verify number of retries, not timing
  * 4. CLEAR SEPARATION: Each test has a single responsibility
  */
-public class JmsNetworkChaosTest extends JmsResilienceTests {
+public class JmsNetworkChaosITest extends AbstractJmsResilienceITest {
 
     @Autowired
     private MessagingProperties messagingProperties;
@@ -80,8 +80,9 @@ public class JmsNetworkChaosTest extends JmsResilienceTests {
         countingRetryListener.expectCompletion();
 
         // When: Send message
+        EventMessage testMessage = createTestEventMessage();
         assertThrows(JmsException.class, () ->
-            eventProducer.produceMessage(createTestEventMessage()), "Should throw JmsException after exhausting retries");
+            eventProducer.produceMessage(testMessage), "Should throw JmsException after exhausting retries");
 
         // Wait for retry completion
         assertTrue(countingRetryListener.awaitCompletion(10, TimeUnit.SECONDS), "Retries should complete within timeout");
@@ -146,7 +147,8 @@ public class JmsNetworkChaosTest extends JmsResilienceTests {
         proxy.disable();
         countingRetryListener.expectCompletion();
 
-        assertThrows(JmsException.class, () -> eventProducer.produceMessage(createTestEventMessage()));
+        EventMessage firstMessage = createTestEventMessage();
+        assertThrows(JmsException.class, () -> eventProducer.produceMessage(firstMessage));
 
         assertTrue(countingRetryListener.awaitCompletion(10, TimeUnit.SECONDS), "First message retries should complete");
 
@@ -212,7 +214,8 @@ public class JmsNetworkChaosTest extends JmsResilienceTests {
         countingRetryListener.expectCompletion();
 
         // When: Send message - should fail after exhausting retries
-        assertThrows(Exception.class, () -> eventProducer.produceMessage(createTestEventMessage()));
+        EventMessage testMessage = createTestEventMessage();
+        assertThrows(Exception.class, () -> eventProducer.produceMessage(testMessage));
 
         // Wait for retry completion
         assertTrue(countingRetryListener.awaitCompletion(5, TimeUnit.SECONDS), "Retries should complete within timeout");
@@ -232,7 +235,8 @@ public class JmsNetworkChaosTest extends JmsResilienceTests {
         proxy.toxics().timeout("timeout-toxic", ToxicDirection.UPSTREAM, 500);
         countingRetryListener.expectCompletion();
 
-        assertThrows(Exception.class, () -> eventProducer.produceMessage(createTestEventMessage()));
+        EventMessage firstMessage = createTestEventMessage();
+        assertThrows(Exception.class, () -> eventProducer.produceMessage(firstMessage));
         assertTrue(countingRetryListener.awaitCompletion(10, TimeUnit.SECONDS), "First message retries should complete");
 
         countingRetryListener.reset();

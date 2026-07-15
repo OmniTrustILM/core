@@ -1,4 +1,4 @@
-package com.otilm.core;
+package com.otilm.core.integration.util;
 
 import com.otilm.core.util.AcmePublicKeyProcessor;
 import com.otilm.core.util.AcmeRandomGeneratorAndValidator;
@@ -13,31 +13,31 @@ import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
 
 @SpringBootTest
-public class AcmeUtilTest {
+class AcmeUtilITest {
 
     @Test
-    public void testNonceGeneration(){
+    void testNonceGeneration(){
         String nonce = AcmeRandomGeneratorAndValidator.generateNonce();
         Assertions.assertNotNull(nonce);
         Assertions.assertTrue(nonce.length() > 3);
     }
 
     @Test
-    public void testRandomIdGeneration(){
+    void testRandomIdGeneration(){
         String nonce = AcmeRandomGeneratorAndValidator.generateRandomId();
         Assertions.assertNotNull(nonce);
         Assertions.assertTrue(nonce.length() > 3);
     }
 
     @Test
-    public void testRandomTokenForValidation() {
+    void testRandomTokenForValidation() {
         String nonce = AcmeRandomGeneratorAndValidator.generateRandomTokenForValidation();
         Assertions.assertNotNull(nonce);
         Assertions.assertTrue(nonce.length() > 3);
     }
 
     @Test
-    public void testPublicKeyProcessing() throws NoSuchAlgorithmException, InvalidKeySpecException {
+    void testPublicKeyProcessing() throws NoSuchAlgorithmException, InvalidKeySpecException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair keyPair = kpg.generateKeyPair();
