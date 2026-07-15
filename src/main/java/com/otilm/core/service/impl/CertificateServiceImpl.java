@@ -1176,24 +1176,33 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
             throw new ValidationException("A certificate signing request can only be attached to a REGISTERED certificate. Certificate: %s".formatted(certificate.toStringShort()));
         }
 
-        byte[] decodedCsr;
+        CertificateRequest request;
         try {
-            decodedCsr = Base64.getDecoder().decode(issueRequest.getRequest());
+            request = CertificateRequestUtils.createCertificateRequest(issueRequest.getRequest(), issueRequest.getFormat());
         } catch (IllegalArgumentException e) {
             throw new CertificateRequestException("Certificate signing request is not valid Base64", e);
         }
-        CertificateRequest request = CertificateRequestUtils.createCertificateRequest(decodedCsr, issueRequest.getFormat());
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
         // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
         // written from the CA response at issuance. Get-or-create by fingerprint, mirroring the canonical
         // CSR-attach path: an identical CSR already stored is shared, not duplicated.
-        final String fingerprint = CertificateUtil.getThumbprint(decodedCsr);
+        //
+        // Fingerprint and stored content are derived from request.getEncoded() — the normalized DER that
+        // createCertificateRequest above actually parsed — not the raw operator-supplied string. The
+        // operator-supplied CSR is not guaranteed to be plain base64(DER): PEM armor and double base64
+        // encoding are common client mistakes, and createCertificateRequest already normalizes those.
+        // Storing the raw string here would silently persist the un-normalized (and possibly
+        // PEM-wrapped) encoding, which is later replayed verbatim to the connector on register-bound
+        // issue (AuthorityProviderV3Adapter.issueRegistered), producing a request the connector cannot
+        // parse as DER.
+        byte[] normalizedDer = request.getEncoded();
+        final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
         CertificateRequestEntity certificateRequestEntity = certificateRequestRepository.findByFingerprint(fingerprint).orElse(null);
         if (certificateRequestEntity == null) {
             certificateRequestEntity = certificate.prepareCertificateRequest(issueRequest.getFormat());
             certificateRequestEntity.setFingerprint(fingerprint);
-            certificateRequestEntity.setContent(issueRequest.getRequest());
+            certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
             setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
             certificateRequestRepository.save(certificateRequestEntity);
         }
