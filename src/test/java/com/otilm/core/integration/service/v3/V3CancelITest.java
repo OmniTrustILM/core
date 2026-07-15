@@ -6,6 +6,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.Certificate;
@@ -385,6 +386,7 @@ class V3CancelITest extends BaseSpringBootTest {
         csrEntity.setSubjectDn("CN=v3-manual-issue");
         csrEntity.setPublicKeyAlgorithm("RSA");
         csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);

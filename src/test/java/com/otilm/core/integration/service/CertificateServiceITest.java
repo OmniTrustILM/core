@@ -3,7 +3,6 @@ package com.otilm.core.integration.service;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.api.exception.*;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.core.workflows.*;
 import com.otilm.core.dao.entity.Certificate;
@@ -42,8 +41,6 @@ import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
-import com.otilm.core.service.RuleExternalService;
-import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
@@ -207,12 +204,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @MockitoBean
     private NotificationProducer notificationProducer;
-
-    @Autowired
-    private RuleExternalService ruleService;
-
-    @Autowired
-    private TriggerExternalService triggerService;
 
     @Autowired
     private CertificateUploadTriggerSeeder certificateUploadTriggerSeeder;
@@ -649,9 +640,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void returnsCsrAttributesInCorrectSlots_whenCertificateHasRequest() throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, AttributeException {
+        void returnsCsrAttributesInCorrectSlots_whenCertificateHasRequest() throws NotFoundException, CertificateException, IOException, AttributeException {
             // given
             CertificateRequestEntity csrEntity = aCertificateRequest().withContent(SAMPLE_PKCS10).build();
+            csrEntity.setCertificateType(CertificateType.X509);
             certificateRequestRepository.save(csrEntity);
             certificate.setCertificateRequest(csrEntity);
             certificate.setCertificateRequestUuid(csrEntity.getUuid());

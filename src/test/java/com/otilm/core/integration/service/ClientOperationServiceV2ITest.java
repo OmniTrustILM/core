@@ -15,11 +15,7 @@ import com.otilm.api.model.common.attribute.common.properties.DataAttributePrope
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateEvent;
-import com.otilm.api.model.core.certificate.CertificateEventStatus;
-import com.otilm.api.model.core.certificate.CertificateRelationType;
-import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.*;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
@@ -62,6 +58,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.testcontainers.shaded.org.checkerframework.checker.units.qual.C;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -973,6 +970,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setState(CertificateState.REQUESTED);
         CertificateRequestEntity certificateRequest = new CertificateRequestEntity();
         certificateRequest.setContent("content");
+        certificateRequest.setCertificateType(CertificateType.X509);
+        certificateRequest.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
         certificateRequestRepository.save(certificateRequest);
         certificate.setCertificateRequest(certificateRequest);
         certificate.setCertificateRequestUuid(certificateRequest.getUuid());
@@ -1088,6 +1087,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
      */
     private UUID prepareCertificateForIssuance() throws NoSuchAlgorithmException {
         CertificateRequestEntity csr = new CertificateRequestEntity();
+        csr.setCertificateType(CertificateType.X509);
+        csr.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
         csr.setContent("content");
         certificateRequestRepository.save(csr);
         certificate.setState(CertificateState.REQUESTED);
@@ -1438,6 +1439,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         CertificateRequestEntity csr = new CertificateRequestEntity();
         csr.setContent("content");
+        csr.setCertificateType(CertificateType.X509);
+        csr.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
         certificateRequestRepository.save(csr);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setCertificateRequest(csr);
@@ -1722,6 +1725,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         csrEntity.setSubjectDn("CN=test-pending-issue");
         csrEntity.setPublicKeyAlgorithm("RSA");
         csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.PENDING_ISSUE);
@@ -2215,6 +2219,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         csrEntity.setSubjectDn("CN=smoke-async");
         csrEntity.setPublicKeyAlgorithm("RSA");
         csrEntity.setSignatureAlgorithm("SHA256WithRSA");
+        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.REQUESTED);

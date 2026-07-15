@@ -2,6 +2,8 @@ package com.otilm.core.integration.service.v3;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -224,6 +226,8 @@ class V3RenewRevokeITest extends BaseSpringBootTest {
 
         CertificateRequestEntity csr = new CertificateRequestEntity();
         csr.setContent("content");
+        csr.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
+        csr.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csr);
 
         Certificate successor = seedCertificate(fixture, CertificateState.REQUESTED);

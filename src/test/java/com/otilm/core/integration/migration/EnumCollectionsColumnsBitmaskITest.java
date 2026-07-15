@@ -1,12 +1,13 @@
 package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.otilm.core.dao.repository.*;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -66,6 +67,9 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
 
         CertificateRequestEntity certificateRequest = new CertificateRequestEntity();
         certificateRequest.setFingerprint("fingerprint");
+        certificateRequest.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
+        certificateRequest.setCertificateType(CertificateType.X509);
+        certificateRequest.setContent("content");
         certificateRequestRepository.save(certificateRequest);
 
         Context context = Mockito.mock(Context.class);
