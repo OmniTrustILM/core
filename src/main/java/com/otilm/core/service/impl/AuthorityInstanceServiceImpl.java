@@ -353,9 +353,20 @@ public class AuthorityInstanceServiceImpl implements AuthorityInstanceExternalSe
 
     @Override
     @ExternalAuthorization(resource = Resource.AUTHORITY, action = ResourceAction.ANY)
-    public List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException {
+    public List<BaseAttribute> listRAProfileAttributes(SecuredUUID uuid) throws ConnectorException, NotFoundException, AttributeException {
+        // Runs under the class-level (REQUIRED) transaction: adapter selection and the v3 check below dereference the
+        // LAZY connectorInterface, so a persistence context must be open — do not switch this to NOT_SUPPORTED without
+        // eagerly loading that association first.
         AuthorityInstanceReference authorityInstance = getAuthorityInstanceReferenceEntity(uuid);
-        return adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
+        List<BaseAttribute> attributes = adapterFactory.forAuthority(authorityInstance).listRaProfileAttributes(authorityInstance);
+        if (isV3(authorityInstance.getConnectorInterface())) {
+            // v3 is stateless: the resourceCallback RA-profile arm has no connector-side authorityInstanceUuid to
+            // re-list with, so a fire-on-mount callback resolves its definition from Core storage by name. Ingest at
+            // list time so resolution succeeds on a fresh system; otherwise the first callback 404s before any
+            // definition row exists.
+            attributeEngine.updateDataAttributeDefinitions(authorityInstance.getConnectorUuid(), null, attributes);
+        }
+        return attributes;
     }
 
     @Override
