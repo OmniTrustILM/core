@@ -54,6 +54,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.hibernate.Session;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -669,10 +670,27 @@ public class AttributeEngine {
         if (attributeDefinition == null) {
             attributeDefinition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid, UUID.fromString(metadataAttribute.getUuid()), metadataAttribute.getName()).orElse(null);
         }
+        String label = metadataAttribute.getProperties().getLabel();
+
+        // The definition must not carry content, but the caller's attribute object remains in use
+        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
+        // strip content on a copy, never on the caller's instance. The entity holds a live object
+        // reference serialized at flush time, so the copy must be a distinct instance.
+        MetadataAttribute definitionCopy = metadataAttribute.copy();
+        definitionCopy.setContent(List.of());
+
         if (attributeDefinition != null) {
             // check for change of content type
             if (attributeDefinition.getContentType() != metadataAttribute.getContentType()) {
                 throw new AttributeException(String.format("Metadata attribute content type changed to %s while stored attribute definition have content type %s", metadataAttribute.getContentType().getLabel(), attributeDefinition.getContentType().getLabel()), metadataAttribute.getUuid(), metadataAttribute.getName(), metadataAttribute.getType(), connectorUuid == null ? null : connectorUuid.toString());
+            }
+            // The same metadata definition gets (re-)sent for every repeated operation. The definition rarely changes,
+            // so re-saving it unchanged only issues a redundant UPDATE on this row and contends the transactions.
+            // When nothing changed, skip the write and mark the entity read-only: Hibernate cannot dirty-check the
+            // jsonb `definition`, so a merely-loaded definition would otherwise be re-UPDATEd on flush.
+            if (Objects.equals(attributeDefinition.getLabel(), label) && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
+                entityManager.unwrap(Session.class).setReadOnly(attributeDefinition, true);
+                return attributeDefinition;
             }
         } else {
             logger.debug("Registering new {} metadata attribute with UUID {} and name {} for connector {}", isGlobal ? "global" : "connector", metadataAttribute.getUuid(), metadataAttribute.getName(), connectorUuid);
@@ -685,18 +703,24 @@ public class AttributeEngine {
             attributeDefinition.setVersion(metadataAttribute.getVersion());
             attributeDefinition.setGlobal(isGlobal);
         }
-        attributeDefinition.setLabel(metadataAttribute.getProperties().getLabel());
-
-        // The definition must not carry content, but the caller's attribute object remains in use
-        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
-        // strip content on a copy, never on the caller's instance. The entity holds a live object
-        // reference serialized at flush time, so the copy must be a distinct instance.
-        MetadataAttribute definitionCopy = metadataAttribute.copy();
-        definitionCopy.setContent(List.of());
+        attributeDefinition.setLabel(label);
         attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);
 
         return attributeDefinition;
+    }
+
+    /**
+     * Compares definitions by their serialized form. The attribute model has no value-based equals on its nested types.
+     */
+    private static boolean sameSerializedDefinition(Object stored, Object candidate) {
+        try {
+            return ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(stored)
+                    .equals(ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(candidate));
+        } catch (JsonProcessingException e) {
+            // If either side cannot be rendered, fall back to writing the definition — correctness over the optimization.
+            return false;
+        }
     }
 
     public void updateMetadataAttributes(List<MetadataAttribute> attributes, ObjectAttributeContentInfo objectAttributeContentInfo) throws AttributeException {
