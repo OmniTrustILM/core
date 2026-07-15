@@ -24,16 +24,12 @@ UPDATE certificate SET archived = false WHERE archived IS NULL;
 ALTER TABLE certificate
     ALTER COLUMN key_usage SET DEFAULT 0,
     ALTER COLUMN key_usage SET NOT NULL,
+    ALTER COLUMN hybrid_certificate SET DEFAULT false,
     ALTER COLUMN hybrid_certificate SET NOT NULL,
+    ALTER COLUMN archived SET DEFAULT false,
     ALTER COLUMN archived SET NOT NULL;
 
 UPDATE certificate_request SET key_usage = 0 WHERE key_usage IS NULL;
 ALTER TABLE certificate_request
     ALTER COLUMN key_usage SET DEFAULT 0,
     ALTER COLUMN key_usage SET NOT NULL;
-
--- The entity maps status_validation_timestamp as OffsetDateTime, which pairs with TIMESTAMPTZ.
--- Existing values are interpreted in the session time zone, which the JDBC driver sets to the
--- JVM default — the same zone Hibernate normalized the wall-clock values to when writing them.
-ALTER TABLE certificate
-    ALTER COLUMN status_validation_timestamp TYPE TIMESTAMPTZ;

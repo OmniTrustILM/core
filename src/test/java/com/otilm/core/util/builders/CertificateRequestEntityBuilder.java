@@ -8,7 +8,7 @@ import java.security.NoSuchAlgorithmException;
 
 /**
  * Builds an in-memory {@link CertificateRequestEntity}; tests override only the fields whose values drive
- * the assertion under test. The request format defaults to {@code PKCS10}. Persistence goes through
+ * the assertion under test. The request format defaults to {@code PKCS10} and the request certificate type defaults to {@code X509}. Persistence goes through
  * {@code CertificateRequestRepository}, not this builder.
  */
 public class CertificateRequestEntityBuilder {
@@ -18,6 +18,7 @@ public class CertificateRequestEntityBuilder {
     private String subjectDn;
     private String publicKeyAlgorithm;
     private String signatureAlgorithm;
+    private final CertificateType certificateType = CertificateType.X509;
 
     public static CertificateRequestEntityBuilder aCertificateRequest() {
         return new CertificateRequestEntityBuilder();
@@ -57,7 +58,7 @@ public class CertificateRequestEntityBuilder {
                 throw new IllegalStateException("Failed to set certificate request content", e);
             }
         }
-        entity.setCertificateType(CertificateType.X509);
+        entity.setCertificateType(certificateType);
         return entity;
     }
 }
