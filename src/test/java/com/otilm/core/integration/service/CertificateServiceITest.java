@@ -82,6 +82,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
@@ -2017,6 +2018,68 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when / then — the locked read re-asserts state under the lock; only REGISTERED may accept a CSR
             assertThatThrownBy(() -> certificateService.addCertificateRequestToExisting(uuid, issueRequest))
                     .isInstanceOf(ValidationException.class);
+        }
+
+        @Test
+        void attachesPlainBase64Csr_storesNormalizedDerAndMatchingFingerprint() throws Exception {
+            // given — a REGISTERED placeholder and a well-formed plain base64(DER) CSR
+            Certificate registered = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.REGISTERED).build());
+            ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(SAMPLE_PKCS10);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+            // when
+            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+
+            // then — content and fingerprint are derived from the normalized DER
+            byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
+            String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
+            CertificateRequestEntity stored = certificateRequestRepository.findByFingerprint(expectedFingerprint).orElseThrow();
+            assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+        }
+
+        @Test
+        void attachesPemArmoredCsr_normalizesToPlainDerBeforeStorage() throws Exception {
+            // given — a REGISTERED placeholder and the same CSR, but PEM-armored (a common client mistake)
+            Certificate registered = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.REGISTERED).build());
+            String pemCsr = "-----BEGIN CERTIFICATE REQUEST-----\n" + SAMPLE_PKCS10 + "\n-----END CERTIFICATE REQUEST-----\n";
+            ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(pemCsr);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+            // when
+            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+
+            // then — the PEM armor must not leak into the stored content/fingerprint; both are derived
+            // from the normalized DER that createCertificateRequest actually parsed, matching what would
+            // have been stored for the equivalent plain base64(DER) input
+            byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
+            String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
+            CertificateRequestEntity stored = certificateRequestRepository.findByFingerprint(expectedFingerprint).orElseThrow();
+            assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+        }
+
+        @Test
+        void attachesDoubleBase64EncodedCsr_normalizesToPlainDerBeforeStorage() throws Exception {
+            // given — a REGISTERED placeholder and the same CSR, but base64-encoded twice (another
+            // common client mistake)
+            Certificate registered = certificateRepository.save(
+                    aCertificate().withRaProfile(raProfile).withState(CertificateState.REGISTERED).build());
+            String doubleEncodedCsr = Base64.getEncoder().encodeToString(SAMPLE_PKCS10.getBytes(StandardCharsets.UTF_8));
+            ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+            issueRequest.setRequest(doubleEncodedCsr);
+            issueRequest.setFormat(CertificateRequestFormat.PKCS10);
+
+            // when
+            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+
+            // then — the double encoding must not leak into the stored content/fingerprint
+            byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
+            String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
+            CertificateRequestEntity stored = certificateRequestRepository.findByFingerprint(expectedFingerprint).orElseThrow();
+            assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
         }
     }
 
