@@ -948,6 +948,37 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void updateMetadataAttributeDefinition_doesNotMutateCallerContent() throws AttributeException {
+        // Arrange
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("copyFixMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Copy Fix Meta");
+        props.setVisible(true);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("replay-value")));
+
+        // Act
+        AttributeDefinition attributeDefinition = attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorAuthority.getUuid());
+
+        // Assert: the caller's object must keep its content for later use (e.g. register->issue replay)
+        Assertions.assertEquals(1, metadataAttribute.getContent().size());
+        Assertions.assertEquals("replay-value", ((StringAttributeContentV3) metadataAttribute.getContent().getFirst()).getData());
+
+        // Assert: the persisted definition must not carry content
+        MetadataAttributeV3 storedDefinition = (MetadataAttributeV3) attributeDefinition.getDefinition();
+        Assertions.assertTrue(storedDefinition.getContent().isEmpty());
+
+        // Assert: reloading from the DB confirms the stripped copy (not the mutated caller object) was actually flushed
+        AttributeDefinition reloaded = attributeDefinitionRepository.findByAttributeUuid(attributeDefinition.getAttributeUuid()).orElseThrow();
+        MetadataAttributeV3 reloadedDefinition = (MetadataAttributeV3) reloaded.getDefinition();
+        Assertions.assertTrue(reloadedDefinition.getContent().isEmpty());
+    }
+
+    @Test
     void getRequestDataAttributesContentReturnsCorrectResponse() throws AttributeException {
         // Arrange
         DataAttributeV2 dataAttribute = new DataAttributeV2();
@@ -1440,6 +1471,18 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void testFieldMapping_extensionField_duplicateOidInOneMapping_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_ext_dup_oid");
+            attr.setFieldMapping(fieldMappingWith(extensionField(REGISTERED_EXTENSION_OID), extensionField(REGISTERED_EXTENSION_OID)));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains(REGISTERED_EXTENSION_OID)
+                    && ex.getMessage().contains("more than once"), ex::getMessage);
+        }
+
+        @Test
         void testFieldMapping_extensionField_registeredOid_ok() {
             DataAttributeV3 attr = fieldMappingAttribute("fm_ext_reg_oid");
             ExtensionMappedField ext = new ExtensionMappedField();
@@ -1556,10 +1599,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
             return attr;
         }
 
-        private FieldMapping fieldMappingWith(MappedField field) {
+        private FieldMapping fieldMappingWith(MappedField... fields) {
             FieldMapping fm = new FieldMapping();
             fm.setObjectType(ObjectType.X509_CERTIFICATE);
-            fm.setFields(List.of(field));
+            fm.setFields(List.of(fields));
             return fm;
         }
 
@@ -1567,6 +1610,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
             RdnMappedField f = new RdnMappedField();
             f.setFieldType(FieldType.RDN);
             f.setRdn(rdn);
+            return f;
+        }
+
+        private ExtensionMappedField extensionField(String extensionOid) {
+            ExtensionMappedField f = new ExtensionMappedField();
+            f.setFieldType(FieldType.EXTENSION);
+            f.setExtensionOid(extensionOid);
             return f;
         }
     }

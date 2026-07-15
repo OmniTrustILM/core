@@ -687,9 +687,13 @@ public class AttributeEngine {
         }
         attributeDefinition.setLabel(metadataAttribute.getProperties().getLabel());
 
-        // we don't need content in definition
-        metadataAttribute.setContent(List.of());
-        attributeDefinition.setDefinition(metadataAttribute);
+        // The definition must not carry content, but the caller's attribute object remains in use
+        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
+        // strip content on a copy, never on the caller's instance. The entity holds a live object
+        // reference serialized at flush time, so the copy must be a distinct instance.
+        MetadataAttribute definitionCopy = metadataAttribute.copy();
+        definitionCopy.setContent(List.of());
+        attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);
 
         return attributeDefinition;
@@ -1251,6 +1255,26 @@ public class AttributeEngine {
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         for (MappedField field : fieldMapping.getFields())
             validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
+        rejectDuplicateExtensionOids(attribute, fieldMapping, connectorUuidStr);
+    }
+
+    /**
+     * Rejects a single mapping that declares the same extension OID on more than one EXTENSION field.
+     * <p>
+     * Scope is deliberately narrow: extension-vs-extension collisions within one {@link FieldMapping}. At
+     * definition time we cannot know whether both a SAN field and an explicit {@code subjectAltName}-OID
+     * extension field will actually be populated, nor whether two separate definitions will project onto the
+     * same request, so those collisions are intentionally deferred to request time in
+     * {@code CertificateRequestAttributeProjector}.
+     */
+    private static void rejectDuplicateExtensionOids(DataAttributeV3 attribute, FieldMapping fieldMapping, String connectorUuidStr) throws AttributeException {
+        Set<String> seenExtensionOids = new HashSet<>();
+        for (MappedField field : fieldMapping.getFields()) {
+            if (field instanceof ExtensionMappedField ext && !seenExtensionOids.add(ext.getExtensionOid()))
+                throw new AttributeException(
+                        "fieldMapping declares certificate extension OID '%s' more than once; an extension may appear only once (RFC 5280)".formatted(ext.getExtensionOid()),
+                        attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        }
     }
 
     private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
