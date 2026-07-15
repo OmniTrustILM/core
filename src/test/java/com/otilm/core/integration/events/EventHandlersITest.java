@@ -497,16 +497,18 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testDiscoveryFinishedEventFinalizesFailedProcessingDiscovery() throws EventException {
+    void testDiscoveryFinishedEventIgnoresNonFinishSignal() throws EventException {
         DiscoveryHistory discovery = persistProcessingDiscovery();
 
+        // COMPLETED/FAILED payloads come from the discovery service with the state already persisted; only a
+        // PROCESSING or WARNING signal from certificate post-processing finalizes a processing discovery.
         discoveryFinishedEventHandler.handleEvent(
                 DiscoveryFinishedEventHandler.constructEventMessage(
                         discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.FAILED, "Provider failed.")));
 
         DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
-        Assertions.assertEquals(DiscoveryStatus.FAILED, persisted.getStatus());
-        Assertions.assertNotNull(persisted.getEndTime());
+        Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
+        Assertions.assertNull(persisted.getEndTime());
     }
 
     @Test

@@ -40,12 +40,13 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         DiscoveryHistory discovery = discoveryRepository.findByUuid(eventMessage.getObjectUuid()).orElseThrow(() -> new EventException(eventMessage.getEvent(), "Discovery with UUID %s not found".formatted(eventMessage.getObjectUuid())));
         DiscoveryResult discoveryResult = objectMapper.convertValue(eventMessage.getData(), DiscoveryResult.class);
 
-        // Post-processing reports back once the discovered certificates have been handled; only then is the
-        // top-level status finalized. A PROCESSING payload is the clean-completion signal, a terminal payload
-        // carries the actual outcome. Finalizing only from the persisted PROCESSING state keeps this idempotent
-        // and leaves an already-terminal discovery (finalized directly by the discovery service) untouched.
+        // Certificate post-processing reports back once the discovered certificates have been handled, signalling
+        // PROCESSING on a clean run or WARNING when some certificates failed; only then is the top-level status
+        // finalized. COMPLETED/FAILED payloads originate from the discovery service, which has already persisted
+        // that terminal state, so they are ignored here. Acting only on a not-yet-terminal discovery keeps this
+        // idempotent against event redelivery and leaves a service-finalized discovery untouched.
         DiscoveryStatus reportedStatus = discoveryResult.getDiscoveryStatus();
-        if (discovery.getStatus() == DiscoveryStatus.PROCESSING && isFinalizeSignal(reportedStatus)) {
+        if (!isTerminal(discovery.getStatus()) && isPostProcessingFinishSignal(reportedStatus)) {
             DiscoveryStatus finalStatus = reportedStatus == DiscoveryStatus.PROCESSING ? DiscoveryStatus.COMPLETED : reportedStatus;
             discovery.setStatus(finalStatus);
             discovery.setEndTime(new Date());
@@ -82,19 +83,18 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         return new EventMessage(ResourceEvent.DISCOVERY_FINISHED, Resource.DISCOVERY, discoveryUuid, null, null, discoveryResult, userUuid, scheduledJobInfo);
     }
 
-    private static boolean isFinalizeSignal(DiscoveryStatus reportedStatus) {
-        return reportedStatus == DiscoveryStatus.PROCESSING
-                || reportedStatus == DiscoveryStatus.COMPLETED
-                || reportedStatus == DiscoveryStatus.WARNING
-                || reportedStatus == DiscoveryStatus.FAILED;
+    private static boolean isPostProcessingFinishSignal(DiscoveryStatus reportedStatus) {
+        return reportedStatus == DiscoveryStatus.PROCESSING || reportedStatus == DiscoveryStatus.WARNING;
+    }
+
+    private static boolean isTerminal(DiscoveryStatus status) {
+        return status == DiscoveryStatus.COMPLETED || status == DiscoveryStatus.WARNING || status == DiscoveryStatus.FAILED;
     }
 
     private static String buildFinishedMessage(DiscoveryStatus finalStatus, String detail) {
-        String summary = switch (finalStatus) {
-            case WARNING -> "Discovery completed with warnings.";
-            case FAILED -> "Discovery failed.";
-            default -> "Discovery completed successfully.";
-        };
+        String summary = finalStatus == DiscoveryStatus.WARNING
+                ? "Discovery completed with warnings."
+                : "Discovery completed successfully.";
         return detail == null ? summary : summary + " " + detail;
     }
 
