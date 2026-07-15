@@ -689,9 +689,9 @@ public class AttributeEngine {
 
         // The definition must not carry content, but the caller's attribute object remains in use
         // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
-        // strip content on a clone, never on the caller's instance. The entity holds a live object
-        // reference serialized at flush time, so the clone must be a distinct instance.
-        MetadataAttribute definitionCopy = metadataAttribute.clone();
+        // strip content on a copy, never on the caller's instance. The entity holds a live object
+        // reference serialized at flush time, so the copy must be a distinct instance.
+        MetadataAttribute definitionCopy = metadataAttribute.copy();
         definitionCopy.setContent(List.of());
         attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);

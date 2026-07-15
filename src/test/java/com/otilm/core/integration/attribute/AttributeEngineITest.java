@@ -952,11 +952,11 @@ class AttributeEngineITest extends BaseSpringBootTest {
         // Arrange
         MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
         metadataAttribute.setUuid(UUID.randomUUID().toString());
-        metadataAttribute.setName("cloneFixMeta");
+        metadataAttribute.setName("copyFixMeta");
         metadataAttribute.setType(AttributeType.META);
         metadataAttribute.setContentType(AttributeContentType.STRING);
         MetadataAttributeProperties props = new MetadataAttributeProperties();
-        props.setLabel("Clone Fix Meta");
+        props.setLabel("Copy Fix Meta");
         props.setVisible(true);
         metadataAttribute.setProperties(props);
         metadataAttribute.setContent(List.of(new StringAttributeContentV3("replay-value")));
