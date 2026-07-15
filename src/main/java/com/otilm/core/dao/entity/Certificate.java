@@ -127,7 +127,7 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
     @Column(name = "qc_cc_legislation")
     private String qcCcLegislation;
 
-    @Column(name = "key_usage")
+    @Column(name = "key_usage", nullable = false)
     private int keyUsage;
 
     @Column(name = "subject_type", nullable = false)
@@ -254,10 +254,10 @@ public class Certificate extends UniquelyIdentifiedAndAudited implements Complia
     @Column(name = "alt_signature_algorithm")
     private String altSignatureAlgorithm;
 
-    @Column(name = "hybrid_certificate")
+    @Column(name = "hybrid_certificate", nullable = false)
     private boolean hybridCertificate = false;
 
-    @Column(name = "archived")
+    @Column(name = "archived", nullable = false)
     private boolean archived = false;
 
     /**
