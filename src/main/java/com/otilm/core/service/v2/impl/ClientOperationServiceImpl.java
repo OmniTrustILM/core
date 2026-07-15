@@ -2411,7 +2411,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (raProfile == null) {
                 throw new ValidationException("Cannot generate certificate request without specifying RA profile");
             }
-            // prefer connector-supplied v3 definitions (carry fieldMapping); fall back to a static CSR default set
             List<DataAttributeV3> definitions = issuanceDefinitionResolver.resolve(raProfile);
 
             // validate and update definitions of certificate request attributes with the attribute engine
