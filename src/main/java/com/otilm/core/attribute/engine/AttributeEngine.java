@@ -1246,6 +1246,20 @@ public class AttributeEngine {
                     attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
         for (MappedField field : fieldMapping.getFields())
             validateMappedField(attribute, field, connectorUuidStr, codeToOidMap);
+        rejectDuplicateExtensionOids(attribute, fieldMapping, connectorUuidStr);
+    }
+
+    /**
+     * Rejects a single mapping that declares the same extension OID on more than one EXTENSION field.
+     */
+    private static void rejectDuplicateExtensionOids(DataAttributeV3 attribute, FieldMapping fieldMapping, String connectorUuidStr) throws AttributeException {
+        Set<String> seenExtensionOids = new HashSet<>();
+        for (MappedField field : fieldMapping.getFields()) {
+            if (field instanceof ExtensionMappedField ext && !seenExtensionOids.add(ext.getExtensionOid()))
+                throw new AttributeException(
+                        "fieldMapping declares certificate extension OID '%s' more than once; an extension may appear only once (RFC 5280)".formatted(ext.getExtensionOid()),
+                        attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+        }
     }
 
     private static void validateMappedField(DataAttributeV3 attribute, MappedField field, String connectorUuidStr, Supplier<Map<String, String>> codeToOidMap) throws AttributeException {
