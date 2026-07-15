@@ -303,6 +303,23 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void approvalRejectedRestoresPlatformLevelNoSecretPlaceholder() throws Exception {
+        // A platform-level pre-registration with NO secret still carries a register->issue binding, so its issuance
+        // approval rejection restores it to REGISTERED, symmetric with the connector-backed and secret cases.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        UUID certUuid = UUID.fromString(
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, registrationRequest()).getUuid());
+
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a no-secret platform-level placeholder restores to REGISTERED on approval rejection");
+        Assertions.assertEquals(0, authorizationRepository.count(), "a no-secret flow carries no challenge authorization");
+    }
+
+    @Test
     void approvalRejectedRestoresPlatformLevelSecretPlaceholder() throws Exception {
         // A platform-level (no binding) secret-protected pre-registration must restore to REGISTERED on approval
         // rejection — identified by its challenge authorization — keeping the authorization ACTIVE for retry, the
@@ -329,21 +346,22 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void platformLevelRegistrationStoreFailureFailsPlaceholder() {
-        // Platform-level path (v2 authority): a challenge-store failure must fail the placeholder and leave no
-        // authorization, mirroring the connector-backed path's pre-acceptance cleanup.
+        // Platform-level path (v2 authority): a challenge-store failure must fail the placeholder (FAILED, not left
+        // in PENDING_REGISTRATION) and leave no authorization, mirroring connectorFailureLeavesPlaceholderFailed.
         when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
         doThrow(new IllegalStateException("challenge encryption failed"))
                 .when(registrationChallengeStore).store(Mockito.any(), Mockito.any());
         ClientCertificateRegistrationDto request = registrationRequest();
         request.setAuthorizationSecret(CHALLENGE);
 
-        Assertions.assertThrows(RuntimeException.class, () -> clientOperationService.registerCertificate(
+        Assertions.assertThrows(IllegalStateException.class, () -> clientOperationService.registerCertificate(
                 authorityParent, securedRaProfile, request));
 
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size(), "the placeholder is created, then failed (positively covering the catch)");
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a store failure fails the platform-level placeholder");
         Assertions.assertEquals(0, authorizationRepository.count(), "a store failure persists no authorization");
-        Assertions.assertTrue(
-                certificateRepository.findAll().stream().noneMatch(c -> c.getState() == CertificateState.PENDING_REGISTRATION),
-                "a store failure must fail the platform-level placeholder, not orphan it in PENDING_REGISTRATION");
     }
 
     @Test
