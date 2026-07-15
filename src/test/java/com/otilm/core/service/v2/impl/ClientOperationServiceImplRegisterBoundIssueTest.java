@@ -178,8 +178,6 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
         when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
         when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
-        // A register-bound placeholder was created via the flag-gated register flow, so its authority advertises
-        // CERTIFICATE_REGISTRATION — the issue routing now requires that flag to take the register-bound path.
         when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_REGISTRATION))).thenReturn(true);
     }
 
