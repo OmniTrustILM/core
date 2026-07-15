@@ -1471,6 +1471,18 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void testFieldMapping_extensionField_duplicateOidInOneMapping_throws() {
+            DataAttributeV3 attr = fieldMappingAttribute("fm_ext_dup_oid");
+            attr.setFieldMapping(fieldMappingWith(extensionField(REGISTERED_EXTENSION_OID), extensionField(REGISTERED_EXTENSION_OID)));
+
+            UUID connectorUuid = connectorAuthority.getUuid();
+            AttributeException ex = Assertions.assertThrows(AttributeException.class,
+                    () -> attributeEngine.updateDataAttributeDefinitions(connectorUuid, AttributeOperation.CERTIFICATE_ISSUE, List.of(attr)));
+            Assertions.assertTrue(ex.getMessage().contains(REGISTERED_EXTENSION_OID)
+                    && ex.getMessage().contains("more than once"), ex::getMessage);
+        }
+
+        @Test
         void testFieldMapping_extensionField_registeredOid_ok() {
             DataAttributeV3 attr = fieldMappingAttribute("fm_ext_reg_oid");
             ExtensionMappedField ext = new ExtensionMappedField();
@@ -1587,10 +1599,10 @@ class AttributeEngineITest extends BaseSpringBootTest {
             return attr;
         }
 
-        private FieldMapping fieldMappingWith(MappedField field) {
+        private FieldMapping fieldMappingWith(MappedField... fields) {
             FieldMapping fm = new FieldMapping();
             fm.setObjectType(ObjectType.X509_CERTIFICATE);
-            fm.setFields(List.of(field));
+            fm.setFields(List.of(fields));
             return fm;
         }
 
@@ -1598,6 +1610,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
             RdnMappedField f = new RdnMappedField();
             f.setFieldType(FieldType.RDN);
             f.setRdn(rdn);
+            return f;
+        }
+
+        private ExtensionMappedField extensionField(String extensionOid) {
+            ExtensionMappedField f = new ExtensionMappedField();
+            f.setFieldType(FieldType.EXTENSION);
+            f.setExtensionOid(extensionOid);
             return f;
         }
     }

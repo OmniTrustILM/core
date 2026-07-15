@@ -286,6 +286,55 @@ class X509RequestContentRendererTest {
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("Invalid or missing extension OID");
         }
+
+        @Test
+        void throwsIoException_whenTwoExtensionsShareTheSameOid() {
+            // given — two requested extensions carrying the same OID (RFC 5280: each extension OID is unique)
+            var oid = "2.5.29.37";
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(derExtension(oid), derExtension(oid)));
+
+            // when / then — the renderer rejects the second occurrence before it reaches BouncyCastle, as a controlled IOException naming the OID
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(oid);
+        }
+
+        @Test
+        void throwsIoException_whenExplicitExtensionDuplicatesSubjectAltName() {
+            // given — a SAN entry plus an explicit extension mapped to the subjectAltName OID; both render into 2.5.29.17
+            var sanOid = Extension.subjectAlternativeName.getId();
+            var x509 = sansOf(san(GeneralNameType.DNS, "host.example.com"));
+            x509.setExtensions(List.of(derExtension(sanOid)));
+
+            // when / then — the subjectAltName extension may appear only once (RFC 5280)
+            assertThatThrownBy(() -> X509RequestContentRenderer.toExtensions(x509))
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining(sanOid);
+        }
+
+        @Test
+        void rendersSanExtension_whenExplicitSubjectAltNameOidHasNoCompetingSanList() throws Exception {
+            // given — no SAN list, but an explicit extension mapped to the subjectAltName OID (legal: the OID appears only once)
+            var sanOid = Extension.subjectAlternativeName.getId();
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(derExtension(sanOid)));
+
+            // when — the seenOids guard must not pre-register the SAN OID when the SAN list is empty
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+
+            // then — the explicit extension renders as the subjectAltName extension
+            assertThat(extensions.getExtension(Extension.subjectAlternativeName)).isNotNull();
+        }
+
+        private static RequestedExtension derExtension(String oid) {
+            var e = new RequestedExtension();
+            e.setOid(oid);
+            e.setCritical(false);
+            e.setEncoding(ExtensionValueEncoding.DER);
+            e.setValue("MAMCAQA=");
+            return e;
+        }
     }
 
     // ── OtherNameEncoding ───────────────────────────────────────────────────
