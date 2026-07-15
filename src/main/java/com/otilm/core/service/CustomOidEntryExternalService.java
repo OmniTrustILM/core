@@ -59,6 +59,14 @@ public interface CustomOidEntryExternalService {
      */
     CustomOidEntryListResponseDto listCustomOidEntries(SearchRequestDto request);
 
+    /**
+     * Returns the built-in system OID entries, optionally filtered by category.
+     *
+     * @param category optional category filter; when {@code null}, all system OIDs are returned
+     * @return list of system OID entries
+     */
+    List<CustomOidEntryDetailResponseDto> listSystemOidEntries(OidCategory category);
+
 
     /**
      * Returns a list of properties for filtering custom OID entries

@@ -2,6 +2,8 @@ package com.otilm.core.mapper.oid;
 
 import com.otilm.api.model.core.oid.CustomOidEntryDetailResponseDto;
 import com.otilm.api.model.core.oid.CustomOidEntryResponseDto;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.oid.properties.AdditionalOidPropertiesDto;
 import com.otilm.api.model.core.oid.properties.CertificateExtensionOidPropertiesDto;
 import com.otilm.api.model.core.oid.properties.RdnAttributeTypeOidPropertiesDto;
@@ -24,6 +26,20 @@ public class CustomOidEntryMapper {
         CustomOidEntryDetailResponseDto dto = new CustomOidEntryDetailResponseDto();
         populateBaseFields(entry, dto);
         dto.setAdditionalProperties(toAdditionalProperties(entry));
+        return dto;
+    }
+
+    public static CustomOidEntryDetailResponseDto toDetailDto(SystemOid systemOid) {
+        CustomOidEntryDetailResponseDto dto = new CustomOidEntryDetailResponseDto();
+        dto.setOid(systemOid.getOid());
+        dto.setCategory(systemOid.getCategory());
+        dto.setDisplayName(systemOid.getDisplayName());
+        if (systemOid.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE) {
+            RdnAttributeTypeOidPropertiesDto props = new RdnAttributeTypeOidPropertiesDto();
+            props.setCode(systemOid.getCode());
+            props.setAltCodes(systemOid.getAltCodes());
+            dto.setAdditionalProperties(props);
+        }
         return dto;
     }
 
