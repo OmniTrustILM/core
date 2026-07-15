@@ -71,7 +71,6 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -81,6 +80,9 @@ import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.verify;
 
 class EventHandlersITest extends BaseSpringBootTest {
 
@@ -547,7 +549,7 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateDiscoveredEventHandler.handleEvent(
                 CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
 
-        Mockito.verify(eventProducer).produceMessage(Mockito.argThat((EventMessage msg) ->
+        verify(eventProducer).produceMessage(argThat((EventMessage msg) ->
                 msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
                         && discovery.getUuid().equals(msg.getObjectUuid())
                         && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.PROCESSING));
@@ -571,7 +573,7 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateDiscoveredEventHandler.handleEvent(
                 CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
 
-        Mockito.verify(eventProducer).produceMessage(Mockito.argThat((EventMessage msg) ->
+        verify(eventProducer).produceMessage(argThat((EventMessage msg) ->
                 msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
                         && discovery.getUuid().equals(msg.getObjectUuid())
                         && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.WARNING));
