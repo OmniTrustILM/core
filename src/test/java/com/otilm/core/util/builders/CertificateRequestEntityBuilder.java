@@ -2,7 +2,6 @@ package com.otilm.core.util.builders;
 
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 
 import java.security.NoSuchAlgorithmException;
