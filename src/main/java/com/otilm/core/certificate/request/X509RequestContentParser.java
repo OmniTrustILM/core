@@ -82,7 +82,7 @@ public final class X509RequestContentParser {
         return parseSubject(subject);
     }
 
-    private static List<RdnEntry> parseSubject(X500Name subject) {
+    static List<RdnEntry> parseSubject(X500Name subject) {
         List<RdnEntry> result = new ArrayList<>();
         for (RDN rdn : subject.getRDNs()) {
             for (AttributeTypeAndValue atv : rdn.getTypesAndValues()) {
@@ -126,15 +126,26 @@ public final class X509RequestContentParser {
     }
 
     private static List<GeneralNameEntry> parseSans(CertificateRequest request, List<String> unsupportedSans) {
-        List<GeneralNameEntry> result = new ArrayList<>();
         Extensions extensions = extractExtensions(request);
         if (extensions == null) {
-            return result;
+            return new ArrayList<>();
         }
         GeneralNames generalNames = GeneralNames.fromExtensions(extensions, Extension.subjectAlternativeName);
         if (generalNames == null) {
-            return result;
+            return new ArrayList<>();
         }
+        List<GeneralNameEntry> entries = toGeneralNameEntries(generalNames, unsupportedSans);
+        for (String kind : unsupportedSans) {
+            log.warn("SAN {} in CSR has no typed representation; counted for whitelist enforcement", kind);
+        }
+        return entries;
+    }
+
+    /**
+     * Decodes each name into a typed entry, collecting the kinds it cannot represent into {@code unsupportedSans}.
+     */
+    static List<GeneralNameEntry> toGeneralNameEntries(GeneralNames generalNames, List<String> unsupportedSans) {
+        List<GeneralNameEntry> result = new ArrayList<>();
         for (GeneralName name : generalNames.getNames()) {
             String kind = sanKindName(name.getTagNo());
             try {
@@ -143,11 +154,10 @@ public final class X509RequestContentParser {
                     result.add(entry);
                 } else {
                     unsupportedSans.add(kind);
-                    log.warn("SAN {} in CSR has no typed representation; counted for whitelist enforcement", kind);
                 }
             } catch (RuntimeException | IOException ex) {
                 unsupportedSans.add(kind);
-                log.warn("Failed to decode SAN {} in CSR; counted for whitelist enforcement", kind, ex);
+                log.debug("Failed to decode SAN {}; skipped from typed content", kind, ex);
             }
         }
         return result;
