@@ -64,6 +64,11 @@ public final class X509RequestContentRenderer {
      * Builds the SAN extension and any requested extensions into a BC {@link Extensions}.
      * RFC 5280 must-stay-critical OIDs are forced critical regardless of the supplied flag.
      * Returns null if no extensions are present in the request.
+     * <p>
+     * The duplicate-OID guard here is defense-in-depth: the sole production caller runs
+     * {@code CertificateRequestAttributeProjector.project()} first, which already rejects duplicate OIDs and
+     * SAN/explicit collisions upstream. This kernel method is public, so it enforces the invariant itself
+     * rather than trusting every caller to have deduped.
      */
     public static Extensions toExtensions(X509RequestContent x509) throws IOException {
         ExtensionsGenerator gen = new ExtensionsGenerator();

@@ -1256,6 +1256,12 @@ public class AttributeEngine {
 
     /**
      * Rejects a single mapping that declares the same extension OID on more than one EXTENSION field.
+     * <p>
+     * Scope is deliberately narrow: extension-vs-extension collisions within one {@link FieldMapping}. At
+     * definition time we cannot know whether both a SAN field and an explicit {@code subjectAltName}-OID
+     * extension field will actually be populated, nor whether two separate definitions will project onto the
+     * same request, so those collisions are intentionally deferred to request time in
+     * {@code CertificateRequestAttributeProjector}.
      */
     private static void rejectDuplicateExtensionOids(DataAttributeV3 attribute, FieldMapping fieldMapping, String connectorUuidStr) throws AttributeException {
         Set<String> seenExtensionOids = new HashSet<>();

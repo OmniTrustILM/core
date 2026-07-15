@@ -313,6 +313,20 @@ class X509RequestContentRendererTest {
                     .hasMessageContaining(sanOid);
         }
 
+        @Test
+        void rendersSanExtension_whenExplicitSubjectAltNameOidHasNoCompetingSanList() throws Exception {
+            // given — no SAN list, but an explicit extension mapped to the subjectAltName OID (legal: the OID appears only once)
+            var sanOid = Extension.subjectAlternativeName.getId();
+            var x509 = new X509RequestContent();
+            x509.setExtensions(List.of(derExtension(sanOid)));
+
+            // when — the seenOids guard must not pre-register the SAN OID when the SAN list is empty
+            Extensions extensions = X509RequestContentRenderer.toExtensions(x509);
+
+            // then — the explicit extension renders as the subjectAltName extension
+            assertThat(extensions.getExtension(Extension.subjectAlternativeName)).isNotNull();
+        }
+
         private static RequestedExtension derExtension(String oid) {
             var e = new RequestedExtension();
             e.setOid(oid);
