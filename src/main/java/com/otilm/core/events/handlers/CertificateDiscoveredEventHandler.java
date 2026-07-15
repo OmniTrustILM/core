@@ -151,9 +151,28 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         List<DiscoveryCertificate> discoveredCertificates = discoveryCertificateRepository.findByDiscoveryUuidAndNewlyDiscovered(eventMessage.getOverrideObjectUuid(), true, Pageable.unpaged());
         logger.debug("Going to process {} triggers on {} discovered certificates", mergedIgnoreTriggers.size() + mergedTriggers.size(), context.getResourceObjects().size());
 
+        // The DISCOVERY_FINISHED event is the only signal that rolls the top-level status out of PROCESSING, so it
+        // must be emitted even when post-processing fails partway; otherwise the discovery is stranded in PROCESSING
+        // with a growing duration and can never be finalized.
+        boolean discoveryFinishEmitted = false;
+        try {
+            discoveryFinishEmitted = handleDiscoveredCertificates(context, discovery, originalMessage, discoveredCertificates, mergedIgnoreTriggers, mergedTriggers);
+        } catch (Exception e) {
+            logger.error("Post-processing of discovered certificates for discovery {} did not complete: {}", discovery.getName(), e.getMessage(), e);
+        } finally {
+            if (!discoveryFinishEmitted) {
+                emitDiscoveryFinished(discovery, context, DiscoveryStatus.WARNING,
+                        "Discovery post-processing did not complete; some certificates may not have been processed.");
+            }
+        }
+    }
+
+    private boolean handleDiscoveredCertificates(EventContext<Certificate> context, DiscoveryHistory discovery, String originalMessage,
+                                                 List<DiscoveryCertificate> discoveredCertificates, List<TriggerAssociation> mergedIgnoreTriggers,
+                                                 List<TriggerAssociation> mergedTriggers) {
         if (discoveredCertificates.isEmpty()) {
-            eventProducer.produceMessage(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), context.getUserUuid(), context.getScheduledJobInfo(), new DiscoveryResult(DiscoveryStatus.PROCESSING, originalMessage)));
-            return;
+            emitDiscoveryFinished(discovery, context, DiscoveryStatus.PROCESSING, originalMessage);
+            return true;
         }
 
         EventHistory eventHistoryDiscovery = createEventHistory(ResourceEvent.CERTIFICATE_DISCOVERED, Resource.DISCOVERY, discovery.getUuid());
@@ -224,9 +243,23 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         saveEventHistory(eventHistoryDiscovery, EventStatus.FINISHED);
         saveEventHistory(eventHistoryPlatform, EventStatus.FINISHED);
 
-        // trigger other events
-        eventProducer.produceMessage(DiscoveryFinishedEventHandler.constructEventMessage(discovery.getUuid(), context.getUserUuid(), context.getScheduledJobInfo(), new DiscoveryResult(DiscoveryStatus.PROCESSING, originalMessage)));
+        // A WARNING finish surfaces certificates that could not be processed (recorded per DiscoveryCertificate);
+        // a clean run reports PROCESSING, which the finish handler rolls up to COMPLETED.
+        long erroredCertificates = discoveryCertificateRepository.countByDiscoveryAndProcessedErrorNotNull(discovery);
         validationProducer.produceMessage(new ValidationMessage(Resource.CERTIFICATE, null, discovery.getUuid(), discovery.getName(), null, null));
+        if (erroredCertificates > 0) {
+            emitDiscoveryFinished(discovery, context, DiscoveryStatus.WARNING,
+                    "%d certificate(s) could not be processed during discovery.".formatted(erroredCertificates));
+        } else {
+            emitDiscoveryFinished(discovery, context, DiscoveryStatus.PROCESSING, originalMessage);
+        }
+        return true;
+    }
+
+    private void emitDiscoveryFinished(DiscoveryHistory discovery, EventContext<Certificate> context, DiscoveryStatus status, String message) {
+        eventProducer.produceMessage(DiscoveryFinishedEventHandler.constructEventMessage(
+                discovery.getUuid(), context.getUserUuid(), context.getScheduledJobInfo(),
+                new DiscoveryResult(status, message)));
     }
 
     private void processDiscoveredCertificate(EventContext<Certificate> eventContext, List<TriggerAssociation> mergedIgnoreTriggers, List<TriggerAssociation> mergedTriggers, int certIndex, int totalCount, DiscoveryHistory discovery, DiscoveryCertificate discoveryCertificate, ConcurrentMap<PublicKey, List<UUID>> keysToCertificatesMap,
