@@ -53,7 +53,9 @@ import com.otilm.core.events.data.EventDataBuilder;
 import com.otilm.core.events.handlers.*;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.listeners.NotificationListener;
+import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
+import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.ScheduledTaskResult;
@@ -70,6 +72,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -77,6 +80,9 @@ import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.verify;
 
 class EventHandlersITest extends BaseSpringBootTest {
 
@@ -125,6 +131,12 @@ class EventHandlersITest extends BaseSpringBootTest {
     private DiscoveryRepository discoveryRepository;
     @Autowired
     private DiscoveryFinishedEventHandler discoveryFinishedEventHandler;
+    @Autowired
+    private CertificateDiscoveredEventHandler certificateDiscoveredEventHandler;
+    @Autowired
+    private DiscoveryCertificateRepository discoveryCertificateRepository;
+    @MockitoSpyBean
+    private EventProducer eventProducer;
 
     @Autowired
     private AttributeEngine attributeEngine;
@@ -465,6 +477,118 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, eventHistories.size());
         Assertions.assertEquals(EventStatus.FAILED, eventHistories.getFirst().getStatus());
         Assertions.assertNotNull(eventHistories.getFirst().getFinishedAt());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventCompletesProcessingDiscovery() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.PROCESSING, "Provider completed.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions.assertNotNull(persisted.getEndTime());
+        Assertions.assertEquals("Discovery completed successfully. Provider completed.", persisted.getMessage());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventMarksWarningWhenCertificatesFailed() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null,
+                        new DiscoveryResult(DiscoveryStatus.WARNING, "2 certificate(s) could not be processed during discovery.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.WARNING, persisted.getStatus());
+        Assertions.assertNotNull(persisted.getEndTime());
+        Assertions.assertEquals("Discovery completed with warnings. 2 certificate(s) could not be processed during discovery.", persisted.getMessage());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventIgnoresNonFinishSignal() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        // COMPLETED/FAILED payloads come from the discovery service with the state already persisted; only a
+        // PROCESSING or WARNING signal from certificate post-processing finalizes a processing discovery.
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.FAILED, "Provider failed.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.PROCESSING, persisted.getStatus());
+        Assertions.assertNull(persisted.getEndTime());
+    }
+
+    @Test
+    void testDiscoveryFinishedEventLeavesTerminalDiscoveryUnchanged() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+        discovery.setStatus(DiscoveryStatus.COMPLETED);
+        discovery.setEndTime(new Date());
+        discovery.setMessage("Discovery completed successfully.");
+        discoveryRepository.save(discovery);
+        Date endTimeBefore = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow().getEndTime();
+
+        discoveryFinishedEventHandler.handleEvent(
+                DiscoveryFinishedEventHandler.constructEventMessage(
+                        discovery.getUuid(), null, null, new DiscoveryResult(DiscoveryStatus.COMPLETED, "Late duplicate event.")));
+
+        DiscoveryHistory persisted = discoveryRepository.findByUuid(discovery.getUuid()).orElseThrow();
+        Assertions.assertEquals(DiscoveryStatus.COMPLETED, persisted.getStatus());
+        Assertions.assertEquals(endTimeBefore, persisted.getEndTime());
+        Assertions.assertEquals("Discovery completed successfully.", persisted.getMessage());
+    }
+
+    @Test
+    void testCertificateDiscoveredEmitsFinishWhenNoNewCertificates() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        certificateDiscoveredEventHandler.handleEvent(
+                CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
+
+        verify(eventProducer).produceMessage(argThat((EventMessage msg) ->
+                msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
+                        && discovery.getUuid().equals(msg.getObjectUuid())
+                        && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.PROCESSING));
+    }
+
+    @Test
+    void testCertificateDiscoveredEmitsWarningWhenCertificateProcessingFails() throws EventException {
+        DiscoveryHistory discovery = persistProcessingDiscovery();
+
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent("not-a-valid-certificate");
+        certificateContent = certificateContentRepository.save(certificateContent);
+
+        DiscoveryCertificate discoveryCertificate = new DiscoveryCertificate();
+        discoveryCertificate.setCommonName("failing-cert");
+        discoveryCertificate.setNewlyDiscovered(true);
+        discoveryCertificate.setCertificateContent(certificateContent);
+        discoveryCertificate.setDiscovery(discovery);
+        discoveryCertificateRepository.save(discoveryCertificate);
+
+        certificateDiscoveredEventHandler.handleEvent(
+                CertificateDiscoveredEventHandler.constructEventMessage(discovery.getUuid(), null, null));
+
+        verify(eventProducer).produceMessage(argThat((EventMessage msg) ->
+                msg.getEvent() == ResourceEvent.DISCOVERY_FINISHED
+                        && discovery.getUuid().equals(msg.getObjectUuid())
+                        && ((DiscoveryResult) msg.getData()).getDiscoveryStatus() == DiscoveryStatus.WARNING));
+        DiscoveryCertificate processed = discoveryCertificateRepository.findByUuid(discoveryCertificate.getUuid()).orElseThrow();
+        Assertions.assertNotNull(processed.getProcessedError());
+    }
+
+    private DiscoveryHistory persistProcessingDiscovery() {
+        DiscoveryHistory discovery = new DiscoveryHistory();
+        discovery.setName("TestDiscovery");
+        discovery.setKind("IP");
+        discovery.setStatus(DiscoveryStatus.PROCESSING);
+        discovery.setConnectorUuid(UUID.randomUUID());
+        discovery.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        return discoveryRepository.save(discovery);
     }
 
     @Test

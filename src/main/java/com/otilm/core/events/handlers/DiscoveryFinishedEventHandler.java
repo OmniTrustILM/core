@@ -40,12 +40,17 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
         DiscoveryHistory discovery = discoveryRepository.findByUuid(eventMessage.getObjectUuid()).orElseThrow(() -> new EventException(eventMessage.getEvent(), "Discovery with UUID %s not found".formatted(eventMessage.getObjectUuid())));
         DiscoveryResult discoveryResult = objectMapper.convertValue(eventMessage.getData(), DiscoveryResult.class);
 
-        // set discovery status to completed when discovery is in preprocessing state coming from certificate discovered event
-        if (discoveryResult.getDiscoveryStatus() == DiscoveryStatus.PROCESSING) {
-            String message = discoveryResult.getMessage() == null ? "Discovery completed successfully." : "Discovery completed successfully. " + discoveryResult.getMessage();
-            discovery.setMessage(message);
-            discovery.setStatus(DiscoveryStatus.COMPLETED);
+        // Certificate post-processing reports back once the discovered certificates have been handled, signalling
+        // PROCESSING on a clean run or WARNING when some certificates failed; only then is the top-level status
+        // finalized. COMPLETED/FAILED payloads originate from the discovery service, which has already persisted
+        // that terminal state, so they are ignored here. The not-yet-terminal guard makes only this persisted
+        // write idempotent on redelivery; the base handler still dispatches follow-up notifications either way.
+        DiscoveryStatus reportedStatus = discoveryResult.getDiscoveryStatus();
+        if (!isTerminal(discovery.getStatus()) && isPostProcessingFinishSignal(reportedStatus)) {
+            DiscoveryStatus finalStatus = reportedStatus == DiscoveryStatus.PROCESSING ? DiscoveryStatus.COMPLETED : reportedStatus;
+            discovery.setStatus(finalStatus);
             discovery.setEndTime(new Date());
+            discovery.setMessage(buildFinishedMessage(finalStatus, discoveryResult.getMessage()));
             discoveryRepository.save(discovery);
         }
 
@@ -76,6 +81,21 @@ public class DiscoveryFinishedEventHandler extends EventHandler<DiscoveryHistory
 
     public static EventMessage constructEventMessage(UUID discoveryUuid, UUID userUuid, ScheduledJobInfo scheduledJobInfo, DiscoveryResult discoveryResult) {
         return new EventMessage(ResourceEvent.DISCOVERY_FINISHED, Resource.DISCOVERY, discoveryUuid, null, null, discoveryResult, userUuid, scheduledJobInfo);
+    }
+
+    private static boolean isPostProcessingFinishSignal(DiscoveryStatus reportedStatus) {
+        return reportedStatus == DiscoveryStatus.PROCESSING || reportedStatus == DiscoveryStatus.WARNING;
+    }
+
+    private static boolean isTerminal(DiscoveryStatus status) {
+        return status == DiscoveryStatus.COMPLETED || status == DiscoveryStatus.WARNING || status == DiscoveryStatus.FAILED;
+    }
+
+    private static String buildFinishedMessage(DiscoveryStatus finalStatus, String detail) {
+        String summary = finalStatus == DiscoveryStatus.WARNING
+                ? "Discovery completed with warnings."
+                : "Discovery completed successfully.";
+        return detail == null ? summary : summary + " " + detail;
     }
 
 }

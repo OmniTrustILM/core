@@ -25,6 +25,7 @@ public interface DiscoveryCertificateRepository extends SecurityFilterRepository
 
     Long countByDiscoveryAndNewlyDiscovered(DiscoveryHistory history, boolean newlyDiscovered);
     Long countByDiscoveryAndNewlyDiscoveredAndProcessed(DiscoveryHistory history, boolean newlyDiscovered, boolean processed);
+    Long countByDiscoveryAndProcessedErrorNotNull(DiscoveryHistory history);
     List<DiscoveryCertificate> findByCertificateContent(CertificateContent certificateContent);
 
 }
