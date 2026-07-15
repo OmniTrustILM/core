@@ -15,6 +15,8 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class IssuanceDefinitionResolverTest {
@@ -54,8 +56,23 @@ class IssuanceDefinitionResolverTest {
         // when
         List<DataAttributeV3> resolved = resolver.resolve(raProfile);
 
-        // then — the platform default set shapes the projection instead of resolving empty (design §13 edge-case 1)
+        // then — the platform default set shapes the projection instead of resolving empty
         assertThat(resolved).containsExactly(fqdn);
+    }
+
+    @Test
+    void rejectsResolution_whenResolvedSetIsEmpty() throws Exception {
+        // given — the shared resolver resolves to nothing at all (no static set, no connector set, empty default)
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("empty-profile");
+        doReturn(List.of()).when(requestAttributeService).resolveIssueAttributeSet(raProfile);
+
+        // when / then — the empty resolved set skips the default-set fallback and fails loudly; the default set is never consulted
+        assertThatThrownBy(() -> resolver.resolve(raProfile))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("empty-profile")
+                .hasMessageContaining("request attribute");
+        verify(requestAttributeService, never()).getDefaultSet(raProfile);
     }
 
     @Test
