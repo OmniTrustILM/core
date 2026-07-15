@@ -96,11 +96,12 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
     // ── Tests ─────────────────────────────────────────────────────────────────
 
     /**
-     * Register on a v2 authority must be rejected with {@link ValidationException}.
+     * Register on a v2 authority must create a platform-level pre-registration.
      *
-     * <p>The v2 adapter does not implement {@code RegisterCapability}, so the gate in
-     * {@code ClientOperationServiceImpl.registerCertificate} must reject the call before creating a
-     * placeholder certificate. No connector HTTP call is made, so a synthetic URL is sufficient.</p>
+     * <p>The v2 adapter does not implement {@code RegisterCapability}, so
+     * {@code ClientOperationServiceImpl.registerCertificate} takes the platform-level branch: it creates the
+     * placeholder and transitions it to {@code REGISTERED} with no connector {@code /register} call. No connector
+     * HTTP call is made, so a synthetic URL is sufficient.</p>
      */
     @Test
     public void register_v2Authority_createsPlatformLevelRegistration() throws Exception {
@@ -118,13 +119,14 @@ public class V3CapabilityGatingITest extends BaseSpringBootTest {
     }
 
     /**
-     * Register on a v3 authority that does NOT advertise {@code CERTIFICATE_REGISTRATION} must be
-     * rejected with {@link ValidationException}.
+     * Register on a v3 authority that does NOT advertise {@code CERTIFICATE_REGISTRATION} must create a
+     * platform-level pre-registration.
      *
-     * <p>The v3 adapter implements {@code RegisterCapability} at the protocol level, but the capability
-     * service gate requires the {@code CERTIFICATE_REGISTRATION} feature flag to also be present in the
-     * connector interface. Without it the call must fail before creating a placeholder. No connector HTTP
-     * call is made, so a synthetic URL is sufficient.</p>
+     * <p>The v3 adapter implements {@code RegisterCapability} at the protocol level, but without the
+     * {@code CERTIFICATE_REGISTRATION} feature flag the connector-backed path is unavailable, so
+     * {@code registerCertificate} takes the platform-level branch: the placeholder is created and transitioned to
+     * {@code REGISTERED} with no connector {@code /register} call. No connector HTTP call is made, so a synthetic
+     * URL is sufficient.</p>
      */
     @Test
     public void register_v3WithoutFlag_createsPlatformLevelRegistration() throws Exception {

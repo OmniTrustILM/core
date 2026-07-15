@@ -490,7 +490,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // RegisterCapability.register contract, under which any post-acceptance failure must surface as
             // ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException. No upstream work
             // is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
-            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + safeMessage(e, "registration setup failed"));
             // The authorization row (if the challenge opt-in created one) was committed before the connector call;
             // this registration never became effective, so remove it rather than leave an encrypted secret on a
             // dead certificate. Best-effort: a cleanup failure must not mask the registration failure below.
@@ -523,11 +523,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
-     * Platform-level pre-registration for an authority whose connector does not support registration: the
-     * placeholder and its challenge authorization are created and owned entirely by the platform, with no connector
-     * {@code /register} call. It reaches {@code REGISTERED} directly and is completed later through the normal issue
-     * path (which routes to the register-bound path only for {@code RegisterCapability} adapters). Nothing here
-     * implies a CA-side end-entity exists.
+     * Platform-level pre-registration used when connector-backed registration is not available for the authority —
+     * either the adapter is not a {@code RegisterCapability}, or the authority does not advertise the
+     * {@code CERTIFICATE_REGISTRATION} flag. The placeholder and its challenge authorization are created and owned
+     * entirely by the platform, with no connector {@code /register} call. It reaches {@code REGISTERED} directly and
+     * is completed later through the normal issue path (which routes to the register-bound path only for
+     * {@code RegisterCapability} adapters). Nothing here implies a CA-side end-entity exists.
      */
     private ClientCertificateDataResponseDto registerPlatformLevel(RaProfile raProfile,
                                                                    ClientCertificateRegistrationDto request,
@@ -540,12 +541,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             maybeCreateRegistrationAuthorization(certificate, request);
         } catch (RuntimeException e) {
             // A challenge store/save failure must fail the placeholder rather than orphan it in PENDING_REGISTRATION.
-            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + e.getMessage());
+            stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + safeMessage(e, "registration setup failed"));
             deleteRegistrationAuthorizationBestEffort(certificate.getUuid());
             throw e;
         }
         stateMachine.transition(certificate, CertificateState.REGISTERED);
-        logger.info("Certificate {} pre-registered at the platform level (authority connector does not support registration)", certificate.getUuid());
+        logger.info("Certificate {} pre-registered at the platform level (connector-backed registration not advertised for this authority)", certificate.getUuid());
         fireRegistrationEventIfChallengeProtected(certificate.getUuid());
 
         ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -1437,11 +1438,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final Certificate certificate = certificateRepository.findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         // A pre-registered placeholder whose issuance approval was rejected is restored to REGISTERED so the holder
-        // can retry — keyed on the register->issue binding, the same discriminator issueCertificateAction uses to
-        // route the placeholder (a no-secret pre-registration has a binding but no challenge authorization). Any
-        // challenge authorization stays ACTIVE. Non-registered certs keep the terminal REJECTED behaviour.
+        // can retry, rather than terminally rejected. A placeholder is identified by its register->issue binding
+        // (connector-backed pre-registration) OR its challenge authorization — a platform-level pre-registration has
+        // no binding, so the authorization is its marker. Any challenge authorization stays ACTIVE. Non-registered
+        // certs keep the terminal REJECTED behaviour.
         if (certificate.getState() == CertificateState.PENDING_APPROVAL
-                && certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
+                && (certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()
+                        || registrationAuthorizationRepository.existsByCertificateUuid(certificateUuid))) {
             stateMachine.transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                     "Issuance approval was rejected; certificate restored to " + CertificateState.REGISTERED.getLabel() + ".");
             return;
