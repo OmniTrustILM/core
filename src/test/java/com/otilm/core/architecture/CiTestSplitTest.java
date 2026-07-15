@@ -194,7 +194,7 @@ class CiTestSplitTest {
                 if (c == '*') {
                     sb.append("[^/]*");  // within a single path segment
                 } else if (c == '?') {
-                    sb.append('.');
+                    sb.append("[^/]");  // a single character within a segment, never the separator
                 } else if ("\\.[]{}()+-^$|".indexOf(c) >= 0) {
                     sb.append('\\').append(c);
                 } else {
@@ -315,11 +315,9 @@ class CiTestSplitTest {
 
     /**
      * The integration CI profiles key their includes on the {@code *ITest.java} suffix, but
-     * {@link #integrationRootContainsOnlyContextTests} only enforces context-loading. A runnable
-     * test in the integration root not named {@code *ITest} would pass that guard yet be picked up
-     * by the {@code test-non-integration} leg (its coverage lands in the wrong artifact), because
-     * that profile only excludes {@code integration/**}{@code /*ITest.java}. This guard keeps the
-     * integration profile includes and the taxonomy guard aligned.
+     * {@link #integrationRootContainsOnlyContextTests} only enforces context-loading. A runnable test
+     * in the integration root not named {@code *ITest} would pass that guard yet be picked up by the {@code test-non-integration}.
+     * This guard keeps the integration profile includes and the taxonomy guard aligned.
      */
     @Test
     void integrationRootRunnableTestsMustBeNamedITest() throws IOException {

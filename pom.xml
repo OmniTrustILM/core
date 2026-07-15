@@ -501,6 +501,8 @@
             </build>
         </profile>
 
+        <!-- Workers 3 & 4 split integration.service by the shared %regex boundary below.
+             The split is currently unbalanced, and rebalancing is manual as the suite grows. -->
         <!-- Worker 3: integration.service nested subpackages + flat classes A-C. -->
         <profile>
             <id>test-integration-service-1</id>
