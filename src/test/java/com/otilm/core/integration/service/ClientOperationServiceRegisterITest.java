@@ -8,6 +8,7 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -708,6 +709,24 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
         verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+    }
+
+    @Test
+    void registerValidatesAndPersistsCustomAttributes() throws Exception {
+        // Custom attributes on the registration request must be validated up front and actually persisted
+        // against the placeholder, the same as the submit/issue flow — not silently dropped.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        List<RequestAttribute> customAttributes = List.of(mock(RequestAttribute.class));
+        request.setCustomAttributes(customAttributes);
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        verify(attributeEngine).validateCustomAttributesContent(Resource.CERTIFICATE, customAttributes);
+        verify(attributeEngine).updateObjectCustomAttributesContent(Resource.CERTIFICATE, certUuid, customAttributes);
     }
 
     @Test

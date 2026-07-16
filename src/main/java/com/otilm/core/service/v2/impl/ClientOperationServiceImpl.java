@@ -425,10 +425,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
-                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException {
+                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException, AttributeException {
         if (request == null) {
             throw new ValidationException("A certificate registration request is required.");
         }
+
+        attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
         rejectAmbiguousRegistrationIdentity(request);
         rejectPastRegistrationWindow(request);
         // Connector call below holds no transaction (NOT_SUPPORTED), so load the authority graph eagerly —
@@ -464,6 +466,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
         stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
+
+        attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
 
         AdapterOperationResult result;
         try {
