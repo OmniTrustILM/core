@@ -206,7 +206,7 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testListSystemOidEntries() {
+    void testListSystemOidEntriesReturnsAllWhenNoCategory() {
         List<CustomOidEntryDetailResponseDto> all = customOidEntryService.listSystemOidEntries(null);
         Assertions.assertEquals(SystemOid.values().length, all.size());
 
@@ -218,7 +218,10 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         RdnAttributeTypeOidPropertiesDto commonNameProps = (RdnAttributeTypeOidPropertiesDto) commonName.getAdditionalProperties();
         Assertions.assertEquals(SystemOid.COMMON_NAME.getCode(), commonNameProps.getCode());
         Assertions.assertEquals(SystemOid.COMMON_NAME.getAltCodes(), commonNameProps.getAltCodes());
+    }
 
+    @Test
+    void testListSystemOidEntriesFiltersByRdnCategory() {
         long expectedRdnCount = Arrays.stream(SystemOid.values())
                 .filter(o -> o.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE).count();
         List<CustomOidEntryDetailResponseDto> rdns = customOidEntryService.listSystemOidEntries(OidCategory.RDN_ATTRIBUTE_TYPE);
@@ -228,14 +231,20 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
                 .filter(e -> e.getOid().equals(SystemOid.EMAIL.getOid()))
                 .findFirst().orElseThrow();
         Assertions.assertEquals(SystemOid.EMAIL.getAltCodes(), ((RdnAttributeTypeOidPropertiesDto) email.getAdditionalProperties()).getAltCodes());
+    }
 
+    @Test
+    void testListSystemOidEntriesFiltersByEkuCategoryWithNoProperties() {
         long expectedEkuCount = Arrays.stream(SystemOid.values())
                 .filter(o -> o.getCategory() == OidCategory.EXTENDED_KEY_USAGE).count();
         List<CustomOidEntryDetailResponseDto> ekus = customOidEntryService.listSystemOidEntries(OidCategory.EXTENDED_KEY_USAGE);
         Assertions.assertEquals(expectedEkuCount, ekus.size());
         Assertions.assertTrue(ekus.stream().allMatch(e -> e.getCategory() == OidCategory.EXTENDED_KEY_USAGE));
         Assertions.assertTrue(ekus.stream().allMatch(e -> e.getAdditionalProperties() == null));
+    }
 
+    @Test
+    void testListSystemOidEntriesCertificateExtensionReturnsEmpty() {
         Assertions.assertTrue(customOidEntryService.listSystemOidEntries(OidCategory.CERTIFICATE_EXTENSION).isEmpty());
     }
 

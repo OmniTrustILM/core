@@ -108,15 +108,8 @@ public class WebAppConfig implements WebMvcConfigurer {
                 return SigningRecordStatisticsPeriod.findByCode(source);
             }
         });
-        registry.addConverter(new Converter<String, OidCategory>() {
-            @Override
-            public OidCategory convert(String source) {
-                if (StringUtils.isBlank(source)) {
-                    return null;
-                }
-                return OidCategory.fromCode(source);
-            }
-        });
+        registry.addConverter(String.class, OidCategory.class,
+                source -> StringUtils.isBlank(source) ? null : OidCategory.fromCode(source));
     }
 
     @Bean
