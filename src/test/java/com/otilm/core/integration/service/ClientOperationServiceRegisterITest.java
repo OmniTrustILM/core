@@ -730,6 +730,44 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void connectorBackedCustomAttributePersistenceFailureFailsPlaceholder() throws Exception {
+        // A custom-attribute persistence failure happens before the connector call (no upstream work in
+        // flight), so it must fail the placeholder — not leave it orphaned attribute-less in PENDING_REGISTRATION.
+        RegisterCapability adapter = registeringAdapter();
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .updateObjectCustomAttributesContent(Mockito.eq(Resource.CERTIFICATE), Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        Assertions.assertThrows(AttributeException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a custom-attribute persistence failure must fail the placeholder, not leave it PENDING_REGISTRATION");
+        verify(adapter, never()).register(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void platformLevelCustomAttributePersistenceFailureFailsPlaceholder() throws Exception {
+        // Same failure-handling contract on the platform-level (non-connector-backed) registration path.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .updateObjectCustomAttributesContent(Mockito.eq(Resource.CERTIFICATE), Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        Assertions.assertThrows(AttributeException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a custom-attribute persistence failure must fail the platform-level placeholder too");
+    }
+
+    @Test
     void registerRejectsBothFlatAndStructuredIdentity() {
         // Precedence: the pre-registration identity is either structured (csrAttributes) or flat, never both.
         ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
