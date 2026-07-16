@@ -48,10 +48,20 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceContext;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -68,6 +78,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 class AttributeEngineITest extends BaseSpringBootTest {
 
@@ -97,6 +108,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
     @Autowired
     private AttributeContentItemRepository attributeContentItemRepository;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private Connector connectorAuthority;
     private Connector connectorDiscovery;
@@ -976,6 +993,102 @@ class AttributeEngineITest extends BaseSpringBootTest {
         AttributeDefinition reloaded = attributeDefinitionRepository.findByAttributeUuid(attributeDefinition.getAttributeUuid()).orElseThrow();
         MetadataAttributeV3 reloadedDefinition = (MetadataAttributeV3) reloaded.getDefinition();
         Assertions.assertTrue(reloadedDefinition.getContent().isEmpty());
+    }
+
+    @Test
+    void updateMetadataAttributeDefinition_skipsUpdateWhenUnchangedButPersistsOnChange() {
+        // given: a metadata definition already registered in its own committed transaction
+        UUID attributeUuid = UUID.randomUUID();
+        inNewTransaction(() -> updateMetadata(attributeUuid, "Skip Fix Meta"));
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        boolean statisticsWereEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        try {
+            // when: the identical definition is resubmitted in a fresh transaction that forces a flush
+            statistics.clear();
+            inNewTransaction(() -> {
+                updateMetadata(attributeUuid, "Skip Fix Meta");
+                entityManager.flush(); // a still-dirty definition would emit its UPDATE here
+            });
+
+            // then: no UPDATE is issued for the unchanged definition row
+            assertThat(attributeDefinitionUpdateCount(statistics))
+                    .as("resubmitting an identical metadata definition must not issue a redundant UPDATE (issue #1819)")
+                    .isZero();
+
+            // when: the label changes and the definition is resubmitted
+            statistics.clear();
+            inNewTransaction(() -> {
+                updateMetadata(attributeUuid, "Skip Fix Meta (changed)");
+                entityManager.flush();
+            });
+
+            // then: exactly one UPDATE hits the definition row and the change is really in the database,
+            // proving the skip is not swallowing genuine updates
+            assertThat(attributeDefinitionUpdateCount(statistics))
+                    .as("changing the label must persist an UPDATE on the definition row")
+                    .isEqualTo(1);
+            AttributeDefinition reloaded = attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow();
+            assertThat(reloaded.getLabel()).isEqualTo("Skip Fix Meta (changed)");
+        } finally {
+            statistics.setStatisticsEnabled(statisticsWereEnabled);
+        }
+    }
+
+    @Test
+    void updateMetadataAttributeDefinition_persistsChangeAfterUnchangedResubmitInSameTransaction() {
+        // given: a metadata definition already registered in its own committed transaction
+        UUID attributeUuid = UUID.randomUUID();
+        inNewTransaction(() -> updateMetadata(attributeUuid, "Same Tx Meta"));
+
+        // when: a single transaction (single persistence context) resubmits the definition unchanged
+        // and then submits a genuine change to the same managed entity
+        inNewTransaction(() -> {
+            updateMetadata(attributeUuid, "Same Tx Meta");
+            updateMetadata(attributeUuid, "Same Tx Meta (changed)");
+        });
+
+        // then: the later change survives the earlier unchanged-skip within the same persistence context
+        AttributeDefinition reloaded = inNewTransaction(
+                () -> attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow());
+        assertThat(reloaded.getLabel())
+                .as("a change following an unchanged resubmit in the same transaction must not be dropped at flush")
+                .isEqualTo("Same Tx Meta (changed)");
+    }
+
+    private static long attributeDefinitionUpdateCount(Statistics statistics) {
+        return statistics.getEntityStatistics(AttributeDefinition.class.getName()).getUpdateCount();
+    }
+
+    private void updateMetadata(UUID attributeUuid, String label) {
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(attributeUuid.toString());
+        metadataAttribute.setName("skipFixMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel(label);
+        props.setVisible(true);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("skip-value")));
+        try {
+            attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorAuthority.getUuid());
+        } catch (AttributeException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private void inNewTransaction(Runnable work) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        template.executeWithoutResult(status -> work.run());
+    }
+
+    private <T> T inNewTransaction(Supplier<T> work) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template.execute(status -> work.get());
     }
 
     @Test
