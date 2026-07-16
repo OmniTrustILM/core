@@ -1,7 +1,6 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.model.common.UuidDto;
-import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.api.exception.*;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
@@ -35,6 +34,7 @@ import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.*;
@@ -149,6 +149,8 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
     private RaProfileRepository raProfileRepository;
+    private IssuanceDefinitionResolver issuanceDefinitionResolver;
+    private RaProfileCertificateRequestAttributeService requestAttributeService;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RaProfileInternalService raProfileService;
     private GroupRepository groupRepository;
@@ -287,6 +289,16 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Autowired
     public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
         this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
+    public void setIssuanceDefinitionResolver(IssuanceDefinitionResolver issuanceDefinitionResolver) {
+        this.issuanceDefinitionResolver = issuanceDefinitionResolver;
+    }
+
+    @Autowired
+    public void setRequestAttributeService(RaProfileCertificateRequestAttributeService requestAttributeService) {
+        this.requestAttributeService = requestAttributeService;
     }
 
     @Autowired
@@ -1589,7 +1601,19 @@ public class CertificateServiceImpl implements CertificateExternalService, Certi
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.ANY)
     public List<BaseAttribute> getCsrGenerationAttributes() {
-        return CsrAttributes.csrAttributes();
+        return requestAttributeService.getDefaultSet();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL)
+    public List<BaseAttribute> getCsrGenerationAttributes(SecuredUUID raProfileUuid) throws NotFoundException, ConnectorException {
+        RaProfile raProfile = raProfileRepository.findWithAuthorityByUuid(raProfileUuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        if (!Boolean.TRUE.equals(raProfile.getEnabled())) {
+            throw new NotFoundException(RaProfile.class, raProfileUuid);
+        }
+        return new ArrayList<>(issuanceDefinitionResolver.resolve(raProfile));
     }
 
     @Override
