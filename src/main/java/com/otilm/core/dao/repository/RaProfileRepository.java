@@ -14,12 +14,16 @@ public interface RaProfileRepository extends SecurityFilterRepository<RaProfile,
     Optional<RaProfile> findByUuid(UUID uuid);
 
     /**
-     * Loads an RA profile with its authority, connector and connector interface eagerly.
+     * Loads an RA profile with its authority, connector, connector interface and the connector's
+     * function groups eagerly. The function groups are fetched so callers that traverse the connector
+     * outside an active transaction (e.g. request-attribute resolution under
+     * {@code Propagation.NOT_SUPPORTED}) do not depend on open-session-in-view for the lazy collection.
      */
     @EntityGraph(attributePaths = {
             "authorityInstanceReference",
             "authorityInstanceReference.connectorInterface",
-            "authorityInstanceReference.connector"
+            "authorityInstanceReference.connector",
+            "authorityInstanceReference.connector.functionGroups"
     })
     Optional<RaProfile> findWithAuthorityByUuid(UUID uuid);
 
