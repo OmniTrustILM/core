@@ -669,10 +669,24 @@ public class AttributeEngine {
         if (attributeDefinition == null) {
             attributeDefinition = attributeDefinitionRepository.findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.META, connectorUuid, UUID.fromString(metadataAttribute.getUuid()), metadataAttribute.getName()).orElse(null);
         }
+        String label = metadataAttribute.getProperties().getLabel();
+
+        // The definition must not carry content, but the caller's attribute object remains in use
+        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
+        // strip content on a copy, never on the caller's instance. The entity holds a live object
+        // reference serialized at flush time, so the copy must be a distinct instance.
+        MetadataAttribute definitionCopy = metadataAttribute.copy();
+        definitionCopy.setContent(List.of());
+
         if (attributeDefinition != null) {
             // check for change of content type
             if (attributeDefinition.getContentType() != metadataAttribute.getContentType()) {
                 throw new AttributeException(String.format("Metadata attribute content type changed to %s while stored attribute definition have content type %s", metadataAttribute.getContentType().getLabel(), attributeDefinition.getContentType().getLabel()), metadataAttribute.getUuid(), metadataAttribute.getName(), metadataAttribute.getType(), connectorUuid == null ? null : connectorUuid.toString());
+            }
+            // The same metadata definition gets (re-)sent for every repeated operation but rarely changes.
+            // Skip the write when nothing changed.
+            if (Objects.equals(attributeDefinition.getLabel(), label) && sameSerializedDefinition(attributeDefinition.getDefinition(), definitionCopy)) {
+                return attributeDefinition;
             }
         } else {
             logger.debug("Registering new {} metadata attribute with UUID {} and name {} for connector {}", isGlobal ? "global" : "connector", metadataAttribute.getUuid(), metadataAttribute.getName(), connectorUuid);
@@ -685,18 +699,25 @@ public class AttributeEngine {
             attributeDefinition.setVersion(metadataAttribute.getVersion());
             attributeDefinition.setGlobal(isGlobal);
         }
-        attributeDefinition.setLabel(metadataAttribute.getProperties().getLabel());
-
-        // The definition must not carry content, but the caller's attribute object remains in use
-        // after this call (e.g. it is serialized into the register->issue binding as replay meta) —
-        // strip content on a copy, never on the caller's instance. The entity holds a live object
-        // reference serialized at flush time, so the copy must be a distinct instance.
-        MetadataAttribute definitionCopy = metadataAttribute.copy();
-        definitionCopy.setContent(List.of());
+        attributeDefinition.setLabel(label);
         attributeDefinition.setDefinition(definitionCopy);
         attributeDefinitionRepository.save(attributeDefinition);
 
         return attributeDefinition;
+    }
+
+    /**
+     * Compares definitions by their serialized form. The attribute model has no value-based equals on its nested types.
+     */
+    private static boolean sameSerializedDefinition(Object stored, Object candidate) {
+        try {
+            return ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(stored)
+                    .equals(ATTRIBUTES_OBJECT_MAPPER.writeValueAsString(candidate));
+        } catch (JsonProcessingException e) {
+            // If either side cannot be rendered, fall back to writing the definition — correctness over the optimization.
+            logger.debug("Metadata definition comparison failed to serialize; persisting the definition unconditionally", e);
+            return false;
+        }
     }
 
     public void updateMetadataAttributes(List<MetadataAttribute> attributes, ObjectAttributeContentInfo objectAttributeContentInfo) throws AttributeException {
