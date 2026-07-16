@@ -161,7 +161,7 @@ public class ClientOperationControllerImpl implements ClientOperationController 
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.RA_PROFILE, operation = Operation.REGISTER)
-    public ClientCertificateDataResponseDto registerCertificate(String authorityUuid, @LogResource(uuid = true, affiliated = true) String raProfileUuid, ClientCertificateRegistrationDto request) throws NotFoundException, ValidationException, ConnectorException {
+    public ClientCertificateDataResponseDto registerCertificate(String authorityUuid, @LogResource(uuid = true, affiliated = true) String raProfileUuid, ClientCertificateRegistrationDto request) throws NotFoundException, ValidationException, ConnectorException, AttributeException {
         return clientOperationService.registerCertificate(
                 SecuredParentUUID.fromString(authorityUuid),
                 SecuredUUID.fromString(raProfileUuid),

@@ -7,10 +7,12 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.common.attribute.common.AttributeType;
@@ -53,6 +55,9 @@ import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
@@ -70,6 +75,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
+import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
@@ -82,6 +88,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -708,6 +715,105 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
         Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
         verify(attributeEngine).updateMetadataAttributes(Mockito.anyList(), Mockito.any());
+    }
+
+    @Test
+    void registerValidatesAndPersistsCustomAttributes() throws Exception {
+        // Custom attributes on the registration request must be validated up front and actually persisted
+        // against the placeholder, the same as the submit/issue flow — not silently dropped.
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        List<RequestAttribute> customAttributes = List.of(mock(RequestAttribute.class));
+        request.setCustomAttributes(customAttributes);
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        verify(attributeEngine).validateCustomAttributesContent(Resource.CERTIFICATE, customAttributes);
+        verify(attributeEngine).updateObjectCustomAttributesContent(Resource.CERTIFICATE, certUuid, customAttributes);
+    }
+
+    @Test
+    void connectorBackedCustomAttributePersistenceFailureFailsPlaceholder() throws Exception {
+        // A custom-attribute persistence failure happens before the connector call (no upstream work in
+        // flight), so it must fail the placeholder — not leave it orphaned attribute-less in PENDING_REGISTRATION.
+        RegisterCapability adapter = registeringAdapter();
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .updateObjectCustomAttributesContent(Mockito.eq(Resource.CERTIFICATE), Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        Assertions.assertThrows(AttributeException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a custom-attribute persistence failure must fail the placeholder, not leave it PENDING_REGISTRATION");
+        verify(adapter, never()).register(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void platformLevelCustomAttributePersistenceFailureFailsPlaceholder() throws Exception {
+        // Same failure-handling contract on the platform-level (non-connector-backed) registration path.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        doThrow(new AttributeException("content item is not part of predefined list")).when(attributeEngine)
+                .updateObjectCustomAttributesContent(Mockito.eq(Resource.CERTIFICATE), Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        Assertions.assertThrows(AttributeException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a custom-attribute persistence failure must fail the platform-level placeholder too");
+    }
+
+    /** Swaps the default test-user authentication for a protocol-user one, so {@code AuthHelper.isLoggedProtocolUser()}
+     * returns true for the rest of the test — mirroring how ACME/SCEP/CMP call the register endpoint. */
+    private void authenticateAsProtocolUser() {
+        AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), AuthHelper.ACME_USERNAME, List.of());
+        SecurityContextHolder.getContext().setAuthentication(new PlatformAuthenticationToken(new PlatformUserDetails(info)));
+    }
+
+    @Test
+    void connectorBackedRegistrationAsProtocolUserSkipsCustomAttributes() throws Exception {
+        // A protocol user (ACME/SCEP/CMP) registering on behalf of a device must not trip custom-attribute
+        // validation/persistence at all — mirrors submitCertificateRequest's createCustomAttributes gate.
+        authenticateAsProtocolUser();
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        verify(attributeEngine, never()).validateCustomAttributesContent(Mockito.any(), Mockito.any());
+        verify(attributeEngine, never()).updateObjectCustomAttributesContent(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void platformLevelRegistrationAsProtocolUserSkipsCustomAttributes() throws Exception {
+        // Same skip contract on the platform-level (non-connector-backed) path.
+        authenticateAsProtocolUser();
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setCustomAttributes(List.of(mock(RequestAttribute.class)));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        verify(attributeEngine, never()).validateCustomAttributesContent(Mockito.any(), Mockito.any());
+        verify(attributeEngine, never()).updateObjectCustomAttributesContent(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test

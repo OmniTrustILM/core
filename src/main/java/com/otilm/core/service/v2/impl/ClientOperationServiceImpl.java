@@ -425,9 +425,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL, parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
-                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException {
+                                                                ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException, AttributeException {
         if (request == null) {
             throw new ValidationException("A certificate registration request is required.");
+        }
+
+        boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
+
+        if (createCustomAttributes) {
+            attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
         }
         rejectAmbiguousRegistrationIdentity(request);
         rejectPastRegistrationWindow(request);
@@ -454,7 +460,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // advertised) -> platform-level pre-registration (see registerPlatformLevel); otherwise connector-backed below.
         if (!(adapter instanceof RegisterCapability registerCapability)
                 || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
-            return registerPlatformLevel(raProfile, request, effectiveSubjectDn);
+            return registerPlatformLevel(raProfile, request, effectiveSubjectDn, createCustomAttributes);
         }
 
         Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
@@ -467,6 +473,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         AdapterOperationResult result;
         try {
+            // Custom attributes were already validated up front (before the placeholder existed); persisting them
+            // here can still fail (e.g. a definition removed concurrently), and no upstream work is in flight yet,
+            // so a failure here must fail the placeholder via the catch below rather than orphan it silently
+            // attribute-less in PENDING_REGISTRATION.
+            if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
+                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
+            }
             // Persist the challenge authorization before the connector call — on every arc that can leave the
             // certificate reconcilable to REGISTERED (see the method) — but inside the try, so a store/save
             // failure fails the placeholder via the catch below rather than orphaning it in PENDING_REGISTRATION.
@@ -481,11 +494,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     CertificateEventStatus.FAILED,
                     "Connector accepted the registration but a local step failed; left in PENDING_REGISTRATION for reconciliation. Cause: " + e.getMessage(), "");
             throw e;
-        } catch (ConnectorException | RuntimeException e) {
-            // Pre-acceptance failure — either an explicit connector rejection, or (per the
-            // RegisterCapability.register contract, under which any post-acceptance failure must surface as
-            // ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException. No upstream work
-            // is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
+        } catch (ConnectorException | RuntimeException | AttributeException | NotFoundException e) {
+            // Pre-acceptance failure — either an explicit connector rejection, a custom-attribute persistence
+            // failure, or (per the RegisterCapability.register contract, under which any post-acceptance failure
+            // must surface as ConnectorAcceptedButLocalFailureException, caught above) a raw RuntimeException.
+            // No upstream work is in flight, so fail the placeholder rather than orphaning it in PENDING_REGISTRATION.
             stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + safeMessage(e, "registration setup failed"));
             // The authorization row (if the challenge opt-in created one) was committed before the connector call;
             // this registration never became effective, so remove it rather than leave an encrypted secret on a
@@ -537,20 +550,27 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private ClientCertificateDataResponseDto registerPlatformLevel(RaProfile raProfile,
                                                                    ClientCertificateRegistrationDto request,
-                                                                   String effectiveSubjectDn) throws NotFoundException {
+                                                                   String effectiveSubjectDn,
+                                                                   boolean createCustomAttributes) throws NotFoundException, AttributeException {
         Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
         Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
         stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
         try {
+            // See the connector-backed path above: custom attributes were already validated up front, but
+            // persisting them can still fail, and no upstream work is in flight, so a failure here must fail
+            // the placeholder rather than orphan it silently attribute-less in PENDING_REGISTRATION.
+            if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
+                attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
+            }
             maybeCreateRegistrationAuthorization(certificate, request);
             // Write the register->issue binding (no connector meta) so a platform-level placeholder carries the same
             // marker as a connector-backed one — the discriminator both the issue routing and the approval-reject
             // restore key on, which makes a no-secret placeholder restorable.
             certificateRegistrationWriter.upsert(certificate.getUuid(), List.of());
-        } catch (RuntimeException e) {
-            // A challenge store/save or binding-write failure must fail the placeholder rather than orphan it in
-            // PENDING_REGISTRATION.
+        } catch (RuntimeException | AttributeException | NotFoundException e) {
+            // A challenge store/save, binding-write, or custom-attribute persistence failure must fail the
+            // placeholder rather than orphan it in PENDING_REGISTRATION.
             stateMachine.transition(certificate, CertificateState.FAILED, null, "Registration failed: " + safeMessage(e, "registration setup failed"));
             deleteRegistrationAuthorizationBestEffort(certificate.getUuid());
             throw e;
