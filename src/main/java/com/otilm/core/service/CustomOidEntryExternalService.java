@@ -67,7 +67,6 @@ public interface CustomOidEntryExternalService {
      */
     List<CustomOidEntryDetailResponseDto> listSystemOidEntries(OidCategory category);
 
-
     /**
      * Returns a list of properties for filtering custom OID entries
      *

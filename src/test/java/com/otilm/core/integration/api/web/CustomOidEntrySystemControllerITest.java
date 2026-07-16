@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Arrays;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -25,7 +26,8 @@ class CustomOidEntrySystemControllerITest extends BaseSpringBootTest {
         mockMvc.perform(get("/v1/oids/system"))
             .andExpectAll(status().isOk(),
                 jsonPath("$.length()").value(SystemOid.values().length),
-                jsonPath("$[?(@.oid == '" + SystemOid.COMMON_NAME.getOid() + "')].additionalProperties.code").value(SystemOid.COMMON_NAME.getCode()));
+                jsonPath("$[?(@.oid == '" + SystemOid.COMMON_NAME.getOid() + "')].additionalProperties.code",
+                    hasItem(SystemOid.COMMON_NAME.getCode())));
     }
 
     @Test
@@ -38,8 +40,15 @@ class CustomOidEntrySystemControllerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listSystemOidEntries_blankCategoryReturnsAll() throws Exception {
+        mockMvc.perform(get("/v1/oids/system").param("category", ""))
+            .andExpectAll(status().isOk(),
+                jsonPath("$.length()").value(SystemOid.values().length));
+    }
+
+    @Test
     void listSystemOidEntries_rejectsUnknownCategoryCode() throws Exception {
         mockMvc.perform(get("/v1/oids/system").param("category", "notACategory"))
-            .andExpect(status().is4xxClientError());
+            .andExpect(status().isBadRequest());
     }
 }

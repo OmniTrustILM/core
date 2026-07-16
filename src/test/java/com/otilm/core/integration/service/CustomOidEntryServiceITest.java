@@ -229,7 +229,10 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
                 .findFirst().orElseThrow();
         Assertions.assertEquals(SystemOid.EMAIL.getAltCodes(), ((RdnAttributeTypeOidPropertiesDto) email.getAdditionalProperties()).getAltCodes());
 
+        long expectedEkuCount = Arrays.stream(SystemOid.values())
+                .filter(o -> o.getCategory() == OidCategory.EXTENDED_KEY_USAGE).count();
         List<CustomOidEntryDetailResponseDto> ekus = customOidEntryService.listSystemOidEntries(OidCategory.EXTENDED_KEY_USAGE);
+        Assertions.assertEquals(expectedEkuCount, ekus.size());
         Assertions.assertTrue(ekus.stream().allMatch(e -> e.getCategory() == OidCategory.EXTENDED_KEY_USAGE));
         Assertions.assertTrue(ekus.stream().allMatch(e -> e.getAdditionalProperties() == null));
 

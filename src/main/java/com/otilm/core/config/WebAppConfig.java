@@ -111,6 +111,9 @@ public class WebAppConfig implements WebMvcConfigurer {
         registry.addConverter(new Converter<String, OidCategory>() {
             @Override
             public OidCategory convert(String source) {
+                if (StringUtils.isBlank(source)) {
+                    return null;
+                }
                 return OidCategory.fromCode(source);
             }
         });
