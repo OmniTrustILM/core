@@ -246,6 +246,15 @@ public class CustomOidEntryServiceImpl implements CustomOidEntryExternalService 
 
     @Override
     @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.LIST)
+    public List<CustomOidEntryDetailResponseDto> listSystemOidEntries(OidCategory category) {
+        return Arrays.stream(SystemOid.values())
+                .filter(systemOid -> category == null || systemOid.getCategory() == category)
+                .map(CustomOidEntryMapper::toDetailDto)
+                .toList();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.OID, action = ResourceAction.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
         List<SearchFieldDataByGroupDto> searchFieldDataByGroupDtos = new ArrayList<>();
         List<SearchFieldDataDto> fields = List.of(
