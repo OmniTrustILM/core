@@ -103,7 +103,7 @@ public interface ClientOperationExternalService {
             SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid,
             ClientCertificateRegistrationDto request
-    ) throws NotFoundException, ConnectorException;
+    ) throws NotFoundException, ConnectorException, AttributeException;
 
     AvailableOperationsDto listAvailableOperations(
             SecuredParentUUID authorityUuid,

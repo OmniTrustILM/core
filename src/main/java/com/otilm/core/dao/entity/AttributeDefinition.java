@@ -18,8 +18,10 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
+import org.hibernate.type.descriptor.java.Immutability;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -73,8 +75,13 @@ public class AttributeDefinition extends UniquelyIdentified implements ObjectAcc
     @Column(name = "version", nullable = false)
     private int version;
 
+    /**
+     * Attribute definition is always changed by replacement only, never mutated in place.
+     * Make it immutable so it is never dirty. Overcomes the missing value-based {@code equals} for attribute nested types.
+     */
     @Column(name = "definition", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(Immutability.class)
     private BaseAttribute definition;
 
     @Column(name = "enabled")
