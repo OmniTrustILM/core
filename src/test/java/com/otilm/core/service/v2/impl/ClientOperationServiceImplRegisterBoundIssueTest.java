@@ -178,6 +178,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
         when(certificateRegistrationRepository.findAndLockByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
         when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.any())).thenReturn(false);
+        when(capabilityService.supports(ArgumentMatchers.any(), ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_REGISTRATION))).thenReturn(true);
     }
 
     /** Mocks an adapter that supports the register-bound issue path and wires the factory to return it. */
