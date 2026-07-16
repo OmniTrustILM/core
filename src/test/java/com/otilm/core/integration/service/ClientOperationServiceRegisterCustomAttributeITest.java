@@ -156,6 +156,31 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
     }
 
     @Test
+    void registerPlatformLevelPersistsCustomAttributeContentInTheRealAttributeEngine() throws Exception {
+        // Same real-engine round-trip proof, but on the platform-level path (adapter without RegisterCapability,
+        // so registerCertificate falls back to registerPlatformLevel) — covers the second call site that
+        // persists custom attributes, not just the connector-backed one above.
+        RequestAttributeV3 requestAttribute = createCertificateCustomAttribute("registerPlatformCustomAttr", "device-2-owner");
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+
+        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        request.setSubjectDn("CN=device-2,O=Acme");
+        request.setCustomAttributes(List.of(requestAttribute));
+
+        ClientCertificateDataResponseDto response = clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        List<ResponseAttribute> persisted = attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, certUuid);
+        Assertions.assertEquals(1, persisted.size(), "exactly the one submitted custom attribute must be persisted");
+        ResponseAttributeV3 persistedAttribute = (ResponseAttributeV3) persisted.getFirst();
+        Assertions.assertEquals("registerPlatformCustomAttr", persistedAttribute.getName());
+        Assertions.assertEquals("device-2-owner",
+                ((StringAttributeContentV3) persistedAttribute.getContent().getFirst()).getData(),
+                "the submitted value must round-trip through the real attribute engine on the platform-level path");
+    }
+
+    @Test
     void registerRejectsInvalidCustomAttributesBeforeCreatingPlaceholder() {
         // Real engine, genuinely invalid content (no definition/relation backs this attribute name for
         // Resource.CERTIFICATE) — proves validateCustomAttributesContent is consulted for real and rejects
