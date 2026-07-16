@@ -1,7 +1,6 @@
 package com.otilm.core.attribute;
 
 import com.otilm.api.model.common.attribute.common.AttributeType;
-import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.constraint.BaseAttributeConstraint;
 import com.otilm.api.model.common.attribute.common.constraint.RegexpAttributeConstraint;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -43,17 +42,6 @@ public class CsrAttributes {
     private CsrAttributes() {}
 
     @CoreAttributeDefinitions
-    public static List<BaseAttribute> csrAttributes() {
-        return List.of(
-                commonNameAttribute(),
-                organizationalUnitAttribute(),
-                organizationAttribute(),
-                localityAttribute(),
-                stateAttribute(),
-                countryAttribute()
-        );
-    }
-
     public static List<DataAttributeV3> csrAttributesAsDataAttributesV3() {
         return List.of(
                 commonNameAttribute(),
