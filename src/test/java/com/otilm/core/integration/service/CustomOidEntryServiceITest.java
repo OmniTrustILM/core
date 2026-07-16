@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.Arrays;
 import java.util.List;
 
 class CustomOidEntryServiceITest extends BaseSpringBootTest {
@@ -202,6 +203,49 @@ class CustomOidEntryServiceITest extends BaseSpringBootTest {
         response = customOidEntryService.listCustomOidEntries(searchRequestDto);
         Assertions.assertEquals(1, response.getOidEntries().size());
         Assertions.assertEquals(rdnOidEntry.getOid(), response.getOidEntries().getFirst().getOid());
+    }
+
+    @Test
+    void testListSystemOidEntriesReturnsAllWhenNoCategory() {
+        List<CustomOidEntryDetailResponseDto> all = customOidEntryService.listSystemOidEntries(null);
+        Assertions.assertEquals(SystemOid.values().length, all.size());
+
+        CustomOidEntryDetailResponseDto commonName = all.stream()
+                .filter(e -> e.getOid().equals(SystemOid.COMMON_NAME.getOid()))
+                .findFirst().orElseThrow();
+        Assertions.assertEquals(SystemOid.COMMON_NAME.getDisplayName(), commonName.getDisplayName());
+        Assertions.assertEquals(OidCategory.RDN_ATTRIBUTE_TYPE, commonName.getCategory());
+        RdnAttributeTypeOidPropertiesDto commonNameProps = (RdnAttributeTypeOidPropertiesDto) commonName.getAdditionalProperties();
+        Assertions.assertEquals(SystemOid.COMMON_NAME.getCode(), commonNameProps.getCode());
+        Assertions.assertEquals(SystemOid.COMMON_NAME.getAltCodes(), commonNameProps.getAltCodes());
+    }
+
+    @Test
+    void testListSystemOidEntriesFiltersByRdnCategory() {
+        long expectedRdnCount = Arrays.stream(SystemOid.values())
+                .filter(o -> o.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE).count();
+        List<CustomOidEntryDetailResponseDto> rdns = customOidEntryService.listSystemOidEntries(OidCategory.RDN_ATTRIBUTE_TYPE);
+        Assertions.assertEquals(expectedRdnCount, rdns.size());
+        Assertions.assertTrue(rdns.stream().allMatch(e -> e.getCategory() == OidCategory.RDN_ATTRIBUTE_TYPE));
+        CustomOidEntryDetailResponseDto email = rdns.stream()
+                .filter(e -> e.getOid().equals(SystemOid.EMAIL.getOid()))
+                .findFirst().orElseThrow();
+        Assertions.assertEquals(SystemOid.EMAIL.getAltCodes(), ((RdnAttributeTypeOidPropertiesDto) email.getAdditionalProperties()).getAltCodes());
+    }
+
+    @Test
+    void testListSystemOidEntriesFiltersByEkuCategoryWithNoProperties() {
+        long expectedEkuCount = Arrays.stream(SystemOid.values())
+                .filter(o -> o.getCategory() == OidCategory.EXTENDED_KEY_USAGE).count();
+        List<CustomOidEntryDetailResponseDto> ekus = customOidEntryService.listSystemOidEntries(OidCategory.EXTENDED_KEY_USAGE);
+        Assertions.assertEquals(expectedEkuCount, ekus.size());
+        Assertions.assertTrue(ekus.stream().allMatch(e -> e.getCategory() == OidCategory.EXTENDED_KEY_USAGE));
+        Assertions.assertTrue(ekus.stream().allMatch(e -> e.getAdditionalProperties() == null));
+    }
+
+    @Test
+    void testListSystemOidEntriesCertificateExtensionReturnsEmpty() {
+        Assertions.assertTrue(customOidEntryService.listSystemOidEntries(OidCategory.CERTIFICATE_EXTENSION).isEmpty());
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.otilm.core.config;
 
 import com.otilm.api.model.client.dashboard.SigningRecordStatisticsPeriod;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -107,6 +108,8 @@ public class WebAppConfig implements WebMvcConfigurer {
                 return SigningRecordStatisticsPeriod.findByCode(source);
             }
         });
+        registry.addConverter(String.class, OidCategory.class,
+                source -> StringUtils.isBlank(source) ? null : OidCategory.fromCode(source));
     }
 
     @Bean
