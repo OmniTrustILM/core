@@ -41,6 +41,7 @@ public class CsrAttributes {
 
     private CsrAttributes() {}
 
+    @CoreAttributeDefinitions
     public static List<DataAttributeV3> csrAttributesAsDataAttributesV3() {
         return List.of(
                 commonNameAttribute(),

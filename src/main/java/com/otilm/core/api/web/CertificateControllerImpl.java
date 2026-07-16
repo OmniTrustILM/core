@@ -164,8 +164,8 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     @Override
-    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "csr", affiliatedResource = Resource.CERTIFICATE, operation = Operation.LIST_ATTRIBUTES)
-    public List<BaseAttribute> getCsrGenerationAttributes(UUID raProfileUuid) throws NotFoundException, ConnectorException {
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "csr", affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> getCsrGenerationAttributes(@LogResource(uuid = true, affiliated = true) UUID raProfileUuid) throws NotFoundException, ConnectorException {
         if (raProfileUuid == null) {
             return certificateService.getCsrGenerationAttributes();
         }
