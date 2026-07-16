@@ -165,11 +165,11 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "csr", affiliatedResource = Resource.CERTIFICATE, operation = Operation.LIST_ATTRIBUTES)
-    public List<BaseAttribute> getCsrGenerationAttributes(String raProfileUuid) throws NotFoundException, ConnectorException {
-        if (raProfileUuid == null || raProfileUuid.isBlank()) {
+    public List<BaseAttribute> getCsrGenerationAttributes(UUID raProfileUuid) throws NotFoundException, ConnectorException {
+        if (raProfileUuid == null) {
             return certificateService.getCsrGenerationAttributes();
         }
-        return certificateService.getCsrGenerationAttributes(SecuredUUID.fromString(raProfileUuid));
+        return certificateService.getCsrGenerationAttributes(SecuredUUID.fromUUID(raProfileUuid));
     }
 
     @Override

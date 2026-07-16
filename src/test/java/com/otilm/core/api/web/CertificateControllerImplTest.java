@@ -41,20 +41,6 @@ class CertificateControllerImplTest {
     }
 
     @Test
-    void blankProfileParameterBehavesAsAbsent() throws Exception {
-        // given
-        List<BaseAttribute> defaults = List.of(new DataAttributeV3());
-        when(certificateService.getCsrGenerationAttributes()).thenReturn(defaults);
-
-        // when
-        List<BaseAttribute> result = controller.getCsrGenerationAttributes("  ");
-
-        // then
-        assertThat(result).isSameAs(defaults);
-        verify(certificateService, never()).getCsrGenerationAttributes(any(SecuredUUID.class));
-    }
-
-    @Test
     void withProfileParameterDelegatesToTheResolvedSet() throws Exception {
         // given
         UUID raProfileUuid = UUID.randomUUID();
@@ -62,7 +48,7 @@ class CertificateControllerImplTest {
         when(certificateService.getCsrGenerationAttributes(any(SecuredUUID.class))).thenReturn(resolved);
 
         // when
-        List<BaseAttribute> result = controller.getCsrGenerationAttributes(raProfileUuid.toString());
+        List<BaseAttribute> result = controller.getCsrGenerationAttributes(raProfileUuid);
 
         // then
         assertThat(result).isSameAs(resolved);
