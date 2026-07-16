@@ -23,7 +23,6 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
-import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.crypto.CryptographicKeyItemModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.service.CertificateInternalService;
@@ -31,11 +30,12 @@ import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.mockbeans.ProducerMocks;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Import;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -54,6 +54,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
  * Parity: the cached {@link SigningCertificate} + per-item {@link CryptographicKeyItemModel} assembly
  * reproduces the signer inputs available from the live {@code Certificate} entity graph.
  */
+@Import(ProducerMocks.class)
 class SigningCertificateParityITest extends BaseSpringBootTest {
 
     @Autowired
@@ -72,9 +73,6 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
     private CryptographicKeyRepository cryptographicKeyRepository;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
-
-    @MockitoBean
-    private NotificationProducer notificationProducer;
 
     private CryptographicKey key;
     private CryptographicKeyItem privateItem;

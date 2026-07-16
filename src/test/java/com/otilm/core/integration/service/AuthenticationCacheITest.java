@@ -3,20 +3,19 @@ package com.otilm.core.integration.service;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.RoleManagementApiClient;
-import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.service.RoleManagementExternalService;
 import com.otilm.core.service.UserManagementExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SessionTableHelper;
+import com.otilm.core.util.mockbeans.ManagementApiMocks;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,6 +28,7 @@ import static org.mockito.Mockito.*;
  * Each test populates the real Caffeine cache, triggers a service operation, then asserts that
  * the affected entries are evicted and the loader is re-invoked on the next authentication request.
  */
+@Import(ManagementApiMocks.class)
 class AuthenticationCacheITest extends BaseSpringBootTest {
 
     @Autowired
@@ -42,12 +42,6 @@ class AuthenticationCacheITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
-
-    @MockitoBean
-    private UserManagementApiClient userManagementApiClient;
-
-    @MockitoBean
-    private RoleManagementApiClient roleManagementApiClient;
 
     @BeforeEach
     void setup() {

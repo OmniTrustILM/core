@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -53,6 +55,28 @@ final class TestClassTaxonomy {
     // Block comments (incl. Javadoc) and line comments — stripped before any matching.
     private static final Pattern BLOCK_COMMENT = Pattern.compile("/\\*.*?\\*/", Pattern.DOTALL);
     private static final Pattern LINE_COMMENT = Pattern.compile("//[^\\n]*");
+    // Text blocks hold fixture SOURCE as data (e.g. meta-tests embedding "@SpringBootTest ..." strings).
+    // Their content is never real annotations; strip it so detection/parsing is not fooled by fixtures.
+    private static final Pattern TEXT_BLOCK = Pattern.compile("\"\"\"[\\s\\S]*?\"\"\"");
+
+    // Context-affecting annotations parsed by annotationTokens(). Each contributes one axis of the context cache key.
+    private static final Pattern IMPORTS = Pattern.compile("@Import\\s*\\(\\s*\\{?([^)}]*)\\}?\\s*\\)");
+    private static final Pattern IMPORT_CLASS = Pattern.compile("(\\w+)\\s*\\.\\s*class");
+    private static final Pattern MOCK_FIELD = Pattern.compile("@Mockito(?:Bean|SpyBean)\\b[^;{}]*?\\b(\\w+)\\s+\\w+\\s*;");
+    private static final Pattern PROFILES = Pattern.compile("@ActiveProfiles\\s*\\(([^)]*)\\)");
+    private static final Pattern QUOTED = Pattern.compile("\"([^\"]*)\"");
+    private static final Pattern INHERIT = Pattern.compile("inheritProfiles\\s*=\\s*(true|false)");
+    private static final Pattern PROPS = Pattern.compile("@TestPropertySource\\s*\\(([^)]*)\\)");
+    private static final Pattern DIRTIES = Pattern.compile("@DirtiesContext\\b(?:\\s*\\(([^)]*)\\))?");
+    // Nested @TestConfiguration classes fork the context cache key. Match the annotation (with optional args),
+    // tolerate interposed other annotations/modifiers, and capture the declared class simple-name.
+    private static final Pattern NESTED_CONFIG = Pattern.compile(
+            "@TestConfiguration\\b\\s*(?:\\([^)]*\\))?(?:\\s*@\\w+(?:\\([^)]*\\))?)*"
+                    + "\\s*(?:(?:public|protected|private|static|final|abstract)\\s+)*class\\s+(\\w+)");
+    // @SpringBootTest arguments (webEnvironment=..., classes=...) select distinct contexts from the default.
+    private static final Pattern SPRING_BOOT_TEST_ARGS = Pattern.compile("@SpringBootTest\\b\\s*(?:\\(([^)]*)\\))?");
+    // @AutoConfigure* slice/test annotations (e.g. @AutoConfigureMockMvc) fork the context cache key.
+    private static final Pattern AUTOCONFIGURE = Pattern.compile("@(AutoConfigure\\w+)\\b");
 
     private TestClassTaxonomy() {
     }
@@ -109,10 +133,99 @@ final class TestClassTaxonomy {
     }
 
     /**
+     * Context-affecting annotation tokens parsed from ONE file (not its ancestors). Each list is an axis of the
+     * Spring context cache key; {@link ContextSignature} unions the axes across the inheritance chain.
+     */
+    record ContextTokens(
+            List<String> imports,
+            List<String> mocks,
+            List<String> profiles,
+            List<String> props,
+            List<String> dirties,
+            List<String> configs,
+            List<String> springBootTest,
+            List<String> autoconfig) {
+    }
+
+    static ContextTokens annotationTokens(Path javaFile) {
+        String src = code(javaFile);
+
+        List<String> imports = new ArrayList<>();
+        for (String importList : allMatches(IMPORTS, 1, src)) {
+            imports.addAll(allMatches(IMPORT_CLASS, 1, importList));
+        }
+
+        return new ContextTokens(
+                imports,
+                allMatches(MOCK_FIELD, 1, src),
+                parseProfiles(src),
+                normalizedArgs(PROPS, src),
+                parseDirties(src),
+                allMatches(NESTED_CONFIG, 1, src),
+                normalizedArgs(SPRING_BOOT_TEST_ARGS, src),
+                allMatches(AUTOCONFIGURE, 1, src));
+    }
+
+    /** Every {@code group} capture across all matches of {@code p} in {@code src}. */
+    private static List<String> allMatches(Pattern p, int group, String src) {
+        List<String> out = new ArrayList<>();
+        Matcher m = p.matcher(src);
+        while (m.find()) {
+            out.add(m.group(group));
+        }
+        return out;
+    }
+
+    /** The {@code group} capture of the first match of {@code p} in {@code src}, or {@code null} if none. */
+    private static String firstMatch(Pattern p, int group, String src) {
+        Matcher m = p.matcher(src);
+        return m.find() ? m.group(group) : null;
+    }
+
+    /** First match's group-1 args, whitespace-normalized, as a singleton list (empty when there is no match). */
+    private static List<String> normalizedArgs(Pattern p, String src) {
+        String args = firstMatch(p, 1, src);
+        return args == null ? List.of() : List.of(args.replaceAll("\\s+", " ").trim());
+    }
+
+    private static List<String> parseProfiles(String src) {
+        String args = firstMatch(PROFILES, 1, src);
+        if (args == null) {
+            return List.of();
+        }
+        List<String> profiles = allMatches(QUOTED, 1, args);
+        Matcher inherit = INHERIT.matcher(args);
+        profiles.add("inheritProfiles=" + (inherit.find() ? inherit.group(1) : "true"));
+        return profiles;
+    }
+
+    private static List<String> parseDirties(String src) {
+        Matcher m = DIRTIES.matcher(src);
+        return m.find() ? List.of(dirtiesMode(m.group(1))) : List.of();
+    }
+
+    private static String dirtiesMode(String args) {
+        if (args == null) {
+            return "DEFAULT";
+        }
+        if (args.contains("BEFORE_CLASS")) {
+            return "BEFORE_CLASS";
+        }
+        if (args.contains("AFTER_CLASS")) {
+            return "AFTER_CLASS";
+        }
+        if (args.contains("AFTER_EACH") || args.contains("AFTER_METHOD")) {
+            return "AFTER_METHOD";
+        }
+        return "OTHER";
+    }
+
+    /**
      * File source with comments removed, so prose containing Java keywords is not matched.
      */
     private static String code(Path p) {
         String src = read(p);
+        src = TEXT_BLOCK.matcher(src).replaceAll("\"\"");
         src = BLOCK_COMMENT.matcher(src).replaceAll("");
         src = LINE_COMMENT.matcher(src).replaceAll("");
         return src;
