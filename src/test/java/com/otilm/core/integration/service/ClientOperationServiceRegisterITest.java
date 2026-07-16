@@ -250,13 +250,118 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void unsupportedAuthorityIsRejectedWithoutCreatingPlaceholder() {
-        // Adapter without RegisterCapability — i.e. a v2 authority.
+    void unsupportedAuthorityCreatesPlatformLevelRegistration() throws Exception {
+        // Adapter without RegisterCapability — i.e. a v2 authority. Pre-registration is still supported at the
+        // platform level: the placeholder is created and reaches REGISTERED with no connector /register call.
         when(adapterFactory.forAuthority(Mockito.any()))
                 .thenReturn(mock(AuthorityProviderAdapter.class));
 
-        Assertions.assertThrows(ValidationException.class, this::register);
-        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a rejected request");
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        Assertions.assertEquals(1, certificateRepository.count(), "the platform-level placeholder is persisted");
+    }
+
+    @Test
+    void platformLevelPlaceholderEnqueuesIssueAction() throws Exception {
+        // v2 authority: issuing a platform-level placeholder enqueues an ISSUE action. The async selection of the
+        // plain vs register-bound path (on RegisterCapability / the binding row) is covered by the issue-dispatch tests.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        String certUuid = register().getUuid();
+
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(generateCsrBase64());
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, issueRequest);
+
+        verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.ISSUE));
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(UUID.fromString(certUuid)).orElseThrow().getState(),
+                "the placeholder stays REGISTERED until the async ISSUE action completes");
+    }
+
+    @Test
+    void platformLevelRegistrationWithSecretCreatesAuthorizationAndFiresEvent() throws Exception {
+        // Platform-level path (v2 authority) with a challenge: the authorization row is created ACTIVE and the
+        // Certificate Registered event fires, exactly as on the connector-backed path.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState());
+        CertificateRegistrationAuthorization auth = authorizationRepository.findByCertificateUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(RegistrationState.ACTIVE, auth.getState());
+        ArgumentCaptor<EventMessage> captor = ArgumentCaptor.forClass(EventMessage.class);
+        verify(eventProducer).produceMessage(captor.capture());
+        Assertions.assertEquals(ResourceEvent.CERTIFICATE_REGISTERED, captor.getValue().getEvent(),
+                "a challenge-protected platform-level pre-registration fires the Certificate Registered event");
+    }
+
+    @Test
+    void approvalRejectedRestoresPlatformLevelNoSecretPlaceholder() throws Exception {
+        // A platform-level pre-registration with NO secret still carries a register->issue binding, so its issuance
+        // approval rejection restores it to REGISTERED, symmetric with the connector-backed and secret cases.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        UUID certUuid = UUID.fromString(
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, registrationRequest()).getUuid());
+
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a no-secret platform-level placeholder restores to REGISTERED on approval rejection");
+        Assertions.assertEquals(0, authorizationRepository.count(), "a no-secret flow carries no challenge authorization");
+    }
+
+    @Test
+    void approvalRejectedRestoresPlatformLevelSecretPlaceholder() throws Exception {
+        // A platform-level (no binding) secret-protected pre-registration must restore to REGISTERED on approval
+        // rejection — identified by its challenge authorization — keeping the authorization ACTIVE for retry, the
+        // same as a connector-backed placeholder (which is identified by its binding).
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+        UUID certUuid = UUID.fromString(
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request).getUuid());
+
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        Assertions.assertEquals(CertificateState.PENDING_APPROVAL,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState());
+
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertEquals(CertificateState.REGISTERED,
+                certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                "a platform-level secret placeholder restores to REGISTERED on approval rejection");
+        Assertions.assertEquals(RegistrationState.ACTIVE,
+                authorizationRepository.findByCertificateUuid(certUuid).orElseThrow().getState(),
+                "its challenge authorization stays ACTIVE for retry");
+    }
+
+    @Test
+    void platformLevelRegistrationStoreFailureFailsPlaceholder() {
+        // Platform-level path (v2 authority): a challenge-store failure must fail the placeholder (FAILED, not left
+        // in PENDING_REGISTRATION) and leave no authorization, mirroring connectorFailureLeavesPlaceholderFailed.
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        doThrow(new IllegalStateException("challenge encryption failed"))
+                .when(registrationChallengeStore).store(Mockito.any(), Mockito.any());
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setAuthorizationSecret(CHALLENGE);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size(), "the placeholder is created, then failed (positively covering the catch)");
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "a store failure fails the platform-level placeholder");
+        Assertions.assertEquals(0, authorizationRepository.count(), "a store failure persists no authorization");
     }
 
     @Test
@@ -314,16 +419,20 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void registrationRejectedWhenCapabilityNotAdvertised() {
-        // Adapter implements RegisterCapability (layer 1 passes), but the authority does not advertise
-        // CERTIFICATE_REGISTRATION — the layer-2 gate must still reject, without persisting a placeholder.
-        registeringAdapter();
+    void registrationWithoutAdvertisedCapabilityCreatesPlatformLevelRegistration() throws Exception {
+        // Adapter implements RegisterCapability but the authority does not advertise CERTIFICATE_REGISTRATION.
+        // Pre-registration falls back to the platform level: REGISTERED with no connector /register call.
+        RegisterCapability adapter = registeringAdapter();
         when(capabilityService.supports(
                         Mockito.any(AuthorityInstanceReference.class), Mockito.eq(FeatureFlag.CERTIFICATE_REGISTRATION)))
                 .thenReturn(false);
 
-        Assertions.assertThrows(ValidationException.class, this::register);
-        Assertions.assertEquals(0, certificateRepository.count(), "no placeholder should be persisted on a gated request");
+        ClientCertificateDataResponseDto response = register();
+
+        Certificate cert = certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow();
+        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
+        Assertions.assertEquals(1, certificateRepository.count());
+        verify(adapter, never()).register(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test
