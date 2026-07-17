@@ -52,9 +52,10 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     /**
      * How long to wait for the event-driven post-issuance validation to move the
-     * certificate off {@code NOT_CHECKED} before validating inline as a fallback.
-     * The validation listener typically lands within ~100 ms of issuance; 3 s covers
-     * slow OCSP/CRL checks without stretching the request unreasonably.
+     * certificate off {@code NOT_CHECKED}. If it does not resolve within this budget the
+     * transient {@code NOT_CHECKED} is accepted (it is not a rejection reason). The
+     * validation listener typically lands within ~100 ms of issuance; 3 s covers slow
+     * OCSP/CRL checks without stretching the request unreasonably.
      */
     private static final long VALIDATION_STATUS_WAIT_MS = 3_000L;
 

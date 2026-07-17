@@ -68,6 +68,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class CrmfMessageHandlerTest {
 
+    private static final String SELF_SIGNED_CERT_BASE64 = generateSelfSignedCertBase64();
+
     private CertificateInternalService certificateService;
     private CertificateValidationStatusPoller validationStatusPoller;
     private CrmfMessageHandler handler;
@@ -268,7 +270,7 @@ class CrmfMessageHandlerTest {
         dto.setUuid(UUID.randomUUID().toString());
         dto.setFingerprint("aa:bb:cc");
         dto.setValidationStatus(status);
-        dto.setCertificateContent(generateSelfSignedCertBase64());
+        dto.setCertificateContent(SELF_SIGNED_CERT_BASE64);
         return dto;
     }
 

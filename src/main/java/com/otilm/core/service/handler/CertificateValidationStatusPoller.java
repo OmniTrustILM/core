@@ -64,11 +64,16 @@ public class CertificateValidationStatusPoller {
      */
     public CertificateValidationStatus pollValidationStatus(String uuid, long budgetMs) throws NotFoundException {
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(uuid));
-        long start = System.currentTimeMillis();
+        long deadline = System.currentTimeMillis() + budgetMs;
         try {
-            while (certificate.getValidationStatus() == CertificateValidationStatus.NOT_CHECKED
-                    && System.currentTimeMillis() - start < budgetMs) {
-                TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+            while (certificate.getValidationStatus() == CertificateValidationStatus.NOT_CHECKED) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    break;
+                }
+                // Clamp to the remaining budget so total wait never exceeds budgetMs, even
+                // when budgetMs is smaller than one sampling interval.
+                TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
                 entityManager.refresh(certificate);
             }
         } catch (InterruptedException e) {
