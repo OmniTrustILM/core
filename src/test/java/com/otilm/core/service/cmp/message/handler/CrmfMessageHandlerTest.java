@@ -14,6 +14,7 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERBitString;
@@ -68,16 +69,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CrmfMessageHandlerTest {
 
     private CertificateInternalService certificateService;
-    private PollFeature pollFeature;
+    private CertificateValidationStatusPoller validationStatusPoller;
     private CrmfMessageHandler handler;
 
     @BeforeEach
     void setUp() {
         certificateService = Mockito.mock(CertificateInternalService.class);
-        pollFeature = Mockito.mock(PollFeature.class);
+        validationStatusPoller = Mockito.mock(CertificateValidationStatusPoller.class);
         handler = new CrmfMessageHandler();
         handler.setCertificateService(certificateService);
-        handler.setPollFeature(pollFeature);
+        handler.setValidationStatusPoller(validationStatusPoller);
     }
 
     @Test
@@ -90,7 +91,7 @@ class CrmfMessageHandlerTest {
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
 
         assertThat(chain).hasSize(1);
-        Mockito.verifyNoInteractions(pollFeature);
+        Mockito.verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
@@ -101,7 +102,7 @@ class CrmfMessageHandlerTest {
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
         Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(pollFeature.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
                 .thenReturn(CertificateValidationStatus.VALID);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
@@ -118,7 +119,7 @@ class CrmfMessageHandlerTest {
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
         Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(pollFeature.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
                 .thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
@@ -132,7 +133,7 @@ class CrmfMessageHandlerTest {
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
         Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(pollFeature.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
                 .thenReturn(CertificateValidationStatus.INVALID);
 
         assertThatThrownBy(() -> invokeLoadCaCertificateChain(leaf))
@@ -154,7 +155,7 @@ class CrmfMessageHandlerTest {
                 .cause()
                 .isInstanceOf(CmpCrmfValidationException.class)
                 .hasMessageContaining("Status: Revoked");
-        Mockito.verifyNoInteractions(pollFeature);
+        Mockito.verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
@@ -165,7 +166,7 @@ class CrmfMessageHandlerTest {
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
         Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(pollFeature.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
                 .thenThrow(new NotFoundException(Certificate.class, chainCert.getUuid()));
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);

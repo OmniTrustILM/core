@@ -13,6 +13,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
@@ -76,6 +77,13 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
     @Autowired
     public void setPollFeature(PollFeature pollFeature) {
         this.pollFeature = pollFeature;
+    }
+
+    private CertificateValidationStatusPoller validationStatusPoller;
+
+    @Autowired
+    public void setValidationStatusPoller(CertificateValidationStatusPoller validationStatusPoller) {
+        this.validationStatusPoller = validationStatusPoller;
     }
 
     private CmpTransactionService cmpTransactionService;
@@ -439,7 +447,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
             return certificate.getValidationStatus();
         }
         try {
-            CertificateValidationStatus resolved = pollFeature.pollValidationStatus(
+            CertificateValidationStatus resolved = validationStatusPoller.pollValidationStatus(
                     certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
             LOG.debug("TID={}, UUID={} | validation status after wait: {}",
                     tid, certificate.getUuid(), resolved);

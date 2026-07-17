@@ -40,7 +40,7 @@ import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
-import com.otilm.core.service.cmp.message.handler.PollFeature;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -112,7 +112,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepTransactionRepository scepTransactionRepository;
     private ClientOperationInternalService clientOperationService;
     private CertificateInternalService certificateService;
-    private PollFeature pollFeature;
+    private CertificateValidationStatusPoller validationStatusPoller;
     private CryptographicKeyInternalService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -153,8 +153,8 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setPollFeature(PollFeature pollFeature) {
-        this.pollFeature = pollFeature;
+    public void setValidationStatusPoller(CertificateValidationStatusPoller validationStatusPoller) {
+        this.validationStatusPoller = validationStatusPoller;
     }
 
     @Autowired
@@ -902,7 +902,7 @@ public class ScepServiceImpl implements ScepExternalService {
             return certificate.getValidationStatus();
         }
         try {
-            CertificateValidationStatus resolved = pollFeature.pollValidationStatus(
+            CertificateValidationStatus resolved = validationStatusPoller.pollValidationStatus(
                     certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
             logger.debug("UUID={} | validation status after wait: {}",
                     certificate.getUuid(), resolved);
