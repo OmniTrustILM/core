@@ -49,7 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
 @Transactional
-public class CrmfMessageHandlerITest extends BaseSpringBootTest {
+class CrmfMessageHandlerITest extends BaseSpringBootTest {
 
     @Autowired private CertificateContentRepository certificateContentRepository;
     @Autowired private CertificateRepository certificateRepository;
@@ -83,7 +83,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     private X509Certificate x509Certificate;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    void setUp() throws Exception {
         // -- GIVEN --
         mockServer = CmpTestUtil.createIssuingPlatform();
 
@@ -192,7 +192,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     }
 
     @AfterEach
-    public void tearDown() {
+    void tearDown() {
         mockServer.stop();
 
         if(certificateRepository!=null){
@@ -201,7 +201,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     }
 
     @Test
-    public void test_handle_ir_3gpp_signature_protection() throws Exception {
+    void test_handle_ir_3gpp_signature_protection() throws Exception {
         String trxId= "777";
         KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
 
@@ -252,7 +252,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     }
 
     @Test
-    public void test_handle_ir_3gpp_mac_protection() throws Exception {
+    void test_handle_ir_3gpp_mac_protection() throws Exception {
         // -- WHEN --
         String trxId= "779";
         KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
@@ -302,11 +302,12 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
     }
 
     @Test
-    public void test_handle_ir_returnsPollRep_whenPollFeatureSignalsAsynchronousAcceptance() throws Exception {
-        // When the authority provider connector returns HTTP 202, PollFeature returns
-        // null to signal asynchronous acceptance — the handler must respond with a CMP
-        // pollRep so the client knows to retry later (RFC 4210 §5.2.6), and persist a
-        // CmpTransaction so the subsequent pollReq can be correlated back to the cert.
+    void test_handle_ir_returnsWaitingIp_whenPollFeatureSignalsAsynchronousAcceptance() throws Exception {
+        // When issuance is still pending after the poll budget, PollFeature returns
+        // StillPending — the handler must initiate the polling exchange per RFC 4210
+        // §5.3.22 with an ip carrying PKIStatus 'waiting' (not a bare pollRep, which
+        // conformant clients reject as out-of-state), and persist a CmpTransaction so the
+        // subsequent pollReq can be correlated back to the cert.
         String trxId = "780";
         KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
 
@@ -316,7 +317,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
                 .toASN1Structure();
 
         // Asynchronous-acceptance signal: PollFeature returns StillPending when the cert
-        // lands in PENDING_ISSUE / PENDING_REVOKE.
+        // is still in PENDING_ISSUE / PENDING_REVOKE once the poll budget is exhausted.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willReturn(new PollResult.StillPending(CertificateState.PENDING_ISSUE));
 
@@ -329,11 +330,16 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
                         null));
 
         assertNotNull(response);
-        assertEquals(PKIBody.TYPE_POLL_REP, response.getBody().getType(),
-                "expected pollRep response when PollFeature signals asynchronous acceptance");
+        assertEquals(PKIBody.TYPE_INIT_REP, response.getBody().getType(),
+                "expected ip (waiting) response when PollFeature signals asynchronous acceptance");
         assertEquals(new DEROctetString(trxId.getBytes()).toString(),
                 response.getHeader().getTransactionID().toString());
-        assertInstanceOf(PollRepContent.class, response.getBody().getContent());
+        CertRepMessage repMessage = assertInstanceOf(CertRepMessage.class, response.getBody().getContent());
+        CertResponse certResponse = repMessage.getResponse()[0];
+        assertEquals(PKIStatus.WAITING, certResponse.getStatus().getStatus().intValue(),
+                "pending response must carry PKIStatus 'waiting'");
+        assertNull(certResponse.getCertifiedKeyPair(),
+                "pending response must not carry a certificate yet");
     }
 
     /**
@@ -343,7 +349,7 @@ public class CrmfMessageHandlerITest extends BaseSpringBootTest {
      * diverted state, not time out with a generic systemFailure.
      */
     @Test
-    public void test_handle_ir_throwsValidation_whenPollFeatureReportsDiverted() throws Exception {
+    void test_handle_ir_throwsValidation_whenPollFeatureReportsDiverted() throws Exception {
         String trxId = "781";
         KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
         PKIBody body = CmpTestUtil.createCrmfBody(keyPair, 11223344L);
