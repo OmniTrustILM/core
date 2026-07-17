@@ -124,15 +124,17 @@ class ContextSignatureTest {
     void textBlockFixtureContentIsNotParsedAsRealAnnotations(@TempDir Path dir) throws IOException {
         // A meta-test whose only "annotations" live inside a text block (fixture data), like this very
         // class. code() strips text blocks, so these must not be misread as real context annotations.
-        String content = "package x;\n"
-                + "class MetaTest {\n"
-                + "    String fixture = \"\"\"\n"
-                + "            @Import({ProducerMocks.class, PollMocks.class})\n"
-                + "            @ActiveProfiles(\"messaging-int-test\")\n"
-                + "            @TestConfiguration static class Nested {}\n"
-                + "            class Sample extends BaseSpringBootTest {}\n"
-                + "            \"\"\";\n"
-                + "}\n";
+        String content = """
+                package x;
+                class MetaTest {
+                    String fixture = \"""
+                            @Import({ProducerMocks.class, PollMocks.class})
+                            @ActiveProfiles("messaging-int-test")
+                            @TestConfiguration static class Nested {}
+                            class Sample extends BaseSpringBootTest {}
+                            \""";
+                }
+                """;
         Path f = write(dir, "MetaTest.java", content);
         TestClassTaxonomy.ContextTokens t = TestClassTaxonomy.annotationTokens(f);
         assertThat(t.imports()).isEmpty();

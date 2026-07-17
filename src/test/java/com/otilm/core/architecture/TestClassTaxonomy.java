@@ -60,7 +60,7 @@ final class TestClassTaxonomy {
     private static final Pattern TEXT_BLOCK = Pattern.compile("\"\"\"[\\s\\S]*?\"\"\"");
 
     // Context-affecting annotations parsed by annotationTokens(). Each contributes one axis of the context cache key.
-    private static final Pattern IMPORTS = Pattern.compile("@Import\\s*\\(\\s*\\{?([^)}]*)\\}?\\s*\\)");
+    private static final Pattern IMPORTS = Pattern.compile("@Import\\s*\\(([^)]*)\\)");
     private static final Pattern IMPORT_CLASS = Pattern.compile("(\\w+)\\s*\\.\\s*class");
     private static final Pattern MOCK_FIELD = Pattern.compile("@Mockito(?:Bean|SpyBean)\\b[^;{}]*?\\b(\\w+)\\s+\\w+\\s*;");
     private static final Pattern PROFILES = Pattern.compile("@ActiveProfiles\\s*\\(([^)]*)\\)");
@@ -71,8 +71,9 @@ final class TestClassTaxonomy {
     // Nested @TestConfiguration classes fork the context cache key. Match the annotation (with optional args),
     // tolerate interposed other annotations/modifiers, and capture the declared class simple-name.
     private static final Pattern NESTED_CONFIG = Pattern.compile(
-            "@TestConfiguration\\b\\s*(?:\\([^)]*\\))?(?:\\s*@\\w+(?:\\([^)]*\\))?)*"
-                    + "\\s*(?:(?:public|protected|private|static|final|abstract)\\s+)*class\\s+(\\w+)");
+            "@TestConfiguration\\b(?:\\s*\\([^)]*\\))?"
+                    + "(?:\\s+(?:@\\w+(?:\\([^)]*\\))?|public|protected|private|static|final|abstract))*"
+                    + "\\s+class\\s+(\\w+)");
     // @SpringBootTest arguments (webEnvironment=..., classes=...) select distinct contexts from the default.
     private static final Pattern SPRING_BOOT_TEST_ARGS = Pattern.compile("@SpringBootTest\\b\\s*(?:\\(([^)]*)\\))?");
     // @AutoConfigure* slice/test annotations (e.g. @AutoConfigureMockMvc) fork the context cache key.
