@@ -45,7 +45,10 @@ import java.util.*;
  * @see CrmfKurMessageHandler
  */
 @Component
-@Transactional//(propagation = Propagation.REQUIRES_NEW)
+// noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
+// CmpBaseException as a protocol error response, and this handler shares the caller's
+// transaction, so rolling back on it would mark that transaction rollback-only.
+@Transactional(noRollbackFor = CmpBaseException.class)
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());

@@ -79,7 +79,9 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 @Service
-@Transactional
+// noRollbackFor keeps Spring's default (no rollback on checked exceptions): SCEP surfaces
+// these as protocol error responses rather than treating them as transaction failures.
+@Transactional(noRollbackFor = {ScepException.class, NotFoundException.class})
 public class ScepServiceImpl implements ScepExternalService {
 
     public static final String SCEP_URL_PREFIX = "/v1/protocols/scep";

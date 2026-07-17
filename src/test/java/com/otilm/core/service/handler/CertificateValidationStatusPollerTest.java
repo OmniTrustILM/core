@@ -8,7 +8,13 @@ import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
@@ -32,8 +38,8 @@ class CertificateValidationStatusPollerTest {
 
     @BeforeEach
     void setUp() {
-        certificateService = Mockito.mock(CertificateInternalService.class);
-        entityManager = Mockito.mock(EntityManager.class);
+        certificateService = mock(CertificateInternalService.class);
+        entityManager = mock(EntityManager.class);
         poller = new CertificateValidationStatusPoller();
         poller.setCertificateService(certificateService);
         ReflectionTestUtils.setField(poller, "entityManager", entityManager);
@@ -42,13 +48,13 @@ class CertificateValidationStatusPollerTest {
     @Test
     void returnsImmediately_whenAlreadyResolved() throws Exception {
         Certificate cert = certificateInState(CertificateValidationStatus.VALID);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         CertificateValidationStatus resolved = poller.pollValidationStatus(UUID.randomUUID().toString(), 3_000L);
 
         assertThat(resolved).isEqualTo(CertificateValidationStatus.VALID);
-        Mockito.verify(entityManager, Mockito.never()).refresh(Mockito.any());
+        verify(entityManager, never()).refresh(any());
     }
 
     @Test
@@ -57,10 +63,10 @@ class CertificateValidationStatusPollerTest {
         // moments after ISSUED; the wait must observe the flip via refresh instead of
         // giving up on the first NOT_CHECKED read.
         Certificate cert = certificateInState(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
                 .thenReturn(cert);
         AtomicInteger refreshes = new AtomicInteger();
-        Mockito.doAnswer(invocation -> {
+        doAnswer(invocation -> {
             if (refreshes.incrementAndGet() >= 2) {
                 cert.setValidationStatus(CertificateValidationStatus.VALID);
             }
@@ -78,13 +84,13 @@ class CertificateValidationStatusPollerTest {
         // Validation never lands (listener down / backlogged): the caller gets NOT_CHECKED
         // back after the budget and decides the fallback itself.
         Certificate cert = certificateInState(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         CertificateValidationStatus resolved = poller.pollValidationStatus(UUID.randomUUID().toString(), 600L);
 
         assertThat(resolved).isEqualTo(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.verify(entityManager, Mockito.atLeast(1)).refresh(cert);
+        verify(entityManager, atLeast(1)).refresh(cert);
     }
 
     private static Certificate certificateInState(CertificateValidationStatus status) {

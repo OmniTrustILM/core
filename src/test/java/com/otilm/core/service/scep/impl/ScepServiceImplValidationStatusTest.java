@@ -8,7 +8,11 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.UndeclaredThrowableException;
@@ -36,7 +40,7 @@ class ScepServiceImplValidationStatusTest {
     @BeforeEach
     void setUp() {
         service = new ScepServiceImpl();
-        validationStatusPoller = Mockito.mock(CertificateValidationStatusPoller.class);
+        validationStatusPoller = mock(CertificateValidationStatusPoller.class);
         service.setValidationStatusPoller(validationStatusPoller);
     }
 
@@ -47,7 +51,7 @@ class ScepServiceImplValidationStatusTest {
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
                 .doesNotThrowAnyException();
 
-        Mockito.verifyNoInteractions(validationStatusPoller);
+        verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
@@ -57,13 +61,13 @@ class ScepServiceImplValidationStatusTest {
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
                 .doesNotThrowAnyException();
 
-        Mockito.verifyNoInteractions(validationStatusPoller);
+        verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
     void accepts_whenAsyncValidationResolvesToValidDuringWait() throws NotFoundException {
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(dto.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.VALID);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
@@ -76,7 +80,7 @@ class ScepServiceImplValidationStatusTest {
         // even if the validation never lands within the wait budget, the enrollment whose
         // issuance succeeded must not be failed.
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(dto.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
@@ -86,7 +90,7 @@ class ScepServiceImplValidationStatusTest {
     @Test
     void rejects_whenWaitResolvesToInvalid() throws NotFoundException {
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(dto.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.INVALID);
 
         assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
@@ -106,7 +110,7 @@ class ScepServiceImplValidationStatusTest {
                 .isInstanceOf(ScepException.class)
                 .hasMessageContaining("Status: Revoked");
 
-        Mockito.verifyNoInteractions(validationStatusPoller);
+        verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
@@ -114,7 +118,7 @@ class ScepServiceImplValidationStatusTest {
         // The wait failing to find the entity resolves nothing — the status stays
         // NOT_CHECKED, which is transient, so the certificate passes.
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(dto.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
                 .thenThrow(new NotFoundException(Certificate.class, dto.getUuid()));
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))

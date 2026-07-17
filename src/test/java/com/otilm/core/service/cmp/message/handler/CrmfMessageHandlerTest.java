@@ -40,7 +40,13 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyLong;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.UndeclaredThrowableException;
@@ -76,8 +82,8 @@ class CrmfMessageHandlerTest {
 
     @BeforeEach
     void setUp() {
-        certificateService = Mockito.mock(CertificateInternalService.class);
-        validationStatusPoller = Mockito.mock(CertificateValidationStatusPoller.class);
+        certificateService = mock(CertificateInternalService.class);
+        validationStatusPoller = mock(CertificateValidationStatusPoller.class);
         handler = new CrmfMessageHandler();
         handler.setCertificateService(certificateService);
         handler.setValidationStatusPoller(validationStatusPoller);
@@ -87,24 +93,24 @@ class CrmfMessageHandlerTest {
     void doesNotWait_whenChainCertificateAlreadyValid() throws NotFoundException {
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.VALID);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
 
         assertThat(chain).hasSize(1);
-        Mockito.verifyNoInteractions(validationStatusPoller);
+        verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
     void accepts_whenAsyncValidationResolvesToValidDuringWait() throws NotFoundException {
-        // Common case: the event-driven post-issuance validation lands ~100 ms after ISSUED;
-        // the wait observes it and the chain is accepted.
+        // Common case: the event-driven post-issuance validation lands shortly after the
+        // certificate reaches the issued state, the wait observes it, and the chain is accepted.
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.VALID);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
@@ -119,9 +125,9 @@ class CrmfMessageHandlerTest {
         // issuance already succeeded must not be rejected.
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
@@ -133,9 +139,9 @@ class CrmfMessageHandlerTest {
     void rejects_whenWaitResolvesToInvalid() throws NotFoundException {
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
                 .thenReturn(CertificateValidationStatus.INVALID);
 
         assertThatThrownBy(() -> invokeLoadCaCertificateChain(leaf))
@@ -149,7 +155,7 @@ class CrmfMessageHandlerTest {
     void rejects_whenChainCertificateDefinitivelyRevoked() throws NotFoundException {
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.REVOKED);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
 
         assertThatThrownBy(() -> invokeLoadCaCertificateChain(leaf))
@@ -157,7 +163,7 @@ class CrmfMessageHandlerTest {
                 .cause()
                 .isInstanceOf(CmpCrmfValidationException.class)
                 .hasMessageContaining("Status: Revoked");
-        Mockito.verifyNoInteractions(validationStatusPoller);
+        verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
@@ -166,9 +172,9 @@ class CrmfMessageHandlerTest {
         // NOT_CHECKED, which is transient, so the chain certificate passes.
         Certificate leaf = leafCertificate();
         CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        Mockito.when(certificateService.getCertificateChain(Mockito.any(SecuredUUID.class), Mockito.eq(true)))
+        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(chainCert));
-        Mockito.when(validationStatusPoller.pollValidationStatus(Mockito.eq(chainCert.getUuid()), Mockito.anyLong()))
+        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
                 .thenThrow(new NotFoundException(Certificate.class, chainCert.getUuid()));
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
@@ -182,12 +188,12 @@ class CrmfMessageHandlerTest {
         // ip/cp/kup whose PKIStatusInfo is 'waiting' — the client then sends pollReq. A bare
         // pollRep as the direct answer to ir is out-of-state and conformant clients
         // (openssl cmp) abort with "unexpected pkibody", orphaning the issued certificate.
-        CmpTransactionService cmpTransactionService = Mockito.mock(CmpTransactionService.class);
-        Mockito.when(cmpTransactionService.createTransactionEntity(
-                        Mockito.anyString(), Mockito.any(), Mockito.anyString(), Mockito.any(), Mockito.any()))
+        CmpTransactionService cmpTransactionService = mock(CmpTransactionService.class);
+        when(cmpTransactionService.createTransactionEntity(
+                        anyString(), any(), anyString(), any(), any()))
                 .thenReturn(new CmpTransaction());
-        CrmfIrCrMessageHandler irCrMessageHandler = Mockito.mock(CrmfIrCrMessageHandler.class);
-        Mockito.when(irCrMessageHandler.getTransactionState()).thenReturn(CmpTransactionState.CERT_ISSUED);
+        CrmfIrCrMessageHandler irCrMessageHandler = mock(CrmfIrCrMessageHandler.class);
+        when(irCrMessageHandler.getTransactionState()).thenReturn(CmpTransactionState.CERT_ISSUED);
         handler.setCmpTransactionService(cmpTransactionService);
         handler.setCrmfIrCrMessageHandler(irCrMessageHandler);
 
@@ -227,17 +233,17 @@ class CrmfMessageHandlerTest {
     }
 
     private static ConfigurationContext configurationWithMockedProtection() {
-        ConfigurationContext cfg = Mockito.mock(ConfigurationContext.class);
-        ProtectionStrategy strategy = Mockito.mock(ProtectionStrategy.class);
+        ConfigurationContext cfg = mock(ConfigurationContext.class);
+        ProtectionStrategy strategy = mock(ProtectionStrategy.class);
         try {
-            Mockito.when(cfg.getProtectionStrategy()).thenReturn(strategy);
-            Mockito.when(cfg.getRecipient()).thenReturn(new GeneralName(new X500Name("CN=test-recipient")));
-            Mockito.when(strategy.getSender()).thenReturn(new GeneralName(new X500Name("CN=test-sender")));
-            Mockito.when(strategy.getProtectionAlg()).thenReturn(new AlgorithmIdentifier(
+            when(cfg.getProtectionStrategy()).thenReturn(strategy);
+            when(cfg.getRecipient()).thenReturn(new GeneralName(new X500Name("CN=test-recipient")));
+            when(strategy.getSender()).thenReturn(new GeneralName(new X500Name("CN=test-sender")));
+            when(strategy.getProtectionAlg()).thenReturn(new AlgorithmIdentifier(
                     new ASN1ObjectIdentifier("1.3.6.1.5.5.8.1.2")));
-            Mockito.when(strategy.getSenderKID()).thenReturn(new DEROctetString(new byte[]{1, 2, 3}));
-            Mockito.when(strategy.getProtectingExtraCerts()).thenReturn(List.of());
-            Mockito.when(strategy.createProtection(Mockito.any(PKIHeader.class), Mockito.any(PKIBody.class)))
+            when(strategy.getSenderKID()).thenReturn(new DEROctetString(new byte[]{1, 2, 3}));
+            when(strategy.getProtectingExtraCerts()).thenReturn(List.of());
+            when(strategy.createProtection(any(PKIHeader.class), any(PKIBody.class)))
                     .thenReturn(new DERBitString(new byte[]{0x01, 0x02}));
         } catch (Exception e) {
             throw new RuntimeException("test setup failed", e);
