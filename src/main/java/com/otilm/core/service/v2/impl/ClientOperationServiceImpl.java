@@ -120,6 +120,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 
     /**
+     * Event-history message logged when a certificate is moved to {@code PENDING_ISSUE} before the CA
+     * submission. Operation-neutral: the same {@code ISSUE} event backs issue, register-bound issue,
+     * renew, and rekey, so the wording must fit all of them.
+     */
+    public static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+
+    /**
      * Structured event-log surface for system-level state-transition events that are not
      * directly user-triggered, per the contributor logging guide
      * (https://docs.otilm.com/docs/contributors/logging). Distinct from the
@@ -962,7 +969,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // state via the state machine. The sync path creates no poll row, so a crash before the
             // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
             transactionManager.commit(tx);
         } catch (NotFoundException | RuntimeException e) {
             transactionManager.rollback(tx);
@@ -1109,7 +1116,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
             stateMachine.transition(managed, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
             transactionManager.commit(tx);
             return new RegisterReplayContext(replayMeta, identityContent);
         } catch (RuntimeException | NotFoundException | CertificateOperationException e) {
@@ -1551,7 +1558,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
@@ -1772,7 +1779,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
