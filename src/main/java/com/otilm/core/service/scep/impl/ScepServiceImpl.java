@@ -40,6 +40,7 @@ import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
+import com.otilm.core.service.cmp.message.handler.PollFeature;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.scep.ScepExternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -111,6 +112,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepTransactionRepository scepTransactionRepository;
     private ClientOperationInternalService clientOperationService;
     private CertificateInternalService certificateService;
+    private PollFeature pollFeature;
     private CryptographicKeyInternalService cryptographicKeyService;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
@@ -148,6 +150,11 @@ public class ScepServiceImpl implements ScepExternalService {
     @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setPollFeature(PollFeature pollFeature) {
+        this.pollFeature = pollFeature;
     }
 
     @Autowired
@@ -857,13 +864,53 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     private void checkCertificateValidity(CertificateDetailDto certificate) throws ScepException {
-        if (certificate.getValidationStatus() != CertificateValidationStatus.VALID
-                && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING) {
+        // Only a definitively bad status is rejected. NOT_CHECKED is a normal transient
+        // state — a certificate freshly issued in this same transaction stays NOT_CHECKED
+        // until the async validation lands — so it is briefly waited on and, if still
+        // unresolved, accepted: the response must reflect issuance success, not the
+        // progress of an asynchronous validation.
+        CertificateValidationStatus validationStatus = ensureValidationStatus(certificate);
+        if (validationStatus != CertificateValidationStatus.VALID
+                && validationStatus != CertificateValidationStatus.EXPIRING
+                && validationStatus != CertificateValidationStatus.NOT_CHECKED) {
             throw new ScepException(String.format("Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                     certificate.getUuid(),
                     certificate.getFingerprint(),
-                    certificate.getValidationStatus().getLabel()),
+                    validationStatus.getLabel()),
                     FailInfo.BAD_REQUEST);
+        }
+    }
+
+    /**
+     * How long to wait for the event-driven post-issuance validation to move the
+     * certificate off {@code NOT_CHECKED}. The validation listener typically lands
+     * within ~100 ms of issuance; 3 s covers slow OCSP/CRL checks without stretching
+     * the request unreasonably.
+     */
+    private static final long VALIDATION_STATUS_WAIT_MS = 3_000L;
+
+    /**
+     * Certificate validation status is advanced asynchronously (event-driven after issuance,
+     * hourly batch as fallback), so a certificate issued moments ago can still be
+     * {@code NOT_CHECKED} when the SCEP response is built. Wait briefly for the in-flight
+     * validation to land so a definitively bad status can still be caught; if it does not
+     * land within the budget, the caller accepts {@code NOT_CHECKED} — it is a transient
+     * state, not a verdict, and must not fail an issuance that already succeeded.
+     */
+    private CertificateValidationStatus ensureValidationStatus(CertificateDetailDto certificate) {
+        if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
+            return certificate.getValidationStatus();
+        }
+        try {
+            CertificateValidationStatus resolved = pollFeature.pollValidationStatus(
+                    certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
+            logger.debug("UUID={} | validation status after wait: {}",
+                    certificate.getUuid(), resolved);
+            return resolved;
+        } catch (NotFoundException e) {
+            logger.warn("UUID={} | certificate not found while waiting for validation status",
+                    certificate.getUuid());
+            return certificate.getValidationStatus();
         }
     }
 }

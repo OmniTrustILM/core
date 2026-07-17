@@ -50,12 +50,12 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
 
     /**
-     * RFC 4210 §5.3.22 {@code checkAfter} (seconds). Tells the CMP client how long to wait
-     * before retrying the {@code pollReq} when the authority provider connector accepted the
-     * operation asynchronously. 60 s balances "client doesn't hammer the server" against
-     * "operator doesn't wait too long for state to propagate".
+     * How long to wait for the event-driven post-issuance validation to move the
+     * certificate off {@code NOT_CHECKED} before validating inline as a fallback.
+     * The validation listener typically lands within ~100 ms of issuance; 3 s covers
+     * slow OCSP/CRL checks without stretching the request unreasonably.
      */
-    private static final long POLL_REP_CHECK_AFTER_SECONDS = 60L;
+    private static final long VALIDATION_STATUS_WAIT_MS = 3_000L;
 
     private static final List<Integer> ALLOWED_TYPES = List.of(
             PKIBody.TYPE_INIT_REQ,          // ir       [0]  CertReqMessages,       --Initialization Req
@@ -266,9 +266,12 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
     }
 
     /**
-     * Connector accepted the operation asynchronously (HTTP 202): persist the transaction
-     * so a subsequent {@code pollReq} can be correlated back to the in-flight cert, then
-     * emit a CMP {@code pollRep} so the client knows to retry later (RFC 4210 §5.2.6).
+     * The certificate is still pending after the poll budget: persist the transaction so a
+     * subsequent {@code pollReq} can be correlated back to the in-flight cert, then answer
+     * the ir/cr/kur with an ip/cp/kup whose {@code PKIStatusInfo} is {@code waiting}. Per
+     * RFC 4210 §5.3.22 the polling exchange is initiated by exactly this response — the
+     * client then sends {@code pollReq} (handled by {@link PollReqMessageHandler}). A bare
+     * {@code pollRep} here would be out-of-state and conformant clients reject it.
      */
     private PKIMessage handleAsynchronousAcceptance(ASN1OctetString tid, PKIMessage request,
                                                     ConfigurationContext configuration, String msgBodyType,
@@ -281,20 +284,23 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                 trxState,
                 request.getBody().getType()));
         try {
-            LOG.info("TID={} | CRMF {} accepted asynchronously (cert {}); returning pollRep",
+            LOG.info("TID={} | CRMF {} still pending after poll budget (cert {}); returning response with status 'waiting'",
                     tid, msgBodyType, requestedCert.getUuid());
+            CertResponse waitingResponse = new CertResponse(
+                    crmf.getCertReqId(),
+                    new PKIStatusInfo(PKIStatus.waiting));
             return new PkiMessageBuilder(configuration)
                     .addHeader(PkiMessageBuilder.buildBasicHeaderTemplate(request))
-                    .addBody(PkiMessageBuilder.createPollRepBody(
-                            crmf.getCertReqId(),
-                            POLL_REP_CHECK_AFTER_SECONDS,
-                            "Awaiting asynchronous completion"))
+                    .addBody(PkiMessageBuilder.createIpCpKupBody(
+                            request.getBody(),
+                            new CertResponse[]{waitingResponse},
+                            null))
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("TID={} | CRMF pollRep message cannot be built (type={})", tid, msgBodyType, e);
+            LOG.error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType, e);
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.systemFailure,
-                    "CRMF pollRep cannot be built, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
+                    "CRMF waiting response cannot be built, type=" + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
         }
     }
 
@@ -391,15 +397,21 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
         // -- parse found CA certificate(s)
         for (CertificateDetailDto certificate : caChain) {
-            // only certificate with valid status should be used
-            if (certificate.getValidationStatus() != CertificateValidationStatus.VALID
-                    && certificate.getValidationStatus() != CertificateValidationStatus.EXPIRING) {
+            // Only a certificate with a definitively bad status is rejected. NOT_CHECKED is
+            // a normal transient state — a certificate freshly issued in this same request
+            // stays NOT_CHECKED until the async validation lands — so it is briefly waited
+            // on and, if still unresolved, accepted: the response must reflect issuance
+            // success, not the progress of an asynchronous validation.
+            CertificateValidationStatus validationStatus = ensureValidationStatus(tid, certificate);
+            if (validationStatus != CertificateValidationStatus.VALID
+                    && validationStatus != CertificateValidationStatus.EXPIRING
+                    && validationStatus != CertificateValidationStatus.NOT_CHECKED) {
                 throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
                         String.format("SN=%s | Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                                 leafCertificateSerialNumber,
                                 certificate.getUuid(),
                                 certificate.getFingerprint(),
-                                certificate.getValidationStatus().getLabel()));
+                                validationStatus.getLabel()));
             }
             try {
                 certificateChain.add(CertificateUtil.parseCertificate(certificate.getCertificateContent()));
@@ -412,6 +424,31 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
             }
         }
         return certificateChain;
+    }
+
+    /**
+     * Certificate validation status is advanced asynchronously (event-driven after issuance,
+     * hourly batch as fallback), so a certificate issued moments ago can still be
+     * {@code NOT_CHECKED} when this response is built. Wait briefly for the in-flight
+     * validation to land so a definitively bad status can still be caught; if it does not
+     * land within the budget, the caller accepts {@code NOT_CHECKED} — it is a transient
+     * state, not a verdict, and must not fail an issuance that already succeeded.
+     */
+    private CertificateValidationStatus ensureValidationStatus(ASN1OctetString tid, CertificateDetailDto certificate) {
+        if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
+            return certificate.getValidationStatus();
+        }
+        try {
+            CertificateValidationStatus resolved = pollFeature.pollValidationStatus(
+                    certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
+            LOG.debug("TID={}, UUID={} | validation status after wait: {}",
+                    tid, certificate.getUuid(), resolved);
+            return resolved;
+        } catch (NotFoundException e) {
+            LOG.warn("TID={}, UUID={} | certificate not found while waiting for validation status",
+                    tid, certificate.getUuid());
+            return certificate.getValidationStatus();
+        }
     }
 
 }
