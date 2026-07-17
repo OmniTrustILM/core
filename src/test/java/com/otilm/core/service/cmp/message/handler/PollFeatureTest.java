@@ -14,6 +14,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -132,11 +133,51 @@ class PollFeatureTest {
     }
 
     @Test
-    void returnsDiverted_whenCertEndsInIssuedButExpectedRevoked() throws Exception {
-        // Equivalent race in the revoke direction: a concurrent cancelPendingCertificateOperation
-        // (cancel-revoke) sets the cert back to ISSUED while this poll waits for REVOKED.
+    void ridesThroughIssued_andReturnsReached_whenRevocationLandsWithinBudget() throws Exception {
+        // Issue #1833: ISSUED is the resting state a certificate occupies before a revocation
+        // transitions, so a revoke poll that samples ISSUED first must keep waiting for the
+        // async ISSUED -> REVOKED transition instead of rejecting it as "diverted to ISSUED".
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
+        AtomicInteger reads = new AtomicInteger();
+        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+                .thenAnswer(invocation -> {
+                    if (reads.incrementAndGet() >= 2) {
+                        cert.setState(CertificateState.REVOKED);
+                    }
+                    return cert;
+                });
+
+        PollResult result = pollFeature.pollCertificate(
+                new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.REVOKED);
+
+        assertThat(result).isInstanceOfSatisfying(PollResult.Reached.class,
+                r -> assertThat(r.certificate()).isSameAs(cert));
+        assertThat(reads.get()).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void timesOut_whenRevokeNeverLeavesIssued_ratherThanReportingDivertedToIssued() throws Exception {
+        // If the revocation never takes effect (cert stuck at ISSUED), the poll must NOT
+        // report a false "diverted to ISSUED"; it rides out the budget and ends as a timeout,
+        // which the revocation handler surfaces as a plain rejection.
+        UUID certUuid = UUID.randomUUID();
+        Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
+        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+                .thenReturn(cert);
+
+        assertThatThrownBy(() -> pollFeature.pollCertificate(
+                new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.REVOKED))
+                .isInstanceOf(CmpProcessingException.class)
+                .hasMessageContaining("polling timed out");
+    }
+
+    @Test
+    void returnsDiverted_whenCertEndsInFailedButExpectedRevoked() throws Exception {
+        // A genuine divergence on the revoke path (FAILED, not the benign ISSUED precursor)
+        // is still reported as Diverted so the caller rejects cleanly.
+        UUID certUuid = UUID.randomUUID();
+        Certificate cert = certificateInState(certUuid, CertificateState.FAILED);
         Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
@@ -144,7 +185,7 @@ class PollFeatureTest {
                 new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.REVOKED);
 
         assertThat(result).isInstanceOfSatisfying(PollResult.Diverted.class,
-                d -> assertThat(d.currentState()).isEqualTo(CertificateState.ISSUED));
+                d -> assertThat(d.currentState()).isEqualTo(CertificateState.FAILED));
     }
 
     @Test
