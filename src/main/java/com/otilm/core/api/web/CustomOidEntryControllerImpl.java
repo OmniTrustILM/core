@@ -62,6 +62,12 @@ public class CustomOidEntryControllerImpl implements CustomOidEntryController {
     }
 
     @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.OID, operation = Operation.LIST)
+    public List<CustomOidEntryDetailResponseDto> listSystemOidEntries(OidCategory category) {
+        return customOidEntryService.listSystemOidEntries(category);
+    }
+
+    @Override
     @AuditLogged(module = Module.CORE, resource = Resource.SEARCH_FILTER, affiliatedResource = Resource.OID, operation = Operation.LIST)
     public List<SearchFieldDataByGroupDto> getSearchableInformation() {
         return customOidEntryService.getSearchableFieldInformation();

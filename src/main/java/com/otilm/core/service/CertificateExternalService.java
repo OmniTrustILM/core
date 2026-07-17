@@ -85,6 +85,29 @@ public interface CertificateExternalService {
     List<BaseAttribute> getCsrGenerationAttributes();
 
     /**
+     * Get the resolved request-attribute set for an RA profile.
+     *
+     * <p><b>Composition:</b> combines the RA-profile static set with the authority-connector set
+     * according to the profile's merge mode, then applies the profile's value-source bindings.
+     *
+     * <p><b>Fallback:</b> when the profile configures no static set, the platform default
+     * request-attribute set is used instead.
+     *
+     * <p><b>Projection:</b> the result is narrowed to the projectable v3 definitions — the exact set
+     * the platform projects into the certificate request content on issue and register.
+     *
+     * <p><b>Empty result:</b> when nothing is projectable anywhere (profile, connector, and default set
+     * all yield no definitions), the call fails with {@link com.otilm.api.exception.ValidationException}
+     * (surfaced as HTTP 422) rather than returning an empty list.
+     *
+     * @param raProfileUuid UUID of the enabled RA profile
+     * @return the resolved request-attribute definitions
+     * @throws NotFoundException  when the RA profile does not exist or is disabled
+     * @throws ConnectorException when the authority connector fails while listing its issue attributes
+     */
+    List<BaseAttribute> getCsrGenerationAttributes(SecuredUUID raProfileUuid) throws NotFoundException, ConnectorException;
+
+    /**
      * Get the list of the certificate contents for the provided certificate UUIDs
      *
      * @param uuids UUIDs of the certificate
