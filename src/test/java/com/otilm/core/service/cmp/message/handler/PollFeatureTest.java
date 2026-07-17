@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link PollFeature}.
@@ -61,7 +62,7 @@ class PollFeatureTest {
     void returnsStillPending_whenCertReachesPendingIssue() throws Exception {
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_ISSUE);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -75,7 +76,7 @@ class PollFeatureTest {
     void returnsStillPending_whenCertReachesPendingRevoke() throws Exception {
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_REVOKE);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -89,7 +90,7 @@ class PollFeatureTest {
     void returnsReached_whenCertAlreadyInExpectedState() throws Exception {
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -106,7 +107,7 @@ class PollFeatureTest {
         // Caller must reject the operation cleanly rather than time out with systemFailure.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.FAILED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -122,7 +123,7 @@ class PollFeatureTest {
         // a terminal state that is not ISSUED. Caller must reject cleanly.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REJECTED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -140,7 +141,7 @@ class PollFeatureTest {
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
         AtomicInteger reads = new AtomicInteger();
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenAnswer(invocation -> {
                     if (reads.incrementAndGet() >= 2) {
                         cert.setState(CertificateState.REVOKED);
@@ -163,8 +164,12 @@ class PollFeatureTest {
         // which the revocation handler surfaces as a plain rejection.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
+
+        Field timeoutField = PollFeature.class.getDeclaredField("pollFeatureTimeout");
+        timeoutField.setAccessible(true);
+        timeoutField.set(pollFeature, 0);
 
         assertThatThrownBy(() -> pollFeature.pollCertificate(
                 new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.REVOKED))
@@ -178,7 +183,7 @@ class PollFeatureTest {
         // is still reported as Diverted so the caller rejects cleanly.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.FAILED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -191,7 +196,7 @@ class PollFeatureTest {
     @Test
     void wrapsNotFoundException_withCmpProcessingException() throws Exception {
         UUID certUuid = UUID.randomUUID();
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenThrow(new NotFoundException(Certificate.class, certUuid));
 
         assertThatThrownBy(() -> pollFeature.pollCertificate(
@@ -208,7 +213,7 @@ class PollFeatureTest {
         // outcome messages carry the right SN.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.ISSUED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         PollResult result = pollFeature.pollCertificate(
@@ -226,7 +231,7 @@ class PollFeatureTest {
         // observe the interrupt.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REQUESTED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         Thread.currentThread().interrupt();
@@ -248,7 +253,7 @@ class PollFeatureTest {
         // Cert in REQUESTED state never reaches ISSUED; timeout config is 1s in setUp().
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REQUESTED);
-        Mockito.when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
+        when(certificateService.getCertificateEntity(Mockito.any(SecuredUUID.class)))
                 .thenReturn(cert);
 
         assertThatThrownBy(() -> pollFeature.pollCertificate(
