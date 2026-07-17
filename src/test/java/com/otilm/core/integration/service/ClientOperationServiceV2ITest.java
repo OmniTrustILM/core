@@ -74,7 +74,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.otilm.core.service.v2.impl.ClientOperationServiceImpl.CERTIFICATE_REQUESTED_EVENT_MESSAGE;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
@@ -1192,7 +1191,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && CERTIFICATE_REQUESTED_EVENT_MESSAGE.equals(h.getMessage())),
+                                && "Certificate requested".equals(h.getMessage())),
                 "expected the state-machine's PENDING_ISSUE audit row (ISSUE/SUCCESS, "
                         + "\"Certificate requested\") to precede ISSUED on the sync path");
     }
@@ -1578,7 +1577,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && CERTIFICATE_REQUESTED_EVENT_MESSAGE.equals(h.getMessage())),
+                                && "Certificate requested".equals(h.getMessage())),
                 "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                         + "to precede ISSUED on the sync renew path");
     }
@@ -1607,7 +1606,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && CERTIFICATE_REQUESTED_EVENT_MESSAGE.equals(h.getMessage())),
+                                && "Certificate requested".equals(h.getMessage())),
                 "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                         + "to precede ISSUED on the sync rekey path");
     }

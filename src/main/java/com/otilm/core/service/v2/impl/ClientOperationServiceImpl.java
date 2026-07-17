@@ -124,7 +124,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * submission. Operation-neutral: the same {@code ISSUE} event backs issue, register-bound issue,
      * renew, and rekey, so the wording must fit all of them.
      */
-    public static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+    private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
 
     /**
      * Structured event-log surface for system-level state-transition events that are not
