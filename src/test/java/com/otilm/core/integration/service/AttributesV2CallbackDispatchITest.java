@@ -8,6 +8,8 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.callback.RequestAttributeCallback;
@@ -114,16 +116,33 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         return a;
     }
 
+    /** A saved authority-interface row for {@link #connector}; its UUID is what a connector-route NG callback carries. */
+    private ConnectorInterfaceEntity authorityInterface() {
+        ConnectorInterfaceEntity iface = new ConnectorInterfaceEntity();
+        iface.setConnectorUuid(connector.getUuid());
+        iface.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        iface.setVersion("v3");
+        return connectorInterfaceRepository.save(iface);
+    }
+
+    /** Minimal current-attribute value carrying only the name the completeness guard checks. */
+    private static RequestAttribute currentValue(String name) {
+        return new RequestAttributeV3(UUID.randomUUID(), name, AttributeContentType.STRING, List.of());
+    }
+
     @Test
     void dependsOnCallbackDispatchesToV2Endpoint() throws AttributeException, NotFoundException, ConnectorException {
         DataAttributeV2 ng = ngDataAttribute("ngAttr");
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
                 .willReturn(WireMock.okJson("{\"content\":[]}")));
 
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName(ng.getName());
+        req.setInterfaceUuid(iface.getUuid());
+        req.setAttributes(List.of(currentValue("dep")));
         callbackService.callback(connector.getUuid(), req);
 
         // Envelope carries the resolved attribute name; legacy endpoint must NOT be hit.
@@ -140,12 +159,14 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         DataAttributeV2 ng = ngDataAttribute("ngFireOnMount");
         ng.getAttributeCallback().setDependsOn(List.of());
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
                 .willReturn(WireMock.okJson("{\"content\":[]}")));
 
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName(ng.getName());
+        req.setInterfaceUuid(iface.getUuid());
         callbackService.callback(connector.getUuid(), req);
 
         // containing (not matchingJsonPath): a JSONPath match on an empty array reports no-match in WireMock, so the
@@ -210,6 +231,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
     void noTransactionActiveDuringConnectorCall() throws AttributeException, NotFoundException, ConnectorException {
         DataAttributeV2 ng = ngDataAttribute("txAttr");
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
                 .willReturn(WireMock.okJson("{\"content\":[]}")));
@@ -229,6 +251,8 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
 
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName(ng.getName());
+        req.setInterfaceUuid(iface.getUuid());
+        req.setAttributes(List.of(currentValue("dep")));
         callbackService.callback(connector.getUuid(), req);
 
         Assertions.assertNotNull(captured.get(), "the connector POST must have fired");
@@ -273,6 +297,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         DataAttributeV2 b = ngDataAttribute("dup");
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(a));
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(b));
+        ConnectorInterfaceEntity iface = authorityInterface();
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
                 .willReturn(WireMock.okJson("{\"content\":[]}")));
@@ -280,6 +305,8 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName("dup");
         req.setUuid(b.getUuid());
+        req.setInterfaceUuid(iface.getUuid());
+        req.setAttributes(List.of(currentValue("dep")));
         callbackService.callback(connector.getUuid(), req);
 
         mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
@@ -311,6 +338,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName("ngScoped");
         req.setUuid(ng.getUuid());
+        req.setAttributes(List.of(currentValue("dep")));
         callbackService.resourceCallback(Resource.RA_PROFILE, authority.getUuid().toString(), req);
 
         mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
@@ -346,6 +374,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName("ngDenied");
         req.setUuid(ng.getUuid());
+        req.setAttributes(List.of(currentValue("dep")));
 
         Assertions.assertThrows(org.springframework.security.access.AccessDeniedException.class,
                 () -> callbackService.resourceCallback(Resource.RA_PROFILE, authority.getUuid().toString(), req),
@@ -355,20 +384,16 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
     }
 
     @Test
-    void ngTokenProfileRouteDispatchesWithBothNullInterfaceContext() throws Exception {
-        // TOKEN_PROFILE/CRYPTOGRAPHIC_KEY/LOCATION have no stored interface version (only authorities carry one), so
-        // the arm emits a both-null interface envelope. A dependsOn callback on this route must still dispatch — the
-        // interface-version fail-fast must not trip on the both-null shape, and the envelope omits connectorInterface.
+    void ngTokenProfileRouteWithoutInterfaceUuidIsRejected() throws Exception {
+        // TOKEN_PROFILE/CRYPTOGRAPHIC_KEY/LOCATION carry no ConnectorInterfaceEntity, so their arm pre-resolves no
+        // interface. An NG dispatch on such a route must therefore carry interfaceUuid on the request; absent it the
+        // callback fails closed (422) and no connector POST fires. The route's parent is the token INSTANCE.
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
         tokenInstance.setConnector(connector);
         tokenInstance = tokenInstanceReferenceRepository.save(tokenInstance);
 
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("tp-ng");
-        tokenProfile.setTokenInstanceReference(tokenInstance);
-        tokenProfile = tokenProfileRepository.save(tokenProfile);
-
         DataAttributeV2 ng = ngDataAttribute("ngTokenProfile");
+        ng.getAttributeCallback().setDependsOn(List.of());
         attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
 
         mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
@@ -377,9 +402,112 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName("ngTokenProfile");
         req.setUuid(ng.getUuid());
-        callbackService.resourceCallback(Resource.TOKEN_PROFILE, tokenProfile.getUuid().toString(), req);
+
+        UUID tokenInstanceUuid = tokenInstance.getUuid();
+        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+                () -> callbackService.resourceCallback(Resource.TOKEN_PROFILE, tokenInstanceUuid.toString(), req));
+
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
+    }
+
+    @Test
+    void ngConnectorRouteStampsInterfaceFromRow() throws Exception {
+        // The parent-less connector route stamps the envelope interface from the interfaceUuid the form carries —
+        // the row's own interfaceCode/version — and sends an empty contextAttributes (no parent scope).
+        DataAttributeV2 ng = ngDataAttribute("ngConnRoute");
+        ng.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngConnRoute");
+        req.setUuid(ng.getUuid());
+        req.setInterfaceUuid(iface.getUuid());
+        callbackService.callback(connector.getUuid(), req);
 
         mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
-                .withRequestBody(WireMock.notMatching("(?s).*\"connectorInterface\".*")));
+                .withRequestBody(matchingJsonPath("$.connectorInterface", WireMock.equalTo("authority")))
+                .withRequestBody(matchingJsonPath("$.interfaceVersion", WireMock.equalTo("v3")))
+                .withRequestBody(WireMock.containing("\"contextAttributes\":[]")));
+    }
+
+    @Test
+    void ngConnectorRouteRejectsInterfaceFromAnotherConnector() throws Exception {
+        // The interfaceUuid must belong to the route connector; a row owned by a different connector must be
+        // rejected (422) before any connector POST — otherwise a caller could stamp a foreign interface.
+        Connector other = new Connector();
+        other.setName("other");
+        other.setUrl(mockServer.baseUrl() + "/other");
+        other.setVersion(ConnectorVersion.V1);
+        other.setStatus(ConnectorStatus.CONNECTED);
+        connectorRepository.save(other);
+        ConnectorInterfaceEntity foreign = new ConnectorInterfaceEntity();
+        foreign.setConnectorUuid(other.getUuid());
+        foreign.setInterfaceCode(ConnectorInterface.AUTHORITY);
+        foreign.setVersion("v3");
+        foreign = connectorInterfaceRepository.save(foreign);
+
+        DataAttributeV2 ng = ngDataAttribute("ngForeignIface");
+        ng.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngForeignIface");
+        req.setUuid(ng.getUuid());
+        req.setInterfaceUuid(foreign.getUuid());
+
+        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+                () -> callbackService.callback(connector.getUuid(), req));
+
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
+    }
+
+    @Test
+    void ngConnectorRouteWithoutInterfaceUuidIsRejected() throws Exception {
+        // NG on the connector route requires interfaceUuid (nothing else supplies the form's interface). Absent it,
+        // fail closed (422); no connector POST.
+        DataAttributeV2 ng = ngDataAttribute("ngNoIface");
+        ng.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngNoIface");
+        req.setUuid(ng.getUuid());
+
+        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+                () -> callbackService.callback(connector.getUuid(), req));
+
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
+    }
+
+    @Test
+    void ngCallbackMissingDependsOnValueIsRejected() throws Exception {
+        // Completeness guard: a dependsOn name with no value in currentAttributes fails closed (422) before the
+        // connector is called, even with a valid interfaceUuid.
+        DataAttributeV2 ng = ngDataAttribute("ngMissingDep");
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngMissingDep");
+        req.setUuid(ng.getUuid());
+        req.setInterfaceUuid(iface.getUuid());
+
+        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+                () -> callbackService.callback(connector.getUuid(), req));
+
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
     }
 }

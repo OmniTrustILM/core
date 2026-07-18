@@ -70,7 +70,8 @@ class NgCallbackDispatcherTest {
         def.setUuid(UUID.randomUUID().toString());
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
-        return new NgCallbackDispatcher.NgDispatchContext(def, null, "v2", List.of(), List.of());
+        return new NgCallbackDispatcher.NgDispatchContext(def,
+                com.otilm.api.model.client.connector.v2.ConnectorInterface.AUTHORITY, "v3", List.of(), List.of());
     }
 
     @Test
@@ -172,22 +173,20 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
-    void bothNullInterfaceContextDispatchesWithoutTrippingTheVersionGuard() throws Exception {
-        // The connector-scoped path AND the TOKEN_PROFILE/CRYPTOGRAPHIC_KEY/LOCATION arms emit a both-null interface
-        // context (no stored version to pair with an interface). The guard is directional — it must allow both-null
-        // and reject only interface-without-version.
+    void bothNullInterfaceContextIsRejected() {
+        // Every NG dispatch must stamp a full (connectorInterface, interfaceVersion) pair — the dispatch ladder
+        // resolves it from the scoped object or the request's interfaceUuid before reaching here. A both-null context
+        // is a wiring error; fail closed before the connector POST rather than ship an envelope dropping both fields.
         DataAttributeV2 def = new DataAttributeV2();
         def.setUuid(UUID.randomUUID().toString());
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
         NgCallbackDispatcher.NgDispatchContext bothNull = new NgCallbackDispatcher.NgDispatchContext(
                 def, null, null, List.of(), List.of());
-        AttributeCallbackResponseDto ok = new AttributeCallbackResponseDto();
-        ok.setContent(List.of());
-        Mockito.when(client.callback(any(), any())).thenReturn(ok);
 
-        assertDoesNotThrow(() ->
+        assertThrows(ValidationException.class, () ->
                 dispatcher.dispatchNgCallback(connector, bothNull, new RequestAttributeCallback(), new HashSet<>()));
+        Mockito.verifyNoInteractions(client);
     }
 
     @Test
