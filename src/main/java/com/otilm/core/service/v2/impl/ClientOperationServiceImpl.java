@@ -51,6 +51,7 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.authority.AdapterOperationOutcome;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -171,6 +172,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private RegistrationChallengeStore registrationChallengeStore;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+    private ResourceObjectAssociationService objectAssociationService;
+
+    @Autowired
+    public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
+        this.objectAssociationService = objectAssociationService;
+    }
 
     @Autowired
     public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
@@ -487,6 +494,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            // Apply owner/groups before the connector call, alongside custom attributes: an invalid owner/group
+            // UUID fails the placeholder here (pre-acceptance) rather than after a connector has already accepted.
+            applyRegistrationAssociations(certificate, request);
             // Persist the challenge authorization before the connector call — on every arc that can leave the
             // certificate reconcilable to REGISTERED (see the method) — but inside the try, so a store/save
             // failure fails the placeholder via the catch below rather than orphaning it in PENDING_REGISTRATION.
@@ -570,6 +580,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            applyRegistrationAssociations(certificate, request);
             maybeCreateRegistrationAuthorization(certificate, request);
             // Write the register->issue binding (no connector meta) so a platform-level placeholder carries the same
             // marker as a connector-backed one — the discriminator both the issue routing and the approval-reject
@@ -590,6 +601,32 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData("");
         return response;
+    }
+
+    /**
+     * Applies the optional owner and groups from the registration request onto the placeholder certificate.
+     *
+     * <p>An explicit {@code ownerUuid} is set as the owner; when it is absent the registering user becomes the
+     * owner (mirroring the plain issue path). {@code groupUuids}, when supplied, replace the certificate's group
+     * set. Both associations are set through {@link ResourceObjectAssociationService}, which validates that the
+     * owner and each group exist and throws {@link NotFoundException} otherwise.</p>
+     *
+     * <p>Called before the connector call (alongside custom attributes) so an invalid owner/group UUID fails the
+     * placeholder pre-acceptance rather than diverging from a connector that has already accepted the
+     * registration. The values are preserved when the pre-registered certificate is later issued, because the
+     * register-&gt;issue path reuses the same entity and does not reset owner or groups.</p>
+     */
+    private void applyRegistrationAssociations(Certificate certificate, ClientCertificateRegistrationDto request)
+            throws NotFoundException {
+        UUID certificateUuid = certificate.getUuid();
+        if (request.getOwnerUuid() != null && !request.getOwnerUuid().isBlank()) {
+            objectAssociationService.setOwner(Resource.CERTIFICATE, certificateUuid, UUID.fromString(request.getOwnerUuid()));
+        } else {
+            objectAssociationService.setOwnerFromProfile(Resource.CERTIFICATE, certificateUuid);
+        }
+        if (request.getGroupUuids() != null && !request.getGroupUuids().isEmpty()) {
+            objectAssociationService.setGroups(Resource.CERTIFICATE, certificateUuid, request.getGroupUuids());
+        }
     }
 
     /**
