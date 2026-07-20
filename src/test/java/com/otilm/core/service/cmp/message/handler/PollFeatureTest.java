@@ -135,7 +135,7 @@ class PollFeatureTest {
 
     @Test
     void ridesThroughIssued_andReturnsReached_whenRevocationLandsWithinBudget() throws Exception {
-        // Issue #1833: ISSUED is the resting state a certificate occupies before a revocation
+        // ISSUED is the resting state a certificate occupies before a revocation
         // transitions, so a revoke poll that samples ISSUED first must keep waiting for the
         // async ISSUED -> REVOKED transition instead of rejecting it as "diverted to ISSUED".
         UUID certUuid = UUID.randomUUID();
