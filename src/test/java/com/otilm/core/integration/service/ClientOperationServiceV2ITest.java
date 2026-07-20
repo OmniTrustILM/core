@@ -1169,7 +1169,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     /**
      * The synchronous (HTTP 200) issue path must now pass through PENDING_ISSUE via the state
      * machine BEFORE the connector call, then finish in ISSUED. The pre-connector transition is the
-     * only source of an ISSUE/SUCCESS "Issuance in progress" audit row, so its presence proves the
+     * only source of an ISSUE/SUCCESS "Certificate requested" audit row, so its presence proves the
      * cert went through PENDING_ISSUE on the way to ISSUED.
      */
     @Test
@@ -1191,9 +1191,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && "Issuance in progress".equals(h.getMessage())),
+                                && "Certificate requested".equals(h.getMessage())),
                 "expected the state-machine's PENDING_ISSUE audit row (ISSUE/SUCCESS, "
-                        + "\"Issuance in progress\") to precede ISSUED on the sync path");
+                        + "\"Certificate requested\") to precede ISSUED on the sync path");
     }
 
     /**
@@ -1554,7 +1554,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     /**
      * The synchronous (HTTP 200) renew path moves the new certificate to PENDING_ISSUE via the state
-     * machine BEFORE the connector call, then finishes in ISSUED. The "Issuance in progress" audit
+     * machine BEFORE the connector call, then finishes in ISSUED. The "Certificate requested" audit
      * row proves the new cert passed through PENDING_ISSUE on the way to ISSUED.
      */
     @Test
@@ -1577,8 +1577,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && "Issuance in progress".equals(h.getMessage())),
-                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                                && "Certificate requested".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                         + "to precede ISSUED on the sync renew path");
     }
 
@@ -1606,8 +1606,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 history.stream().anyMatch(h ->
                         h.getEvent() == CertificateEvent.ISSUE
                                 && h.getStatus() == CertificateEventStatus.SUCCESS
-                                && "Issuance in progress".equals(h.getMessage())),
-                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Issuance in progress\") "
+                                && "Certificate requested".equals(h.getMessage())),
+                "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                         + "to precede ISSUED on the sync rekey path");
     }
 

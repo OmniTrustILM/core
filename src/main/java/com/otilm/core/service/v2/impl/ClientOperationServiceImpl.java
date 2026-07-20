@@ -51,6 +51,7 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.authority.AdapterOperationOutcome;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -120,6 +121,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static final Logger logger = LoggerFactory.getLogger(ClientOperationServiceImpl.class);
 
     /**
+     * Event-history message logged when a certificate is moved to {@code PENDING_ISSUE} before the CA
+     * submission. Operation-neutral: the same {@code ISSUE} event backs issue, register-bound issue,
+     * renew, and rekey, so the wording must fit all of them.
+     */
+    private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+
+    /**
      * Structured event-log surface for system-level state-transition events that are not
      * directly user-triggered, per the contributor logging guide
      * (https://docs.otilm.com/docs/contributors/logging). Distinct from the
@@ -164,6 +172,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private RegistrationChallengeStore registrationChallengeStore;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
+    private ResourceObjectAssociationService objectAssociationService;
+
+    @Autowired
+    public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
+        this.objectAssociationService = objectAssociationService;
+    }
 
     @Autowired
     public void setProtocolRequestAttributeValidator(ProtocolRequestAttributeValidator protocolRequestAttributeValidator) {
@@ -480,6 +494,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            // Apply owner/groups before the connector call, alongside custom attributes: an invalid owner/group
+            // UUID fails the placeholder here (pre-acceptance) rather than after a connector has already accepted.
+            applyRegistrationAssociations(certificate, request);
             // Persist the challenge authorization before the connector call — on every arc that can leave the
             // certificate reconcilable to REGISTERED (see the method) — but inside the try, so a store/save
             // failure fails the placeholder via the catch below rather than orphaning it in PENDING_REGISTRATION.
@@ -563,6 +580,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (createCustomAttributes && request.getCustomAttributes() != null && !request.getCustomAttributes().isEmpty()) {
                 attributeEngine.updateObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid(), request.getCustomAttributes());
             }
+            applyRegistrationAssociations(certificate, request);
             maybeCreateRegistrationAuthorization(certificate, request);
             // Write the register->issue binding (no connector meta) so a platform-level placeholder carries the same
             // marker as a connector-backed one — the discriminator both the issue routing and the approval-reject
@@ -583,6 +601,32 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData("");
         return response;
+    }
+
+    /**
+     * Applies the optional owner and groups from the registration request onto the placeholder certificate.
+     *
+     * <p>An explicit {@code ownerUuid} is set as the owner; when it is absent the registering user becomes the
+     * owner (mirroring the plain issue path). {@code groupUuids}, when supplied, replace the certificate's group
+     * set. Both associations are set through {@link ResourceObjectAssociationService}, which validates that the
+     * owner and each group exist and throws {@link NotFoundException} otherwise.</p>
+     *
+     * <p>Called before the connector call (alongside custom attributes) so an invalid owner/group UUID fails the
+     * placeholder pre-acceptance rather than diverging from a connector that has already accepted the
+     * registration. The values are preserved when the pre-registered certificate is later issued, because the
+     * register-&gt;issue path reuses the same entity and does not reset owner or groups.</p>
+     */
+    private void applyRegistrationAssociations(Certificate certificate, ClientCertificateRegistrationDto request)
+            throws NotFoundException {
+        UUID certificateUuid = certificate.getUuid();
+        if (request.getOwnerUuid() != null && !request.getOwnerUuid().isBlank()) {
+            objectAssociationService.setOwner(Resource.CERTIFICATE, certificateUuid, UUID.fromString(request.getOwnerUuid()));
+        } else {
+            objectAssociationService.setOwnerFromProfile(Resource.CERTIFICATE, certificateUuid);
+        }
+        if (request.getGroupUuids() != null && !request.getGroupUuids().isEmpty()) {
+            objectAssociationService.setGroups(Resource.CERTIFICATE, certificateUuid, request.getGroupUuids());
+        }
     }
 
     /**
@@ -982,7 +1026,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // state via the state machine. The sync path creates no poll row, so a crash before the
             // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
             transactionManager.commit(tx);
         } catch (NotFoundException | RuntimeException e) {
             transactionManager.rollback(tx);
@@ -1129,7 +1173,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
             stateMachine.transition(managed, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
             transactionManager.commit(tx);
             return new RegisterReplayContext(replayMeta, identityContent);
         } catch (RuntimeException | NotFoundException | CertificateOperationException e) {
@@ -1571,7 +1615,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult renewResult = adapter.renew(oldCertificate, certificate, request);
@@ -1792,7 +1836,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
             stateMachine.transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
-                    "Issuance in progress");
+                    CERTIFICATE_REQUESTED_EVENT_MESSAGE);
 
             AuthorityProviderAdapter adapter = adapterFactory.forAuthority(raProfile.getAuthorityInstanceReference());
             AdapterOperationResult rekeyResult = adapter.renew(oldCertificate, certificate, null);
