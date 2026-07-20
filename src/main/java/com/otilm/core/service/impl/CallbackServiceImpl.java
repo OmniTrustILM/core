@@ -341,9 +341,12 @@ public class CallbackServiceImpl implements CallbackExternalService {
         // value cleared to empty still counts as present); reject before touching the connector.
         assertDependsOnNamesPresent(attributeCallback.getDependsOn(), currentAttributes);
 
-        // Stamp the envelope interface. Resource-scoped forms pass it pre-resolved from the scoped object; the
-        // connector-scoped route leaves it null and carries the form's connector-interface row UUID on the request
-        // instead. Resolving it here (rather than the entrypoint) keeps the lookup on the NG branch only.
+        // Stamp the envelope interface. Precedence: a route that pre-resolved it from the scoped object
+        // (RA_PROFILE/CERTIFICATE, from the authority's ConnectorInterfaceEntity) wins, and a request-supplied
+        // interfaceUuid is ignored there — those forms derive their interface from the object, so the FE does not
+        // send one. Only when nothing is pre-resolved (the connector route, and the arms with no
+        // ConnectorInterfaceEntity) is the request's interfaceUuid consulted. Resolving here (not the entrypoint)
+        // keeps the lookup on the NG branch only.
         if (connectorInterface == null) {
             ConnectorInterfaceEntity iface = resolveRequestInterface(callback, connectorUuid);
             connectorInterface = iface.getInterfaceCode();

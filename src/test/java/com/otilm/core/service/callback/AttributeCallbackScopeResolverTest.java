@@ -98,12 +98,12 @@ class AttributeCallbackScopeResolverTest {
     @Test
     void tokenProfileAuthorizesTokenInstance() throws Exception {
         // The token-profile create form is scoped by its parent token INSTANCE, so the parent UUID identifies the
-        // instance; the chain is [{tokenInstance}] and only TOKEN:DETAIL is enforced.
+        // instance; the chain is [{tokenInstance}] and only TOKEN:DETAIL is enforced. The walker reads the
+        // connectorUuid column (not the lazy connector association), so stub that to mirror production.
         UUID tokenInstanceUuid = UUID.randomUUID();
-        Connector connector = connectorWithUuid();
         TokenInstanceReference tokenInstance = mock(TokenInstanceReference.class);
         when(tokenInstance.getUuid()).thenReturn(tokenInstanceUuid);
-        when(tokenInstance.getConnector()).thenReturn(connector);
+        when(tokenInstance.getConnectorUuid()).thenReturn(UUID.randomUUID());
         when(tokenInstanceRepo.findByUuid(tokenInstanceUuid)).thenReturn(Optional.of(tokenInstance));
 
         resolver.resolveScopeChain(Resource.TOKEN_PROFILE, tokenInstanceUuid, new HashSet<>());

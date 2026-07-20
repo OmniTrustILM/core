@@ -3,6 +3,7 @@ package com.otilm.core.integration.service;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -206,7 +207,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         RequestAttributeCallback req = new RequestAttributeCallback();
         req.setName(noCallback.getName());
 
-        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+        Assertions.assertThrows(ValidationException.class,
                 () -> callbackService.callback(connector.getUuid(), req));
     }
 
@@ -404,10 +405,40 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         req.setUuid(ng.getUuid());
 
         UUID tokenInstanceUuid = tokenInstance.getUuid();
-        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+        Assertions.assertThrows(ValidationException.class,
                 () -> callbackService.resourceCallback(Resource.TOKEN_PROFILE, tokenInstanceUuid.toString(), req));
 
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
+    }
+
+    @Test
+    void ngTokenProfileRouteDispatchesWithTokenInstanceScope() throws Exception {
+        // Happy path of the token-profile 404 fix: TOKEN_PROFILE + a token-INSTANCE UUID + a valid interfaceUuid
+        // dispatches, and the arm and the scope walker agree the parent UUID is the token instance — the envelope's
+        // sole scope step carries that instance UUID. This is the arm/walker agreement that was broken before the fix.
+        TokenInstanceReference tokenInstance = new TokenInstanceReference();
+        tokenInstance.setConnector(connector);
+        tokenInstance = tokenInstanceReferenceRepository.save(tokenInstance);
+
+        DataAttributeV2 ng = ngDataAttribute("ngTpScope");
+        ng.getAttributeCallback().setDependsOn(List.of());
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(ng));
+        ConnectorInterfaceEntity iface = authorityInterface();
+
+        mockServer.stubFor(WireMock.post(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .willReturn(WireMock.okJson("{\"content\":[]}")));
+
+        RequestAttributeCallback req = new RequestAttributeCallback();
+        req.setName("ngTpScope");
+        req.setUuid(ng.getUuid());
+        req.setInterfaceUuid(iface.getUuid());
+        callbackService.resourceCallback(Resource.TOKEN_PROFILE, tokenInstance.getUuid().toString(), req);
+
+        // scope serializes as the plural resource code ("tokens"); objectUuid is the token-instance UUID.
+        mockServer.verify(WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback"))
+                .withRequestBody(matchingJsonPath("$.contextAttributes[0].scope", WireMock.equalTo("tokens")))
+                .withRequestBody(matchingJsonPath("$.contextAttributes[0].objectUuid",
+                        WireMock.equalTo(tokenInstance.getUuid().toString()))));
     }
 
     @Test
@@ -462,7 +493,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         req.setUuid(ng.getUuid());
         req.setInterfaceUuid(foreign.getUuid());
 
-        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+        Assertions.assertThrows(ValidationException.class,
                 () -> callbackService.callback(connector.getUuid(), req));
 
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
@@ -483,7 +514,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         req.setName("ngNoIface");
         req.setUuid(ng.getUuid());
 
-        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+        Assertions.assertThrows(ValidationException.class,
                 () -> callbackService.callback(connector.getUuid(), req));
 
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));
@@ -505,7 +536,7 @@ class AttributesV2CallbackDispatchITest extends BaseSpringBootTest {
         req.setUuid(ng.getUuid());
         req.setInterfaceUuid(iface.getUuid());
 
-        Assertions.assertThrows(com.otilm.api.exception.ValidationException.class,
+        Assertions.assertThrows(ValidationException.class,
                 () -> callbackService.callback(connector.getUuid(), req));
 
         mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo("/v2/attributes/callback")));

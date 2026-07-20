@@ -4,6 +4,7 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackRequestDto;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -71,7 +72,7 @@ class NgCallbackDispatcherTest {
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
         return new NgCallbackDispatcher.NgDispatchContext(def,
-                com.otilm.api.model.client.connector.v2.ConnectorInterface.AUTHORITY, "v3", List.of(), List.of());
+                ConnectorInterface.AUTHORITY, "v3", List.of(), List.of());
     }
 
     @Test
@@ -165,7 +166,7 @@ class NgCallbackDispatcherTest {
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
         NgCallbackDispatcher.NgDispatchContext bad = new NgCallbackDispatcher.NgDispatchContext(
-                def, com.otilm.api.model.client.connector.v2.ConnectorInterface.CRYPTOGRAPHY, null, List.of(), List.of());
+                def, ConnectorInterface.CRYPTOGRAPHY, null, List.of(), List.of());
 
         assertThrows(ValidationException.class, () ->
                 dispatcher.dispatchNgCallback(connector, bad, new RequestAttributeCallback(), new HashSet<>()));
