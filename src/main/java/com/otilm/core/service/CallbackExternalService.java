@@ -43,7 +43,9 @@ public interface CallbackExternalService {
      * Function to execute the callback on the connector. This method executes the callback only for the attributes
      * that are derived from the primary objects of the connector
      * @param resource Type of the resource for which the callback has to be executed
-     * @param resourceUuid UUID of the resource to which the callback will be executed
+     * @param parentObjectUuid UUID of the parent scope object the form is nested under (the authority behind an
+     *                         RA profile, the token instance behind a token profile, ...), not an object of the
+     *                         named resource itself
      * @param callback Callback request containing information regarding the
      * @return Callback
      * @throws ConnectorException when there are issues with the connector communication
@@ -51,7 +53,7 @@ public interface CallbackExternalService {
      */
     Object resourceCallback(
             Resource resource,
-            String resourceUuid,
+            String parentObjectUuid,
             RequestAttributeCallback callback
     ) throws ConnectorException, ValidationException, NotFoundException, AttributeException;
 }

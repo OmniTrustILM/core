@@ -4,6 +4,7 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
+import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackRequestDto;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -70,7 +71,8 @@ class NgCallbackDispatcherTest {
         def.setUuid(UUID.randomUUID().toString());
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
-        return new NgCallbackDispatcher.NgDispatchContext(def, null, "v2", List.of(), List.of());
+        return new NgCallbackDispatcher.NgDispatchContext(def,
+                ConnectorInterface.AUTHORITY, "v3", List.of(), List.of());
     }
 
     @Test
@@ -164,7 +166,7 @@ class NgCallbackDispatcherTest {
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
         NgCallbackDispatcher.NgDispatchContext bad = new NgCallbackDispatcher.NgDispatchContext(
-                def, com.otilm.api.model.client.connector.v2.ConnectorInterface.CRYPTOGRAPHY, null, List.of(), List.of());
+                def, ConnectorInterface.CRYPTOGRAPHY, null, List.of(), List.of());
 
         assertThrows(ValidationException.class, () ->
                 dispatcher.dispatchNgCallback(connector, bad, new RequestAttributeCallback(), new HashSet<>()));
@@ -172,22 +174,20 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
-    void bothNullInterfaceContextDispatchesWithoutTrippingTheVersionGuard() throws Exception {
-        // The connector-scoped path AND the TOKEN_PROFILE/CRYPTOGRAPHIC_KEY/LOCATION arms emit a both-null interface
-        // context (no stored version to pair with an interface). The guard is directional — it must allow both-null
-        // and reject only interface-without-version.
+    void bothNullInterfaceContextIsRejected() {
+        // Every NG dispatch must stamp a full (connectorInterface, interfaceVersion) pair — the dispatch ladder
+        // resolves it from the scoped object or the request's interfaceUuid before reaching here. A both-null context
+        // is a wiring error; fail closed before the connector POST rather than ship an envelope dropping both fields.
         DataAttributeV2 def = new DataAttributeV2();
         def.setUuid(UUID.randomUUID().toString());
         def.setName("ngAttr");
         def.setContentType(AttributeContentType.STRING);
         NgCallbackDispatcher.NgDispatchContext bothNull = new NgCallbackDispatcher.NgDispatchContext(
                 def, null, null, List.of(), List.of());
-        AttributeCallbackResponseDto ok = new AttributeCallbackResponseDto();
-        ok.setContent(List.of());
-        Mockito.when(client.callback(any(), any())).thenReturn(ok);
 
-        assertDoesNotThrow(() ->
+        assertThrows(ValidationException.class, () ->
                 dispatcher.dispatchNgCallback(connector, bothNull, new RequestAttributeCallback(), new HashSet<>()));
+        Mockito.verifyNoInteractions(client);
     }
 
     @Test

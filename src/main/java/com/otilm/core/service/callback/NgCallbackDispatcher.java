@@ -149,15 +149,15 @@ public class NgCallbackDispatcher {
     }
 
     private AttributeCallbackRequestDto buildEnvelope(NgDispatchContext context, RequestAttributeCallback callback) {
-        // connectorInterface and interfaceVersion are a pair (the envelope marks interfaceVersion @NotBlank). The
-        // connector-scoped entrypoints legitimately stamp neither; a form-context scope arm that stamps the interface
-        // but not the version would emit an envelope omitting the required version (NON_NULL drops it). Fail fast
-        // rather than ship a malformed envelope a conformant connector silently rejects.
-        if (context.connectorInterface() != null
-                && (context.interfaceVersion() == null || context.interfaceVersion().isBlank())) {
+        // Every NG dispatch stamps a full (connectorInterface, interfaceVersion) pair: the envelope marks
+        // connectorInterface @NotNull and interfaceVersion @NotBlank, and @JsonInclude(NON_NULL) drops nulls, so a
+        // missing coordinate ships a body a conformant connector rejects. The dispatch ladder always resolves the
+        // pair before reaching here — from the scoped object (resource-scoped forms) or the request's interfaceUuid
+        // (connector route). A both-null or half-pair shape is a wiring error; fail fast rather than dispatch it.
+        if (context.connectorInterface() == null
+                || context.interfaceVersion() == null || context.interfaceVersion().isBlank()) {
             throw new ValidationException(ValidationError.create(
-                    "NG callback envelope stamps connectorInterface " + context.connectorInterface()
-                            + " but no interfaceVersion; the scope arm must stamp both or neither"));
+                    "NG callback envelope requires both connectorInterface and interfaceVersion"));
         }
         BaseAttribute definition = context.definition();
         AttributeCallbackRequestDto envelope = new AttributeCallbackRequestDto();
