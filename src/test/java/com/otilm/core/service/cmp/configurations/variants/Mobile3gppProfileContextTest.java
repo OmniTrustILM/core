@@ -1,6 +1,7 @@
 package com.otilm.core.service.cmp.configurations.variants;
 
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.CMPCertificate;
 import org.bouncycastle.asn1.cmp.CertOrEncCert;
@@ -50,7 +51,7 @@ class Mobile3gppProfileContextTest {
     @Test
     void acceptsWaitingResponse_withoutExtraCerts() {
         PKIMessage waiting = certRepMessage(PKIBody.TYPE_INIT_REP,
-                new CertResponse(new org.bouncycastle.asn1.ASN1Integer(0), new PKIStatusInfo(PKIStatus.waiting)),
+                new CertResponse(new ASN1Integer(0), new PKIStatusInfo(PKIStatus.waiting)),
                 null);
 
         assertThatCode(() -> context().validateOnCrmfResponse(waiting))
@@ -60,7 +61,7 @@ class Mobile3gppProfileContextTest {
     @Test
     void rejectsIssuedResponse_withoutExtraCerts() throws Exception {
         CertResponse issued = new CertResponse(
-                new org.bouncycastle.asn1.ASN1Integer(0),
+                new ASN1Integer(0),
                 new PKIStatusInfo(PKIStatus.granted),
                 new CertifiedKeyPair(new CertOrEncCert(selfSignedCmpCertificate())),
                 null);
@@ -75,7 +76,7 @@ class Mobile3gppProfileContextTest {
     void acceptsIssuedResponse_withExtraCerts() throws Exception {
         CMPCertificate cmpCert = selfSignedCmpCertificate();
         CertResponse issued = new CertResponse(
-                new org.bouncycastle.asn1.ASN1Integer(0),
+                new ASN1Integer(0),
                 new PKIStatusInfo(PKIStatus.granted),
                 new CertifiedKeyPair(new CertOrEncCert(cmpCert)),
                 null);

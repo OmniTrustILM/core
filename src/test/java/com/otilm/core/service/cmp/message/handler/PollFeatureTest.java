@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,30 +45,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PollFeatureTest {
 
     private CertificateInternalService certificateService;
-    private EntityManager entityManager;
     private PollFeature pollFeature;
 
     @BeforeEach
     void setUp() throws Exception {
         certificateService = mock(CertificateInternalService.class);
-        entityManager = mock(EntityManager.class);
+        EntityManager entityManager = mock(EntityManager.class);
         pollFeature = new PollFeature();
         pollFeature.setCertificateService(certificateService);
-        // pollFeatureTimeout is a Spring @Value-injected field; set it via reflection so
-        // the test runs without a Spring context.
-        Field timeoutField = PollFeature.class.getDeclaredField("pollFeatureTimeout");
-        timeoutField.setAccessible(true);
-        timeoutField.set(pollFeature, 1);
-        Field emField = PollFeature.class.getDeclaredField("entityManager");
-        emField.setAccessible(true);
-        emField.set(pollFeature, entityManager);
+        // @Value / @PersistenceContext fields set via reflection so the test runs without a
+        // Spring context. Budget-exhaustion tests set the timeout to 0 so they don't wait.
+        setField("pollFeatureTimeout", 1);
+        setField("entityManager", entityManager);
+    }
+
+    private void setField(String name, Object value) throws Exception {
+        Field field = PollFeature.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(pollFeature, value);
     }
 
     @Test
     void returnsStillPending_whenCertStuckInPendingIssue_afterBudgetExhausted() throws Exception {
-        // Cert never leaves PENDING_ISSUE (true async connector, HTTP 202); once the 1s
-        // budget from setUp() is exhausted the poll reports StillPending — not a timeout
-        // exception, and not before the budget is spent (see the ride-through test below).
+        // Cert never leaves PENDING_ISSUE (true async connector, HTTP 202); once the budget is
+        // exhausted the poll reports StillPending — not a timeout exception. Budget is 0 here so
+        // the test doesn't spend real wall-clock; the "rides out the budget" behaviour is covered
+        // by the ride-through test below.
+        setField("pollFeatureTimeout", 0);
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_ISSUE);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
@@ -85,9 +89,11 @@ class PollFeatureTest {
         // The actions listener parks the cert in PENDING_ISSUE for the duration of the
         // connector call — even a synchronously-completing connector transits this state.
         // The poll must keep sampling instead of giving up on the first PENDING_ISSUE read.
+        // NOTE: this exercises a real sampling interval (one ~1s sleep) to prove the loop
+        // actually rides out PENDING; kept deliberately rather than adding a test-only seam.
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_ISSUE);
-        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger reads = new AtomicInteger();
         when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
                 .thenAnswer(invocation -> {
                     if (reads.incrementAndGet() >= 2) {
@@ -106,6 +112,7 @@ class PollFeatureTest {
 
     @Test
     void returnsStillPending_whenCertStuckInPendingRevoke_afterBudgetExhausted() throws Exception {
+        setField("pollFeatureTimeout", 0);   // 0 budget so the exhaustion is immediate (no real wait)
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.PENDING_REVOKE);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
@@ -238,7 +245,8 @@ class PollFeatureTest {
 
     @Test
     void throwsCmpProcessingException_whenTimeoutAndStillTransitional() throws Exception {
-        // Cert in REQUESTED state never reaches ISSUED; timeout config is 1s in setUp().
+        // Cert in REQUESTED state never reaches ISSUED; 0 budget makes the timeout immediate.
+        setField("pollFeatureTimeout", 0);
         UUID certUuid = UUID.randomUUID();
         Certificate cert = certificateInState(certUuid, CertificateState.REQUESTED);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class)))

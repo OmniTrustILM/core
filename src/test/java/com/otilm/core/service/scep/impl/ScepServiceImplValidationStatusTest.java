@@ -1,18 +1,11 @@
 package com.otilm.core.service.scep.impl;
 
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ScepException;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import static org.mockito.Mockito.anyLong;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.UndeclaredThrowableException;
@@ -20,17 +13,17 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link ScepServiceImpl#checkCertificateValidity} (issue #1834).
+ * Unit tests for {@link ScepServiceImpl#checkCertificateValidity}.
  *
- * <p>A certificate that just reached CertificateState.ISSUED can still have
- * CertificateValidationStatus.NOT_CHECKED — validation is advanced asynchronously
- * (event-driven after issuance, hourly batch as fallback). NOT_CHECKED is a transient
- * state, not a verdict: the SCEP success path waits briefly for the in-flight validation
- * to land (so a definitively bad status is still caught) and accepts NOT_CHECKED if it
- * doesn't — the response must reflect issuance success, never fail on validation
- * progress.</p>
+ * <p>NOT_CHECKED is a transient state only for the freshly-issued end-entity certificate
+ * (tolerateNotChecked=true): its status is resolved through {@link CertificateValidationStatusPoller}
+ * and NOT_CHECKED is accepted if it never resolves. CA / issuer certs (tolerateNotChecked=false)
+ * are never waited on and must already be VALID/EXPIRING.</p>
  */
 class ScepServiceImplValidationStatusTest {
 
@@ -45,55 +38,40 @@ class ScepServiceImplValidationStatusTest {
     }
 
     @Test
-    void doesNotWait_whenCertificateAlreadyValid() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.VALID);
-
-        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
-                .doesNotThrowAnyException();
-
-        verifyNoInteractions(validationStatusPoller);
-    }
-
-    @Test
-    void doesNotWait_whenCertificateExpiring() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.EXPIRING);
-
-        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
-                .doesNotThrowAnyException();
-
-        verifyNoInteractions(validationStatusPoller);
-    }
-
-    @Test
-    void accepts_whenAsyncValidationResolvesToValidDuringWait() throws NotFoundException {
+    void acceptsLeaf_whenResolveOrKeepReturnsValid() {
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.VALID);
+        when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.VALID);
 
-        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
+        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void accepts_whenStillNotCheckedAfterWait() throws NotFoundException {
-        // NOT_CHECKED is a transient state, not a verdict (issue #1834 expected behavior):
-        // even if the validation never lands within the wait budget, the enrollment whose
-        // issuance succeeded must not be failed.
+    void acceptsLeaf_whenResolveOrKeepReturnsExpiring() {
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.NOT_CHECKED);
+        when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.EXPIRING);
 
-        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
+        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void rejects_whenWaitResolvesToInvalid() throws NotFoundException {
+    void acceptsLeaf_whenResolveOrKeepReturnsNotChecked() {
+        // NOT_CHECKED is a transient state, not a verdict (issue #1834): even if the poller
+        // cannot resolve it within the budget, an issuance that already succeeded must not fail.
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.INVALID);
+        when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
-        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
+        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsLeaf_whenResolveOrKeepReturnsInvalid() {
+        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.INVALID);
+
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
                 .isInstanceOf(UndeclaredThrowableException.class)
                 .cause()
                 .isInstanceOf(ScepException.class)
@@ -101,28 +79,29 @@ class ScepServiceImplValidationStatusTest {
     }
 
     @Test
-    void rejects_whenCertificateDefinitivelyRevoked() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.REVOKED);
+    void acceptsCaCertificate_whenValid_withoutWaiting() {
+        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.VALID);
 
-        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
-                .isInstanceOf(UndeclaredThrowableException.class)
-                .cause()
-                .isInstanceOf(ScepException.class)
-                .hasMessageContaining("Status: Revoked");
+        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, false))
+                .doesNotThrowAnyException();
 
         verifyNoInteractions(validationStatusPoller);
     }
 
     @Test
-    void accepts_whenEntityNoLongerFoundDuringWait() throws NotFoundException {
-        // The wait failing to find the entity resolves nothing — the status stays
-        // NOT_CHECKED, which is transient, so the certificate passes.
+    void rejectsCaCertificate_whenNotChecked() {
+        // Security (PR #1839 review): the NOT_CHECKED tolerance is ONLY for the freshly-issued
+        // leaf (tolerateNotChecked=false here). A CA / issuer cert that is still NOT_CHECKED
+        // must be rejected, not waited on.
         CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(validationStatusPoller.pollValidationStatus(eq(dto.getUuid()), anyLong()))
-                .thenThrow(new NotFoundException(Certificate.class, dto.getUuid()));
 
-        assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, false))
+                .isInstanceOf(UndeclaredThrowableException.class)
+                .cause()
+                .isInstanceOf(ScepException.class)
+                .hasMessageContaining("Status: Not checked");
+
+        verifyNoInteractions(validationStatusPoller);
     }
 
     private static CertificateDetailDto certificateDto(CertificateValidationStatus status) {

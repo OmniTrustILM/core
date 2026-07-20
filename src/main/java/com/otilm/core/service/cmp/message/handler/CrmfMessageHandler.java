@@ -53,15 +53,6 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
 
-    /**
-     * How long to wait for the event-driven post-issuance validation to move the
-     * certificate off {@code NOT_CHECKED}. If it does not resolve within this budget the
-     * transient {@code NOT_CHECKED} is accepted (it is not a rejection reason). The
-     * validation listener typically lands within ~100 ms of issuance; 3 s covers slow
-     * OCSP/CRL checks without stretching the request unreasonably.
-     */
-    private static final long VALIDATION_STATUS_WAIT_MS = 3_000L;
-
     private static final List<Integer> ALLOWED_TYPES = List.of(
             PKIBody.TYPE_INIT_REQ,          // ir       [0]  CertReqMessages,       --Initialization Req
             PKIBody.TYPE_CERT_REQ,          // cr       [2]  CertReqMessages,       --Certification Req
@@ -408,16 +399,22 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
         }
 
         // -- parse found CA certificate(s)
+        String leafCertificateUuid = leafCertificate.getUuid().toString();
         for (CertificateDetailDto certificate : caChain) {
-            // Only a certificate with a definitively bad status is rejected. NOT_CHECKED is
-            // a normal transient state — a certificate freshly issued in this same request
-            // stays NOT_CHECKED until the async validation lands — so it is briefly waited
-            // on and, if still unresolved, accepted: the response must reflect issuance
-            // success, not the progress of an asynchronous validation.
-            CertificateValidationStatus validationStatus = ensureValidationStatus(tid, certificate);
-            if (validationStatus != CertificateValidationStatus.VALID
-                    && validationStatus != CertificateValidationStatus.EXPIRING
-                    && validationStatus != CertificateValidationStatus.NOT_CHECKED) {
+            // Only the freshly-issued leaf may legitimately be NOT_CHECKED: its async
+            // validation may not have landed yet, so wait briefly and tolerate NOT_CHECKED
+            // if it never resolves (the response must reflect issuance success, not the
+            // progress of an asynchronous validation). CA / issuer certs are long-lived and
+            // must already be VALID/EXPIRING — a NOT_CHECKED (or worse) CA cert is rejected
+            // as before, and never waited on.
+            boolean isLeaf = certificate.getUuid().equals(leafCertificateUuid);
+            CertificateValidationStatus validationStatus = isLeaf
+                    ? validationStatusPoller.resolveOrKeep(certificate)
+                    : certificate.getValidationStatus();
+            boolean acceptable = validationStatus == CertificateValidationStatus.VALID
+                    || validationStatus == CertificateValidationStatus.EXPIRING
+                    || (isLeaf && validationStatus == CertificateValidationStatus.NOT_CHECKED);
+            if (!acceptable) {
                 throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
                         String.format("SN=%s | Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                                 leafCertificateSerialNumber,
@@ -436,31 +433,6 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
             }
         }
         return certificateChain;
-    }
-
-    /**
-     * Certificate validation status is advanced asynchronously (event-driven after issuance,
-     * hourly batch as fallback), so a certificate issued moments ago can still be
-     * {@code NOT_CHECKED} when this response is built. Wait briefly for the in-flight
-     * validation to land so a definitively bad status can still be caught; if it does not
-     * land within the budget, the caller accepts {@code NOT_CHECKED} — it is a transient
-     * state, not a verdict, and must not fail an issuance that already succeeded.
-     */
-    private CertificateValidationStatus ensureValidationStatus(ASN1OctetString tid, CertificateDetailDto certificate) {
-        if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
-            return certificate.getValidationStatus();
-        }
-        try {
-            CertificateValidationStatus resolved = validationStatusPoller.pollValidationStatus(
-                    certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
-            LOG.debug("TID={}, UUID={} | validation status after wait: {}",
-                    tid, certificate.getUuid(), resolved);
-            return resolved;
-        } catch (NotFoundException e) {
-            LOG.warn("TID={}, UUID={} | certificate not found while waiting for validation status",
-                    tid, certificate.getUuid());
-            return certificate.getValidationStatus();
-        }
     }
 
 }

@@ -248,7 +248,7 @@ public class ScepServiceImpl implements ScepExternalService {
 
         setRecipient(scepCaCertificate.getCertificateContent().getContent());
         try {
-            this.caCertificateChain = loadCertificateChain(scepCaCertificate);
+            this.caCertificateChain = loadCertificateChain(scepCaCertificate, false);
         } catch (NotFoundException e) {
             throw new ScepException("Failed to load certificate chain of SCEP profile CA certificate");
         }
@@ -659,11 +659,14 @@ public class ScepServiceImpl implements ScepExternalService {
         return scepResponse;
     }
 
-    private List<X509Certificate> loadCertificateChain(Certificate leafCertificate) throws ScepException, NotFoundException {
+    private List<X509Certificate> loadCertificateChain(Certificate leafCertificate, boolean tolerateLeafNotChecked) throws ScepException, NotFoundException {
         ArrayList<X509Certificate> certificateChain = new ArrayList<>();
+        String leafUuid = leafCertificate.getUuid().toString();
         for (CertificateDetailDto certificate : certificateService.getCertificateChain(leafCertificate.getSecuredUuid(), true).getCertificates()) {
-            // only certificate with valid status should be used
-            checkCertificateValidity(certificate);
+            // Only the freshly-issued leaf may be transiently NOT_CHECKED; CA / issuer certs
+            // must already be validated (see checkCertificateValidity).
+            boolean isFreshlyIssuedLeaf = tolerateLeafNotChecked && certificate.getUuid().equals(leafUuid);
+            checkCertificateValidity(certificate, isFreshlyIssuedLeaf);
             try {
                 certificateChain.add(CertificateUtil.parseCertificate(certificate.getCertificateContent()));
             } catch (CertificateException e) {
@@ -679,7 +682,8 @@ public class ScepServiceImpl implements ScepExternalService {
     private List<X509Certificate> getIssuedCertificateChain(Certificate certificate) throws ScepException, NotFoundException {
         if (!this.scepProfile.isIncludeCaCertificateChain() && !this.scepProfile.isIncludeCaCertificate()) {
             try {
-                checkCertificateValidity(certificate.mapToDto());
+                // The freshly-issued end-entity certificate: tolerate a transient NOT_CHECKED.
+                checkCertificateValidity(certificate.mapToDto(), true);
 
                 return List.of(CertificateUtil.parseCertificate(certificate.getCertificateContent().getContent()));
             } catch (CertificateException e) {
@@ -690,7 +694,9 @@ public class ScepServiceImpl implements ScepExternalService {
         }
 
         logger.debug("Building the certificate chain for the response message");
-        var certificateChain = loadCertificateChain(certificate);
+        // certificate is the freshly-issued end-entity cert (leaf); tolerate its transient
+        // NOT_CHECKED but require the CA / issuer entries to be already validated.
+        var certificateChain = loadCertificateChain(certificate, true);
         if (this.scepProfile.isIncludeCaCertificateChain()) return certificateChain;
         else return certificateChain.subList(0, Math.min(2, certificateChain.size()));
     }
@@ -865,55 +871,27 @@ public class ScepServiceImpl implements ScepExternalService {
         }
     }
 
-    private void checkCertificateValidity(CertificateDetailDto certificate) throws ScepException {
-        // Only a definitively bad status is rejected. NOT_CHECKED is a normal transient
-        // state — a certificate freshly issued in this same transaction stays NOT_CHECKED
-        // until the async validation lands — so it is briefly waited on and, if still
-        // unresolved, accepted: the response must reflect issuance success, not the
-        // progress of an asynchronous validation.
-        CertificateValidationStatus validationStatus = ensureValidationStatus(certificate);
-        if (validationStatus != CertificateValidationStatus.VALID
-                && validationStatus != CertificateValidationStatus.EXPIRING
-                && validationStatus != CertificateValidationStatus.NOT_CHECKED) {
+    /**
+     * @param tolerateNotChecked {@code true} only for the freshly-issued end-entity certificate,
+     *                           whose async validation may not have landed yet: it is briefly
+     *                           waited on and NOT_CHECKED tolerated if unresolved. CA / issuer
+     *                           certs pass {@code false} — they are long-lived and must already
+     *                           be VALID/EXPIRING, so a NOT_CHECKED CA cert is rejected as before
+     *                           and never waited on.
+     */
+    private void checkCertificateValidity(CertificateDetailDto certificate, boolean tolerateNotChecked) throws ScepException {
+        CertificateValidationStatus validationStatus = tolerateNotChecked
+                ? validationStatusPoller.resolveOrKeep(certificate)
+                : certificate.getValidationStatus();
+        boolean acceptable = validationStatus == CertificateValidationStatus.VALID
+                || validationStatus == CertificateValidationStatus.EXPIRING
+                || (tolerateNotChecked && validationStatus == CertificateValidationStatus.NOT_CHECKED);
+        if (!acceptable) {
             throw new ScepException(String.format("Certificate is not valid. UUID: %s, Fingerprint: %s, Status: %s",
                     certificate.getUuid(),
                     certificate.getFingerprint(),
                     validationStatus.getLabel()),
                     FailInfo.BAD_REQUEST);
-        }
-    }
-
-    /**
-     * How long to wait for the event-driven post-issuance validation to move the
-     * certificate off {@code NOT_CHECKED}. If it does not resolve within this budget the
-     * transient {@code NOT_CHECKED} is accepted (it is not a rejection reason). The
-     * validation listener typically lands within ~100 ms of issuance; 3 s covers slow
-     * OCSP/CRL checks without stretching the request unreasonably.
-     */
-    private static final long VALIDATION_STATUS_WAIT_MS = 3_000L;
-
-    /**
-     * Certificate validation status is advanced asynchronously (event-driven after issuance,
-     * hourly batch as fallback), so a certificate issued moments ago can still be
-     * {@code NOT_CHECKED} when the SCEP response is built. Wait briefly for the in-flight
-     * validation to land so a definitively bad status can still be caught; if it does not
-     * land within the budget, the caller accepts {@code NOT_CHECKED} — it is a transient
-     * state, not a verdict, and must not fail an issuance that already succeeded.
-     */
-    private CertificateValidationStatus ensureValidationStatus(CertificateDetailDto certificate) {
-        if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
-            return certificate.getValidationStatus();
-        }
-        try {
-            CertificateValidationStatus resolved = validationStatusPoller.pollValidationStatus(
-                    certificate.getUuid(), VALIDATION_STATUS_WAIT_MS);
-            logger.debug("UUID={} | validation status after wait: {}",
-                    certificate.getUuid(), resolved);
-            return resolved;
-        } catch (NotFoundException e) {
-            logger.warn("UUID={} | certificate not found while waiting for validation status",
-                    certificate.getUuid());
-            return certificate.getValidationStatus();
         }
     }
 }

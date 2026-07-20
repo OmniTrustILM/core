@@ -41,11 +41,11 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -90,28 +90,15 @@ class CrmfMessageHandlerTest {
     }
 
     @Test
-    void doesNotWait_whenChainCertificateAlreadyValid() throws NotFoundException {
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.VALID);
+    void acceptsLeaf_whenResolveOrKeepReturnsValid() throws NotFoundException {
+        // The leaf is resolved through the poller (its DTO may be VALID already, or NOT_CHECKED
+        // that resolves during the wait — both surface here as VALID).
+        UUID leafUuid = UUID.randomUUID();
+        Certificate leaf = leafCertificate(leafUuid);
+        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
-
-        List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
-
-        assertThat(chain).hasSize(1);
-        verifyNoInteractions(validationStatusPoller);
-    }
-
-    @Test
-    void accepts_whenAsyncValidationResolvesToValidDuringWait() throws NotFoundException {
-        // Common case: the event-driven post-issuance validation lands shortly after the
-        // certificate reaches the issued state, the wait observes it, and the chain is accepted.
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
-        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.VALID);
+                .thenReturn(chainResponse(leafDto));
+        when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
 
@@ -119,16 +106,15 @@ class CrmfMessageHandlerTest {
     }
 
     @Test
-    void accepts_whenStillNotCheckedAfterWait() throws NotFoundException {
-        // NOT_CHECKED is a transient state, not a verdict (issue #1830 expected behavior):
-        // even if the validation never lands within the budget, a certificate whose
-        // issuance already succeeded must not be rejected.
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
+    void acceptsLeaf_whenResolveOrKeepReturnsNotChecked() throws NotFoundException {
+        // NOT_CHECKED is a transient state for the freshly-issued leaf, not a verdict (issue
+        // #1830): if the poller cannot resolve it within the budget, the leaf still passes.
+        UUID leafUuid = UUID.randomUUID();
+        Certificate leaf = leafCertificate(leafUuid);
+        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
-        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.NOT_CHECKED);
+                .thenReturn(chainResponse(leafDto));
+        when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
         List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
 
@@ -136,13 +122,13 @@ class CrmfMessageHandlerTest {
     }
 
     @Test
-    void rejects_whenWaitResolvesToInvalid() throws NotFoundException {
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
+    void rejectsLeaf_whenResolveOrKeepReturnsInvalid() throws NotFoundException {
+        UUID leafUuid = UUID.randomUUID();
+        Certificate leaf = leafCertificate(leafUuid);
+        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
-        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
-                .thenReturn(CertificateValidationStatus.INVALID);
+                .thenReturn(chainResponse(leafDto));
+        when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.INVALID);
 
         assertThatThrownBy(() -> invokeLoadCaCertificateChain(leaf))
                 .isInstanceOf(UndeclaredThrowableException.class)
@@ -152,34 +138,26 @@ class CrmfMessageHandlerTest {
     }
 
     @Test
-    void rejects_whenChainCertificateDefinitivelyRevoked() throws NotFoundException {
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.REVOKED);
+    void rejectsNonLeafCaCertificate_whenNotChecked() throws NotFoundException {
+        // Security (PR #1839 review): the NOT_CHECKED tolerance is ONLY for the freshly-issued
+        // leaf. A CA / issuer cert in the chain that is still NOT_CHECKED must be rejected, not
+        // waited on and advertised. The leaf here is VALID; the CA entry is NOT_CHECKED.
+        UUID leafUuid = UUID.randomUUID();
+        Certificate leaf = leafCertificate(leafUuid);
+        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.VALID);
+        CertificateDetailDto caDto = certificateDto(UUID.randomUUID().toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
+                .thenReturn(chainResponse(leafDto, caDto));
+        when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
 
         assertThatThrownBy(() -> invokeLoadCaCertificateChain(leaf))
                 .isInstanceOf(UndeclaredThrowableException.class)
                 .cause()
                 .isInstanceOf(CmpCrmfValidationException.class)
-                .hasMessageContaining("Status: Revoked");
-        verifyNoInteractions(validationStatusPoller);
-    }
-
-    @Test
-    void accepts_whenEntityNoLongerFoundDuringWait() throws NotFoundException {
-        // The wait failing to find the entity resolves nothing — the status stays
-        // NOT_CHECKED, which is transient, so the chain certificate passes.
-        Certificate leaf = leafCertificate();
-        CertificateDetailDto chainCert = chainCertificateDto(CertificateValidationStatus.NOT_CHECKED);
-        when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
-                .thenReturn(chainResponse(chainCert));
-        when(validationStatusPoller.pollValidationStatus(eq(chainCert.getUuid()), anyLong()))
-                .thenThrow(new NotFoundException(Certificate.class, chainCert.getUuid()));
-
-        List<X509Certificate> chain = invokeLoadCaCertificateChain(leaf);
-
-        assertThat(chain).hasSize(1);
+                .hasMessageContaining("Status: Not checked");
+        // The CA cert must never be resolved/waited on — only the leaf goes through the poller.
+        verify(validationStatusPoller).resolveOrKeep(leafDto);
+        verify(validationStatusPoller, never()).resolveOrKeep(caDto);
     }
 
     @Test
@@ -257,9 +235,9 @@ class CrmfMessageHandlerTest {
                 handler, "loadCaCertificateChain", new DEROctetString(new byte[]{1, 2, 3, 4}), 0, leaf);
     }
 
-    private static Certificate leafCertificate() {
+    private static Certificate leafCertificate(UUID uuid) {
         Certificate leaf = new Certificate();
-        leaf.setUuid(UUID.randomUUID());
+        leaf.setUuid(uuid);
         leaf.setSerialNumber("01");
         return leaf;
     }
@@ -271,9 +249,9 @@ class CrmfMessageHandlerTest {
         return response;
     }
 
-    private static CertificateDetailDto chainCertificateDto(CertificateValidationStatus status) {
+    private static CertificateDetailDto certificateDto(String uuid, CertificateValidationStatus status) {
         CertificateDetailDto dto = new CertificateDetailDto();
-        dto.setUuid(UUID.randomUUID().toString());
+        dto.setUuid(uuid);
         dto.setFingerprint("aa:bb:cc");
         dto.setValidationStatus(status);
         dto.setCertificateContent(SELF_SIGNED_CERT_BASE64);
