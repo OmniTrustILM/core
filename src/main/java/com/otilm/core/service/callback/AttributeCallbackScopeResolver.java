@@ -190,8 +190,8 @@ public class AttributeCallbackScopeResolver {
         // TOKEN_PROFILE -> [{tokenInstance}]), so the parent UUID identifies the instance, not a token profile.
         TokenInstanceReference tokenInstance = tokenInstanceReferenceRepository.findByUuid(tokenInstanceUuid)
                 .orElseThrow(() -> notFound(TokenInstanceReference.class, tokenInstanceUuid));
-        return List.of(new ScopeStep(Resource.TOKEN, tokenInstance.getUuid(),
-                tokenInstance.getConnector() == null ? null : tokenInstance.getConnector().getUuid()));
+        // Read the connectorUuid column directly rather than walking the LAZY connector association.
+        return List.of(new ScopeStep(Resource.TOKEN, tokenInstance.getUuid(), tokenInstance.getConnectorUuid()));
     }
 
     private List<ScopeStep> walkCryptographicKey(UUID tokenProfileUuid) throws NotFoundException {

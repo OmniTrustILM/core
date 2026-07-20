@@ -397,7 +397,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
         Set<String> present = new HashSet<>();
         if (currentAttributes != null) {
             for (RequestAttribute current : currentAttributes) {
-                present.add(current.getName());
+                // Client-supplied list: a null element (or null name) must not NPE into a 500. Skip it so the
+                // dependsOn name it was meant to satisfy stays unsatisfied — fail closed via the missing-name check.
+                if (current != null && current.getName() != null) {
+                    present.add(current.getName());
+                }
             }
         }
         List<String> missing = dependsOn.stream().filter(name -> !present.contains(name)).toList();
