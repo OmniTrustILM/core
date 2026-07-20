@@ -14,10 +14,12 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -64,6 +66,7 @@ public class AttributeCallbackScopeResolver {
     private final AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     private final RaProfileRepository raProfileRepository;
     private final TokenProfileRepository tokenProfileRepository;
+    private final TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private final EntityInstanceReferenceRepository entityInstanceReferenceRepository;
 
     private final Map<Resource, ScopeWalker> walkers = new EnumMap<>(Resource.class);
@@ -71,7 +74,7 @@ public class AttributeCallbackScopeResolver {
     /** A scope-chain walker that may fail with a 404 when a referenced object is absent. */
     @FunctionalInterface
     private interface ScopeWalker {
-        List<ScopeStep> walk(UUID resourceUuid) throws NotFoundException;
+        List<ScopeStep> walk(UUID parentObjectUuid) throws NotFoundException;
     }
 
     public AttributeCallbackScopeResolver(AttributeEngine attributeEngine,
@@ -80,6 +83,7 @@ public class AttributeCallbackScopeResolver {
                                           AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository,
                                           RaProfileRepository raProfileRepository,
                                           TokenProfileRepository tokenProfileRepository,
+                                          TokenInstanceReferenceRepository tokenInstanceReferenceRepository,
                                           EntityInstanceReferenceRepository entityInstanceReferenceRepository) {
         this.attributeEngine = attributeEngine;
         this.expander = expander;
@@ -87,6 +91,7 @@ public class AttributeCallbackScopeResolver {
         this.authorityInstanceReferenceRepository = authorityInstanceReferenceRepository;
         this.raProfileRepository = raProfileRepository;
         this.tokenProfileRepository = tokenProfileRepository;
+        this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.entityInstanceReferenceRepository = entityInstanceReferenceRepository;
         registerWalkers();
     }
@@ -107,7 +112,7 @@ public class AttributeCallbackScopeResolver {
      * Resolve the ordered (parent-first) scope chain for the given scoped resource into expanded
      * {@link ScopedAttributes} blobs. An unmapped resource fails closed with a {@link ValidationException}.
      */
-    public List<ScopedAttributes> resolveScopeChain(Resource resource, UUID resourceUuid, Set<String> expandedSecrets)
+    public List<ScopedAttributes> resolveScopeChain(Resource resource, UUID parentObjectUuid, Set<String> expandedSecrets)
             throws NotFoundException, AttributeException, ConnectorException {
         ScopeWalker walker = walkers.get(resource);
         if (walker == null) {
@@ -117,7 +122,7 @@ public class AttributeCallbackScopeResolver {
                     "Callback scope chain is not supported for resource " + resource));
         }
         List<ScopedAttributes> chain = new ArrayList<>();
-        for (ScopeStep step : walker.walk(resourceUuid)) {
+        for (ScopeStep step : walker.walk(parentObjectUuid)) {
             chain.add(buildScopedAttributes(step, expandedSecrets));
         }
         return chain;
@@ -180,10 +185,13 @@ public class AttributeCallbackScopeResolver {
         return List.of(authorityStep(authority), raProfileStep(raProfile));
     }
 
-    private List<ScopeStep> walkTokenProfile(UUID tokenProfileUuid) throws NotFoundException {
-        TokenProfile tokenProfile = tokenProfileRepository.findByUuid(tokenProfileUuid)
-                .orElseThrow(() -> notFound(TokenProfile.class, tokenProfileUuid));
-        return List.of(tokenInstanceStep(tokenProfile));
+    private List<ScopeStep> walkTokenProfile(UUID tokenInstanceUuid) throws NotFoundException {
+        // The token-profile create form is scoped by its parent token INSTANCE (per the scope table
+        // TOKEN_PROFILE -> [{tokenInstance}]), so the parent UUID identifies the instance, not a token profile.
+        TokenInstanceReference tokenInstance = tokenInstanceReferenceRepository.findByUuid(tokenInstanceUuid)
+                .orElseThrow(() -> notFound(TokenInstanceReference.class, tokenInstanceUuid));
+        // Read the connectorUuid column directly rather than walking the LAZY connector association.
+        return List.of(new ScopeStep(Resource.TOKEN, tokenInstance.getUuid(), tokenInstance.getConnectorUuid()));
     }
 
     private List<ScopeStep> walkCryptographicKey(UUID tokenProfileUuid) throws NotFoundException {
