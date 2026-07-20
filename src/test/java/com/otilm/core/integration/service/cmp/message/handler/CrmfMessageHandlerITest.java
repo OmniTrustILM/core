@@ -24,6 +24,7 @@ import com.otilm.core.service.cmp.message.handler.CrmfIrCrMessageHandler;
 import com.otilm.core.service.cmp.message.handler.CrmfKurMessageHandler;
 import com.otilm.core.service.cmp.message.handler.CrmfMessageHandler;
 import com.otilm.core.service.cmp.message.handler.PollFeature;
+import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.service.cmp.message.handler.PollResult;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
@@ -67,6 +68,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
     @Autowired private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired private FunctionGroupRepository functionGroupRepository;
     @Autowired private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
+    @Autowired private CertificateValidationStatusPoller validationStatusPoller;
 
     @MockitoBean
     private PollFeature pollFeature;
@@ -93,6 +95,7 @@ class CrmfMessageHandlerITest extends BaseSpringBootTest {
         testedHandler.setCertificateService(certificateService);
         testedHandler.setCmpTransactionService(cmpTransactionService);
         testedHandler.setPollFeature(pollFeature);
+        testedHandler.setValidationStatusPoller(validationStatusPoller);
         testedHandler.setCrmfIrCrMessageHandler(crmfIrCrMessageHandler);
         testedHandler.setKurMessageHandler(crmfKurMessageHandler);
 

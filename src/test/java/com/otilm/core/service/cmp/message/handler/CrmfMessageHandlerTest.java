@@ -107,8 +107,7 @@ class CrmfMessageHandlerTest {
 
     @Test
     void acceptsLeaf_whenResolveOrKeepReturnsNotChecked() throws NotFoundException {
-        // NOT_CHECKED is a transient state for the freshly-issued leaf, not a verdict (issue
-        // #1830): if the poller cannot resolve it within the budget, the leaf still passes.
+        // NOT_CHECKED is a transient state for the freshly-issued leaf, not a verdict : if the poller cannot resolve it within the budget, the leaf still passes.
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
         CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
@@ -139,7 +138,7 @@ class CrmfMessageHandlerTest {
 
     @Test
     void rejectsNonLeafCaCertificate_whenNotChecked() throws NotFoundException {
-        // Security (PR #1839 review): the NOT_CHECKED tolerance is ONLY for the freshly-issued
+        // Security: the NOT_CHECKED tolerance is ONLY for the freshly-issued
         // leaf. A CA / issuer cert in the chain that is still NOT_CHECKED must be rejected, not
         // waited on and advertised. The leaf here is VALID; the CA entry is NOT_CHECKED.
         UUID leafUuid = UUID.randomUUID();
