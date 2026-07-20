@@ -2,7 +2,9 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
@@ -37,9 +39,11 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.OperationSupport;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
@@ -49,6 +53,7 @@ import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationReposit
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
@@ -60,7 +65,9 @@ import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
@@ -97,6 +104,7 @@ import java.security.KeyPairGenerator;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.mockito.Mockito.doThrow;
@@ -176,6 +184,19 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     // the flat register tests never call resolve(), so the default no-op mock is inert for them.
     @MockitoBean
     private IssuanceDefinitionResolver issuanceDefinitionResolver;
+
+    @Autowired
+    private GroupRepository groupRepository;
+
+    // The generic association service is the real bean, so setOwner/setGroups actually persist against the
+    // placeholder; getOwner/getGroupUuids are then used to assert what registration stored.
+    @Autowired
+    private ResourceObjectAssociationService objectAssociationService;
+
+    // Mocked so an explicit owner UUID resolves to a username without a live auth service (setOwner resolves the
+    // owner's username through this client). The default-owner path uses the logged profile and never calls it.
+    @MockitoBean
+    private UserManagementApiClient userManagementApiClient;
 
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
@@ -932,6 +953,117 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         Assertions.assertThrows(ValidationException.class, () -> clientOperationService.issueExistingCertificate(
                 authorityParent,
                 securedRaProfile, certUuid, null));
+    }
+
+    // ── owner & groups on registration (#1835) ───────────────────────────────
+
+    private Group persistGroup(String name) {
+        Group group = new Group();
+        group.setName(name);
+        return groupRepository.save(group);
+    }
+
+    private void stubResolvableOwner(UUID ownerUuid, String username) {
+        UserDetailDto userDetail = new UserDetailDto();
+        userDetail.setUuid(ownerUuid.toString());
+        userDetail.setUsername(username);
+        when(userManagementApiClient.getUserDetail(ownerUuid.toString())).thenReturn(userDetail);
+    }
+
+    @Test
+    void registrationDefaultsOwnerToLoggedUserWhenNoneProvided() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+
+        ClientCertificateDataResponseDto response = register();
+
+        NameAndUuidDto owner = objectAssociationService.getOwner(Resource.CERTIFICATE, UUID.fromString(response.getUuid()));
+        Assertions.assertNotNull(owner, "an omitted owner defaults to the registering user");
+        Assertions.assertEquals("tst-user", owner.getName());
+    }
+
+    @Test
+    void registrationPersistsExplicitOwnerAndGroups() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        UUID ownerUuid = UUID.randomUUID();
+        stubResolvableOwner(ownerUuid, "device-owner");
+        Group group = persistGroup("registration-group");
+
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setOwnerUuid(ownerUuid.toString());
+        request.setGroupUuids(Set.of(group.getUuid()));
+
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        Assertions.assertEquals(ownerUuid.toString(),
+                objectAssociationService.getOwner(Resource.CERTIFICATE, certUuid).getUuid());
+        Assertions.assertEquals(List.of(group.getUuid()),
+                objectAssociationService.getGroupUuids(Resource.CERTIFICATE, certUuid));
+    }
+
+    @Test
+    void platformLevelRegistrationPersistsOwnerAndGroups() throws Exception {
+        when(adapterFactory.forAuthority(Mockito.any())).thenReturn(mock(AuthorityProviderAdapter.class));
+        UUID ownerUuid = UUID.randomUUID();
+        stubResolvableOwner(ownerUuid, "device-owner");
+        Group group = persistGroup("platform-level-group");
+
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setOwnerUuid(ownerUuid.toString());
+        request.setGroupUuids(Set.of(group.getUuid()));
+
+        ClientCertificateDataResponseDto response =
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request);
+
+        UUID certUuid = UUID.fromString(response.getUuid());
+        Assertions.assertEquals(ownerUuid.toString(),
+                objectAssociationService.getOwner(Resource.CERTIFICATE, certUuid).getUuid());
+        Assertions.assertEquals(List.of(group.getUuid()),
+                objectAssociationService.getGroupUuids(Resource.CERTIFICATE, certUuid));
+    }
+
+    @Test
+    void registrationWithUnknownGroupFailsPlaceholderPreAcceptance() throws Exception {
+        RegisterCapability adapter = registeringAdapter();
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setGroupUuids(Set.of(UUID.randomUUID())); // no such Group exists
+
+        Assertions.assertThrows(NotFoundException.class, () -> clientOperationService.registerCertificate(
+                authorityParent, securedRaProfile, request));
+
+        List<Certificate> certs = certificateRepository.findAll();
+        Assertions.assertEquals(1, certs.size());
+        Assertions.assertEquals(CertificateState.FAILED, certs.get(0).getState(),
+                "an unknown group must fail the placeholder before the connector call");
+        verify(adapter, never()).register(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void issuingRegisteredCertificatePreservesOwnerAndGroups() throws Exception {
+        when(registeringAdapter().register(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
+        UUID ownerUuid = UUID.randomUUID();
+        stubResolvableOwner(ownerUuid, "device-owner");
+        Group group = persistGroup("preserved-group");
+        ClientCertificateRegistrationDto request = registrationRequest();
+        request.setOwnerUuid(ownerUuid.toString());
+        request.setGroupUuids(Set.of(group.getUuid()));
+        UUID certUuid = UUID.fromString(
+                clientOperationService.registerCertificate(authorityParent, securedRaProfile, request).getUuid());
+
+        ClientCertificateIssueRequestDto issueRequest = new ClientCertificateIssueRequestDto();
+        issueRequest.setRequest(generateCsrBase64());
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid.toString(), issueRequest);
+
+        Assertions.assertEquals(ownerUuid.toString(),
+                objectAssociationService.getOwner(Resource.CERTIFICATE, certUuid).getUuid(),
+                "attaching the operator CSR at issuance must not change the registered owner");
+        Assertions.assertEquals(List.of(group.getUuid()),
+                objectAssociationService.getGroupUuids(Resource.CERTIFICATE, certUuid),
+                "attaching the operator CSR at issuance must not change the registered groups");
     }
 
     // ── register->issue binding persistence ──────────────────────────────────
