@@ -123,7 +123,11 @@ public class PollFeature {
                             String.format("SN=%s | polling timed out after %d ms — cert is in transitional state %s, expected %s",
                                     serialNumber, timeoutMs, current, expectedState));
                 }
-                TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+                // Clamp to the remaining budget so the loop never overshoots timeoutMs by up to a
+                // full interval (matches CertificateValidationStatusPoller). Positive here: the
+                // elapsed >= timeoutMs check above already returned/threw when the budget was spent.
+                long remaining = timeoutMs - (System.currentTimeMillis() - startRequest);
+                TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
