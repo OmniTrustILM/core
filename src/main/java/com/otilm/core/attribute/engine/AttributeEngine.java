@@ -10,7 +10,9 @@ import com.otilm.api.model.client.metadata.ResponseMetadata;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.*;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.*;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.common.callback.AttributeCallback;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
@@ -307,10 +309,7 @@ public class AttributeEngine {
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
 
             MetadataAttribute definition = (MetadataAttribute) objectDefinitionContent.definition();
-            AttributeContent contentItem = objectDefinitionContent.contentItem();
-            if (objectDefinitionContent.encryptedContent() != null) {
-                contentItem = AttributeVersionHelper.decryptContent(contentItem, definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent());
-            }
+            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent());
             if (contentItem.getData() == null) {
                 continue;
             }
@@ -338,37 +337,22 @@ public class AttributeEngine {
         Map<UUID, String> connectorMapping = new HashMap<>();
         Map<UUID, Map<Resource, Map<UUID, ResponseMetadata>>> mapping = new HashMap<>();
         for (ObjectAttributeContentDetail objectMetadataContent : objectMetadataContents) {
-            AttributeContent contentItem = objectMetadataContent.contentItem();
-            if (objectMetadataContent.encryptedContent() != null) {
-                contentItem = AttributeVersionHelper.decryptContent(contentItem, objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent());
-            }
+            AttributeContent contentItem = decryptedContentItem(objectMetadataContent.contentItem(), objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent());
             // check in case data is null because of malformed data
             if (contentItem.getData() == null) {
                 continue;
             }
 
-            ResponseMetadata metadataResponseAttributeDto;
             // do we need check for empty content?
-            Map<Resource, Map<UUID, ResponseMetadata>> sourceAttributesContentsMapping;
-            Map<UUID, ResponseMetadata> sourceAttributesContents;
             if (!connectorMapping.containsKey(objectMetadataContent.connectorUuid())) {
 //                String connectorName = objectMetadataContent.connectorName() != null ? objectMetadataContent.connectorName() : "<No connector>";
                 String connectorName = objectMetadataContent.connectorName();
                 connectorMapping.put(objectMetadataContent.connectorUuid(), connectorName);
             }
-            if ((sourceAttributesContentsMapping = mapping.get(objectMetadataContent.connectorUuid())) == null) {
-                sourceAttributesContentsMapping = new HashMap<>();
-                mapping.put(objectMetadataContent.connectorUuid(), sourceAttributesContentsMapping);
-            }
-            if ((sourceAttributesContents = sourceAttributesContentsMapping.get(objectMetadataContent.sourceObjectType())) == null) {
-                sourceAttributesContents = new HashMap<>();
-                sourceAttributesContentsMapping.put(objectMetadataContent.sourceObjectType(), sourceAttributesContents);
-            }
-
-            if ((metadataResponseAttributeDto = sourceAttributesContents.get(objectMetadataContent.uuid())) == null) {
-                metadataResponseAttributeDto = AttributeVersionHelper.getResponseMetadata(objectMetadataContent.version(), new ArrayList<>(), objectMetadataContent.uuid(), objectMetadataContent.name(), objectMetadataContent.label(), objectMetadataContent.type(), objectMetadataContent.contentType(), new ArrayList<>());
-                sourceAttributesContents.put(objectMetadataContent.uuid(), metadataResponseAttributeDto);
-            }
+            Map<Resource, Map<UUID, ResponseMetadata>> sourceAttributesContentsMapping = mapping.computeIfAbsent(objectMetadataContent.connectorUuid(), k -> new HashMap<>());
+            Map<UUID, ResponseMetadata> sourceAttributesContents = sourceAttributesContentsMapping.computeIfAbsent(objectMetadataContent.sourceObjectType(), k -> new HashMap<>());
+            ResponseMetadata metadataResponseAttributeDto = sourceAttributesContents.computeIfAbsent(objectMetadataContent.uuid(),
+                    k -> AttributeVersionHelper.getResponseMetadata(objectMetadataContent.version(), new ArrayList<>(), objectMetadataContent.uuid(), objectMetadataContent.name(), objectMetadataContent.label(), objectMetadataContent.type(), objectMetadataContent.contentType(), new ArrayList<>()));
 
             AttributeVersionHelper.addResponseMetadataContent(objectMetadataContent.version(), metadataResponseAttributeDto, contentItem);
 
@@ -477,7 +461,7 @@ public class AttributeEngine {
                 for (AttributeContentItem contentItem : contents) {
                     String encryptedContent = encryptAttributeContent(attributeDefinition, contentItem.getJson());
                     contentItem.setEncryptedData(encryptedContent);
-                    contentItem.setJson(AttributeVersionHelper.createEncryptedContent(contentItem.getUuid().toString(), attributeDefinition.getContentType(), AttributeVersion.V3.getVersion()));
+                    contentItem.setJson(AttributeVersionHelper.createEncryptedContent(contentItem.getUuid().toString(), attributeDefinition.getContentType(), attributeDefinition.getVersion()));
                     attributeContentItemRepository.save(contentItem);
                 }
             }
@@ -697,6 +681,7 @@ public class AttributeEngine {
         // reference serialized at flush time, so the copy must be a distinct instance.
         MetadataAttribute definitionCopy = metadataAttribute.copy();
         definitionCopy.setContent(List.of());
+        applyNormalizedProtectionLevel(definitionCopy, protectionLevel);
 
         if (attributeDefinition != null) {
             // check for change of content type
@@ -733,6 +718,37 @@ public class AttributeEngine {
         attributeDefinitionRepository.save(attributeDefinition);
 
         return attributeDefinition;
+    }
+
+    /**
+     * Returns the content item as stored, or the decrypted item when the definition's protection
+     * level put ciphertext alongside the stored placeholder.
+     */
+    private static AttributeContent decryptedContentItem(AttributeContent contentItem, int version, AttributeContentType contentType, String encryptedContent) {
+        if (encryptedContent == null) {
+            return contentItem;
+        }
+        return AttributeVersionHelper.decryptContent(contentItem, version, contentType, encryptedContent);
+    }
+
+    /**
+     * Sets the normalized protection level on the persisted definition copy so the serialized
+     * definition always carries the same level as the entity column (a connector may send null,
+     * which is persisted as {@code NONE}). {@code copy()} shares {@code properties} by reference
+     * with the caller's instance, so the level is set on a detached properties copy — the caller's
+     * object stays untouched.
+     */
+    private static void applyNormalizedProtectionLevel(MetadataAttribute definitionCopy, ProtectionLevel protectionLevel) {
+        MetadataAttributeProperties normalizedProperties = ATTRIBUTES_OBJECT_MAPPER.convertValue(definitionCopy.getProperties(), MetadataAttributeProperties.class);
+        normalizedProperties.setProtectionLevel(protectionLevel);
+        if (definitionCopy instanceof MetadataAttributeV2 v2) {
+            v2.setProperties(normalizedProperties);
+        } else if (definitionCopy instanceof MetadataAttributeV3 v3) {
+            v3.setProperties(normalizedProperties);
+        } else {
+            throw new IllegalStateException("Unsupported MetadataAttribute version for properties normalization: "
+                    + definitionCopy.getVersion());
+        }
     }
 
     /**
@@ -789,10 +805,7 @@ public class AttributeEngine {
         Map<String, DataAttribute> mapping = new HashMap<>();
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
             String uuid = objectDefinitionContent.uuid().toString();
-            AttributeContent contentItem = objectDefinitionContent.contentItem();
-            if (objectDefinitionContent.encryptedContent() != null) {
-                contentItem = AttributeVersionHelper.decryptContent(contentItem, objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent());
-            }
+            AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent());
             if (objectDefinitionContent.definition().getVersion() == 2) {
                 DataAttributeV2 attribute;
                 if ((attribute = (DataAttributeV2) mapping.get(uuid)) == null) {

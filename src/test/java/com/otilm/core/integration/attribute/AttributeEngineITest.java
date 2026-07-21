@@ -1146,6 +1146,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
         attributeEngine.updateMetadataAttribute(metadataAttribute, contentInfo);
 
         AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        Assertions.assertEquals(ProtectionLevel.NONE, ((MetadataAttribute) definition.getDefinition()).getProperties().getProtectionLevel(),
+                "persisted definition must carry the normalized protection level, not the declared null");
         AttributeContentItem plaintextItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
         Assertions.assertNull(plaintextItem.getEncryptedData());
         Assertions.assertEquals("previously-plaintext", plaintextItem.getJson().getData());
@@ -1166,6 +1168,42 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .filter(a -> a.getName().equals(metadataAttribute.getName())).findFirst().orElseThrow();
         List<AttributeContent> readContent = readAttribute.getContent();
         Assertions.assertEquals("previously-plaintext", readContent.getFirst().getData());
+    }
+
+    @Test
+    void updateMetadataAttributeDefinition_encryptsExistingContentWithVersionAwarePlaceholderForV2() throws AttributeException {
+        // given: a version 2 metadata attribute registered without protection — plaintext at rest
+        MetadataAttributeV2 metadataAttribute = new MetadataAttributeV2();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("upgradedMetaV2");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Upgraded Meta V2");
+        props.setVisible(true);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV2("v2-plaintext")));
+
+        ObjectAttributeContentInfo contentInfo = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorAuthority.getUuid()).build();
+        attributeEngine.updateMetadataAttribute(metadataAttribute, contentInfo);
+
+        // when: the connector re-registers the same metadata declaring ENCRYPTED
+        props.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        attributeEngine.updateMetadataAttributeDefinition(metadataAttribute, connectorAuthority.getUuid());
+
+        // then: the placeholder matches the definition version instead of being hard-coded to v3
+        AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        AttributeContentItem healedItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        Assertions.assertNotNull(healedItem.getEncryptedData());
+        Assertions.assertInstanceOf(BaseAttributeContentV2.class, healedItem.getJson(),
+                "encrypted-content placeholder of a v2 definition must be a v2 content item");
+        Assertions.assertNull(healedItem.getJson().getData());
+
+        // and: the value still reads back decrypted
+        MetadataAttribute readAttribute = attributeEngine.getMetadataAttributesDefinitionContent(contentInfo).stream()
+                .filter(a -> a.getName().equals(metadataAttribute.getName())).findFirst().orElseThrow();
+        List<AttributeContent> readContent = readAttribute.getContent();
+        Assertions.assertEquals("v2-plaintext", readContent.getFirst().getData());
     }
 
     @Test
