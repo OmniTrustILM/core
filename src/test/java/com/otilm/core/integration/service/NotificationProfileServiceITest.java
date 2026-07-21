@@ -282,7 +282,10 @@ class NotificationProfileServiceITest extends BaseSpringBootTest {
                         "Concurrent edits must serialize version assignment and never produce duplicate version numbers (round " + round + ")");
             }
         } finally {
-            executor.shutdownNow();
+            executor.shutdown();
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
         }
     }
 

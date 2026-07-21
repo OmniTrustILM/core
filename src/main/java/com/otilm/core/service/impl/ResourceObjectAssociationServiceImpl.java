@@ -180,8 +180,9 @@ public class ResourceObjectAssociationServiceImpl implements ResourceObjectAssoc
     }
 
     @Override
-    // The USER and ROLE branches call the auth service over HTTP; suppressing the class-level
-    // @Transactional keeps transaction-less callers from opening a DB transaction around that call.
+    // The USER and ROLE branches call the auth service over HTTP, so this method runs without a
+    // transaction: transaction-less callers do not get one opened around the call, and a caller's
+    // active transaction is suspended for the duration of the call rather than joined.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public NameAndUuidDto getRecipientObjectInfo(RecipientType recipientType, UUID recipientUuid) throws NotFoundException {
         String name = switch (recipientType) {

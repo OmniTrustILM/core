@@ -75,6 +75,8 @@ class NotificationProfileVersionUniqueMigrationITest extends BaseMigrationTest {
                             (uuid, notification_profile_uuid, version, recipient_type, internal_notification, created_at)
                         VALUES ('c0000000-0000-0000-0000-000000000001', '%s', 1, 'OWNER', true, now())
                         """.formatted(PROFILE_A)));
+                Assertions.assertEquals("23505", rejection.getSQLState(),
+                        "Duplicate insert should fail with the unique-violation SQLSTATE, but was: " + rejection.getMessage());
                 Assertions.assertTrue(rejection.getMessage().contains("uq_notification_profile_version"),
                         "Duplicate insert should be rejected by the unique constraint, but was: " + rejection.getMessage());
             }
