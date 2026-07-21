@@ -311,7 +311,7 @@ public class AttributeEngine {
 
             MetadataAttribute definition = (MetadataAttribute) objectDefinitionContent.definition();
             AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), definition.getVersion(), definition.getContentType(), objectDefinitionContent.encryptedContent(),
-                    "metadata attribute " + definition.getName() + " for " + contentInfo.objectType() + " " + contentInfo.objectUuid());
+                    contentContext(definition.getName(), contentInfo.objectType(), contentInfo.objectUuid()));
             if (contentItem.getData() == null) {
                 continue;
             }
@@ -340,7 +340,7 @@ public class AttributeEngine {
         Map<UUID, Map<Resource, Map<UUID, ResponseMetadata>>> mapping = new HashMap<>();
         for (ObjectAttributeContentDetail objectMetadataContent : objectMetadataContents) {
             AttributeContent contentItem = decryptedContentItem(objectMetadataContent.contentItem(), objectMetadataContent.version(), objectMetadataContent.contentType(), objectMetadataContent.encryptedContent(),
-                    "metadata attribute " + objectMetadataContent.name() + " for " + contentInfo.objectType() + " " + contentInfo.objectUuid());
+                    contentContext(objectMetadataContent.name(), contentInfo.objectType(), contentInfo.objectUuid()));
             // check in case data is null because of malformed data
             if (contentItem.getData() == null) {
                 continue;
@@ -815,7 +815,7 @@ public class AttributeEngine {
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
             String uuid = objectDefinitionContent.uuid().toString();
             AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent(),
-                    "attribute " + objectDefinitionContent.definition().getName() + " for " + objectType + " " + objectUuid);
+                    contentContext(objectDefinitionContent.definition().getName(), objectType, objectUuid));
             // skip malformed items, including undecryptable ciphertext degraded to the placeholder
             if (contentItem.getData() == null) {
                 continue;
@@ -1715,19 +1715,22 @@ public class AttributeEngine {
      */
     private AttributeContentItem findMappedEncryptedContentItem(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem, ObjectAttributeContentInfo info) {
         List<AttributeContentItem> mappedItems = attributeContent2ObjectRepository.findMappedContentItems(
-                attributeDefinition.getUuid(), info.connectorUuid(), info.objectType(), info.objectUuid(),
-                info.objectVersion(), info.sourceObjectType(), info.sourceObjectUuid(), info.purpose());
+                attributeDefinition.getUuid(), info.objectType(), info.objectUuid());
         for (AttributeContentItem mappedItem : mappedItems) {
             if (mappedItem.getEncryptedData() == null) {
                 continue;
             }
             AttributeContent decrypted = decryptedContentItem(mappedItem.getJson(), attributeDefinition.getVersion(), attributeDefinition.getContentType(), mappedItem.getEncryptedData(),
-                    "attribute " + attributeDefinition.getName() + " for " + info.objectType() + " " + info.objectUuid());
+                    contentContext(attributeDefinition.getName(), info.objectType(), info.objectUuid()));
             if (attributeContentEquals(decrypted, attributeContentItem)) {
                 return mappedItem;
             }
         }
         return null;
+    }
+
+    private static String contentContext(String attributeName, Resource objectType, UUID objectUuid) {
+        return "attribute " + attributeName + " for " + objectType + " " + objectUuid;
     }
 
     public static String encryptAttributeContent(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem) throws AttributeException {

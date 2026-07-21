@@ -176,32 +176,22 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
 
     /**
      * Returns the content items of one attribute definition that are already mapped to the given
-     * object tuple. Nullable parameters use the same null-safe matching idiom as
-     * {@link #findExistingContentMapping}. Used to deduplicate encrypted content, whose salted
-     * ciphertext cannot be compared by value — the caller decrypts this (small, object-scoped) set
-     * and compares plaintext.
+     * object, regardless of the mapping's connector/version/source/purpose — callers that need the
+     * exact tuple still guard with {@link #findExistingContentMapping} before skipping an insert.
+     * Used to deduplicate encrypted content, whose salted ciphertext cannot be compared by value —
+     * the caller decrypts this (small, object-scoped) set and compares plaintext.
      */
     @Query("""
-            SELECT aci FROM AttributeContent2Object aco
+            SELECT DISTINCT aci FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 WHERE aci.attributeDefinitionUuid = :definitionUuid
-                    AND ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
                     AND aco.objectType = :objectType
                     AND aco.objectUuid = :objectUuid
-                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
-                    AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
-                    AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
-                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
             """)
     List<AttributeContentItem> findMappedContentItems(
             @Param("definitionUuid") UUID definitionUuid,
-            @Param("connectorUuid") UUID connectorUuid,
             @Param("objectType") Resource objectType,
-            @Param("objectUuid") UUID objectUuid,
-            @Param("objectVersion") Integer objectVersion,
-            @Param("sourceObjectType") Resource sourceObjectType,
-            @Param("sourceObjectUuid") UUID sourceObjectUuid,
-            @Param("purpose") String purpose);
+            @Param("objectUuid") UUID objectUuid);
 
     @Query("""
             SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail(
