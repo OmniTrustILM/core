@@ -587,6 +587,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
         try {
             ConnectInfo connectInfo = connectorAdapter.validateConnection(connector.mapToApiClientDtoV2());
             connectorAdapter.updateConnectorFunctions(connector, connectInfo);
+            if (connector.getStatus() == ConnectorStatus.OFFLINE) {
+                connector.setStatus(ConnectorStatus.CONNECTED);
+                connectorRepository.save(connector);
+                evictConnectorCache(connector.getUuid());
+            }
             return connectInfo;
         } catch (ConnectorCommunicationException | NotFoundException e) {
             String message = String.format("Unable to reconnect to connector %s. Error in communication or no connector of version %s is running on the provided URL '%s'.", connector.getName(), connectorAdapter.getVersion().getLabel(), connector.getUrl());

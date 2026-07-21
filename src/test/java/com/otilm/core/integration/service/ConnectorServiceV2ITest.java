@@ -32,7 +32,10 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
@@ -250,6 +253,45 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         ConnectInfo connectInfo = connectorService.reconnect(connector.getSecuredUuid());
         Assertions.assertNotNull(connectInfo);
         Assertions.assertEquals(ConnectorVersion.V2, connectInfo.getVersion());
+    }
+
+    @Test
+    void testReconnectConnector_offlineBecomesConnected() throws NotFoundException, ConnectorException, JsonProcessingException {
+        connector.setStatus(ConnectorStatus.OFFLINE);
+        connectorRepository.save(connector);
+        mockInfoEndpoint();
+
+        ConnectInfo connectInfo = connectorService.reconnect(connector.getSecuredUuid());
+        Assertions.assertNotNull(connectInfo);
+        Assertions.assertEquals(ConnectorVersion.V2, connectInfo.getVersion());
+
+        Connector reconnected = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
+        Assertions.assertEquals(ConnectorStatus.CONNECTED, reconnected.getStatus());
+    }
+
+    @Test
+    void testReconnectConnector_alreadyConnectedSkipsStatusWrite() throws NotFoundException, ConnectorException, JsonProcessingException {
+        mockInfoEndpoint();
+        clearInvocations(connectorRepositorySpy);
+
+        connectorService.reconnect(connector.getSecuredUuid());
+
+        verify(connectorRepositorySpy, never()).save(any());
+        Connector reconnected = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
+        Assertions.assertEquals(ConnectorStatus.CONNECTED, reconnected.getStatus());
+    }
+
+    @Test
+    void testReconnectConnector_waitingForApprovalRejected() throws JsonProcessingException {
+        connector.setStatus(ConnectorStatus.WAITING_FOR_APPROVAL);
+        connectorRepository.save(connector);
+        mockInfoEndpoint();
+
+        SecuredUUID connectorUuid = connector.getSecuredUuid();
+        Assertions.assertThrows(ValidationException.class, () -> connectorService.reconnect(connectorUuid));
+
+        Connector reconnected = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
+        Assertions.assertEquals(ConnectorStatus.WAITING_FOR_APPROVAL, reconnected.getStatus());
     }
 
     @Test
