@@ -722,13 +722,20 @@ public class AttributeEngine {
 
     /**
      * Returns the content item as stored, or the decrypted item when the definition's protection
-     * level put ciphertext alongside the stored placeholder.
+     * level put ciphertext alongside the stored placeholder. A ciphertext that cannot be decrypted
+     * (corrupt value, wrong encryption key) degrades to the stored placeholder — whose {@code data}
+     * is null, so callers treat it as malformed — instead of failing the whole read.
      */
     private static AttributeContent decryptedContentItem(AttributeContent contentItem, int version, AttributeContentType contentType, String encryptedContent) {
         if (encryptedContent == null) {
             return contentItem;
         }
-        return AttributeVersionHelper.decryptContent(contentItem, version, contentType, encryptedContent);
+        try {
+            return AttributeVersionHelper.decryptContent(contentItem, version, contentType, encryptedContent);
+        } catch (RuntimeException e) {
+            logger.warn("Failed to decrypt attribute content item with reference {}: {}", contentItem.getReference(), e.getMessage());
+            return contentItem;
+        }
     }
 
     /**

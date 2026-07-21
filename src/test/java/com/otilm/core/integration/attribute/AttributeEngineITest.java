@@ -1207,6 +1207,36 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
+    void metadataReadsSkipContentItemsWithUndecryptableCiphertext() throws AttributeException {
+        MetadataAttributeV3 metadataAttribute = new MetadataAttributeV3();
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setName("corruptCiphertextMeta");
+        metadataAttribute.setType(AttributeType.META);
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Corrupt Ciphertext Meta");
+        props.setVisible(true);
+        props.setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        metadataAttribute.setProperties(props);
+        metadataAttribute.setContent(List.of(new StringAttributeContentV3("will-be-corrupted")));
+
+        ObjectAttributeContentInfo contentInfo = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).connector(connectorAuthority.getUuid()).build();
+        attributeEngine.updateMetadataAttribute(metadataAttribute, contentInfo);
+
+        AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(metadataAttribute.getUuid())).orElseThrow();
+        AttributeContentItem contentItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        contentItem.setEncryptedData("not-a-valid-secret");
+        attributeContentItemRepository.save(contentItem);
+
+        // a single undecryptable ciphertext must not fail the whole read; the item degrades to the placeholder and is skipped
+        List<MetadataAttribute> definitionContent = Assertions.assertDoesNotThrow(() -> attributeEngine.getMetadataAttributesDefinitionContent(contentInfo));
+        Assertions.assertTrue(definitionContent.stream().noneMatch(a -> a.getName().equals(metadataAttribute.getName())));
+
+        List<MetadataResponseDto> mappedMetadata = Assertions.assertDoesNotThrow(() -> attributeEngine.getMappedMetadataContent(contentInfo));
+        Assertions.assertTrue(mappedMetadata.stream().flatMap(dto -> dto.getItems().stream()).noneMatch(item -> item.getName().equals(metadataAttribute.getName())));
+    }
+
+    @Test
     void getDefinitionObjectAttributeContentDecryptsEncryptedContent() throws AttributeException, NotFoundException {
         DataAttributeV3 secretAttribute = new DataAttributeV3();
         secretAttribute.setUuid(UUID.randomUUID().toString());
