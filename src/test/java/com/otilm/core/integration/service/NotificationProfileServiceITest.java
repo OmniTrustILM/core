@@ -279,10 +279,11 @@ class NotificationProfileServiceITest extends BaseSpringBootTest {
         requestDto.setRecipientType(RecipientType.OWNER);
         requestDto.setInternalNotification(true);
         requestDto.setNotificationInstanceUuid(UUID.randomUUID());
+        SecuredUUID profileUuid = SecuredUUID.fromString(originalNotificationProfile.getUuid());
 
         // The foreign key violation must surface as-is, not be mislabeled as a concurrent modification
         Assertions.assertThrows(DataIntegrityViolationException.class,
-                () -> notificationProfileService.editNotificationProfile(SecuredUUID.fromString(originalNotificationProfile.getUuid()), requestDto));
+                () -> notificationProfileService.editNotificationProfile(profileUuid, requestDto));
     }
 
     @Test

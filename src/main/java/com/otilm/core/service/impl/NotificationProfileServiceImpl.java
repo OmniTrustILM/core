@@ -28,7 +28,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -38,16 +40,23 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
-@Transactional
+@Transactional(rollbackFor = Exception.class)
 public class NotificationProfileServiceImpl implements NotificationProfileExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(NotificationProfileServiceImpl.class);
 
+    private NotificationProfileServiceImpl self;
     private NotificationProfileRepository notificationProfileRepository;
     private NotificationProfileVersionRepository notificationProfileVersionRepository;
 
     private ExecutionRepository executionRepository;
     private ResourceObjectAssociationService resourceObjectAssociationService;
+
+    @Lazy
+    @Autowired
+    public void setSelf(NotificationProfileServiceImpl self) {
+        this.self = self;
+    }
 
     @Autowired
     public void setNotificationProfileRepository(NotificationProfileRepository notificationProfileRepository) {
@@ -146,11 +155,17 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
 
     @Override
     @ExternalAuthorization(resource = Resource.NOTIFICATION_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public NotificationProfileDetailDto editNotificationProfile(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto) throws NotFoundException {
-        // Resolve recipient info from the request before locking the profile row: recipient lookup can call
-        // the auth service over HTTP and must not extend the lock window.
+        // Resolve recipient info from the request before opening the write transaction: recipient lookup
+        // can call the auth service over HTTP and must not hold a DB connection or the profile row lock.
         List<NameAndUuidDto> recipients = resolveRecipients(updateRequestDto.getRecipientType(), updateRequestDto.getRecipientUuids());
 
+        return self.persistEditedVersion(uuid, updateRequestDto, recipients);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    NotificationProfileDetailDto persistEditedVersion(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto, List<NameAndUuidDto> recipients) throws NotFoundException {
         // The row lock serializes concurrent edits; without it, both could read the same latest version and
         // insert duplicate version numbers.
         NotificationProfile notificationProfile = notificationProfileRepository.findAndLockByUuid(uuid.getValue()).orElseThrow(() -> new NotFoundException(NotificationProfile.class, uuid));

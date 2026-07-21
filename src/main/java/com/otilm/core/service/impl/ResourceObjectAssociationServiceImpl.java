@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
@@ -179,6 +180,9 @@ public class ResourceObjectAssociationServiceImpl implements ResourceObjectAssoc
     }
 
     @Override
+    // The USER and ROLE branches call the auth service over HTTP; suppressing the class-level
+    // @Transactional keeps transaction-less callers from opening a DB transaction around that call.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public NameAndUuidDto getRecipientObjectInfo(RecipientType recipientType, UUID recipientUuid) throws NotFoundException {
         String name = switch (recipientType) {
             case USER -> getUserUsername(recipientUuid);
