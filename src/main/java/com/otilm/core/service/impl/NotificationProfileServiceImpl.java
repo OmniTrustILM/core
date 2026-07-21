@@ -166,10 +166,10 @@ public class NotificationProfileServiceImpl implements NotificationProfileExtern
     @ExternalAuthorization(resource = Resource.NOTIFICATION_PROFILE, action = ResourceAction.UPDATE)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public NotificationProfileDetailDto editNotificationProfile(SecuredUUID uuid, NotificationProfileUpdateRequestDto updateRequestDto) throws NotFoundException {
+        validateNotificationInstanceExists(updateRequestDto.getNotificationInstanceUuid());
         // Resolve recipient info from the request before opening the write transaction: recipient lookup
         // can call the auth service over HTTP and must not hold a DB connection or the profile row lock.
         List<NameAndUuidDto> recipients = resolveRecipients(updateRequestDto.getRecipientType(), updateRequestDto.getRecipientUuids());
-        validateNotificationInstanceExists(updateRequestDto.getNotificationInstanceUuid());
 
         // The transaction boundary comes from the self-proxied call; invoking persistEditedVersion directly
         // on `this` would skip the @Transactional advice and reintroduce the version race.
