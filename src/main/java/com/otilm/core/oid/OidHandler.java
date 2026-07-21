@@ -2,8 +2,10 @@ package com.otilm.core.oid;
 
 import com.otilm.api.model.core.oid.OidCategory;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -22,16 +24,43 @@ public class OidHandler {
 
     private static final Map<OidCategory, Map<String, OidRecord>> oidCache = new ConcurrentHashMap<>();
 
+    /**
+     * Case-insensitive RDN code/altCode → OID lookup. Rebuilt on every RDN cache mutation and
+     * published via volatile write, so readers on hot paths (DN parsing) never iterate a map
+     * another thread may be mutating.
+     */
+    private static volatile Map<String, String> rdnCodeToOid = Collections.emptyMap();
+
     public static Map<String, OidRecord> getOidCache(OidCategory oidCategory) {
         return oidCache.get(oidCategory);
     }
 
-    public static void cacheOidCategory(OidCategory category, Map<String, OidRecord> oidRecordMap) {
+    public static synchronized void cacheOidCategory(OidCategory category, Map<String, OidRecord> oidRecordMap) {
         oidCache.put(category, oidRecordMap);
+        refreshRdnCodeLookup(category);
     }
 
-    public static void cacheOid(OidCategory category, String oid, OidRecord oidRecord) {
-        oidCache.get(category).put(oid, oidRecord);
+    public static synchronized void cacheOid(OidCategory category, String oid, OidRecord oidRecord) {
+        // Copy-on-write: published per-category maps are iterated lock-free by readers
+        // (getCodeToOidMap, style snapshots), so never mutate one in place.
+        Map<String, OidRecord> next = new HashMap<>(oidCache.get(category));
+        next.put(oid, oidRecord);
+        oidCache.put(category, next);
+        refreshRdnCodeLookup(category);
+    }
+
+    /** OID for an RDN code or alternative code, matched case-insensitively; {@code null} when unknown. */
+    public static String getOidForRdnCode(String code) {
+        return code == null ? null : rdnCodeToOid.get(code);
+    }
+
+    private static void refreshRdnCodeLookup(OidCategory category) {
+        if (category != OidCategory.RDN_ATTRIBUTE_TYPE) {
+            return;
+        }
+        Map<String, String> lookup = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        lookup.putAll(getCodeToOidMap());
+        rdnCodeToOid = Collections.unmodifiableMap(lookup);
     }
 
     public static Map<String, String> getCodeToOidMap() {
@@ -62,7 +91,10 @@ public class OidHandler {
     }
 
 
-    public static void removeCachedOid(OidCategory category, String oid) {
-        oidCache.get(category).remove(oid);
+    public static synchronized void removeCachedOid(OidCategory category, String oid) {
+        Map<String, OidRecord> next = new HashMap<>(oidCache.get(category));
+        next.remove(oid);
+        oidCache.put(category, next);
+        refreshRdnCodeLookup(category);
     }
 }
