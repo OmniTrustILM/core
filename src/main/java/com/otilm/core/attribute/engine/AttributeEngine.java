@@ -1652,18 +1652,24 @@ public class AttributeEngine {
             return;
         }
 
+        // Encrypted content cannot be deduplicated by its stored json (the placeholder is identical
+        // for every item and the ciphertext is salted) — dedup by comparing plaintext against the
+        // items already mapped to this object, fetched and decrypted once for the whole batch.
+        List<Map.Entry<AttributeContentItem, AttributeContent>> decryptedMappedItems =
+                attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED
+                        ? loadDecryptedMappedItems(attributeDefinition, objectAttributeContentInfo)
+                        : List.of();
+
         for (int i = 0; i < attributeContentItems.size(); i++) {
             AttributeContent attributeContentItem = attributeContentItems.get(i);
+            final AttributeContent plaintextItem = attributeContentItem;
             AttributeContentItem contentItemEntity = null;
             String encryptedData = null;
             if (attributeDefinition.getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
-                // Encrypted content cannot be deduplicated by its stored json (the placeholder is
-                // identical for every item and the ciphertext is salted) — dedup by decrypting the
-                // items already mapped to this object tuple and comparing plaintext.
-                contentItemEntity = findMappedEncryptedContentItem(attributeDefinition, attributeContentItem, objectAttributeContentInfo);
+                contentItemEntity = findEqualDecryptedItem(decryptedMappedItems, plaintextItem);
                 if (contentItemEntity == null) {
-                    encryptedData = encryptAttributeContent(attributeDefinition, attributeContentItem);
-                    attributeContentItem = AttributeVersionHelper.createEncryptedContent(attributeContentItem.getReference(), attributeDefinition.getContentType(), attributeDefinition.getVersion());
+                    encryptedData = encryptAttributeContent(attributeDefinition, plaintextItem);
+                    attributeContentItem = AttributeVersionHelper.createEncryptedContent(plaintextItem.getReference(), attributeDefinition.getContentType(), attributeDefinition.getVersion());
                 }
             } else {
                 // For non-encrypted attributes, try to find existing content item, since json will be different for different content
@@ -1689,6 +1695,10 @@ public class AttributeEngine {
                 contentItemEntity.setAttributeDefinitionUuid(attributeDefinition.getUuid());
                 contentItemEntity.setEncryptedData(encryptedData);
                 contentItemEntity = attributeContentItemRepository.save(contentItemEntity);
+                if (encryptedData != null) {
+                    // keep within-batch dedup: later equal items in this list must find this one
+                    decryptedMappedItems.add(Map.entry(contentItemEntity, plaintextItem));
+                }
             }
 
             final AttributeContent2Object objectContentItem = new AttributeContent2Object();
@@ -1707,23 +1717,32 @@ public class AttributeEngine {
     }
 
     /**
-     * Locates an already-mapped content item of the definition equal to the incoming item after
-     * decryption — equality requires matching data, reference and content type, so deduplication
-     * only ever merges exact-value resubmissions. Scoped to the target object tuple so the number
-     * of decryptions per write stays bounded by the object's own content, not by every object
-     * sharing the definition.
+     * Loads and decrypts the definition's content items already mapped to the target object, as
+     * (entity, plaintext) pairs — fetched once per write so the per-item deduplication below runs
+     * in memory. Scoped to the object so the number of decryptions stays bounded by the object's
+     * own content, not by every object sharing the definition. Returns a mutable list; the caller
+     * appends items it inserts so equal values later in the same batch deduplicate too.
      */
-    private AttributeContentItem findMappedEncryptedContentItem(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem, ObjectAttributeContentInfo info) {
-        List<AttributeContentItem> mappedItems = attributeContent2ObjectRepository.findMappedContentItems(
-                attributeDefinition.getUuid(), info.objectType(), info.objectUuid());
-        for (AttributeContentItem mappedItem : mappedItems) {
+    private List<Map.Entry<AttributeContentItem, AttributeContent>> loadDecryptedMappedItems(AttributeDefinition attributeDefinition, ObjectAttributeContentInfo info) {
+        List<Map.Entry<AttributeContentItem, AttributeContent>> decryptedItems = new ArrayList<>();
+        for (AttributeContentItem mappedItem : attributeContent2ObjectRepository.findMappedContentItems(attributeDefinition.getUuid(), info.objectType(), info.objectUuid())) {
             if (mappedItem.getEncryptedData() == null) {
                 continue;
             }
-            AttributeContent decrypted = decryptedContentItem(mappedItem.getJson(), attributeDefinition.getVersion(), attributeDefinition.getContentType(), mappedItem.getEncryptedData(),
-                    contentContext(attributeDefinition.getName(), info.objectType(), info.objectUuid()));
-            if (attributeContentEquals(decrypted, attributeContentItem)) {
-                return mappedItem;
+            decryptedItems.add(Map.entry(mappedItem, decryptedContentItem(mappedItem.getJson(), attributeDefinition.getVersion(), attributeDefinition.getContentType(), mappedItem.getEncryptedData(),
+                    contentContext(attributeDefinition.getName(), info.objectType(), info.objectUuid()))));
+        }
+        return decryptedItems;
+    }
+
+    /**
+     * Returns the mapped content item equal to the incoming one — equality requires matching data,
+     * reference and content type, so deduplication only ever merges exact-value resubmissions.
+     */
+    private static AttributeContentItem findEqualDecryptedItem(List<Map.Entry<AttributeContentItem, AttributeContent>> decryptedMappedItems, AttributeContent attributeContentItem) {
+        for (Map.Entry<AttributeContentItem, AttributeContent> decryptedItem : decryptedMappedItems) {
+            if (attributeContentEquals(decryptedItem.getValue(), attributeContentItem)) {
+                return decryptedItem.getKey();
             }
         }
         return null;
