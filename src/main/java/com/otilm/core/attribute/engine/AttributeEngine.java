@@ -741,12 +741,10 @@ public class AttributeEngine {
     private static void applyNormalizedProtectionLevel(MetadataAttribute definitionCopy, ProtectionLevel protectionLevel) {
         MetadataAttributeProperties normalizedProperties = ATTRIBUTES_OBJECT_MAPPER.convertValue(definitionCopy.getProperties(), MetadataAttributeProperties.class);
         normalizedProperties.setProtectionLevel(protectionLevel);
-        if (definitionCopy instanceof MetadataAttributeV2 v2) {
-            v2.setProperties(normalizedProperties);
-        } else if (definitionCopy instanceof MetadataAttributeV3 v3) {
-            v3.setProperties(normalizedProperties);
-        } else {
-            throw new IllegalStateException("Unsupported MetadataAttribute version for properties normalization: "
+        switch (definitionCopy) {
+            case MetadataAttributeV2 v2 -> v2.setProperties(normalizedProperties);
+            case MetadataAttributeV3 v3 -> v3.setProperties(normalizedProperties);
+            default -> throw new IllegalStateException("Unsupported MetadataAttribute version for properties normalization: "
                     + definitionCopy.getVersion());
         }
     }
