@@ -1707,9 +1707,11 @@ public class AttributeEngine {
     }
 
     /**
-     * Locates an already-mapped content item of the definition whose decrypted value equals the
-     * incoming plaintext item. Scoped to the target object tuple so the number of decryptions per
-     * write stays bounded by the object's own content, not by every object sharing the definition.
+     * Locates an already-mapped content item of the definition equal to the incoming item after
+     * decryption — equality requires matching data, reference and content type, so deduplication
+     * only ever merges exact-value resubmissions. Scoped to the target object tuple so the number
+     * of decryptions per write stays bounded by the object's own content, not by every object
+     * sharing the definition.
      */
     private AttributeContentItem findMappedEncryptedContentItem(AttributeDefinition attributeDefinition, AttributeContent attributeContentItem, ObjectAttributeContentInfo info) {
         List<AttributeContentItem> mappedItems = attributeContent2ObjectRepository.findMappedContentItems(
