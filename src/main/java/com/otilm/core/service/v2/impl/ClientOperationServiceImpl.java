@@ -11,6 +11,7 @@ import com.otilm.api.model.client.location.PushToLocationRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
+import com.otilm.api.model.connector.v3.certificate.RequestedExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorCommunicationException;
@@ -114,6 +115,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 
 @Service("clientOperationServiceImplV2")
 @Transactional
@@ -463,21 +465,28 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
         AuthorityProviderAdapter adapter = adapterFactory.forAuthority(authority);
 
-        // Project structured csrAttributes once (validated) so the placeholder DN and the connector wire derive
-        // from the same content; a flat request yields null here and the adapter builds its identity itself.
+        // Project the registration identity once (validated) so the placeholder row and the connector wire
+        // derive from the same content: structured csrAttributes through the issuance-definition projector,
+        // a flat request through the same builder the adapter uses for the wire. The placeholder DN keeps its
+        // historical derivation (rendered for structured, the raw request DN for flat).
         X509RequestContent registrationContent = buildStructuredRegistrationContent(raProfile, request);
-        String effectiveSubjectDn = registrationContent != null
-                ? RegisterWireBuilder.renderSubjectDn(registrationContent)
-                : request.getSubjectDn();
+        String effectiveSubjectDn;
+        if (registrationContent != null) {
+            effectiveSubjectDn = RegisterWireBuilder.renderSubjectDn(registrationContent);
+        } else {
+            effectiveSubjectDn = request.getSubjectDn();
+            registrationContent = RegisterWireBuilder.buildContent(
+                    request.getSubjectDn(), request.getSubjectAltName(), request.getExtensions());
+        }
 
         // No connector-backed registration for this authority (not a RegisterCapability, or the flag is not
         // advertised) -> platform-level pre-registration (see registerPlatformLevel); otherwise connector-backed below.
         if (!(adapter instanceof RegisterCapability registerCapability)
                 || !capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
-            return registerPlatformLevel(raProfile, request, effectiveSubjectDn, createCustomAttributes);
+            return registerPlatformLevel(raProfile, request, effectiveSubjectDn, registrationContent, createCustomAttributes);
         }
 
-        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn, registrationContent);
         // Re-load with the full adapter graph for the transaction-less connector call, as the poll listener does.
         // No pessimistic lock here (unlike the cancel/poll paths): the placeholder was just created and its UUID
         // is not yet known to any concurrent actor, so the read-modify-write below cannot race.
@@ -556,7 +565,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      *
      * <p><b>Behaviour.</b> The placeholder, its register-&gt;issue binding, and (when a secret is supplied) its
      * challenge authorization are created and owned entirely by the platform, with no connector {@code /register}
-     * call. The certificate reaches {@code REGISTERED} directly.</p>
+     * call. The certificate reaches {@code REGISTERED} directly. The placeholder records the full registered
+     * identity the platform can represent — subject DN and subject alternative names from the projected
+     * {@code registrationContent}; requested extensions have nowhere to be stored or forwarded on this path,
+     * so their drop is recorded to the certificate event history instead (see
+     * {@link #noteUnrecordedPlatformLevelExtensions}).</p>
      *
      * <p><b>Completion.</b> Runs later through the normal issue path; {@code issueCertificateAction} routes to the
      * register-bound path only for a {@code RegisterCapability} adapter that advertises the flag, so a platform-level
@@ -568,8 +581,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ClientCertificateDataResponseDto registerPlatformLevel(RaProfile raProfile,
                                                                    ClientCertificateRegistrationDto request,
                                                                    String effectiveSubjectDn,
+                                                                   X509RequestContent registrationContent,
                                                                    boolean createCustomAttributes) throws NotFoundException, AttributeException {
-        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn);
+        Certificate placeholder = certificateService.createRegistrationPlaceholder(raProfile, effectiveSubjectDn, registrationContent);
         Certificate certificate = certificateRepository.findForPollingByUuid(placeholder.getUuid())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, placeholder.getUuid()));
         stateMachine.transition(certificate, CertificateState.PENDING_REGISTRATION);
@@ -586,6 +600,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // marker as a connector-backed one — the discriminator both the issue routing and the approval-reject
             // restore key on, which makes a no-secret placeholder restorable.
             certificateRegistrationWriter.upsert(certificate.getUuid(), List.of());
+            noteUnrecordedPlatformLevelExtensions(certificate.getUuid(), registrationContent);
         } catch (RuntimeException | AttributeException | NotFoundException e) {
             // A challenge store/save, binding-write, or custom-attribute persistence failure must fail the
             // placeholder rather than orphan it in PENDING_REGISTRATION.
@@ -601,6 +616,31 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid().toString());
         response.setCertificateData("");
         return response;
+    }
+
+    /**
+     * Records requested extensions that a platform-level pre-registration cannot carry. The certificate row
+     * records only the subject DN and subject alternative names, and with no connector {@code /register} call
+     * there is no wire to forward extensions to. Failing the registration would be disproportionate — the
+     * extensions that reach the issued certificate arrive with the CSR at issuance — but dropping them
+     * silently hid the reduction, so the drop is made operator-visible: a certificate event-history entry
+     * (logs are not an operator surface under SaaS) plus a warn log. Written inside the placeholder
+     * try-block, so a history-write failure fails the placeholder like any other local setup step.
+     */
+    private void noteUnrecordedPlatformLevelExtensions(UUID certificateUuid, X509RequestContent registrationContent) {
+        if (registrationContent == null || registrationContent.getExtensions() == null
+                || registrationContent.getExtensions().isEmpty()) {
+            return;
+        }
+        String oids = registrationContent.getExtensions().stream()
+                .map(RequestedExtension::getOid)
+                .collect(Collectors.joining(", "));
+        certificateEventHistoryService.addEventHistory(certificateUuid, CertificateEvent.REQUEST, CertificateEventStatus.SUCCESS,
+                ("Requested certificate extensions (%s) are not recorded on a platform-level pre-registration "
+                        + "(no connector-backed registration for this authority); supply them with the CSR at issuance")
+                        .formatted(oids), "");
+        logger.warn("Certificate {} pre-registered at the platform level; requested extensions ({}) are not recorded "
+                + "and must be supplied with the CSR at issuance", certificateUuid, oids);
     }
 
     /**
