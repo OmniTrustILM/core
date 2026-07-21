@@ -811,6 +811,10 @@ public class AttributeEngine {
         for (ObjectAttributeDefinitionContent objectDefinitionContent : objectDefinitionContents) {
             String uuid = objectDefinitionContent.uuid().toString();
             AttributeContent contentItem = decryptedContentItem(objectDefinitionContent.contentItem(), objectDefinitionContent.definition().getVersion(), ((DataAttribute) objectDefinitionContent.definition()).getContentType(), objectDefinitionContent.encryptedContent());
+            // skip malformed items, including undecryptable ciphertext degraded to the placeholder
+            if (contentItem.getData() == null) {
+                continue;
+            }
             if (objectDefinitionContent.definition().getVersion() == 2) {
                 DataAttributeV2 attribute;
                 if ((attribute = (DataAttributeV2) mapping.get(uuid)) == null) {

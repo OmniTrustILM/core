@@ -1262,6 +1262,16 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .filter(a -> a.getName().equals(secretAttribute.getName())).findFirst().orElseThrow();
         List<AttributeContent> readContent = readAttribute.getContent();
         Assertions.assertEquals("encrypted-at-rest", readContent.getFirst().getData(), "definition object content read must return the decrypted value");
+
+        // an undecryptable ciphertext must not fail the read or surface the null-data placeholder
+        AttributeDefinition definition = attributeDefinitionRepository.findByConnectorUuidAndAttributeUuid(connectorAuthority.getUuid(), UUID.fromString(secretAttribute.getUuid())).orElseThrow();
+        AttributeContentItem contentItem = attributeContentItemRepository.findByAttributeDefinitionUuid(definition.getUuid()).getFirst();
+        contentItem.setEncryptedData("not-a-valid-secret");
+        attributeContentItemRepository.save(contentItem);
+
+        List<DataAttribute> degradedRead = Assertions.assertDoesNotThrow(() -> attributeEngine.getDefinitionObjectAttributeContent(AttributeType.DATA, connectorAuthority.getUuid(), null, Resource.CERTIFICATE, certificate.getUuid()));
+        Assertions.assertTrue(degradedRead.stream().noneMatch(a -> a.getName().equals(secretAttribute.getName())),
+                "the item with undecryptable ciphertext must be skipped, not returned with null data");
     }
 
     @Test
